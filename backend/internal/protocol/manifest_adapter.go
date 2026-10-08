@@ -38,6 +38,39 @@ func (a manifestAdapter) BuildCreate(_ context.Context, c RequestContext) (Reque
 	return buildManifestOperation(a.manifest.Create, a.manifest.Auth, c.Request, "")
 }
 
+func (a manifestAdapter) MediaUploadPlan() (MediaUploadPlan, bool) {
+	if a.manifest.MediaUpload == nil {
+		return MediaUploadPlan{}, false
+	}
+	return MediaUploadPlan{Kinds: a.manifest.MediaUpload.Kinds, URLPath: a.manifest.MediaUpload.URLPath}, true
+}
+
+// BuildMediaUpload 用单个内联媒体构造图床上传请求；环境里额外暴露 media，
+// 让清单可以把文件部件写成 {"$ref": "media"}。
+func (a manifestAdapter) BuildMediaUpload(c RequestContext, media MediaReference) (RequestSpec, error) {
+	if a.manifest.MediaUpload == nil {
+		return RequestSpec{}, fmt.Errorf("protocol %s has no media upload operation", a.manifest.Metadata.ID)
+	}
+	return buildManifestMediaUpload(*a.manifest.MediaUpload, a.manifest.Auth, c.Request, media)
+}
+
+// MediaUploadURL 按清单声明的 urlPath 从图床响应里取出地址。
+// 只接受 http(s)，避免把相对路径或空值当成可用的公网素材地址。
+func MediaUploadURL(body []byte, urlPath string) (string, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", fmt.Errorf("解析图床上传响应失败：%w", err)
+	}
+	value := strings.TrimSpace(manifestString(pathValue(payload, urlPath)))
+	if value == "" {
+		return "", fmt.Errorf("图床上传响应里没有 %s 字段", urlPath)
+	}
+	if !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
+		return "", fmt.Errorf("图床返回的素材地址不是 http(s)：%q", value)
+	}
+	return value, nil
+}
+
 func (a manifestAdapter) BuildAgent(_ context.Context, c AgentRequestContext) (RequestSpec, error) {
 	if a.manifest.Agent == nil {
 		return RequestSpec{}, fmt.Errorf("protocol %s has no agent operation", a.manifest.Metadata.ID)

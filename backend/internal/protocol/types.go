@@ -205,6 +205,7 @@ type Manifest struct {
 	Poll            *ManifestOperation     `json:"-"`
 	Cancel          *ManifestOperation     `json:"-"`
 	ResultOperation *ManifestOperation     `json:"-"`
+	MediaUpload     *ManifestMediaUpload   `json:"-"`
 	Response        ManifestResponse       `json:"-"`
 	AgentResponse   *ManifestAgentResponse `json:"-"`
 	Auth            ManifestAuth           `json:"-"`
@@ -344,6 +345,7 @@ type ManifestProvider struct {
 	Poll                    *ManifestOperation     `json:"poll,omitempty"`
 	Cancel                  *ManifestOperation     `json:"cancel,omitempty"`
 	Result                  *ManifestOperation     `json:"result,omitempty"`
+	MediaUpload             *ManifestMediaUpload   `json:"mediaUpload,omitempty"`
 	Response                ManifestResponse       `json:"response"`
 	AgentResponse           *ManifestAgentResponse `json:"agentResponse,omitempty"`
 }

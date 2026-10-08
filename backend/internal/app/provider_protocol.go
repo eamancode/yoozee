@@ -55,6 +55,10 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 			key = uuid.NewString()
 		}
 		request.Extra["idempotencyKey"] = key
+		// 协议声明了图床能力时，先把内联媒体换成供应商可读取的地址，再构造创建请求。
+		if err := prepareDeclarativeProtocolMedia(ctx, input, &request, adapter); err != nil {
+			return nil, err
+		}
 		spec, err := adapter.BuildCreate(ctx, protocol.RequestContext{BaseURL: input.Config.BaseURL, Request: request})
 		if err != nil {
 			return nil, err

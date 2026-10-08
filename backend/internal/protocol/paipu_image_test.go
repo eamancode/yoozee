@@ -74,3 +74,51 @@ func TestPaipuImageOmitsAutoRatioAndMapsSyncResponse(t *testing.T) {
 		t.Fatalf("sync result = %#v, %v", result, err)
 	}
 }
+
+// 派普只接受自己图床上的参考素材地址：宿主必须先上传内联参考图，再用返回的 URL 发创建请求。
+func TestPaipuImageUploadsInlineReferenceToProviderHost(t *testing.T) {
+	adapter := paipuAdapter(t)
+	if adapter.Metadata().RequiresPublicMediaURLs {
+		t.Fatal("paipu-image must keep references inline so the host can upload them")
+	}
+	uploader, ok := adapter.(MediaUploader)
+	if !ok {
+		t.Fatal("paipu-image must declare a media upload operation")
+	}
+	plan, ok := uploader.MediaUploadPlan()
+	if !ok || plan.URLPath != "url" || len(plan.Kinds) != 1 || plan.Kinds[0] != "image" {
+		t.Fatalf("plan = %#v", plan)
+	}
+
+	media := MediaReference{Name: "reference.png", MIMEType: "image/png", DataURL: "data:image/png;base64,AAAA"}
+	spec, err := uploader.BuildMediaUpload(
+		RequestContext{BaseURL: "https://api.paipu.net", Request: GenerationRequest{Model: "lec-ac-image-2-5-flare", Prompt: "海报"}},
+		media,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Method != "POST" || spec.Path != "/v1/media/upload" || spec.ContentType != "multipart/form-data" {
+		t.Fatalf("upload spec = %#v", spec)
+	}
+	if spec.Auth.Type != "bearer" || spec.Auth.Field != "apiKey" {
+		t.Fatalf("upload auth = %#v", spec.Auth)
+	}
+	if len(spec.Files) != 1 {
+		t.Fatalf("upload files = %#v", spec.Files)
+	}
+	file := spec.Files[0]
+	if file.Name != "file" || file.Filename != "reference.png" || file.MIMEType != "image/png" || file.Reference.DataURL != media.DataURL {
+		t.Fatalf("upload file part = %#v", file)
+	}
+
+	url, err := MediaUploadURL([]byte(`{"url":"https://example.com/uploads/reference.png"}`), plan.URLPath)
+	if err != nil || url != "https://example.com/uploads/reference.png" {
+		t.Fatalf("uploaded url = %q, %v", url, err)
+	}
+	for _, body := range []string{`{}`, `{"url":""}`, `{"url":"/relative.png"}`, `{"url":123}`, `not-json`} {
+		if _, err := MediaUploadURL([]byte(body), plan.URLPath); err == nil {
+			t.Fatalf("invalid upload response accepted: %s", body)
+		}
+	}
+}

@@ -13,8 +13,22 @@ import (
 )
 
 func buildManifestOperation(operation ManifestOperation, auth ManifestAuth, request GenerationRequest, taskID string) (RequestSpec, error) {
+	return buildManifestOperationWithEnv(operation, auth, request, taskID, nil)
+}
+
+// buildManifestMediaUpload 用单个内联媒体构造图床上传请求。环境里额外暴露 media，
+// 让清单能把文件部件写成 {"$ref": "media"}；其余字段与普通操作一致。
+func buildManifestMediaUpload(upload ManifestMediaUpload, auth ManifestAuth, request GenerationRequest, media MediaReference) (RequestSpec, error) {
+	env := map[string]any{"media": manifestMediaValues([]MediaReference{media})[0]}
+	return buildManifestOperationWithEnv(upload.ManifestOperation, auth, request, "", env)
+}
+
+func buildManifestOperationWithEnv(operation ManifestOperation, auth ManifestAuth, request GenerationRequest, taskID string, extra map[string]any) (RequestSpec, error) {
 	requestValues := manifestRequestValues(request)
 	env := map[string]any{"request": requestValues, "taskId": taskID}
+	for key, value := range extra {
+		env[key] = value
+	}
 	var body any
 	if operation.Body != nil {
 		value, err := evaluateManifestValue(operation.Body, env)

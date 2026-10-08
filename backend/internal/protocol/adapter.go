@@ -17,6 +17,20 @@ type RequestAwareCreateParser interface {
 	ParseCreateWithRequest(context.Context, GenerationRequest, []byte) (CreateResult, error)
 }
 
+// MediaUploadPlan 是协议声明的图床能力：哪些媒体需要先上传，以及响应里地址的位置。
+type MediaUploadPlan struct {
+	Kinds   []string
+	URLPath string
+}
+
+// MediaUploader 是可选协议能力。供应商只接受自己域名下的参考素材地址时，宿主会在创建
+// 任务前把内联媒体上传到供应商图床，再用返回的 URL 替换内联数据。插件只描述请求与响应
+// 字段；凭证注入、出站安全策略、超时、大小限制和审计仍由宿主统一执行。
+type MediaUploader interface {
+	MediaUploadPlan() (MediaUploadPlan, bool)
+	BuildMediaUpload(RequestContext, MediaReference) (RequestSpec, error)
+}
+
 // AgentAdapter is the optional protocol surface for tool-capable text calls.
 // The host still owns credentials, outbound policy and billing; a plugin only
 // maps the platform's agent request into the provider payload and parses the

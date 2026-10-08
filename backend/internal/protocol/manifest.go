@@ -30,6 +30,18 @@ type ManifestFilePart struct {
 	MIMEType any    `json:"mimeType,omitempty"`
 }
 
+// ManifestMediaUpload 声明「创建任务前先把内联媒体上传到供应商图床」。
+// 供应商只接受自己域名下的参考素材地址时（例如自带免费图床的聚合网关），
+// 宿主先用该操作把内联媒体传上去，再用响应里的 URL 替换内联数据。
+// 鉴权、出站安全策略、超时与审计仍由宿主掌握，插件只能描述请求与响应字段。
+type ManifestMediaUpload struct {
+	ManifestOperation
+	// Kinds 限定需要上传的媒体类别（image/video/audio），缺省按 image 处理。
+	Kinds []string `json:"kinds,omitempty"`
+	// URLPath 是响应 JSON 里图片地址的路径，支持 a.b 形式的嵌套字段。
+	URLPath string `json:"urlPath"`
+}
+
 type ManifestResponse struct {
 	TaskIDPaths     []string `json:"taskIdPaths,omitempty"`
 	StatusPaths     []string `json:"statusPaths,omitempty"`
@@ -333,6 +345,21 @@ func ValidateManifest(manifest Manifest) error {
 				return fmt.Errorf("provider %q result operation: %w", provider.ID, err)
 			}
 		}
+		if provider.MediaUpload != nil {
+			if err := validateManifestOperation(provider.MediaUpload.ManifestOperation); err != nil {
+				return fmt.Errorf("provider %q media upload operation: %w", provider.ID, err)
+			}
+			if strings.TrimSpace(provider.MediaUpload.URLPath) == "" {
+				return fmt.Errorf("provider %q media upload requires urlPath", provider.ID)
+			}
+			for _, kind := range provider.MediaUpload.Kinds {
+				switch strings.TrimSpace(kind) {
+				case "image", "video", "audio":
+				default:
+					return fmt.Errorf("provider %q media upload kind %q is unsupported", provider.ID, kind)
+				}
+			}
+		}
 		for ruleIndex, rule := range provider.Validations {
 			if rule.Assert == nil || strings.TrimSpace(rule.Message) == "" {
 				return fmt.Errorf("provider %q validation %d requires assert and message", provider.ID, ruleIndex)
@@ -410,6 +437,7 @@ func normalizeManifestForProvider(manifest *Manifest, index int) error {
 	manifest.Poll = provider.Poll
 	manifest.Cancel = provider.Cancel
 	manifest.ResultOperation = provider.Result
+	manifest.MediaUpload = provider.MediaUpload
 	manifest.Response = provider.Response
 	manifest.AgentResponse = provider.AgentResponse
 	manifest.Auth = provider.Auth

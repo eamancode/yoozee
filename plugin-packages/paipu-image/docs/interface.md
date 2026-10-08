@@ -58,9 +58,29 @@
 
 插件把上游同步返回的 `data[].url` 或 `data[].b64_json` 映射为统一结果。HTTP 错误、业务 `error.code` 和 `error.message` 保持失败语义，不包装成成功。
 
+## 图床前置步骤
+
+派普只在 `POST /v1/media/upload` 接受参考素材，且生成接口要求 `images` 是它自己能读取的
+HTTPS 地址。因此本协议声明 `mediaUpload`：宿主在创建任务前，把请求里**内联的**参考图先上传到
+该图床，再用响应里的 `url` 替换内联数据；已经是 URL 的素材不动。
+
+| 位置 | 值 |
+| --- | --- |
+| `mediaUpload.method` | `"POST"` |
+| `mediaUpload.path` | `"/v1/media/upload"` |
+| `mediaUpload.contentType` | `"multipart/form-data"` |
+| `mediaUpload.files[0].name` | `"file"` |
+| `mediaUpload.files[0].source` | `{"$ref":"media"}` |
+| `mediaUpload.kinds` | `["image"]` |
+| `mediaUpload.urlPath` | `"url"` |
+
+上传与创建走同一条宿主出站通道：凭证注入、SSRF、超时、响应大小限制与审计都由宿主执行。
+
 ## 兼容边界
 
-- 参考图必须由上游可访问的公网 HTTPS 地址提供，插件按 `requiresPublicMediaUrls` 声明要求宿主下发签名地址，不内联 base64。
+- 参考图必须由上游可访问的地址提供。本插件通过 `mediaUpload` 把内联参考图上传到派普图床，
+  不依赖应用自身的公网地址，也不发送 base64 内联数据（上游会拒）。因此本协议声明
+  `requiresPublicMediaUrls: false`：宿主保持参考图内联，由 `mediaUpload` 负责换成图床地址。
 - 有参考图时同样固定请求 `POST /v1/images/generations`，不切换到 `/v1/images/edits`。
 - 只发送 `aspect_ratio` 与 `resolution`，不发送像素尺寸；`auto` 与空值一律省略。
 - 分辨率只接受 `1K`/`2K`/`4K`，其它取值省略，由上游按默认档位处理。
@@ -109,7 +129,7 @@
           "agent"
         ],
         "baseUrl": "https://api.paipu.net",
-        "requiresPublicMediaUrls": true,
+        "requiresPublicMediaUrls": false,
         "auth": {
           "type": "bearer",
           "field": "apiKey"
@@ -409,6 +429,34 @@
           "messagePaths": [
             "error.message"
           ]
+        },
+        "mediaUpload": {
+          "method": "POST",
+          "path": "/v1/media/upload",
+          "contentType": "multipart/form-data",
+          "files": [
+            {
+              "name": "file",
+              "source": {
+                "$ref": "media"
+              },
+              "filename": {
+                "$coalesce": [
+                  {
+                    "$ref": "media.name"
+                  },
+                  "reference.png"
+                ]
+              },
+              "mimeType": {
+                "$ref": "media.mimeType"
+              }
+            }
+          ],
+          "kinds": [
+            "image"
+          ],
+          "urlPath": "url"
         }
       }
     ]
