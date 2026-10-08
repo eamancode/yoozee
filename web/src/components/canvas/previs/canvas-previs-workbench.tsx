@@ -1157,7 +1157,7 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
             <header className="previs-desk-header thin-scrollbar overflow-x-auto overflow-y-hidden">
                 <button type="button" className="previs-desk-icon-button" aria-label="关闭预演台" title="关闭预演台" onClick={closeWorkbench}><X className="size-4" /></button>
                 <div className="previs-desk-brand">
-                    <span className="previs-desk-logo">影策</span>
+                    <span className="previs-desk-logo">柚子</span>
                     <span className="previs-desk-brand-title">预演台</span>
                     <span className="previs-desk-brand-sub">AI 短剧预演</span>
                 </div>
