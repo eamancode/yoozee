@@ -727,17 +727,19 @@ async function saveFailureCloseGuard(cdp, baseUrl) {
     const modalShown = await cdp.poll(`!!document.querySelector('.ant-modal-confirm') && (document.body.innerText || "").includes('留在预演台')`, "close confirm modal", 40000);
     assert(modalShown, "F5 close is guarded by a confirm dialog, not silent exit");
 
-    const stayClicked = await cdp.clickText("留在预演台");
-    if (!stayClicked) throw new Error("F: 留在预演台 button not clickable");
-    const modalGone = await cdp.poll(
-        `![...document.querySelectorAll('.ant-modal-confirm')].some((modal) => {
+    // 弹窗入场动画期间派发的鼠标事件可能落在遮罩上（mask.closable=false，点了等于没点），
+    // 表现就是 F6 超时而 F7 仍过。动画结束后重试点击即可稳定命中，断言本身不变。
+    const modalGoneExpr = `![...document.querySelectorAll('.ant-modal-confirm')].some((modal) => {
             const rect = modal.getBoundingClientRect();
             const style = getComputedStyle(modal);
             return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0;
-        })`,
-        "modal dismissed",
-        20000,
-    );
+        })`;
+    let modalGone = false;
+    for (let attempt = 0; attempt < 3 && !modalGone; attempt += 1) {
+        const stayClicked = await cdp.clickText("留在预演台");
+        if (!stayClicked) throw new Error("F: 留在预演台 button not clickable");
+        modalGone = await cdp.poll(modalGoneExpr, `modal dismissed (attempt ${attempt + 1})`, 8000);
+    }
     assert(modalGone, "F6 confirm dialog dismissed after choosing 留在预演台");
 
     await sleep(1000);
