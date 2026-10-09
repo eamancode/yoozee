@@ -250,89 +250,136 @@ HTTPS 地址。因此本协议声明 `mediaUpload`：宿主在创建任务前，
             },
             "resolution": {
               "$omitEmpty": {
-                "$switch": {
-                  "cases": [
-                    {
-                      "when": {
-                        "$in": [
-                          {
-                            "$lower": {
-                              "$trim": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "request.resolution"
-                                  },
-                                  {
+                "$coalesce": [
+                  {
+                    "$switch": {
+                      "cases": [
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
                                     "$ref": "request.quality"
                                   }
-                                ]
-                              }
-                            }
+                                }
+                              },
+                              [
+                                "1k",
+                                "low",
+                                "standard"
+                              ]
+                            ]
                           },
-                          [
-                            "1k",
-                            "low",
-                            "standard"
-                          ]
-                        ]
-                      },
-                      "then": "1K"
-                    },
-                    {
-                      "when": {
-                        "$in": [
-                          {
-                            "$lower": {
-                              "$trim": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "request.resolution"
-                                  },
-                                  {
+                          "then": "1K"
+                        },
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
                                     "$ref": "request.quality"
                                   }
-                                ]
-                              }
-                            }
+                                }
+                              },
+                              [
+                                "2k",
+                                "medium",
+                                "hd"
+                              ]
+                            ]
                           },
-                          [
-                            "2k",
-                            "medium",
-                            "hd"
-                          ]
-                        ]
-                      },
-                      "then": "2K"
-                    },
-                    {
-                      "when": {
-                        "$in": [
-                          {
-                            "$lower": {
-                              "$trim": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "request.resolution"
-                                  },
-                                  {
+                          "then": "2K"
+                        },
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
                                     "$ref": "request.quality"
                                   }
-                                ]
-                              }
-                            }
+                                }
+                              },
+                              [
+                                "4k",
+                                "high",
+                                "ultra"
+                              ]
+                            ]
                           },
-                          [
-                            "4k",
-                            "high",
-                            "ultra"
-                          ]
-                        ]
-                      },
-                      "then": "4K"
+                          "then": "4K"
+                        }
+                      ],
+                      "default": null
                     }
-                  ],
-                  "default": null
-                }
+                  },
+                  {
+                    "$switch": {
+                      "cases": [
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
+                                    "$ref": "request.resolution"
+                                  }
+                                }
+                              },
+                              [
+                                "1k",
+                                "low",
+                                "standard"
+                              ]
+                            ]
+                          },
+                          "then": "1K"
+                        },
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
+                                    "$ref": "request.resolution"
+                                  }
+                                }
+                              },
+                              [
+                                "2k",
+                                "medium",
+                                "hd"
+                              ]
+                            ]
+                          },
+                          "then": "2K"
+                        },
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
+                                    "$ref": "request.resolution"
+                                  }
+                                }
+                              },
+                              [
+                                "4k",
+                                "high",
+                                "ultra"
+                              ]
+                            ]
+                          },
+                          "then": "4K"
+                        }
+                      ],
+                      "default": null
+                    }
+                  }
+                ]
               }
             },
             "output_format": {

@@ -122,3 +122,30 @@ func TestPaipuImageUploadsInlineReferenceToProviderHost(t *testing.T) {
 		}
 	}
 }
+
+// 画布给每个节点（含图片节点）都带 vquality（视频遗留字段，默认 720），它会被宿主放进
+// request.resolution。分辨率档位必须以图片的 quality 为准，否则 2K/4K 会被 720 静默吞掉，
+// 用户选 2K 实际拿到 1K 的图。
+func TestPaipuImagePrefersQualityOverStaleVideoResolution(t *testing.T) {
+	adapter := paipuAdapter(t)
+	build := func(quality string, resolution string) map[string]any {
+		t.Helper()
+		spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+			Model: "lec-ac-image-2-5-flare", Prompt: "海报", AspectRatio: "1:1", Quality: quality, Resolution: resolution,
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return manifestTestBody(t, spec)
+	}
+
+	if body := build("2K", "720"); body["resolution"] != "2K" {
+		t.Fatalf("quality tier must win over stale video resolution: %#v", body["resolution"])
+	}
+	if body := build("", "4k"); body["resolution"] != "4K" {
+		t.Fatalf("resolution fallback = %#v, want 4K", body["resolution"])
+	}
+	if body := build("auto", "720"); body["resolution"] != nil {
+		t.Fatalf("unknown tiers must be omitted: %#v", body)
+	}
+}
