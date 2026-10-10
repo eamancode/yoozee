@@ -13,6 +13,7 @@ import (
 // 画布 Agent 于是报「接口没有返回内容」。
 func TestEnsureTextCapabilityConfigHydratesDeclaredOutputLimit(t *testing.T) {
 	svc, db := newChannelModelTestService(t)
+	svc.dataDir = t.TempDir()
 	channel := model.ModelChannel{
 		ID: "channel-text", Scope: model.ChannelScopeSystem, Enabled: true, Name: "Text",
 		BaseURL: "https://api.example.com", APIKey: "test-key", APIFormat: "claude",
