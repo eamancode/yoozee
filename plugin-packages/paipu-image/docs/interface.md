@@ -84,6 +84,10 @@ HTTPS 地址。因此本协议声明 `mediaUpload`：宿主在创建任务前，
 - 有参考图时同样固定请求 `POST /v1/images/generations`，不切换到 `/v1/images/edits`。
 - 只发送 `aspect_ratio` 与 `resolution`，不发送像素尺寸；`auto` 与空值一律省略。
 - 分辨率只接受 `1K`/`2K`/`4K`，其它取值省略，由上游按默认档位处理。
+- `output_format` **只在调用方显式传入 `providerOptions.paipu-image.output_format` 时发送**。
+  派普各模型支持面不同（例如 `lec-ty-seedream-5-pro` 明确拒绝 `output_format`），
+  默认补一个值会让不支持该字段的模型直接 400 `invalid_request`；不传则由上游按自身默认格式输出。
+  需要固定 PNG 的模型，在后台能力配置里打开 `output_format`，前端就会带上它。
 
 <!-- YINGCE_MANIFEST_CONTRACT_START -->
 ## Manifest 完整接口定义
@@ -384,12 +388,7 @@ HTTPS 地址。因此本协议声明 `mediaUpload`：宿主在创建任务前，
             },
             "output_format": {
               "$omitEmpty": {
-                "$coalesce": [
-                  {
-                    "$ref": "request.providerOptions.paipu-image.output_format"
-                  },
-                  "png"
-                ]
+                "$ref": "request.providerOptions.paipu-image.output_format"
               }
             },
             "images": {
