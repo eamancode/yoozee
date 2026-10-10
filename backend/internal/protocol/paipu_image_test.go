@@ -23,8 +23,13 @@ func TestPaipuImageKeepsGenerationRouteWithReferences(t *testing.T) {
 		t.Fatalf("path = %q", spec.Path)
 	}
 	body := manifestTestBody(t, spec)
-	if body["aspect_ratio"] != "16:9" || body["model"] != request.Model || body["n"] != float64(1) || body["output_format"] != "png" {
+	if body["aspect_ratio"] != "16:9" || body["model"] != request.Model || body["n"] != float64(1) {
 		t.Fatalf("body = %#v", body)
+	}
+	// output_format 只在调用方显式要求时发送：派普各模型支持面不同，
+	// 默认补一个值会把不支持该字段的模型（如 lec-ty-seedream-5-pro）打成 400。
+	if _, exists := body["output_format"]; exists {
+		t.Fatalf("output_format must be omitted unless requested: %#v", body)
 	}
 	for _, key := range []string{"size", "quality", "response_format"} {
 		if _, exists := body[key]; exists {
@@ -147,5 +152,25 @@ func TestPaipuImagePrefersQualityOverStaleVideoResolution(t *testing.T) {
 	}
 	if body := build("auto", "720"); body["resolution"] != nil {
 		t.Fatalf("unknown tiers must be omitted: %#v", body)
+	}
+}
+
+// 需要固定 PNG 的模型由调用方显式传入 providerOptions；插件只透传，不再补默认值。
+// Seedream 5 Pro（TY）这类不支持 output_format 的模型，正是靠"不传"才能通过上游校验。
+func TestPaipuImageSendsOutputFormatOnlyWhenRequested(t *testing.T) {
+	adapter := paipuAdapter(t)
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "lec-ty-seedream-5-pro", Prompt: "电影感人物肖像", AspectRatio: "1:1", Quality: "2K",
+		ProviderOptions: map[string]map[string]any{"paipu-image": {"output_format": "png"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := manifestTestBody(t, spec)
+	if body["output_format"] != "png" {
+		t.Fatalf("explicit output_format must be forwarded: %#v", body)
+	}
+	if body["resolution"] != "2K" || body["aspect_ratio"] != "1:1" {
+		t.Fatalf("body = %#v", body)
 	}
 }
