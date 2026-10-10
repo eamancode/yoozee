@@ -3,6 +3,8 @@ name: Quality checks
 on:
   pull_request:
   workflow_call:
+  # fork 里的 PR 事件不会自动跑这条工作流，留一个手动入口便于按分支跑完整检查。
+  workflow_dispatch:
 
 permissions:
   contents: read

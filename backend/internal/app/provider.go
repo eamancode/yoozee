@@ -162,6 +162,9 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 		return nil, err
 	}
 	input.Config = config
+	if input.Mode == "text" {
+		s.ensureTextCapabilityConfig(&input)
+	}
 	if input.Mode == "text" && input.Config.CapabilityConfig != nil && input.Config.CapabilityConfig.Text != nil {
 		// The same capability contract drives provider output limits, billing
 		// estimates and Agent context budgeting. Never silently fall back to a
@@ -425,6 +428,33 @@ func channelAPIFormatForProtocol(channelDefault string, protocol model.ChannelIn
 
 func providerChannelModelKey(config providerConfig) string {
 	return strings.TrimPrefix(strings.TrimSpace(firstNonEmpty(config.ChannelModelKey, config.Model)), "models/")
+}
+
+// ensureTextCapabilityConfig 让系统渠道的文本任务带上模型声明的能力配置。
+// 少了它，声明里的 maxOutputTokens 到不了请求，声明式协议适配器只能退回写死的 max_tokens；
+// 思考与正文共用输出预算，思考型模型会把预算全花在思考上、正文一个字都不输出
+// （画布 Agent 于是报「接口没有返回内容」）。视频路径早就在做同样的补齐。
+func (s *Service) ensureTextCapabilityConfig(input *canvasGenerationInput) {
+	if input.Config.CapabilityConfig != nil && input.Config.CapabilityConfig.Text != nil {
+		return
+	}
+	channelID := strings.TrimSpace(input.Config.ChannelID)
+	if channelID == "" {
+		return
+	}
+	item, err := s.repo.ChannelModelByKey(channelID, providerChannelModelKey(input.Config))
+	if err != nil || item == nil {
+		return
+	}
+	profile, err := DecodeModelCapabilityConfig(item.CapabilityConfigJSON)
+	if err != nil || profile == nil || profile.Text == nil {
+		return
+	}
+	normalized, err := NormalizeModelCapabilityConfigForModel("text", string(item.Protocol), firstNonEmpty(item.ProviderModelKey, item.ModelKey), profile)
+	if err != nil || normalized == nil || normalized.Text == nil {
+		return
+	}
+	input.Config.CapabilityConfig = normalized
 }
 
 func systemChannelIDFromBaseURL(baseURL string) string {
