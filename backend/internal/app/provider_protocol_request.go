@@ -91,6 +91,23 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 			}
 		}
 	}
+	// 图片任务：模型能力声明支持 output_format 时补默认 PNG，与遗留手写路径
+	// （provider_image.go 的 writeField/body 分支）保持一致，否则画布/Agent 这类不传
+	// providerOptions 的入口会拿到上游默认格式（派普是 JPEG）。
+	// 只在**显式声明支持**时补：派普各模型支持面不同，lec-ty-seedream-5-pro 收到该字段会直接 400。
+	if input.Mode == "image" && input.ImageCapability != nil && input.ImageCapability.OutputFormat.Supported {
+		namespace := strings.TrimSpace(input.Config.InterfaceType)
+		if namespace != "" {
+			options := request.ProviderOptions[namespace]
+			if options == nil {
+				options = map[string]any{}
+			}
+			if _, exists := options["output_format"]; !exists {
+				options["output_format"] = "png"
+				request.ProviderOptions[namespace] = options
+			}
+		}
+	}
 	if input.Mode == "image" && input.Config.InterfaceType == string(model.ChannelInterfaceGrokImage) {
 		options := make(map[string]any)
 		for name, value := range request.ProviderOptions[input.Config.InterfaceType] {
