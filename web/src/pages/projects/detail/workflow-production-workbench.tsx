@@ -18,7 +18,7 @@ import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, vid
 import { imageQualityLabel } from "@/lib/image-quality";
 import { modelQuoteDescription, modelQuoteRequest } from "@/lib/model-pricing";
 import { customShotTitle, formatShotOrdinal, normalizeDefaultShotTitle } from "@/lib/shot-label";
-import { modelCompatibilityError, resolveCompatibleModel, resolveModelVideoBooleanOptions, type ModelRequirements } from "@/lib/model-selection";
+import { modelCompatibilityError, modelPromptLengthError, modelPromptMaxChars, resolveCompatibleModel, resolveModelVideoBooleanOptions, type ModelRequirements } from "@/lib/model-selection";
 import { formatVideoResolutionLabel } from "@/lib/video-generation-options";
 import { submitBackendGenerationTask } from "@/services/api/generation-task";
 import { quoteModel, type LogicalModelQuote } from "@/services/api/logical-models";
@@ -80,6 +80,13 @@ const productionStageCopy: Record<"storyboard" | "previz" | "video", { label: st
     previz: { label: "动作预演", action: "生成黑白预演", empty: "生成黑白动作预演，确认表演节拍与镜头运动" },
     video: { label: "镜头视频", action: "生成镜头视频", empty: "选择视频模型后生成当前镜头" },
 };
+
+// 技能上下文是整段前置到提示词里的，而图片/视频模型声明了字符上限
+// （capabilityConfig.references.promptMaxChars，派普图片 API 是 32000）。除文件正文外还有
+// <skill-context>/<skill-file> 包装与「用户任务」前缀，这里留出余量再算技能预算。
+const SKILL_CONTEXT_OVERHEAD_CHARS = 512;
+// 预算低于这个值时注入的技能上下文只剩碎片，反而会误导模型，不如整段不注入。
+const MIN_SKILL_CONTEXT_CHARS = 1024;
 
 export default function WorkflowProductionWorkbench(props: Props) {
     const { activeStage, detail, projectId, unitId, workflowStep, selectedShot, onSelectShot, onRefresh, onAddShot, addingShot } = props;
@@ -350,12 +357,23 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 ? [values.videoPrompt || values.plotDescription, values.action, values.dialogue && `台词：${values.dialogue}`, values.continuityNotes].filter(Boolean).join("\n")
                 : [values.imagePrompt || values.plotDescription, values.action, "黑白分镜草图，清晰动作节拍，电影构图"].filter(Boolean).join("\n");
             const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue });
+            // 技能上下文整段前置会让提示词超出图片/视频模型的字符上限，上游只回一句
+            // 「模型服务拒绝了请求」。这里按模型声明的 promptMaxChars 先给技能上下文留预算：
+            // 放得下就注入（必要时按预算截断），放不下就整段不注入并提示，而不是等上游 4xx。
+            const promptMaxChars = modelPromptMaxChars(effectiveConfig, routedModel, mode);
+            const skillContextBudget = promptMaxChars > 0 ? promptMaxChars - Array.from(resolvedPrompt).length - SKILL_CONTEXT_OVERHEAD_CHARS : 0;
+            if (promptMaxChars > 0 && selectedSkillIds.length && skillContextBudget < MIN_SKILL_CONTEXT_CHARS) {
+                message.warning("提示词已接近当前模型上限，本次未注入技能库；如需技能上下文请精简镜头提示词后重试");
+            }
             const skillExecution = await skillRuntime.prepare({
                 profile: "shortDrama",
                 prompt: resolvedPrompt,
                 skills: availableSkills,
                 selectedSkillIds,
+                ...(promptMaxChars > 0 ? { maxContextChars: Math.max(0, skillContextBudget) } : {}),
             });
+            const promptLengthError = modelPromptLengthError(effectiveConfig, routedModel, mode, skillExecution.prompt);
+            if (promptLengthError) throw new Error(promptLengthError);
             await submitBackendGenerationTask({
                 projectId,
                 mode,

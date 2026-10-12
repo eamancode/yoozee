@@ -67,6 +67,10 @@ export type PrepareSkillRuntimeInput<P extends keyof SkillRuntimeResultByProfile
     prompt: string;
     skills: Skill[];
     selectedSkillIds?: string[];
+    // 调用方按目标模型的提示词上限（capabilityConfig.references.promptMaxChars）收紧技能上下文预算。
+    // 图片/视频模型普遍声明了这个上限，技能上下文整段前置会把它顶爆、上游直接 4xx；
+    // 缺省时仍用 profile 的 maxContextChars。
+    maxContextChars?: number;
 };
 
 export type SkillRuntimeToolResult = { ok: true; message: string; data?: unknown } | { ok: false; message: string };
@@ -146,7 +150,10 @@ export function createSkillRuntime(dependencies: SkillRuntimeDependencies = {
 
     return {
         async prepare<P extends keyof SkillRuntimeResultByProfile>(input: PrepareSkillRuntimeInput<P>): Promise<SkillRuntimeResultByProfile[P]> {
-            const config = SKILL_RUNTIME_PROFILES[input.profile];
+            const profile = SKILL_RUNTIME_PROFILES[input.profile];
+            const config: SkillRuntimeProfileConfig = typeof input.maxContextChars === "number"
+                ? { ...profile, maxContextChars: Math.max(0, Math.floor(input.maxContextChars)) }
+                : profile;
             const selectedSkills = resolveSkillMentions(input.prompt, input.skills, input.selectedSkillIds).slice(0, config.maxSkills);
             const adapter = deliveryAdapters[config.delivery as keyof typeof deliveryAdapters];
             if (!adapter) throw new Error(`技能运行模式 ${config.delivery} 不支持直接准备上下文`);
@@ -159,6 +166,9 @@ export const skillRuntime = createSkillRuntime();
 
 async function prepareLinkedContext(input: PreparedSkillInput, dependencies: SkillRuntimeDependencies): Promise<LinkedSkillRuntimeResult> {
     if (!input.selectedSkills.length) return linkedResult(input.prompt, [], EMPTY_PROVENANCE);
+    // 预算为 0 表示调用方按模型提示词上限判定放不下任何技能上下文：宁可整段不注入，
+    // 也不要塞一个只剩一两句的碎片去误导模型（截断后的技能说明反而会带偏输出）。
+    if (input.config.maxContextChars <= 0) return linkedResult(input.prompt, [], EMPTY_PROVENANCE);
 
     const perSkillBudget = Math.max(1, Math.floor(input.config.maxContextChars / input.selectedSkills.length));
     const loaded = await Promise.all(input.selectedSkills.map((skill) => loadLinkedSkill(skill, input.prompt, perSkillBudget, input.config.maxLinkedFilesPerSkill, dependencies)));

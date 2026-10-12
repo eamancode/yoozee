@@ -27,6 +27,17 @@ test("production workbench does not silently drop bound voice samples before bac
     expect(source).not.toContain("selectedVideoProfile?.references.maxAudios");
 });
 
+test("shot generation fits skill context into the model prompt limit and validates before submitting", async () => {
+    const source = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+
+    // 图片/视频模型声明了 promptMaxChars（派普图片 API 是 32000），技能上下文整段前置会顶爆它。
+    expect(source).toContain("const promptMaxChars = modelPromptMaxChars(effectiveConfig, routedModel, mode);");
+    expect(source).toContain("maxContextChars: Math.max(0, skillContextBudget)");
+    // 仍然超长时必须在提交前报出具体字符数，而不是等上游回一句「模型服务拒绝了请求」。
+    expect(source).toContain("const promptLengthError = modelPromptLengthError(effectiveConfig, routedModel, mode, skillExecution.prompt);");
+    expect(source).toContain("if (promptLengthError) throw new Error(promptLengthError);");
+});
+
 test("shot generation submits historical character image, current voice and asset prompt", async () => {
     const detail = {
         assets: [

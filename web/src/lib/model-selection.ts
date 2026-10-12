@@ -168,13 +168,18 @@ export function modelCompatibilityError(config: AiConfig, model: string, require
     return "";
 }
 
-export function modelPromptLengthError(config: AiConfig, model: string, capability: ModelCapability, prompt: string) {
+export function modelPromptMaxChars(config: AiConfig, model: string, capability: ModelCapability) {
     const channel = resolveModelChannel(config, model);
     const configuredProfile = channel.modelCosts?.find((item) => item.model === modelOptionName(model))?.capabilityConfig;
-    if (!configuredProfile) return "";
+    if (!configuredProfile) return 0;
     const profile = modelCapabilityConfigFor(config, model);
     const maxChars = capability === "text" ? profile.text?.references.promptMaxChars : capability === "image" ? profile.image?.references.promptMaxChars : capability === "video" ? profile.video?.references.promptMaxChars : undefined;
-    if (!maxChars || maxChars <= 0) return "";
+    return maxChars && maxChars > 0 ? maxChars : 0;
+}
+
+export function modelPromptLengthError(config: AiConfig, model: string, capability: ModelCapability, prompt: string) {
+    const maxChars = modelPromptMaxChars(config, model, capability);
+    if (!maxChars) return "";
     const actualChars = Array.from(prompt).length;
     if (actualChars <= maxChars) return "";
     const label = capability === "text" ? "文本" : capability === "image" ? "图片" : "视频";

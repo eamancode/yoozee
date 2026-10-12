@@ -112,4 +112,34 @@ describe("skill runtime", () => {
         expect(result.prompt).toContain('<skill-context skill-id="director"');
         expect(result.metadata.skillIds).toEqual(["director"]);
     });
+
+    test("调用方传入的字符预算会收紧技能上下文，避免顶爆图片模型的提示词上限", async () => {
+        const entry = "甲".repeat(40_000);
+        const runtime = createSkillRuntime({
+            getFile: async () => ({ file: file("SKILL.md", entry) }),
+            listFiles: async () => ({ files: [] }),
+        });
+
+        const defaultBudget = await runtime.prepare({ profile: "shortDrama", prompt: "生成分镜图", skills: [skill()], selectedSkillIds: ["director"] });
+        const fitted = await runtime.prepare({ profile: "shortDrama", prompt: "生成分镜图", skills: [skill()], selectedSkillIds: ["director"], maxContextChars: 1_000 });
+
+        expect(Array.from(defaultBudget.prompt).length).toBeGreaterThan(30_000);
+        expect(Array.from(fitted.prompt).length).toBeLessThan(1_500);
+        expect(fitted.prompt).toContain("（文件内容超过本轮技能上下文预算，已在此处截断。）");
+        expect(fitted.prompt).toContain("【用户任务】\n生成分镜图");
+        expect(fitted.metadata.skillIds).toEqual(["director"]);
+    });
+
+    test("预算为 0 时整段不注入技能上下文，而不是塞一个碎片", async () => {
+        const runtime = createSkillRuntime({
+            getFile: async () => ({ file: file("SKILL.md", "甲".repeat(40_000)) }),
+            listFiles: async () => ({ files: [] }),
+        });
+
+        const result = await runtime.prepare({ profile: "shortDrama", prompt: "生成分镜图", skills: [skill()], selectedSkillIds: ["director"], maxContextChars: 0 });
+
+        expect(result.prompt).toBe("生成分镜图");
+        expect(result.prompt).not.toContain("skill-context");
+        expect(result.metadata.skillIds).toBeUndefined();
+    });
 });
