@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"infinite-canvas/backend/internal/model"
-	"infinite-canvas/backend/internal/service"
+	"yingce/backend/internal/model"
+	"yingce/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -434,7 +434,7 @@ func proxySystemRequestPath(c *gin.Context, svc *service.Service, user *model.Us
 	status := model.ApiCallStatusSucceeded
 	statusCode := 0
 	errorText := ""
-	resp, err := svc.OutboundHTTPClientForChannel(35*time.Minute, validatedTarget).Do(upstreamReq)
+	resp, err := svc.OutboundHTTPClientForChannel(35*time.Minute, validatedTarget, channel.ProxyURL).Do(upstreamReq)
 	if err != nil {
 		status = model.ApiCallStatusFailed
 		errorText = err.Error()

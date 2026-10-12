@@ -8,7 +8,7 @@ import { modelProtocolCapability, normalizeModelProtocol, type ModelProtocol } f
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
 import { type ModelCapabilityConfig } from "@/lib/model-capabilities";
 import { useUserStore } from "@/stores/use-user-store";
-import type { CapabilitySpec, PublicLogicalModelPriceTier } from "@/services/api/logical-models";
+import type { CapabilitySpec, PublicChannelModelAvailability, PublicLogicalModelPriceTier } from "@/services/api/logical-models";
 import { type WorkflowFieldMapping, normalizeRunningHubCapability, normalizeRunningHubWorkflowKind, normalizeSavedWorkflowFields, mergeWorkflowFieldMappings, normalizeWorkflowFieldMappings } from "./config-workflow-fields";
 import {
     decodeChannelModel,
@@ -88,6 +88,7 @@ export type ModelChannel = {
     hasApiKey?: boolean;
     hasSecretKey?: boolean;
     concurrencyLimit?: number;
+    proxyUrl?: string;
     modelCosts?: Array<{
         model: string;
         displayName?: string;
@@ -109,6 +110,8 @@ export type ModelChannel = {
         logicalCapabilityProfiles?: CapabilitySpec[];
         logicalPriceTiers?: PublicLogicalModelPriceTier[];
         defaultOptions?: Record<string, unknown>;
+        availability?: PublicChannelModelAvailability;
+        available?: boolean;
     }>;
 };
 
@@ -359,7 +362,7 @@ export const useConfigStore = create<ConfigStore>()(
                         createModelChannel({
                             ...channel,
                             id: channel.id || `system-${index + 1}`,
-                            name: channel.name || `系统渠道 ${index + 1}`,
+                            name: "系统模型",
                             scope: "system",
                             apiKey: channel.apiKey || "system",
                         }),

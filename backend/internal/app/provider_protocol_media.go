@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"strings"
 
-	"infinite-canvas/backend/internal/protocol"
+	"yingce/backend/internal/protocol"
 )
 
 // prepareDeclarativeProtocolMedia 把请求里内联的媒体替换成供应商图床地址。
