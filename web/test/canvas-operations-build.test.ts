@@ -75,7 +75,7 @@ describe("画布 operations 生成", () => {
         expect(patch.before).toEqual({ "metadata.prompt": null });
     });
 
-    test("修复旧 journal：before 为空的 patch_node 用已确认基线补回字段值", () => {
+    test("修复旧 journal：没有本地投影时，before 为空用已确认基线补回字段值", () => {
         const legacy = JSON.parse(
             JSON.stringify({
                 mutationId: "m-9",
@@ -83,7 +83,7 @@ describe("画布 operations 生成", () => {
             }),
         );
         const baseline = canvas({ nodes: [{ id: "n1", metadata: { prompt: "旧值" } }] as never });
-        const repaired = repairPendingCanvasMutationRequest(legacy, baseline, canvas());
+        const repaired = repairPendingCanvasMutationRequest(legacy, baseline, undefined);
         expect(repaired.mutationId).toBe("m-9");
         expect(repaired.operations).toEqual([{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "hello" }, before: { "metadata.prompt": "旧值" } }]);
     });
@@ -95,7 +95,61 @@ describe("画布 operations 生成", () => {
                 operations: [{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "hello" }, before: {} }],
             }),
         );
-        const repaired = repairPendingCanvasMutationRequest(legacy, canvas({ nodes: [{ id: "n1" }] as never }), canvas());
+        const repaired = repairPendingCanvasMutationRequest(legacy, canvas({ nodes: [{ id: "n1" }] as never }), undefined);
         expect(repaired.operations).toEqual([{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "hello" }, before: { "metadata.prompt": null } }]);
+    });
+
+    test("修复旧 journal：patch 被序列化成空对象的 patch_node 按基线+投影整批重建", () => {
+        // 旧包把 undefined 值序列化掉，journal 里存下来的就是空 patch；重放是原样发送，
+        // 所以只有整批重建才能恢复这次编辑、并且让画布重新同步上。
+        const legacy = JSON.parse(
+            JSON.stringify({
+                mutationId: "m-11",
+                operations: [{ type: "patch_node", id: "n1", patch: {}, before: { "metadata.prompt": "旧值" } }],
+            }),
+        );
+        const baseline = canvas({ nodes: [{ id: "n1", metadata: { prompt: "旧值" } }] as never });
+        const prepared = canvas({ nodes: [{ id: "n1", metadata: { prompt: "新值" } }] as never });
+        const repaired = repairPendingCanvasMutationRequest(legacy, baseline, prepared);
+        expect(repaired.mutationId).toBe("m-11");
+        expect(repaired.operations).toEqual([{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "新值" }, before: { "metadata.prompt": "旧值" } }]);
+    });
+
+    test("修复旧 journal：before 为空的 patch_node 也走整批重建", () => {
+        const legacy = JSON.parse(
+            JSON.stringify({
+                mutationId: "m-12",
+                operations: [{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "新值" }, before: {} }],
+            }),
+        );
+        const baseline = canvas({ nodes: [{ id: "n1", metadata: { prompt: "旧值" } }] as never });
+        const prepared = canvas({ nodes: [{ id: "n1", metadata: { prompt: "新值" } }] as never });
+        const repaired = repairPendingCanvasMutationRequest(legacy, baseline, prepared);
+        expect(repaired.mutationId).toBe("m-12");
+        expect(repaired.operations).toEqual([{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "新值" }, before: { "metadata.prompt": "旧值" } }]);
+    });
+
+    test("修复旧 journal：健康的请求原样返回", () => {
+        const healthy = {
+            mutationId: "m-13",
+            operations: [{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "新值" }, before: { "metadata.prompt": "旧值" } }],
+        } as never;
+        const baseline = canvas({ nodes: [{ id: "n1", metadata: { prompt: "旧值" } }] as never });
+        const prepared = canvas({ nodes: [{ id: "n1", metadata: { prompt: "新值" } }] as never });
+        expect(repairPendingCanvasMutationRequest(healthy, baseline, prepared)).toBe(healthy);
+    });
+
+    test("修复旧 journal：没有基线可重建时，空 patch 的 patch_node 丢弃而不是继续卡 400", () => {
+        const legacy = JSON.parse(
+            JSON.stringify({
+                mutationId: "m-14",
+                operations: [
+                    { type: "patch_node", id: "n1", patch: {}, before: { "metadata.prompt": "旧值" } },
+                    { type: "patch_node", id: "n2", patch: { "metadata.prompt": "新值" }, before: { "metadata.prompt": "旧值" } },
+                ],
+            }),
+        );
+        const repaired = repairPendingCanvasMutationRequest(legacy, undefined, undefined);
+        expect(repaired.operations).toEqual([{ type: "patch_node", id: "n2", patch: { "metadata.prompt": "新值" }, before: { "metadata.prompt": "旧值" } }]);
     });
 });
