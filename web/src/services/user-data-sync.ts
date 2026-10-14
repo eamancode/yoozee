@@ -86,6 +86,14 @@ async function loadPendingCanvasMutationJournal(scope = getActiveUserScope()) {
     }
 }
 
+/** patch_node 的 patch 或 before 只要序列化后为空，服务端就会按「节点补丁缺少字段基线」整笔拒绝。 */
+function patchNodeLacksBaseline(operation: CanvasOperation): boolean {
+    if (operation.type !== "patch_node") return false;
+    const patch = operation.patch as Record<string, unknown> | undefined;
+    const before = operation.before as Record<string, unknown> | undefined;
+    return !patch || !Object.keys(patch).length || !before || !Object.keys(before).length;
+}
+
 /**
  * 修复旧版生成器写入 journal 的无效请求，这些请求服务端必然拒绝：
  * 1. 新画布请求在 create_canvas.patch 之后又追加了同字段 set_field（beforeValue 缺失或为 null），
@@ -95,9 +103,26 @@ async function loadPendingCanvasMutationJournal(scope = getActiveUserScope()) {
  */
 export function repairPendingCanvasMutationRequest(request: CanvasOperationsRequest, baseline?: CanvasProject, prepared?: CanvasProject): CanvasOperationsRequest {
     let changed = false;
+
+    // 旧版生成器把 undefined 直接写进 patch/before，JSON 序列化会丢掉这些属性，于是整条
+    // patch_node 变成「空 patch」或「空 before」，服务端按「节点补丁缺少字段基线」整笔拒绝；
+    // journal 只在成功后删除，重放又是原样发送，画布就永远同步不上。
+    // 这类请求的字段意图已在线上格式里丢失，但 journal 同时保存了当时的基线与本地投影，可整批重建。
+    // mutationId 保持不变：被拒的请求整笔回滚、不写 receipt，不会触发 canvas_mutation_id_reused。
+    if (baseline && prepared && request.operations.some(patchNodeLacksBaseline)) {
+        const rebuilt = buildCanvasOperations(baseline, prepared);
+        if (rebuilt.length) return { ...request, operations: rebuilt };
+    }
+
     const create = request.operations.find((operation) => operation.type === "create_canvas");
     const createdFields = new Set(create && create.type === "create_canvas" ? Object.keys(create.patch || {}) : []);
     const kept = request.operations.filter((operation) => {
+        if (operation.type === "patch_node" && (!operation.patch || !Object.keys(operation.patch).length)) {
+            // 空 patch 本身就是 no-op。即便没有本地投影、拿不回原始字段意图，也不能让它
+            // 把整批请求永远卡在「节点补丁缺少字段基线」的 400 循环里。
+            changed = true;
+            return false;
+        }
         if (operation.type === "set_field" && operation.field === "projectId" && (operation.value === null || operation.value === undefined) && operation.beforeValue === "") {
             // 空字符串和缺省 projectId 都表示未关联项目。旧版本把这次语义上的 no-op
             // 记录成 set_field，服务端按字面字段比较时会误报冲突；移除它不会丢弃编辑。
