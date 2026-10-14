@@ -109,6 +109,20 @@ export function repairPendingCanvasMutationRequest(request: CanvasOperationsRequ
         return false;
     });
     const operations = kept.map((operation) => {
+        if (operation.type === "patch_node") {
+            const before = (operation.before && typeof operation.before === "object" ? operation.before : {}) as Record<string, unknown>;
+            const paths = Object.keys((operation.patch || {}) as Record<string, unknown>);
+            const missing = paths.filter((path) => !Object.prototype.hasOwnProperty.call(before, path) || before[path] === undefined);
+            if (!missing.length) return operation;
+            // 旧版生成器把 undefined 直接塞进 before，JSON 序列化后 before 变成 {}，
+            // 服务端按「节点补丁缺少字段基线」整笔拒绝并无限重放。用 journal 里已确认的
+            // 基线补回这些字段的原始值；基线已被他人改写时会如实返回冲突，不再空转。
+            const node = ((baseline?.nodes || []) as unknown as Record<string, unknown>[]).find((item) => item.id === operation.id);
+            const repaired = { ...before };
+            for (const path of missing) repaired[path] = canvasOperationValue(node ? readCanvasOperationPath(node, path) : undefined);
+            changed = true;
+            return { ...operation, before: repaired };
+        }
         if (operation.type !== "set_field") return operation;
         const hasBefore = Object.prototype.hasOwnProperty.call(operation, "beforeValue") && operation.beforeValue !== undefined;
         const hasValue = Object.prototype.hasOwnProperty.call(operation, "value") && operation.value !== undefined;
@@ -885,14 +899,26 @@ function diffCanvasObject(before: Record<string, unknown>, after: Record<string,
             continue;
         }
         if (hasBefore && hasAfter && canvasOperationValueEqual(oldValue, newValue)) continue;
-        previous[path] = hasBefore ? oldValue : null;
-        patch[path] = hasAfter ? newValue : null;
+        // undefined 不能出现在 JSON 里：JSON.stringify 会直接丢掉整个属性，把 before 变成 {}，
+        // 服务端按「节点补丁缺少字段基线」整笔拒绝。这里统一编码成 null，与 set_field 的规则一致。
+        previous[path] = canvasOperationValue(hasBefore ? oldValue : null);
+        patch[path] = canvasOperationValue(hasAfter ? newValue : null);
     }
     return { patch, previous };
 }
 
 function canvasOperationValue(value: unknown) {
     return value === undefined ? null : value;
+}
+
+/** 按服务端的点分路径（如 metadata.prompt）读取对象字段，用于还原字段基线。 */
+function readCanvasOperationPath(source: Record<string, unknown>, path: string): unknown {
+    let current: unknown = source;
+    for (const key of path.split(".")) {
+        if (!current || typeof current !== "object") return undefined;
+        current = (current as Record<string, unknown>)[key];
+    }
+    return current;
 }
 
 const CANVAS_OPERATION_FIELDS = ["title", "projectId", "chatSessions", "activeChatId", "starterMode", "appearance", "backgroundMode", "showImageInfo", "previsScenes", "timeline"] as const;

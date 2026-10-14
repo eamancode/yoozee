@@ -65,4 +65,37 @@ describe("画布 operations 生成", () => {
         const repaired = repairPendingCanvasMutationRequest(legacy, canvas(), canvas());
         expect(repaired.operations).toEqual([{ type: "set_field", field: "timeline", value: { tracks: [] }, beforeValue: null }]);
     });
+
+    test("patch_node 的 before 不会因为旧值是 undefined 被 JSON 丢成空对象", () => {
+        const base = canvas({ nodes: [{ id: "n1", metadata: { prompt: undefined, x: 1 } }] as never });
+        const next = canvas({ nodes: [{ id: "n1", metadata: { prompt: "hello", x: 1 } }] as never });
+        const wire = JSON.parse(JSON.stringify(buildCanvasOperations(base, next)));
+        const patch = wire.find((operation: { type: string }) => operation.type === "patch_node");
+        // 服务端要求 patch_node 必须带非空 before，否则整笔按「节点补丁缺少字段基线」拒绝。
+        expect(patch.before).toEqual({ "metadata.prompt": null });
+    });
+
+    test("修复旧 journal：before 为空的 patch_node 用已确认基线补回字段值", () => {
+        const legacy = JSON.parse(
+            JSON.stringify({
+                mutationId: "m-9",
+                operations: [{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "hello" }, before: {} }],
+            }),
+        );
+        const baseline = canvas({ nodes: [{ id: "n1", metadata: { prompt: "旧值" } }] as never });
+        const repaired = repairPendingCanvasMutationRequest(legacy, baseline, canvas());
+        expect(repaired.mutationId).toBe("m-9");
+        expect(repaired.operations).toEqual([{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "hello" }, before: { "metadata.prompt": "旧值" } }]);
+    });
+
+    test("修复旧 journal：基线里也没有该字段时补 null", () => {
+        const legacy = JSON.parse(
+            JSON.stringify({
+                mutationId: "m-10",
+                operations: [{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "hello" }, before: {} }],
+            }),
+        );
+        const repaired = repairPendingCanvasMutationRequest(legacy, canvas({ nodes: [{ id: "n1" }] as never }), canvas());
+        expect(repaired.operations).toEqual([{ type: "patch_node", id: "n1", patch: { "metadata.prompt": "hello" }, before: { "metadata.prompt": null } }]);
+    });
 });
