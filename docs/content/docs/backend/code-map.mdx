@@ -43,6 +43,7 @@ description: 从产品功能快速定位主要代码入口
 | 系统渠道规格利润率与批量调价 | `web/src/pages/admin/components/channel-model-manager.tsx`、`channel-model-reprice-dialog.tsx` | 弹窗按模型分组展示多规格、重新计算与逐项编辑；`channel-model-cost-summary.tsx` 展示价格，`channel-model-pricing.ts` 精确四舍五入并组装最终售价；后端 `handler/finance.go` 接收批量请求，`app/channel_model_pricing.go` 校验权限、最终价格及快照版本，`repository/channel_model_pricing.go` 事务保存及版本冲突检测 |
 | 我的素材 | `web/src/pages/assets/` | `stores/use-asset-store.ts`、`services/image-storage.ts` |
 | 技能库 | `web/src/pages/skills/` | `services/api/skills.ts`、`services/skill-runtime.ts`、`components/skills/skill-runtime-picker.tsx` |
+| 短剧项目（段级制作） | `web/src/pages/projects/index.tsx`（建项选生成模型与授权档位）、`pages/projects/detail/overview.tsx`、`settings.tsx`、`workflow-production-workbench.tsx`、`workflow-stage-views.tsx` | `services/api/drama.ts`；`pages/projects/drama-model.tsx`（模型目录与单段上限）、`pages/projects/detail/drama-panels.tsx`（终态与六格进度、候选证据与选定、成片门禁与交付包）、`workflow-shot-references.ts`（编译清单 → 参考媒体） |
 | 画布列表 | `web/src/pages/canvas/index.tsx` | `stores/canvas/use-canvas-store.ts` |
 | 画布编辑器 | `web/src/pages/canvas/project.tsx` | `pages/canvas/canvas-project-*`、`pages/canvas/use-canvas-*`、`components/canvas/`、`lib/canvas/`、`stores/canvas/` |
 | 公开分享 | `web/src/pages/canvas/shared.tsx` | `components/canvas/canvas-viewport.tsx`、`services/api/canvas-share.ts` |
@@ -149,6 +150,7 @@ HTTP 请求 -> handler -> service（稳定导入面 / 别名）-> app（组合�
 | 提示词模板 | `handler/auth.go`、`handler/user_data.go` | `internal/prompts` |
 | 用户风格库 | `handler/style_profile.go` | `internal/prompts`、`repository/style_profile.go` |
 | 用量分析 | `handler/admin_analytics.go` | `internal/app/analytics.go`、`repository/analytics.go` |
+| 短剧制作线（yoozee 1.0 skills） | `handler/project_drama_routes.go` | `internal/drama`（模型目录、segment 解析、Seedance / H3 方言编译、输入指纹、字错率、进度推导、ffmpeg 门禁）、`internal/app/project_drama.go`、`project_drama_delivery.go`、`cloud_agent_tools_drama.go`；技能源在仓库根 `yoozee-skills/`，`python3 yoozee-skills/build.py` 生成 `backend/builtin/yz-*`、`kb-*` 与对外独立包 |
 
 登录恢复仅初始化当前账号缓存与增量同步会话，不再自动读取 `GET /api/user-data/snapshot`。画布库通过分页摘要加载，打开、导出、重命名时按 ID 读取完整画布，引用素材通过批量 ID 接口读取；旧快照接口仍保留供显式调用。实现见 `internal/canvas/user_data_page.go` 和前端 `services/user-data-sync.ts`。用户库素材写入（`UpsertUserAsset` / `ReplaceUserAssets`）在 `internal/canvas/user_asset_document.go` 校验 SPA 合同：`kind`、`coverUrl`、`tags` 字符串数组，以及按类型完整的 `data`。不完整 payload 在入库时拒绝；GET 仍返回已保存的原始 JSON。上游异构 JSON 的可选字符串仍走 `stringField`；任务 ID 等关键字段走 `firstJSONString`，数字 ID 不再被当成“缺字段”。
 

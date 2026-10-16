@@ -353,6 +353,24 @@ CSV 使用中文表头、UTF-8 BOM、CRLF；金额按整数分精确转换为两
 
 `POST /api/admin/channels/:id/duplicate` 需要管理员权限，会复制指定系统渠道的连接配置、加密凭证、请求头、模型和价格档，生成新的渠道与模型 ID；复制渠道名称自动追加“ - 副本”。原渠道及其前台供应线路不受影响。
 
+## 短剧制作线（yoozee 1.0 skills）
+
+「段」是生成单位：一个镜头记录（Shot）就是一段，一段 = 一次视频生成，段内可以有多个镜头。单段上限由项目的生成模型决定，数据来自 `backend/builtin/kb-dialects/models.json`（与 `yoozee-skills/` 源同步，测试校验两份一致）。
+
+- 项目字段：`POST /projects`、`PATCH /projects/:id` 接受 `generationModel`（`seedance-2.0` 默认 / `seedance-2.5` / `minimax-h3`）和 `authMode`（`step` 每步确认 / `full` 全权）。`defaultVideoModel` 能识别出模型族时必须与 `generationModel` 同族，否则 400。
+- 段长校验：新建、批量替换、保存镜头版本，以及带项目和镜头标识的视频任务，超过上限都返回 `segment_too_long`。改小生成模型不会改写已有段，超长段在进度里标出，生成前必须拆分。
+- 镜头版本可带 `spec`（契约 segment JSON）；保存后存为 `specJson`。新版本只让输入指纹（`inputHash`）变了的产物过期，旧产物没有指纹一律过期。
+- `GET /drama/models`：生成模型目录。
+- `GET /projects/:id/drama/progress`：每段六格（剧本 / 参考 / 生成 / 过审 / 入片 / 验收）、8 个终态和一句进度。
+- `GET|PUT /projects/:id/drama/brief`、`/drama/bible`：需求文档与连戏表（`{ document }`）。写需求文档时同步项目的生成模型和授权档位。
+- `GET|PUT /projects/:id/drama/segments`：按段号读写分段；`PUT` 按段号新增或更新，逐段校验上限。
+- `POST /projects/:id/shots/:shotId/compile`：按生成模型的方言编译提示词，返回 `prompt`、参考清单（`files[].file/tag/role`）和 `issues`；没有分段 JSON 的旧镜头按单镜头段推导（`derived: true`）。
+- `GET|POST /projects/:id/drama/evidence`：证据。`transcript` 必须带成功的转写任务 `taskId`，字错率由服务端计算（阈值 5%）。
+- `POST /projects/:id/artifacts/:artifactId/transcribe`：对候选创建本地转写任务；`/frames`：生成抽帧拼图并记一条待人判的 `frames` 证据；`/pick`：`{ reason }` 选定候选，证据不齐返回 `evidence_missing`。
+- `POST /projects/:id/drama/gate`：成片门禁（同步、黑场 / 静音、响度 ±1 LUFS、真峰值 ≤ -1.5 dBTP）。不传 `resourceId` / `artifactId` 时检查最近一次剪辑导出的成片；传 `artifactId` 只记响度量数。
+- `GET /projects/:id/drama/delivery`：下载交付包 zip（需求文档、连戏表、分段表 JSON/CSV、生成参数、资产清单、证据、进度、验收单、字幕；成片以资源 ID 列出），同时记一条 `delivery` 证据。包里不含密钥。
+- 短剧 Agent 的 `drama_*` 工具只在画布属于未归档的短剧项目时出现；`read_only` 权限下只出现读工具。
+
 ## 信封
 
 成功：
@@ -387,6 +405,8 @@ CSV 使用中文表头、UTF-8 BOM、CRLF；金额按整数分精确转换为两
 | 502 | 502 | `bad_gateway` | 上游失败 |
 | 503 | 503 | `unavailable` | 暂时不可用 |
 | 504 | 504 | `timeout` | 超时 |
+| 400 | 400 | `segment_too_long` | 段时长超过项目生成模型的单段上限（Seedance 2.0 / MiniMax-H3 15 秒，Seedance 2.5 30 秒）；拆段后重试 |
+| 400 | 400 | `evidence_missing` | 选定候选时证据不齐（抽帧、人脸，有台词时加台词转写，三项都要通过） |
 | 40301 | 403 | `quota_exceeded` | 账号配额用尽（不自动重试） |
 | 40901 | 409 | `conflict` | 幂等冲突 |
 | 42901 | 429 | `rate_limited` | 请求限流（可带 Retry-After） |

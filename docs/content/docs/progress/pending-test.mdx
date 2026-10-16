@@ -5,6 +5,29 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 短剧段级制作线（yoozee 1.0 skills）
+
+自动化覆盖（本次补齐，可重复执行）：
+
+- [x] 模型上限与族别：`internal/drama` 锁住 Seedance 2.0 = 15 秒、Seedance 2.5 = 30 秒、MiniMax-H3 = 15 秒、默认模型、`match` 片段最长优先（`doubao-seedance-2-5-*` 不会因为 `doubao-seedance-2` 是它的前缀而被判成 2.0），以及 `SubmitDuration` 按步长向上取整并夹在模型范围内。`go test ./internal/drama/` 15 项通过。
+- [x] 改小模型后的超长标注：`Derive` 纯函数层面锁定「同一批段在 2.5 下合法、切到 2.0 后 1 段被标超长」，且超长的段不计入「剧本已完成」、进度行点明上限。
+- [x] 候选证据三项门槛：`RequiredEvidence`/`MissingEvidence` 锁定有台词要转写、没台词不要，人未判定与判为未通过都算缺；前端 `DramaTakeEvidencePanel` 静态渲染锁定「三项都过 + 写了理由」才可选定，`status` 不是 `ready` 时禁用。
+- [x] 前端接口合同：`drama.ts` 的 16 个调用（路径、方法、请求体、blob 下载的文件名解析与错误还原）与 `parseEvidenceMetrics` 容错。`bun test test/drama-api.test.ts` 7 项通过。
+- [x] 前端模型选项与档位：`dramaModelOptions` 的「每段最长 N 秒」「未校准」标记、目录缺失时的兜底、`findDramaModel` 回退默认、两档授权标签。`bun test test/drama-model.test.ts` 7 项通过。
+- [x] 概览与交付面板渲染：一句进度、8 个终态、每段六格（剧本/参考/生成/过审/入片/验收）、超长与缺口标注、门禁逐项结果与指标损坏时不崩。`bun test test/drama-panels.test.tsx` 13 项通过。
+- [x] 前端 `bun run typecheck` 与 `bun run build` 已在本机执行通过（构建 3 分 14 秒，仅既有 chunk 体积告警）；此前云端环境装不上依赖，只做了转译语法检查。
+- [x] 段格式编译的 Python / Go 对照：`TestCompileMatchesSkillPackageGoldens` 用 `yoozee-skills/tests` 的同一批样例与期望结果比对，两版逐字一致。
+- 后端 app 层新增 `internal/app/project_drama_rules_test.go`（默认视频模型同族校验、两档授权校验、Agent 工具按权限模式分组共 15 个、批量写段超长整批拒绝且不留部分写入、改小模型后概览标超长）。`go vet ./internal/app/` 通过；本机没有 CGO 工具链（go-sqlite3 需要），这些用例要等 CI 的 `go test ./...` 执行，本地未运行。
+
+仍需人工/真实环境验收：
+
+- [ ] 建项目：选 Seedance 2.0 / 2.5 / MiniMax-H3 后，项目设置与概览显示「每段最长 15/30 秒」；改小模型后超长段在设置页与概览标出（自动化只覆盖了推导与选项文案，未在浏览器里点过）。
+- [ ] 分镜制作页：段时长输入框不超过模型上限；有分段 JSON 的段生成视频时提示词来自方言编译，参考图按 @图片N 顺序提交；旧镜头仍走原提示词。
+- [ ] 候选证据：出抽帧拼图、人判画面与人脸、有台词时转写（需本地 ffmpeg 与转写模型），三项通过并写理由后能选定；证据不齐时选定被拒（面板门槛已由静态渲染覆盖，抽帧与转写要真实 ffmpeg 与转写模型）。
+- [ ] 交付页：剪辑导出成片后跑门禁；下载交付包，确认 zip 内容齐全且无密钥（zip 内容与「无 .env」已由 `TestDeliveryPackageContainsContractsAndRecordsDelivery` 覆盖，真实成片与浏览器下载未验）。
+- [ ] 云端 Agent：短剧项目画布出现 drama_* 工具，只读模式下只有读工具（工具分组已自动化）；每步确认 / 全权两档的提问行为要真实模型会话。
+- [ ] Seedance 2.0 / 2.5 方言档案需用真实样片校准（yz-calibrate），两份 `calibrated` 目前都是 `false`。
+
 ## 灵感页路由与导航
 
 - 已修复：Nginx 对 `/inspirations` 与 `/inspirations/` 精确返回 SPA 入口，避免同名静态目录触发带容器端口的 301；目录下的 JSON 仍按静态文件提供。
