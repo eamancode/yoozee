@@ -1,0 +1,61 @@
+{
+  "version": "2026-10-15",
+  "note": "可选的视频生成模型。一段（一次生成）的时长上限按 duration.max 取；建项目时选定，写分段表、提交生成前都按它校验。checked 写的是事实的查证日期，calibrated 表示是否在本账户实测过。",
+  "default": "seedance-2.0",
+  "models": [
+    {
+      "id": "seedance-2.0",
+      "label": "Seedance 2.0",
+      "vendor": "ByteDance",
+      "kind": "video",
+      "match": ["seedance-2-0", "seedance-2.0", "seedance2.0", "seedance_2_0", "doubao-seedance-2"],
+      "duration": {"min": 4, "max": 15, "step": 1},
+      "refs": {"images": 9, "videos": 3, "audios": 3, "total": null},
+      "frames_exclusive_with_refs": true,
+      "prompt_max_chars": 10000,
+      "resolutions": ["480p", "720p", "1080p"],
+      "fps": null,
+      "audio_in_video": true,
+      "price_per_sec_usd": null,
+      "checked": "2026-10-15",
+      "calibrated": false,
+      "sources": ["https://runware.ai/docs/models/bytedance-seedance-2-0", "https://docs.together.ai/docs/seedance2.0-quickstart"]
+    },
+    {
+      "id": "seedance-2.5",
+      "label": "Seedance 2.5",
+      "vendor": "ByteDance",
+      "kind": "video",
+      "match": ["seedance-2-5", "seedance-2.5", "seedance2.5", "seedance_2_5", "doubao-seedance-2-5"],
+      "duration": {"min": 4, "max": 30, "step": 1},
+      "refs": {"images": 30, "videos": 10, "audios": 10, "total": 30},
+      "frames_exclusive_with_refs": null,
+      "prompt_max_chars": null,
+      "resolutions": ["480p", "720p"],
+      "fps": 24,
+      "audio_in_video": true,
+      "price_per_sec_usd": {"480p": 0.134, "720p": 0.3},
+      "checked": "2026-10-15",
+      "calibrated": false,
+      "sources": ["https://docs.sogni.ai/models/seedance-2-5/"]
+    },
+    {
+      "id": "minimax-h3",
+      "label": "MiniMax-H3",
+      "vendor": "MiniMax",
+      "kind": "video",
+      "match": ["minimax-h3", "minimax_h3", "h3"],
+      "duration": {"min": 4, "max": 15, "step": 1},
+      "refs": {"images": 9, "videos": 0, "audios": 3, "total": 12},
+      "frames_exclusive_with_refs": true,
+      "prompt_max_chars": 7000,
+      "resolutions": ["768P", "2K"],
+      "fps": 24,
+      "audio_in_video": true,
+      "price_per_sec_usd": {"768P": 0.08, "2K": 0.13},
+      "checked": "2026-10-10",
+      "calibrated": true,
+      "sources": ["分镜师 4.0 模型库 MiniMax-H3/档案.md（2026-10-07～10 实测）"]
+    }
+  ]
+}

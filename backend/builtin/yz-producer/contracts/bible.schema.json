@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/bible.schema.json",
+  "title": "连戏表",
+  "description": "生成照它写，审片照它核；也是素材库清单。每一项指向文件，checked 为 true 才算齐。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "characters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "variants"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "speaks": {"type": "boolean"},
+          "variants": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["label"],
+              "additionalProperties": false,
+              "properties": {
+                "label": {"type": "string", "description": "年龄或状态，如「29 岁」「受伤后」"},
+                "age": {"type": "string"},
+                "face_hair": {"type": "string"},
+                "glasses": {"type": "string"},
+                "marks": {"type": "string", "description": "可识别的小特征（为了认脸）"},
+                "costume": {"type": "string"},
+                "lock_card": {"type": "array", "items": {"type": "string"}, "description": "8～12 个具体视觉短语"},
+                "sheet": {"type": "string", "description": "三视图整张"},
+                "crops": {"type": "array", "items": {"type": "string"}, "description": "裁开的特写、全身正面、全身侧面"},
+                "voice": {"type": "string", "description": "固定音色参考音频"},
+                "voice_short": {"type": "string", "description": "多人对戏用的短版"},
+                "checked": {"type": "boolean"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "props": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "image": {"type": "string"},
+          "states": {"type": "array", "items": {"type": "object", "additionalProperties": false, "properties": {"when": {"type": "string"}, "desc": {"type": "string"}, "image": {"type": "string"}}}},
+          "checked": {"type": "boolean"}
+        }
+      }
+    },
+    "locations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "plate": {"type": "string", "description": "无人空景图"},
+          "side_a": {"type": "string"},
+          "side_b": {"type": "string"},
+          "fixtures": {"type": "string", "description": "固定项：墙上、家具、窗外"},
+          "light": {"type": "string", "description": "时段与光"},
+          "checked": {"type": "boolean"}
+        }
+      }
+    },
+    "screen_text": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["text"], "properties": {"who": {"type": "string"}, "text": {"type": "string", "description": "逐字"}, "when": {"type": "string"}}}},
+    "timeline": {"type": "array", "items": {"type": "string"}},
+    "spatial_maps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scene", "map"],
+        "additionalProperties": false,
+        "properties": {
+          "scene": {"type": "string"},
+          "map": {"type": "string", "description": "谁在哪、身后是什么、道具在哪（文字草图）"},
+          "gaze": {"type": "string", "description": "拍谁时朝画面哪边看"},
+          "plates": {"type": "string", "description": "正反打各机位身后用哪张图"},
+          "props": {"type": "string"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+model: minimax-h3
+duration: 15
+--- prompt
+integrated_multimodal_description:
+Reference roles: <Picture 1> is the exact identity reference of 林小满: match the face, hairstyle and distinguishing marks exactly and wear exactly what the reference wears; ignore its plain grey background; <Audio 1> gives only the sound of the voice (timbre) of 林小满 (S1). How each line is delivered (volume, pitch, emotion, pace, breath) comes only from the acting described in the scene, never from the audio references; do not reuse any words from them.
+[Shot 1] Live-action drama, photorealistic, shot on a cinema camera with prime lenses, natural motivated light from sources that exist in the scene, real matte skin texture with pores, no beauty filter, fine grain. Skin is naturally matte, as with light make-up powder: no shiny nose, forehead or cheeks, no oily or wet sheen, no over-sharpened pores or wrinkles. No readable text, slogans, posters or calendars anywhere in frame except text that already exists in the reference images. Performance is specific to this scene and lived-in: the character's inner thought must be visible (in the eyes, the breath, small shifts of the face) and the intensity follows what the scene calls for, from complete stillness to an outburst; never a blank stare, never stagey or over-acted. Faces stay clear and sharp. 林小满沿着空荡的走廊快步走向电梯
+[Shot 2] At 00:06.000, 她按下电梯按钮，回头看了一眼身后
+[Shot 3] At 00:11.000, 电梯门开，里面站着一个背对她的人 (S1), 强装镇定:
+<d>[Chinese] 您好……这么晚了还在？</d>
+[Shot 4] At 00:18.000, 那人缓缓转过半张脸，林小满后退半步 [off-screen voiceover] (S1), 心里一沉:
+<d>[Chinese] 七床？</d>
+
+overall_soundscape: 电梯到达的叮声，走廊的回声
+
+non_diegetic_music: N/A
+--- files
+<Picture 1>	素材库/人物/林小满_全身正面.png	identity
+<Audio 1>	素材库/声音/林小满.wav	voice
+--- issues
+error: S05 时长 24 秒，超过 MiniMax-H3 一段的上限 15 秒：拆成两段（yz-adapt）

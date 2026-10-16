@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/brief.schema.json",
+  "title": "需求文档",
+  "description": "只有 status 为「已确认」或「默认，已授权」的条目才能拿去花钱。用户原话原样记、带日期。",
+  "type": "object",
+  "required": ["title", "video_model", "auth_mode"],
+  "additionalProperties": false,
+  "$defs": {
+    "status": {"type": "string", "enum": ["已确认", "默认，待确认", "默认，已授权", "待答"]},
+    "fact": {
+      "type": "object",
+      "required": ["value", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "quote": {"type": "string", "description": "用户原话"},
+        "date": {"type": "string", "format": "date"}
+      }
+    }
+  },
+  "properties": {
+    "title": {"type": "string", "minLength": 1},
+    "video_model": {"type": "string", "description": "生成模型 ID，取自 models.json，如 seedance-2.0 / seedance-2.5 / minimax-h3；决定单段时长上限"},
+    "auth_mode": {"type": "string", "enum": ["step", "full"], "description": "step 每步确认；full 全权（只在超预算、删文件、对外发布、用账号时找人）"},
+    "purpose": {"$ref": "#/$defs/fact", "description": "拿去干什么、给谁看"},
+    "platform": {"$ref": "#/$defs/fact", "description": "在哪发、画幅、交付格式、响度目标"},
+    "duration": {"$ref": "#/$defs/fact", "description": "目标片长；分段表按它的 75% 写"},
+    "taste": {"$ref": "#/$defs/fact", "description": "口味：像哪部片、画面质感、声音风格、不要什么"},
+    "budget": {"$ref": "#/$defs/fact", "description": "花钱上限"},
+    "acceptance": {"$ref": "#/$defs/fact", "description": "怎么算拍好；甲方会看哪几下"},
+    "items": {
+      "type": "array",
+      "description": "要求与反馈（R-）",
+      "items": {
+        "type": "object",
+        "required": ["id", "content", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^R-[0-9]{3}$"},
+          "content": {"type": "string"},
+          "quote": {"type": "string"},
+          "date": {"type": "string"},
+          "segments": {"type": "array", "items": {"type": "string"}, "description": "指向哪几段；反馈不新开段，只划掉那段的过审或验收"},
+          "status": {"type": "string"}
+        }
+      }
+    },
+    "not_doing": {"type": "array", "items": {"type": "string"}},
+    "constraints": {"type": "array", "items": {"type": "string"}},
+    "questions": {
+      "type": "array",
+      "description": "待确认（Q-）",
+      "items": {
+        "type": "object",
+        "required": ["id", "question", "blocking", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^Q-[0-9]{3}$"},
+          "question": {"type": "string"},
+          "blocking": {"type": "boolean"},
+          "status": {"type": "string"}
+        }
+      }
+    },
+    "decided_for_you": {"type": "array", "items": {"type": "string"}, "description": "替他定了什么（交付时列出）"}
+  }
+}

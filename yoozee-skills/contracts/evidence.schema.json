@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/evidence.schema.json",
+  "title": "证据",
+  "description": "一条证据 = 一把尺子对一个候选（或成片）量出来的结果。进度由证据推导，不由人勾选。",
+  "type": "object",
+  "required": ["segment", "kind", "passed"],
+  "additionalProperties": false,
+  "properties": {
+    "segment": {"type": "string", "description": "段号；成片证据写 FILM"},
+    "take": {"type": "string", "description": "候选标识，如 v2 或柚子产物 ID"},
+    "kind": {
+      "type": "string",
+      "enum": ["transcript", "frames", "faces", "levels", "voice", "pick", "gate", "review", "delivery", "acceptance"],
+      "description": "transcript 听写与字错率；frames 抽帧拼图；faces 人脸表；levels 响度；voice 台词量数；pick 选中理由；gate 成片门禁；review 人工或审片员结论；delivery 已交付（成片证据）；acceptance 甲方验收结论"
+    },
+    "passed": {"type": ["boolean", "null"], "description": "null 表示只报数、不判合格"},
+    "metrics": {"type": "object", "description": "量出来的数，如 {\"cer\": 0.02, \"lufs\": -16.3}"},
+    "file": {"type": "string", "description": "证据文件（拼图、听写文本）"},
+    "note": {"type": "string"},
+    "at": {"type": "string", "description": "量的时间"}
+  }
+}

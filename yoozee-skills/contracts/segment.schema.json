@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/segment.schema.json",
+  "title": "中性分段（一段 = 一次生成，段内多镜头）",
+  "description": "不认厂商的分段描述。方言编译（yz-dialect）把它翻译成某个模型的提示词；时长上限不写在这里，按项目所选模型从 models.json 取。",
+  "type": "object",
+  "required": ["id", "scene", "dur", "mode", "shots"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^S[0-9]{2,3}[a-z]?$", "description": "段号，如 S01、S12b（补拍段加字母）"},
+    "scene": {"type": "string", "minLength": 1, "description": "场号或场名，和连戏表的场景、空间图对应"},
+    "title": {"type": "string", "description": "一句话说这段在讲什么"},
+    "dur": {"type": "number", "exclusiveMinimum": 0, "description": "计划时长（秒），不超过所选模型的单段上限"},
+    "mode": {
+      "type": "string",
+      "enum": ["lock_identity", "lock_first_frame", "text_only"],
+      "description": "lock_identity 锁人物（人物参考 + 场景图 + 说话人音频）；lock_first_frame 锁首帧（无脸镜头）；text_only 纯文本"
+    },
+    "first_frame": {"type": "string", "description": "lock_first_frame 时的首帧图"},
+    "last_frame": {"type": "string", "description": "可选的尾帧图（只在模型支持时使用）"},
+    "refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "role"],
+        "additionalProperties": false,
+        "properties": {
+          "file": {"type": "string", "description": "素材路径或柚子资产 ID"},
+          "role": {"type": "string", "enum": ["identity", "location", "plate", "prop", "frame", "motion"], "description": "identity 人物、location 场景、plate 某机位背景、prop 道具、frame 构图参考（里面不能有人）、motion 运镜参考视频"},
+          "note": {"type": "string", "description": "这张参考是谁、是什么；只写参考里真有的特征"}
+        }
+      }
+    },
+    "voices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["character", "file"],
+        "additionalProperties": false,
+        "properties": {
+          "character": {"type": "string"},
+          "file": {"type": "string", "description": "该角色的固定音色参考音频（不含片中台词）"}
+        }
+      }
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["at", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "at": {"type": "number", "minimum": 0, "description": "这一镜在段内的开始秒"},
+          "size": {"type": "string", "description": "景别：特写 / 近景 / 中景 / 全景 / 远景 等"},
+          "camera": {"type": "string", "description": "机位与运镜"},
+          "text": {"type": "string", "minLength": 1, "description": "画面、动作、表演（潜台词和微表情）、灯光"},
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["speaker", "text"],
+              "additionalProperties": false,
+              "properties": {
+                "speaker": {"type": "string"},
+                "text": {"type": "string", "minLength": 1, "description": "台词原文，一字不改"},
+                "vo": {"type": "boolean", "description": "画外音：内心独白或旁白，嘴不动"},
+                "delivery": {"type": "string", "description": "这一句怎么说：音量、情绪、节奏"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "sound": {"type": "string", "description": "环境声和动作音效；不写配乐"},
+    "rules": {"type": "string", "description": "这段要写死的约束：空间、视线、身后、可读文字"},
+    "hook": {"type": "string", "description": "段尾钩子：观众带着什么问题进下一段"},
+    "lang": {"type": "string", "description": "台词语言，默认 Chinese"}
+  }
+}

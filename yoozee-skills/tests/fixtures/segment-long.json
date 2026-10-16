@@ -1,0 +1,12 @@
+{
+  "id": "S05", "scene": "三", "dur": 24, "mode": "lock_identity",
+  "refs": [{"file": "素材库/人物/林小满_全身正面.png", "role": "identity", "note": "林小满"}],
+  "voices": [{"character": "林小满", "file": "素材库/声音/林小满.wav"}],
+  "shots": [
+    {"at": 0, "size": "全景", "text": "林小满沿着空荡的走廊快步走向电梯", "lines": []},
+    {"at": 6, "size": "中景", "text": "她按下电梯按钮，回头看了一眼身后", "lines": []},
+    {"at": 11, "size": "近景", "text": "电梯门开，里面站着一个背对她的人", "lines": [{"speaker": "林小满", "text": "您好……这么晚了还在？", "delivery": "强装镇定"}]},
+    {"at": 18, "size": "特写", "text": "那人缓缓转过半张脸，林小满后退半步", "lines": [{"speaker": "林小满", "text": "七床？", "vo": true, "delivery": "心里一沉"}]}
+  ],
+  "sound": "电梯到达的叮声，走廊的回声"
+}
