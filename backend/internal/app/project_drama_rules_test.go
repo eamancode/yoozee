@@ -163,14 +163,25 @@ func TestProjectAuthModeOnlyAcceptsTwoTiers(t *testing.T) {
 	if updated, err = service.UpdateProject("user-1", project.ID, UpdateProjectRequest{AuthMode: &step}); err != nil || updated.AuthMode != drama.AuthStep {
 		t.Fatalf("step 档位应保存成功：%v %+v", err, updated)
 	}
-	// 其余取值一律拒绝，且不改动已保存的档位。
-	for _, bad := range []string{"auto", "read_only", "全权", "STEP", " step", "full "} {
+	// 大小写和取值都要严格匹配，拼错的档位一律拒绝。
+	for _, bad := range []string{"auto", "read_only", "全权", "STEP", "full/step", "full,step"} {
 		value := bad
 		if _, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{AuthMode: &value}); err == nil {
 			t.Fatalf("非法授权档位 %q 应被拒绝", bad)
 		}
 		if _, err := service.CreateProject("user-1", CreateProjectRequest{Name: "非法档位 " + bad, Type: "short-drama", AuthMode: bad}); err == nil {
 			t.Fatalf("建项目时非法授权档位 %q 应被拒绝", bad)
+		}
+	}
+	// 前后空白按归一化处理，不当成非法值（表单/接口传参常见）。
+	for _, padded := range []string{" step", "step ", " full	", "	full "} {
+		value := padded
+		updated, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{AuthMode: &value})
+		if err != nil {
+			t.Fatalf("带空白的档位 %q 应归一化后保存：%v", padded, err)
+		}
+		if updated.AuthMode != strings.TrimSpace(padded) {
+			t.Fatalf("带空白的档位 %q 归一化结果 = %q", padded, updated.AuthMode)
 		}
 	}
 }
