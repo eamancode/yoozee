@@ -30,6 +30,7 @@ var ErrProjectAssetFolderNotEmpty = errors.New("资产文件夹不为空，无�
 var ErrProjectHasActiveTasks = errors.New("项目中还有进行中的任务，请等待完成后再操作")
 
 var ErrProjectUnitShotsChanged = errors.New("镜头已被修改，请刷新后重试")
+var ErrShotArtifactNotReady = errors.New("只有就绪的候选才能选中")
 
 var ErrCanvasRevisionConflict = errors.New("画布已被更新，请刷新后重试")
 

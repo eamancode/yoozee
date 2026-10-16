@@ -33,8 +33,18 @@ func (r *Repository) SaveShot(shot *model.Shot, create bool) error {
 	}).Error
 }
 
-// SaveShotWithRevision 原子保存镜头当前值、新版本和下游失效状态。
+// SaveShotWithRevision 原子保存镜头当前值、新版本和下游失效状态（已有产物全部过期）。
 func (r *Repository) SaveShotWithRevision(shot *model.Shot, revision *model.ShotRevision, create bool) error {
+	return r.SaveShotWithRevisionSelective(shot, revision, create, nil)
+}
+
+// ShotArtifactStaleDecider 在保存新版本的事务里决定哪些产物过期：入参是镜头当前未过期的产物和素材引用。
+// nil 表示全部过期（旧行为）。
+type ShotArtifactStaleDecider func(artifacts []model.ShotArtifact, references []model.ShotAssetReference) []string
+
+// SaveShotWithRevisionSelective 原子保存镜头和新版本，只让依赖输入真的变了的产物过期；
+// 有产物过期时才把章节工作流退回分镜步。
+func (r *Repository) SaveShotWithRevisionSelective(shot *model.Shot, revision *model.ShotRevision, create bool, decide ShotArtifactStaleDecider) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if create {
 			if err := tx.Create(shot).Error; err != nil {
@@ -67,13 +77,35 @@ func (r *Repository) SaveShotWithRevision(shot *model.Shot, revision *model.Shot
 		}).Error; err != nil {
 			return err
 		}
+		invalidated := create
 		if !create {
-			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND status NOT IN ?", shot.ID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": shot.UpdatedAt}).Error; err != nil {
+			var live []model.ShotArtifact
+			if err := tx.Where("shot_id = ? AND status NOT IN ?", shot.ID, []string{"failed", "stale"}).Find(&live).Error; err != nil {
 				return err
 			}
+			var staleIDs []string
+			if decide == nil {
+				for _, artifact := range live {
+					staleIDs = append(staleIDs, artifact.ID)
+				}
+			} else {
+				var references []model.ShotAssetReference
+				if err := tx.Where("shot_id = ?", shot.ID).Find(&references).Error; err != nil {
+					return err
+				}
+				staleIDs = decide(live, references)
+			}
+			if len(staleIDs) > 0 {
+				if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND id IN ?", shot.ID, staleIDs).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": shot.UpdatedAt}).Error; err != nil {
+					return err
+				}
+				invalidated = true
+			}
 		}
-		if err := invalidateUnitWorkflowTx(tx, shot.ProjectID, shot.UnitID, "storyboard", shot.UpdatedAt); err != nil {
-			return err
+		if invalidated {
+			if err := invalidateUnitWorkflowTx(tx, shot.ProjectID, shot.UnitID, "storyboard", shot.UpdatedAt); err != nil {
+				return err
+			}
 		}
 		return tx.Model(&model.Project{}).Where("id = ?", shot.ProjectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": shot.UpdatedAt}).Error
 	})
@@ -94,6 +126,9 @@ func (r *Repository) ReplaceProjectUnitShots(projectID string, unitID string, sh
 		}
 		shotIDs := tx.Model(&model.Shot{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, unitID)
 		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, unitID).Delete(&model.ShotArtifact{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ? AND shot_id IN (?)", projectID, shotIDs).Delete(&model.ShotEvidence{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotRevision{}).Error; err != nil {
@@ -155,6 +190,9 @@ func (r *Repository) DeleteProjectShot(projectID string, shotID string, updatedA
 			return err
 		}
 		if err := tx.Where("project_id = ? AND shot_id = ?", projectID, shotID).Delete(&model.ShotArtifact{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ? AND shot_id = ?", projectID, shotID).Delete(&model.ShotEvidence{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("shot_id = ?", shotID).Delete(&model.ShotRevision{}).Error; err != nil {
@@ -594,4 +632,58 @@ func (r *Repository) RegisterWorkflowTaskOutput(step *model.WorkflowStepInstance
 		}
 		return nil
 	})
+}
+
+// CreateShotEvidence 记一条证据。
+func (r *Repository) CreateShotEvidence(evidence *model.ShotEvidence) error {
+	return r.db.Create(evidence).Error
+}
+
+// ProjectShotEvidence 返回项目的全部证据（按时间顺序）。
+func (r *Repository) ProjectShotEvidence(projectID string) ([]model.ShotEvidence, error) {
+	var items []model.ShotEvidence
+	err := r.db.Where("project_id = ?", projectID).Order("created_at asc, id asc").Find(&items).Error
+	return items, err
+}
+
+// ShotArtifactForProject 读取项目里的一条产物。
+func (r *Repository) ShotArtifactForProject(projectID string, artifactID string) (*model.ShotArtifact, error) {
+	var artifact model.ShotArtifact
+	if err := r.db.First(&artifact, "id = ? AND project_id = ?", artifactID, projectID).Error; err != nil {
+		return nil, err
+	}
+	return &artifact, nil
+}
+
+// SelectShotArtifact 把一条就绪产物设为该镜头同类型的唯一选中项。
+func (r *Repository) SelectShotArtifact(projectID string, artifactID string, updatedAt time.Time) (*model.ShotArtifact, error) {
+	var selected model.ShotArtifact
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&selected, "id = ? AND project_id = ?", artifactID, projectID).Error; err != nil {
+			return err
+		}
+		if selected.Status != "ready" {
+			return ErrShotArtifactNotReady
+		}
+		if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ? AND id <> ?", selected.ShotID, selected.Type, selected.ID).Updates(map[string]any{"selected": false, "updated_at": updatedAt}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.ShotArtifact{}).Where("id = ?", selected.ID).Updates(map[string]any{"selected": true, "updated_at": updatedAt}).Error; err != nil {
+			return err
+		}
+		selected.Selected = true
+		selected.UpdatedAt = updatedAt
+		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": updatedAt}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &selected, nil
+}
+
+// ShotAssetReferencesForShot 返回一个镜头当前绑定的素材引用。
+func (r *Repository) ShotAssetReferencesForShot(shotID string) ([]model.ShotAssetReference, error) {
+	var references []model.ShotAssetReference
+	err := r.db.Where("shot_id = ?", shotID).Order("created_at asc, id asc").Find(&references).Error
+	return references, err
 }

@@ -29,6 +29,8 @@ const (
 	ReasonNotFound            = kernel.ReasonNotFound
 	ReasonConflict            = kernel.ReasonConflict
 	ReasonProjectNameConflict = kernel.ReasonProjectNameConflict
+	ReasonSegmentTooLong      = kernel.ReasonSegmentTooLong
+	ReasonEvidenceMissing     = kernel.ReasonEvidenceMissing
 	ReasonFailedPrecondition  = kernel.ReasonFailedPrecondition
 	ReasonQuotaExceeded       = kernel.ReasonQuotaExceeded
 	ReasonRateLimited         = kernel.ReasonRateLimited

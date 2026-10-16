@@ -208,22 +208,29 @@ type CharacterVoiceBinding struct {
 
 // Project 是短剧领域聚合根；CanvasProject 仍代表可独立创作的画布文档。
 type Project struct {
-	ID                string        `json:"id" gorm:"primaryKey;size:36"`
-	UserID            string        `json:"userId" gorm:"index;size:36;uniqueIndex:idx_projects_user_name,priority:1"`
-	Name              string        `json:"name" gorm:"size:240;uniqueIndex:idx_projects_user_name,priority:2"`
-	Type              string        `json:"type" gorm:"size:32;index"`
-	AspectRatio       string        `json:"aspectRatio" gorm:"size:16"`
-	SourceType        string        `json:"sourceType" gorm:"size:32"`
-	Description       string        `json:"description" gorm:"type:text"`
-	CoverResourceID   string        `json:"coverResourceId,omitempty" gorm:"index;size:36"`
-	StylePresetID     string        `json:"stylePresetId" gorm:"size:64"`
-	StyleProfileJSON  string        `json:"styleProfileJson" gorm:"type:text"`
-	DefaultImageModel string        `json:"defaultImageModel,omitempty" gorm:"size:500"`
-	DefaultVideoModel string        `json:"defaultVideoModel,omitempty" gorm:"size:500"`
-	Status            ProjectStatus `json:"status" gorm:"index;size:24"`
-	Revision          int64         `json:"revision"`
-	CreatedAt         time.Time     `json:"createdAt"`
-	UpdatedAt         time.Time     `json:"updatedAt" gorm:"index"`
+	ID                string `json:"id" gorm:"primaryKey;size:36"`
+	UserID            string `json:"userId" gorm:"index;size:36;uniqueIndex:idx_projects_user_name,priority:1"`
+	Name              string `json:"name" gorm:"size:240;uniqueIndex:idx_projects_user_name,priority:2"`
+	Type              string `json:"type" gorm:"size:32;index"`
+	AspectRatio       string `json:"aspectRatio" gorm:"size:16"`
+	SourceType        string `json:"sourceType" gorm:"size:32"`
+	Description       string `json:"description" gorm:"type:text"`
+	CoverResourceID   string `json:"coverResourceId,omitempty" gorm:"index;size:36"`
+	StylePresetID     string `json:"stylePresetId" gorm:"size:64"`
+	StyleProfileJSON  string `json:"styleProfileJson" gorm:"type:text"`
+	DefaultImageModel string `json:"defaultImageModel,omitempty" gorm:"size:500"`
+	DefaultVideoModel string `json:"defaultVideoModel,omitempty" gorm:"size:500"`
+	// GenerationModel 是建项目时选定的视频生成模型族（kb-dialects/models.json 的 id），决定一段最长几秒。
+	GenerationModel string `json:"generationModel" gorm:"size:40"`
+	// AuthMode 是授权档位：step 每步确认；full 全权（只在超预算、删文件、对外发布、用账号时找人）。
+	AuthMode string `json:"authMode" gorm:"size:16"`
+	// BriefJSON / BibleJSON 是需求文档与连戏表（契约 brief、bible），由短剧技能读写。
+	BriefJSON string        `json:"briefJson" gorm:"type:text"`
+	BibleJSON string        `json:"bibleJson" gorm:"type:text"`
+	Status    ProjectStatus `json:"status" gorm:"index;size:24"`
+	Revision  int64         `json:"revision"`
+	CreatedAt time.Time     `json:"createdAt"`
+	UpdatedAt time.Time     `json:"updatedAt" gorm:"index"`
 }
 
 // StyleProfile 是用户可持续编辑的风格源；项目只保存应用当时的 JSON 快照，避免源对象更新污染历史生成。
@@ -281,41 +288,63 @@ type Shot struct {
 
 // ShotRevision 保存可复现的分镜脚本版本；Shot 只保留稳定身份、排序和当前版本指针。
 type ShotRevision struct {
-	ID              string    `json:"id" gorm:"primaryKey;size:36"`
-	ShotID          string    `json:"shotId" gorm:"index;size:36;uniqueIndex:idx_shot_revisions_version,priority:1"`
-	Version         int       `json:"version" gorm:"uniqueIndex:idx_shot_revisions_version,priority:2"`
-	PlotDescription string    `json:"plotDescription" gorm:"type:text"`
-	Action          string    `json:"action" gorm:"type:text"`
-	Dialogue        string    `json:"dialogue" gorm:"type:text"`
-	ShotSize        string    `json:"shotSize" gorm:"size:80"`
-	CameraAngle     string    `json:"cameraAngle" gorm:"size:80"`
-	CameraMovement  string    `json:"cameraMovement" gorm:"size:120"`
-	DurationMs      int64     `json:"durationMs"`
-	ImagePrompt     string    `json:"imagePrompt" gorm:"type:text"`
-	VideoPrompt     string    `json:"videoPrompt" gorm:"type:text"`
-	NegativePrompt  string    `json:"negativePrompt" gorm:"type:text"`
-	ContinuityNotes string    `json:"continuityNotes" gorm:"type:text"`
-	ActionBeatsJSON string    `json:"actionBeatsJson" gorm:"type:text"`
-	CreatedBy       string    `json:"createdBy,omitempty" gorm:"index;size:36"`
-	CreatedAt       time.Time `json:"createdAt"`
+	ID              string `json:"id" gorm:"primaryKey;size:36"`
+	ShotID          string `json:"shotId" gorm:"index;size:36;uniqueIndex:idx_shot_revisions_version,priority:1"`
+	Version         int    `json:"version" gorm:"uniqueIndex:idx_shot_revisions_version,priority:2"`
+	PlotDescription string `json:"plotDescription" gorm:"type:text"`
+	Action          string `json:"action" gorm:"type:text"`
+	Dialogue        string `json:"dialogue" gorm:"type:text"`
+	ShotSize        string `json:"shotSize" gorm:"size:80"`
+	CameraAngle     string `json:"cameraAngle" gorm:"size:80"`
+	CameraMovement  string `json:"cameraMovement" gorm:"size:120"`
+	DurationMs      int64  `json:"durationMs"`
+	ImagePrompt     string `json:"imagePrompt" gorm:"type:text"`
+	VideoPrompt     string `json:"videoPrompt" gorm:"type:text"`
+	NegativePrompt  string `json:"negativePrompt" gorm:"type:text"`
+	ContinuityNotes string `json:"continuityNotes" gorm:"type:text"`
+	ActionBeatsJSON string `json:"actionBeatsJson" gorm:"type:text"`
+	// SpecJSON 是这一段的中性分段（契约 segment）：段内多镜头、台词、参考和声音；旧镜头为空。
+	SpecJSON  string    `json:"specJson,omitempty" gorm:"type:text"`
+	CreatedBy string    `json:"createdBy,omitempty" gorm:"index;size:36"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ShotArtifact 是镜头的版本化生产产物。修改分镜或资产引用时只标记 stale，不删除历史。
 type ShotArtifact struct {
-	ID           string    `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID    string    `json:"projectId" gorm:"index;size:36;index:idx_shot_artifacts_project_unit,priority:1"`
-	UnitID       string    `json:"unitId" gorm:"index;size:36;index:idx_shot_artifacts_project_unit,priority:2"`
-	ShotID       string    `json:"shotId" gorm:"index;size:36;uniqueIndex:idx_shot_artifacts_version,priority:1"`
-	RevisionID   string    `json:"revisionId,omitempty" gorm:"index;size:36"`
-	TaskID       string    `json:"taskId,omitempty" gorm:"index;size:36"`
-	Type         string    `json:"type" gorm:"index;size:40;uniqueIndex:idx_shot_artifacts_version,priority:2"`
-	Version      int       `json:"version" gorm:"uniqueIndex:idx_shot_artifacts_version,priority:3"`
-	ResourceID   string    `json:"resourceId,omitempty" gorm:"index;size:36"`
-	Status       string    `json:"status" gorm:"index;size:24"`
-	Selected     bool      `json:"selected" gorm:"index"`
-	MetadataJSON string    `json:"metadataJson" gorm:"type:text"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID           string `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID    string `json:"projectId" gorm:"index;size:36;index:idx_shot_artifacts_project_unit,priority:1"`
+	UnitID       string `json:"unitId" gorm:"index;size:36;index:idx_shot_artifacts_project_unit,priority:2"`
+	ShotID       string `json:"shotId" gorm:"index;size:36;uniqueIndex:idx_shot_artifacts_version,priority:1"`
+	RevisionID   string `json:"revisionId,omitempty" gorm:"index;size:36"`
+	TaskID       string `json:"taskId,omitempty" gorm:"index;size:36"`
+	Type         string `json:"type" gorm:"index;size:40;uniqueIndex:idx_shot_artifacts_version,priority:2"`
+	Version      int    `json:"version" gorm:"uniqueIndex:idx_shot_artifacts_version,priority:3"`
+	ResourceID   string `json:"resourceId,omitempty" gorm:"index;size:36"`
+	Status       string `json:"status" gorm:"index;size:24"`
+	Selected     bool   `json:"selected" gorm:"index"`
+	MetadataJSON string `json:"metadataJson" gorm:"type:text"`
+	// InputHash 是生成它时依赖输入的指纹；保存新版本时只有指纹变了的产物才过期。旧产物为空，一律按过期处理。
+	InputHash string    `json:"inputHash,omitempty" gorm:"size:64"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// ShotEvidence 是一把尺子对一条候选（或成片）量出来的结果（契约 evidence）。进度由证据推导，不由人勾选。
+// ShotID 为空表示成片级证据（门禁、交付、甲方验收）。
+type ShotEvidence struct {
+	ID          string    `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID   string    `json:"projectId" gorm:"index;size:36;index:idx_shot_evidence_project_artifact,priority:1"`
+	UnitID      string    `json:"unitId,omitempty" gorm:"index;size:36"`
+	ShotID      string    `json:"shotId,omitempty" gorm:"index;size:36"`
+	ArtifactID  string    `json:"artifactId,omitempty" gorm:"index;size:36;index:idx_shot_evidence_project_artifact,priority:2"`
+	Kind        string    `json:"kind" gorm:"index;size:24"`
+	Passed      *bool     `json:"passed"`
+	MetricsJSON string    `json:"metricsJson" gorm:"type:text"`
+	ResourceID  string    `json:"resourceId,omitempty" gorm:"index;size:36"`
+	TaskID      string    `json:"taskId,omitempty" gorm:"index;size:36"`
+	Note        string    `json:"note" gorm:"type:text"`
+	CreatedBy   string    `json:"createdBy,omitempty" gorm:"size:36"`
+	CreatedAt   time.Time `json:"createdAt" gorm:"index"`
 }
 
 type ShotAssetReference struct {

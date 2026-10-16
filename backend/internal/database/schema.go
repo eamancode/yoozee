@@ -93,6 +93,7 @@ func Models() []any {
 		&model.Shot{},
 		&model.ShotRevision{},
 		&model.ShotArtifact{},
+		&model.ShotEvidence{},
 		&model.ShotAssetReference{},
 		&model.WorkflowTemplateVersion{},
 		&model.WorkflowInstance{},

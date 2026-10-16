@@ -1,0 +1,183 @@
+package drama
+
+import (
+	"sort"
+	"strings"
+	"testing"
+	"time"
+)
+
+func mustModel(t *testing.T, id string) Model {
+	t.Helper()
+	m, ok := ModelByID(id)
+	if !ok {
+		t.Fatalf("模型 %s 不在目录里", id)
+	}
+	return m
+}
+
+func dramaShot(id string, durationMs int64, withScript bool, refs int) ShotInput {
+	shot := ShotInput{ID: id, UnitID: "unit-1", UnitTitle: "第一章", Title: id, DurationMs: durationMs, RefCount: refs}
+	if withScript {
+		shot.Revision = &RevisionInputs{PlotDescription: "护士推开七床的门", DurationMs: durationMs}
+	}
+	return shot
+}
+
+// 「改小生成模型后，超长的段要在概览里被标出来」——这条规则完全由 Derive 推导，不依赖数据库。
+func TestDeriveMarksSegmentsOverTheProjectModelLimit(t *testing.T) {
+	shots := []ShotInput{
+		dramaShot("S01", 8000, true, 2),
+		dramaShot("S02", 20000, true, 2),
+	}
+
+	// 建项目时选的是 Seedance 2.5（一段 30 秒）：20 秒的段合法。
+	long := mustModel(t, "seedance-2.5")
+	before := Derive(ProgressInput{Model: long, AuthMode: AuthStep, Shots: shots})
+	if before.Counts.OverLimit != 0 {
+		t.Fatalf("Seedance 2.5 下 20 秒的段不应超长：%+v", before.Counts)
+	}
+	if before.Counts.Script != 2 {
+		t.Fatalf("两段都该算剧本已完成：%+v", before.Counts)
+	}
+
+	// 设置页把生成模型改小到 Seedance 2.0（一段 15 秒）：同一批段里 20 秒那条变超长。
+	short := mustModel(t, "seedance-2.0")
+	after := Derive(ProgressInput{Model: short, AuthMode: AuthStep, Shots: shots})
+	if after.Counts.OverLimit != 1 {
+		t.Fatalf("改小模型后应有 1 段超长：%+v", after.Counts)
+	}
+	if !after.Segments[1].OverLimit || after.Segments[0].OverLimit {
+		t.Fatalf("只有 20 秒那条该被标超长：%+v", after.Segments)
+	}
+	// 超长的段不能算「剧本已完成」，否则概览会显示一个假的进度。
+	if after.Segments[1].Script {
+		t.Fatal("超长的段不应计入剧本完成")
+	}
+	if after.Counts.Script != 1 {
+		t.Fatalf("超长段不计入剧本：%+v", after.Counts)
+	}
+	if !strings.Contains(after.Line, "1 段超过 Seedance 2.0 的 15 秒上限") {
+		t.Fatalf("进度行要点明超长段和上限：%q", after.Line)
+	}
+	if strings.Contains(before.Line, "超过") {
+		t.Fatalf("没有超长段时不该出现超长提示：%q", before.Line)
+	}
+}
+
+func TestDeriveKeepsEightEndStates(t *testing.T) {
+	states := Derive(ProgressInput{Model: mustModel(t, "seedance-2.0"), AuthMode: AuthFull}).EndStates
+	if len(states) != 8 {
+		t.Fatalf("终态应有 8 个，得到 %d", len(states))
+	}
+	seen := map[string]bool{}
+	for _, state := range states {
+		if state.Key == "" || state.Label == "" || state.Detail == "" || state.Skill == "" {
+			t.Fatalf("终态字段不能为空：%+v", state)
+		}
+		if seen[state.Key] {
+			t.Fatalf("终态 key 重复：%s", state.Key)
+		}
+		seen[state.Key] = true
+	}
+	// 什么都没做时，第一件该做的事是问需求（对应 yz-brief 技能）。
+	if states[0].Done {
+		t.Fatalf("空项目不应有已完成终态：%+v", states[0])
+	}
+}
+
+func TestRequiredEvidenceDependsOnDialogue(t *testing.T) {
+	withDialogue := RequiredEvidence(true)
+	sort.Strings(withDialogue)
+	if strings.Join(withDialogue, ",") != "faces,frames,transcript" {
+		t.Fatalf("有台词要三项证据（含转写）：%v", withDialogue)
+	}
+	withoutDialogue := RequiredEvidence(false)
+	sort.Strings(withoutDialogue)
+	if strings.Join(withoutDialogue, ",") != "faces,frames" {
+		t.Fatalf("没台词的段不要求转写：%v", withoutDialogue)
+	}
+}
+
+func TestMissingEvidenceReportsOnlyUnpassedKinds(t *testing.T) {
+	pass, fail := true, false
+	items := []EvidenceState{
+		{ArtifactID: "take-1", Kind: EvidenceFrames, Passed: &pass, CreatedAt: time.Now()},
+		{ArtifactID: "take-1", Kind: EvidenceFaces, Passed: &fail, CreatedAt: time.Now()},
+	}
+	// 缺哪几项用中文标签回报（前端直接展示，不需要再映射一次）。
+	missing := MissingEvidence(items, "take-1", true)
+	sort.Strings(missing)
+	if strings.Join(missing, ",") != "台词一字不差,同一个人" {
+		t.Fatalf("只该报没过的和人没判的：%v", missing)
+	}
+	if got := MissingEvidence(items, "take-1", false); len(got) != 1 || got[0] != "同一个人" {
+		t.Fatalf("没台词的段只缺人脸：%v", got)
+	}
+	// 证据属于别的候选时不算数。
+	if got := MissingEvidence(items, "take-2", false); len(got) != 2 {
+		t.Fatalf("别的候选的证据不能算：%v", got)
+	}
+	// 人还没判（passed 为空）也要算缺。
+	unknown := []EvidenceState{{ArtifactID: "take-1", Kind: EvidenceFrames, Passed: nil, CreatedAt: time.Now()}}
+	if got := MissingEvidence(unknown, "take-1", false); len(got) != 2 {
+		t.Fatalf("未判定的证据算缺：%v", got)
+	}
+}
+
+func TestValidAuthModeAndEvidenceKind(t *testing.T) {
+	for _, ok := range []string{AuthStep, AuthFull} {
+		if !ValidAuthMode(ok) {
+			t.Fatalf("%s 应是合法档位", ok)
+		}
+	}
+	for _, bad := range []string{"", "auto", "read_only", "全权", "STEP", " step"} {
+		if ValidAuthMode(bad) {
+			t.Fatalf("%q 不该是合法档位", bad)
+		}
+	}
+	for _, kind := range []string{EvidenceTranscript, EvidenceFrames, EvidenceFaces, EvidenceLevels, EvidenceVoice, EvidencePick, EvidenceGate, EvidenceReview, EvidenceDelivery, EvidenceAcceptance} {
+		if !ValidEvidenceKind(kind) {
+			t.Fatalf("%s 应是合法证据类型", kind)
+		}
+	}
+	for _, bad := range []string{"", "face", "transcript ", "unknown"} {
+		if ValidEvidenceKind(bad) {
+			t.Fatalf("%q 不该是合法证据类型", bad)
+		}
+	}
+}
+
+// 提交给上游的整数秒要按模型步长向上取整并夹在范围内：这是「输入框封顶」的最后一道。
+func TestSubmitDurationClampsToModelRange(t *testing.T) {
+	m := mustModel(t, "seedance-2.0") // 4–15 秒，步长 1
+	cases := map[float64]int{0: 4, 1: 4, 3.2: 4, 8: 8, 8.4: 9, 15: 15, 20: 15, 30: 15}
+	for input, want := range cases {
+		if got := SubmitDuration(input, m); got != want {
+			t.Errorf("SubmitDuration(%v, seedance-2.0) = %d，应为 %d", input, got, want)
+		}
+	}
+}
+
+// 超长的段编译成提示词时要报 error 级问题，不能静默截断后当成功。
+func TestCompileReportsOverLongSegmentAsError(t *testing.T) {
+	seg := Segment{ID: "S01", Scene: "一", Dur: 20, Mode: ModeTextOnly, Shots: []SubShot{{At: 0, Text: "护士推开七床的门"}}}
+	result, err := Compile(seg, mustModel(t, "seedance-2.0"), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !HasError(result.Issues) {
+		t.Fatalf("20 秒的段编译到 Seedance 2.0 应报 error：%+v", result.Issues)
+	}
+	// 换成 30 秒上限的模型后同一段应该没有问题。
+	ok, err := Compile(seg, mustModel(t, "seedance-2.5"), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if HasError(ok.Issues) {
+		t.Fatalf("Seedance 2.5 下 20 秒不该报 error：%+v", ok.Issues)
+	}
+	if ok.Duration != 20 {
+		t.Fatalf("编译结果要保留段长：%d", ok.Duration)
+	}
+}

@@ -1,0 +1,1049 @@
+// 短剧制作线（yoozee 1.0 skills）的项目服务：生成模型与段长上限、需求文档与连戏表、
+// 方言编译、证据与选中、进度推导、成片门禁与交付包。领域规则在 internal/drama。
+
+package app
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"yingce/backend/internal/drama"
+	"yingce/backend/internal/model"
+	"yingce/backend/internal/repository"
+
+	"gorm.io/gorm"
+)
+
+const (
+	dramaDocumentMaxBytes = 512 << 10
+	dramaNoteMaxRunes     = 2000
+	dramaPickReasonRunes  = 200
+)
+
+type UpdateProjectDramaDocumentRequest struct {
+	Document json.RawMessage `json:"document"`
+}
+
+type CreateShotEvidenceRequest struct {
+	ArtifactID string         `json:"artifactId"`
+	ShotID     string         `json:"shotId"`
+	Kind       string         `json:"kind"`
+	Passed     *bool          `json:"passed"`
+	Metrics    map[string]any `json:"metrics"`
+	Note       string         `json:"note"`
+	ResourceID string         `json:"resourceId"`
+	TaskID     string         `json:"taskId"`
+}
+
+type PickShotArtifactRequest struct {
+	Reason string `json:"reason"`
+}
+
+type CompileProjectShotRequest struct {
+	Model  string  `json:"model"`
+	Style  *string `json:"style"`
+	Acting *string `json:"acting"`
+}
+
+type DramaGateRequest struct {
+	ResourceID string   `json:"resourceId"`
+	ArtifactID string   `json:"artifactId"`
+	TargetLUFS *float64 `json:"targetLufs"`
+}
+
+type DramaGateResult struct {
+	Report   drama.GateReport   `json:"report"`
+	Evidence model.ShotEvidence `json:"evidence"`
+}
+
+type DramaCompileResult struct {
+	ShotID  string              `json:"shotId"`
+	Spec    drama.Segment       `json:"spec"`
+	Derived bool                `json:"derived"`
+	Result  drama.CompileResult `json:"result"`
+}
+
+type DramaSegmentView struct {
+	ShotID     string        `json:"shotId"`
+	UnitID     string        `json:"unitId"`
+	Title      string        `json:"title"`
+	Position   int           `json:"position"`
+	DurationMs int64         `json:"durationMs"`
+	RevisionID string        `json:"revisionId,omitempty"`
+	Spec       drama.Segment `json:"spec"`
+	Derived    bool          `json:"derived"`
+}
+
+type DramaSegmentsWriteRequest struct {
+	UnitID   string            `json:"unitId"`
+	Segments []json.RawMessage `json:"segments"`
+}
+
+// DramaModels 返回可选的生成模型目录。
+func (s *Service) DramaModels() (drama.Registry, error) {
+	return drama.Models()
+}
+
+func normalizeProjectGenerationModel(value string) (string, error) {
+	m, err := drama.ResolveModel(value)
+	if err != nil {
+		return "", BadAuthRequest("不支持的生成模型：" + strings.TrimSpace(value))
+	}
+	return m.ID, nil
+}
+
+func normalizeProjectAuthMode(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return drama.AuthStep, nil
+	}
+	if !drama.ValidAuthMode(value) {
+		return "", BadAuthRequest("授权档位只能是每步确认（step）或全权（full）")
+	}
+	return value, nil
+}
+
+// checkProjectVideoModelFamily 确保项目默认视频模型属于所选生成模型族（不认识的渠道模型名放行）。
+func checkProjectVideoModelFamily(generationModel string, defaultVideoModel string) error {
+	if strings.TrimSpace(defaultVideoModel) == "" {
+		return nil
+	}
+	family, ok := drama.MatchChannelModel(defaultVideoModel)
+	if ok && family.ID != generationModel {
+		return BadAuthRequest(fmt.Sprintf("默认视频模型属于 %s，与项目的生成模型 %s 不一致", family.Label, generationModel))
+	}
+	return nil
+}
+
+func projectDramaModel(project *model.Project) (drama.Model, error) {
+	return drama.ResolveModel(project.GenerationModel)
+}
+
+func segmentTooLongError(m drama.Model, label string, durationMs int64) error {
+	err := NewAppError(http.StatusBadRequest, fmt.Sprintf("%s 时长 %.1f 秒，超过 %s 一段的上限 %d 秒，请拆成两段", label, float64(durationMs)/1000, m.Label, m.Duration.Max))
+	err.Reason = ReasonSegmentTooLong
+	return err
+}
+
+func ensureSegmentWithinModel(project *model.Project, label string, durationMs int64) error {
+	m, err := projectDramaModel(project)
+	if err != nil {
+		return err
+	}
+	if durationMs > m.MaxDurationMs() {
+		return segmentTooLongError(m, label, durationMs)
+	}
+	return nil
+}
+
+// applyRevisionSpec 解析版本里的中性分段，补齐旧字段（时长、画面描述、台词），返回规范化后的 JSON。
+func applyRevisionSpec(input *ShotRevisionInput) (string, error) {
+	if len(bytes.TrimSpace(input.Spec)) == 0 || string(bytes.TrimSpace(input.Spec)) == "null" {
+		return "", nil
+	}
+	seg, err := drama.ParseSegment(input.Spec)
+	if err != nil {
+		return "", BadAuthRequest(err.Error())
+	}
+	if input.DurationMs == 0 {
+		input.DurationMs = int64(seg.Dur * 1000)
+	}
+	if strings.TrimSpace(input.PlotDescription) == "" {
+		var parts []string
+		if seg.Title != "" {
+			parts = append(parts, seg.Title)
+		}
+		for _, sh := range seg.Shots {
+			parts = append(parts, sh.Text)
+		}
+		input.PlotDescription = strings.Join(parts, "；")
+	}
+	if strings.TrimSpace(input.Dialogue) == "" {
+		var lines []string
+		for _, sh := range seg.Shots {
+			for _, ln := range sh.Lines {
+				lines = append(lines, ln.Speaker+"："+ln.Text)
+			}
+		}
+		input.Dialogue = strings.Join(lines, "\n")
+	}
+	return seg.Canonical(), nil
+}
+
+func revisionInputs(rev *model.ShotRevision) drama.RevisionInputs {
+	if rev == nil {
+		return drama.RevisionInputs{}
+	}
+	return drama.RevisionInputs{
+		PlotDescription: rev.PlotDescription, Action: rev.Action, Dialogue: rev.Dialogue, ShotSize: rev.ShotSize,
+		CameraAngle: rev.CameraAngle, CameraMovement: rev.CameraMovement, DurationMs: rev.DurationMs,
+		ImagePrompt: rev.ImagePrompt, VideoPrompt: rev.VideoPrompt, NegativePrompt: rev.NegativePrompt,
+		ContinuityNotes: rev.ContinuityNotes, ActionBeatsJSON: rev.ActionBeatsJSON, SpecJSON: rev.SpecJSON,
+	}
+}
+
+func referenceIDs(references []model.ShotAssetReference) []string {
+	ids := make([]string, 0, len(references))
+	for _, ref := range references {
+		ids = append(ids, ref.AssetVersionID+"|"+ref.Role)
+	}
+	return ids
+}
+
+// staleDeciderFor 返回「只有依赖输入变了的产物才过期」的判定函数。
+func staleDeciderFor(revision *model.ShotRevision) repository.ShotArtifactStaleDecider {
+	inputs := revisionInputs(revision)
+	return func(artifacts []model.ShotArtifact, references []model.ShotAssetReference) []string {
+		states := make([]drama.ArtifactInput, 0, len(artifacts))
+		for _, a := range artifacts {
+			states = append(states, drama.ArtifactInput{ID: a.ID, Type: a.Type, InputHash: a.InputHash})
+		}
+		return drama.StaleArtifacts(states, inputs, referenceIDs(references))
+	}
+}
+
+func (s *Service) artifactInputHash(shotID string, revisionID string, artifactType string) string {
+	revision, err := s.repo.ShotRevisionForShot(shotID, revisionID)
+	if err != nil {
+		return ""
+	}
+	references, err := s.repo.ShotAssetReferencesForShot(shotID)
+	if err != nil {
+		return ""
+	}
+	return drama.InputHash(artifactType, revisionInputs(revision), referenceIDs(references))
+}
+
+// ---------------------------------------------------------------- 需求文档与连戏表
+
+func decodeDramaDocument(raw json.RawMessage) (map[string]any, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil, BadAuthRequest("文档不能为空")
+	}
+	if len(raw) > dramaDocumentMaxBytes {
+		return nil, BadAuthRequest("文档超过 512 KB")
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil || doc == nil {
+		return nil, BadAuthRequest("文档必须是 JSON 对象")
+	}
+	return doc, nil
+}
+
+// ProjectBrief 读取需求文档；生成模型和授权档位总以项目字段为准。
+func (s *Service) ProjectBrief(userID string, projectID string) (map[string]any, error) {
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	doc := map[string]any{}
+	if strings.TrimSpace(project.BriefJSON) != "" {
+		_ = json.Unmarshal([]byte(project.BriefJSON), &doc)
+	}
+	if _, ok := doc["title"]; !ok {
+		doc["title"] = project.Name
+	}
+	m, err := projectDramaModel(project)
+	if err != nil {
+		return nil, err
+	}
+	doc["video_model"] = m.ID
+	authMode, _ := normalizeProjectAuthMode(project.AuthMode)
+	doc["auth_mode"] = authMode
+	return doc, nil
+}
+
+// UpdateProjectBrief 写需求文档；文档里改了生成模型或授权档位时同步到项目字段。
+func (s *Service) UpdateProjectBrief(userID string, projectID string, raw json.RawMessage) (map[string]any, error) {
+	project, err := s.activeProjectForUser(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := decodeDramaDocument(raw)
+	if err != nil {
+		return nil, err
+	}
+	update := UpdateProjectRequest{}
+	if value, ok := doc["video_model"].(string); ok && strings.TrimSpace(value) != "" && value != project.GenerationModel {
+		update.GenerationModel = &value
+	}
+	if value, ok := doc["auth_mode"].(string); ok && strings.TrimSpace(value) != "" && value != project.AuthMode {
+		update.AuthMode = &value
+	}
+	if update.GenerationModel != nil || update.AuthMode != nil {
+		if _, err := s.UpdateProject(userID, projectID, update); err != nil {
+			return nil, err
+		}
+	}
+	delete(doc, "video_model")
+	delete(doc, "auth_mode")
+	encoded, _ := json.Marshal(doc)
+	if err := s.repo.UpdateProjectDramaDocument(userID, projectID, "brief_json", string(encoded), time.Now()); err != nil {
+		return nil, err
+	}
+	return s.ProjectBrief(userID, projectID)
+}
+
+func (s *Service) ProjectBible(userID string, projectID string) (map[string]any, error) {
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	doc := map[string]any{}
+	if strings.TrimSpace(project.BibleJSON) != "" {
+		_ = json.Unmarshal([]byte(project.BibleJSON), &doc)
+	}
+	return doc, nil
+}
+
+func (s *Service) UpdateProjectBible(userID string, projectID string, raw json.RawMessage) (map[string]any, error) {
+	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+		return nil, err
+	}
+	doc, err := decodeDramaDocument(raw)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"characters", "props", "locations", "screen_text", "timeline", "spatial_maps"} {
+		if value, ok := doc[key]; ok {
+			if _, isList := value.([]any); !isList {
+				return nil, BadAuthRequest("连戏表的 " + key + " 必须是数组")
+			}
+		}
+	}
+	encoded, _ := json.Marshal(doc)
+	if err := s.repo.UpdateProjectDramaDocument(userID, projectID, "bible_json", string(encoded), time.Now()); err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
+// ---------------------------------------------------------------- 分段
+
+var dialogueLinePattern = regexp.MustCompile(`^\s*([^：:\n]{1,24})[：:]\s*(.+)$`)
+
+func parseLegacyDialogue(text string) []drama.Line {
+	var out []drama.Line
+	for _, raw := range strings.Split(text, "\n") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if m := dialogueLinePattern.FindStringSubmatch(raw); m != nil {
+			out = append(out, drama.Line{Speaker: strings.TrimSpace(m[1]), Text: strings.TrimSpace(m[2])})
+			continue
+		}
+		out = append(out, drama.Line{Speaker: "旁白", Text: raw, VO: true})
+	}
+	return out
+}
+
+type dramaAssetInfo struct {
+	Title    string
+	Category model.AssetCategory
+}
+
+func (s *Service) dramaAssetIndex(userID string, projectID string) map[string]dramaAssetInfo {
+	index := map[string]dramaAssetInfo{}
+	assets, err := s.ProjectAssets(userID, projectID)
+	if err != nil {
+		return index
+	}
+	for _, asset := range assets {
+		index[asset.ID] = dramaAssetInfo{Title: asset.Title, Category: asset.Category}
+	}
+	return index
+}
+
+func dramaRefRole(category model.AssetCategory) string {
+	switch strings.ToLower(string(category)) {
+	case "character", "role", "person":
+		return "identity"
+	case "scene", "location", "environment":
+		return "location"
+	case "prop", "item", "object":
+		return "prop"
+	default:
+		return "frame"
+	}
+}
+
+// segmentForShot 返回一个镜头的中性分段：有分段 JSON 用它；旧镜头按「只有一个镜头的段」合成。
+func (s *Service) segmentForShot(userID string, projectID string, shot *model.Shot, unitTitle string, assets map[string]dramaAssetInfo) (drama.Segment, *model.ShotRevision, bool, error) {
+	var revision *model.ShotRevision
+	if shot.CurrentRevisionID != "" {
+		rev, err := s.repo.ShotRevisionForShot(shot.ID, shot.CurrentRevisionID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return drama.Segment{}, nil, false, err
+		}
+		revision = rev
+	}
+	if revision != nil && strings.TrimSpace(revision.SpecJSON) != "" {
+		if seg, err := drama.ParseSegment([]byte(revision.SpecJSON)); err == nil {
+			return seg, revision, false, nil
+		}
+	}
+	seg := drama.Segment{ID: fmt.Sprintf("S%02d", shot.Position+1), Scene: firstNonEmpty(unitTitle, "一"), Title: shot.Title, Dur: float64(shot.DurationMs) / 1000, Mode: drama.ModeTextOnly}
+	if seg.Dur <= 0 {
+		seg.Dur = 5
+	}
+	sub := drama.SubShot{At: 0, Text: firstNonEmpty(shot.Description, shot.Title)}
+	if revision != nil {
+		sub.Size = revision.ShotSize
+		sub.Camera = strings.TrimSpace(strings.Join(nonEmpty(revision.CameraAngle, revision.CameraMovement), "，"))
+		sub.Text = strings.TrimSpace(strings.Join(nonEmpty(revision.PlotDescription, revision.Action), "。"))
+		sub.Lines = parseLegacyDialogue(revision.Dialogue)
+		seg.Rules = revision.ContinuityNotes
+	}
+	if sub.Text == "" {
+		sub.Text = shot.Title
+	}
+	seg.Shots = []drama.SubShot{sub}
+	references, err := s.repo.ShotAssetReferencesForShot(shot.ID)
+	if err != nil {
+		return drama.Segment{}, nil, false, err
+	}
+	for _, ref := range references {
+		version, err := s.repo.AssetVersionForProject(projectID, ref.AssetVersionID)
+		if err != nil {
+			continue
+		}
+		info := assets[version.AssetID]
+		seg.Refs = append(seg.Refs, drama.Ref{File: ref.AssetVersionID, Role: dramaRefRole(info.Category), Note: info.Title})
+	}
+	if len(seg.Refs) > 0 {
+		seg.Mode = drama.ModeLockIdentity
+	}
+	return seg, revision, true, nil
+}
+
+func nonEmpty(values ...string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			out = append(out, strings.TrimSpace(v))
+		}
+	}
+	return out
+}
+
+// DramaSegments 列出项目（或某章）的全部段。
+func (s *Service) DramaSegments(userID string, projectID string, unitID string) ([]DramaSegmentView, error) {
+	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+		return nil, err
+	}
+	shots, err := s.repo.ProjectShots(projectID)
+	if err != nil {
+		return nil, err
+	}
+	units, err := s.repo.ProjectUnitSummaries(projectID)
+	if err != nil {
+		return nil, err
+	}
+	unitTitles := map[string]string{}
+	for _, unit := range units {
+		unitTitles[unit.ID] = unit.Title
+	}
+	assets := s.dramaAssetIndex(userID, projectID)
+	out := []DramaSegmentView{}
+	for i := range shots {
+		shot := &shots[i]
+		if unitID != "" && shot.UnitID != unitID {
+			continue
+		}
+		seg, revision, derived, err := s.segmentForShot(userID, projectID, shot, unitTitles[shot.UnitID], assets)
+		if err != nil {
+			return nil, err
+		}
+		view := DramaSegmentView{ShotID: shot.ID, UnitID: shot.UnitID, Title: shot.Title, Position: shot.Position, DurationMs: shot.DurationMs, Spec: seg, Derived: derived}
+		if revision != nil {
+			view.RevisionID = revision.ID
+		}
+		out = append(out, view)
+	}
+	return out, nil
+}
+
+// WriteDramaSegments 按段号新增或修改一章的段：已有段号的写新版本，新段号建新镜头。不删除段。
+func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]DramaSegmentView, error) {
+	project, err := s.activeProjectForUser(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	unitID := strings.TrimSpace(req.UnitID)
+	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
+		return nil, err
+	}
+	if len(req.Segments) == 0 || len(req.Segments) > 60 {
+		return nil, BadAuthRequest("一次写入 1 到 60 段")
+	}
+	m, err := projectDramaModel(project)
+	if err != nil {
+		return nil, err
+	}
+	parsed := make([]drama.Segment, 0, len(req.Segments))
+	for _, raw := range req.Segments {
+		seg, err := drama.ParseSegment(raw)
+		if err != nil {
+			return nil, BadAuthRequest(err.Error())
+		}
+		if issues := drama.Issues(seg, m); drama.HasError(issues) {
+			for _, issue := range issues {
+				if issue.Level == "error" && strings.Contains(issue.Message, "超过") && strings.Contains(issue.Message, "时长") {
+					return nil, segmentTooLongError(m, seg.ID, int64(seg.Dur*1000))
+				}
+			}
+			return nil, BadAuthRequest(issues[0].Message)
+		}
+		parsed = append(parsed, seg)
+	}
+	existing, err := s.DramaSegments(userID, projectID, unitID)
+	if err != nil {
+		return nil, err
+	}
+	byID := map[string]DramaSegmentView{}
+	maxPosition := -1
+	for _, view := range existing {
+		byID[view.Spec.ID] = view
+		maxPosition = max(maxPosition, view.Position)
+	}
+	for _, seg := range parsed {
+		spec, _ := json.Marshal(seg)
+		title := firstNonEmpty(seg.Title, seg.ID)
+		input := CreateProjectShotRequest{UnitID: unitID, Title: seg.ID + " " + title, Revision: ShotRevisionInput{Spec: spec}}
+		if view, ok := byID[seg.ID]; ok {
+			input.ID = view.ShotID
+			input.Position = view.Position
+		} else {
+			maxPosition++
+			input.Position = maxPosition
+		}
+		if seg.Title == "" {
+			input.Title = seg.ID
+		}
+		if _, err := s.CreateProjectShot(userID, projectID, input); err != nil {
+			return nil, err
+		}
+	}
+	return s.DramaSegments(userID, projectID, unitID)
+}
+
+// CompileProjectShot 把一段编译成项目生成模型（或指定模型）的提示词。
+func (s *Service) CompileProjectShot(userID string, projectID string, shotID string, req CompileProjectShotRequest) (DramaCompileResult, error) {
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	shot, err := s.repo.ShotForProject(projectID, strings.TrimSpace(shotID))
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	unitTitle := ""
+	if shot.UnitID != "" {
+		if unit, unitErr := s.repo.ProjectUnit(projectID, shot.UnitID); unitErr == nil {
+			unitTitle = unit.Title
+		}
+	}
+	seg, _, derived, err := s.segmentForShot(userID, projectID, shot, unitTitle, s.dramaAssetIndex(userID, projectID))
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	modelID := firstNonEmpty(strings.TrimSpace(req.Model), project.GenerationModel)
+	m, err := drama.ResolveModel(modelID)
+	if err != nil {
+		return DramaCompileResult{}, BadAuthRequest(err.Error())
+	}
+	result, err := drama.Compile(seg, m, req.Style, req.Acting)
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result}, nil
+}
+
+// ---------------------------------------------------------------- 证据、选中、进度
+
+func evidenceStates(items []model.ShotEvidence) []drama.EvidenceState {
+	out := make([]drama.EvidenceState, 0, len(items))
+	for _, e := range items {
+		out = append(out, drama.EvidenceState{ShotID: e.ShotID, ArtifactID: e.ArtifactID, Kind: e.Kind, Passed: e.Passed, CreatedAt: e.CreatedAt})
+	}
+	return out
+}
+
+func (s *Service) ProjectEvidence(userID string, projectID string) ([]model.ShotEvidence, error) {
+	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+		return nil, err
+	}
+	return s.repo.ProjectShotEvidence(projectID)
+}
+
+func (s *Service) shotHasDialogue(projectID string, shot *model.Shot) bool {
+	if shot.CurrentRevisionID == "" {
+		return false
+	}
+	revision, err := s.repo.ShotRevisionForShot(shot.ID, shot.CurrentRevisionID)
+	if err != nil {
+		return false
+	}
+	if seg, err := drama.ParseSegment([]byte(revision.SpecJSON)); err == nil {
+		return seg.HasDialogue()
+	}
+	return strings.TrimSpace(revision.Dialogue) != ""
+}
+
+func (s *Service) expectedDialogue(shot *model.Shot) string {
+	if shot.CurrentRevisionID == "" {
+		return ""
+	}
+	revision, err := s.repo.ShotRevisionForShot(shot.ID, shot.CurrentRevisionID)
+	if err != nil {
+		return ""
+	}
+	if seg, err := drama.ParseSegment([]byte(revision.SpecJSON)); err == nil {
+		return seg.Dialogue()
+	}
+	var b strings.Builder
+	for _, line := range parseLegacyDialogue(revision.Dialogue) {
+		b.WriteString(line.Text)
+	}
+	return b.String()
+}
+
+// CreateShotEvidence 记一条证据。听写证据必须给转写任务，由服务端按该段台词算字错率；门禁和交付证据只能由对应接口生成。
+func (s *Service) CreateShotEvidence(userID string, projectID string, req CreateShotEvidenceRequest) (model.ShotEvidence, error) {
+	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+		return model.ShotEvidence{}, err
+	}
+	kind := strings.TrimSpace(req.Kind)
+	if !drama.ValidEvidenceKind(kind) {
+		return model.ShotEvidence{}, BadAuthRequest("不支持的证据种类：" + kind)
+	}
+	if kind == drama.EvidenceGate || kind == drama.EvidenceDelivery || kind == drama.EvidencePick {
+		return model.ShotEvidence{}, BadAuthRequest("门禁、交付和选中证据由对应操作自动记录")
+	}
+	if utf8.RuneCountInString(req.Note) > dramaNoteMaxRunes {
+		return model.ShotEvidence{}, BadAuthRequest("说明过长")
+	}
+	evidence := model.ShotEvidence{ID: newID(), ProjectID: projectID, Kind: kind, Passed: req.Passed, Note: strings.TrimSpace(req.Note), CreatedBy: userID, CreatedAt: time.Now()}
+	var shot *model.Shot
+	if artifactID := strings.TrimSpace(req.ArtifactID); artifactID != "" {
+		artifact, err := s.repo.ShotArtifactForProject(projectID, artifactID)
+		if err != nil {
+			return model.ShotEvidence{}, err
+		}
+		evidence.ArtifactID, evidence.ShotID, evidence.UnitID = artifact.ID, artifact.ShotID, artifact.UnitID
+	} else if shotID := strings.TrimSpace(req.ShotID); shotID != "" {
+		evidence.ShotID = shotID
+	}
+	if evidence.ShotID != "" {
+		found, err := s.repo.ShotForProject(projectID, evidence.ShotID)
+		if err != nil {
+			return model.ShotEvidence{}, err
+		}
+		shot = found
+		evidence.UnitID = found.UnitID
+	}
+	if kind != drama.EvidenceAcceptance && kind != drama.EvidenceReview && evidence.ArtifactID == "" {
+		return model.ShotEvidence{}, BadAuthRequest("这种证据必须挂在一条候选上")
+	}
+	if resourceID := strings.TrimSpace(req.ResourceID); resourceID != "" {
+		if _, err := s.repo.ResourceForUser(userID, resourceID); err != nil {
+			return model.ShotEvidence{}, err
+		}
+		evidence.ResourceID = resourceID
+	}
+	metrics := req.Metrics
+	if metrics == nil {
+		metrics = map[string]any{}
+	}
+	if kind == drama.EvidenceTranscript {
+		taskID := strings.TrimSpace(req.TaskID)
+		if taskID == "" {
+			return model.ShotEvidence{}, BadAuthRequest("听写证据需要转写任务（先对候选发起转写）")
+		}
+		task, err := s.repo.TaskForUser(userID, taskID)
+		if err != nil {
+			return model.ShotEvidence{}, err
+		}
+		if task.Type != model.TaskTypeTimelineTranscription || task.Status != model.TaskStatusSucceeded {
+			return model.ShotEvidence{}, BadAuthRequest("转写任务还没有成功完成")
+		}
+		var result timelineTranscriptionResult
+		if err := json.Unmarshal([]byte(task.ResultJSON), &result); err != nil {
+			return model.ShotEvidence{}, BadAuthRequest("转写结果无法读取")
+		}
+		var heard strings.Builder
+		for _, segment := range result.Segments {
+			heard.WriteString(segment.Text)
+		}
+		expected := s.expectedDialogue(shot)
+		cer := drama.CER(expected, heard.String())
+		metrics = map[string]any{"cer": cer, "threshold": drama.DefaultCERThreshold, "expected": expected, "heard": heard.String(), "segments": result.Segments}
+		ok := cer <= drama.DefaultCERThreshold
+		evidence.Passed = &ok
+		evidence.TaskID = task.ID
+	}
+	if kind == drama.EvidenceLevels || kind == drama.EvidenceVoice {
+		evidence.Passed = nil
+	}
+	encoded, err := json.Marshal(metrics)
+	if err != nil {
+		return model.ShotEvidence{}, BadAuthRequest("量数格式无效")
+	}
+	evidence.MetricsJSON = string(encoded)
+	if err := s.repo.CreateShotEvidence(&evidence); err != nil {
+		return model.ShotEvidence{}, err
+	}
+	return evidence, nil
+}
+
+// PickShotArtifact 选中一条视频候选：三项证据（同一个人、台词一字不差、无崩坏）不齐不能选。
+func (s *Service) PickShotArtifact(userID string, projectID string, artifactID string, req PickShotArtifactRequest) (model.ShotArtifact, error) {
+	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+		return model.ShotArtifact{}, err
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" || utf8.RuneCountInString(reason) > dramaPickReasonRunes {
+		return model.ShotArtifact{}, BadAuthRequest("选中要写一句理由（200 字以内）")
+	}
+	artifact, err := s.repo.ShotArtifactForProject(projectID, strings.TrimSpace(artifactID))
+	if err != nil {
+		return model.ShotArtifact{}, err
+	}
+	if artifact.Type != drama.ArtifactVideo {
+		return model.ShotArtifact{}, BadAuthRequest("只有视频候选需要按证据选中")
+	}
+	shot, err := s.repo.ShotForProject(projectID, artifact.ShotID)
+	if err != nil {
+		return model.ShotArtifact{}, err
+	}
+	evidence, err := s.repo.ProjectShotEvidence(projectID)
+	if err != nil {
+		return model.ShotArtifact{}, err
+	}
+	if missing := drama.MissingEvidence(evidenceStates(evidence), artifact.ID, s.shotHasDialogue(projectID, shot)); len(missing) > 0 {
+		appErr := NewAppError(http.StatusBadRequest, "这条候选还缺证据："+strings.Join(missing, "、"))
+		appErr.Reason = ReasonEvidenceMissing
+		return model.ShotArtifact{}, appErr
+	}
+	now := time.Now()
+	selected, err := s.repo.SelectShotArtifact(projectID, artifact.ID, now)
+	if err != nil {
+		if errors.Is(err, repository.ErrShotArtifactNotReady) {
+			return model.ShotArtifact{}, BadAuthRequest(err.Error())
+		}
+		return model.ShotArtifact{}, err
+	}
+	pass := true
+	pick := model.ShotEvidence{ID: newID(), ProjectID: projectID, UnitID: artifact.UnitID, ShotID: artifact.ShotID, ArtifactID: artifact.ID, Kind: drama.EvidencePick, Passed: &pass, MetricsJSON: "{}", Note: reason, CreatedBy: userID, CreatedAt: now}
+	if err := s.repo.CreateShotEvidence(&pick); err != nil {
+		return model.ShotArtifact{}, err
+	}
+	return *selected, nil
+}
+
+// DramaProgress 由产物和证据推导进度表与八个终态。
+func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress, error) {
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	m, err := projectDramaModel(project)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	shots, err := s.repo.ProjectShots(projectID)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	revisions, err := s.repo.ProjectShotRevisions(projectID)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	revisionByID := map[string]*model.ShotRevision{}
+	for i := range revisions {
+		revisionByID[revisions[i].ID] = &revisions[i]
+	}
+	references, err := s.repo.ProjectShotAssetReferences(projectID)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	refCount := map[string]int{}
+	for _, ref := range references {
+		refCount[ref.ShotID]++
+	}
+	units, err := s.repo.ProjectUnitSummaries(projectID)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	unitOrder, unitTitle := map[string]int{}, map[string]string{}
+	for _, unit := range units {
+		unitOrder[unit.ID], unitTitle[unit.ID] = unit.Position, unit.Title
+	}
+	sort.SliceStable(shots, func(i, j int) bool {
+		if unitOrder[shots[i].UnitID] != unitOrder[shots[j].UnitID] {
+			return unitOrder[shots[i].UnitID] < unitOrder[shots[j].UnitID]
+		}
+		return shots[i].Position < shots[j].Position
+	})
+	input := drama.ProgressInput{Model: m, AuthMode: project.AuthMode, BriefJSON: project.BriefJSON, BibleJSON: project.BibleJSON}
+	for i := range shots {
+		shot := shots[i]
+		row := drama.ShotInput{ID: shot.ID, UnitID: shot.UnitID, UnitTitle: unitTitle[shot.UnitID], Title: shot.Title, Position: shot.Position, DurationMs: shot.DurationMs, RefCount: refCount[shot.ID]}
+		if rev := revisionByID[shot.CurrentRevisionID]; rev != nil {
+			inputs := revisionInputs(rev)
+			row.Revision = &inputs
+			if seg, err := drama.ParseSegment([]byte(rev.SpecJSON)); err == nil && len(seg.Refs) > 0 && row.RefCount == 0 {
+				row.RefCount = len(seg.Refs)
+			}
+			if seg, err := drama.ParseSegment([]byte(rev.SpecJSON)); err == nil && seg.Mode != drama.ModeLockIdentity {
+				row.RefCount = max(row.RefCount, 1)
+			}
+		}
+		input.Shots = append(input.Shots, row)
+	}
+	artifacts, err := s.repo.ProjectShotArtifacts(projectID)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	for _, a := range artifacts {
+		input.Artifacts = append(input.Artifacts, drama.ArtifactState{ID: a.ID, ShotID: a.ShotID, Type: a.Type, Status: a.Status, Selected: a.Selected, UpdatedAt: a.UpdatedAt})
+	}
+	evidence, err := s.repo.ProjectShotEvidence(projectID)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	input.Evidence = evidenceStates(evidence)
+	return drama.Derive(input), nil
+}
+
+// ---------------------------------------------------------------- 量数：转写、抽帧、门禁
+
+func (s *Service) dramaArtifactForQA(userID string, projectID string, artifactID string) (*model.ShotArtifact, error) {
+	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+		return nil, err
+	}
+	artifact, err := s.repo.ShotArtifactForProject(projectID, strings.TrimSpace(artifactID))
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(artifact.ResourceID) == "" {
+		return nil, BadAuthRequest("这条候选没有媒体文件")
+	}
+	return artifact, nil
+}
+
+// DramaTranscribe 对一条候选创建本地转写任务；完成后用 CreateShotEvidence(kind=transcript, taskId) 记字错率。
+func (s *Service) DramaTranscribe(userID string, projectID string, artifactID string) (*model.Task, error) {
+	artifact, err := s.dramaArtifactForQA(userID, projectID, artifactID)
+	if err != nil {
+		return nil, err
+	}
+	return s.CreateTimelineTranscriptionTask(userID, TimelineTranscriptionCreateRequest{ResourceID: artifact.ResourceID, ProjectID: projectID, Language: "zh"})
+}
+
+// withResourceFile 把资源下载到临时文件交给 fn（量数工具只读本地文件）。
+func (s *Service) withResourceFile(userID string, resourceID string, fn func(path string, resource *model.Resource) error) error {
+	resource, reader, err := s.OpenResource(userID, resourceID)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	dir, err := os.MkdirTemp("", "drama-measure-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	ext := filepath.Ext(resource.ObjectKey)
+	if ext == "" {
+		ext = ".mp4"
+	}
+	path := filepath.Join(dir, "media"+ext)
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	if _, err := file.ReadFrom(reader); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return fn(path, resource)
+}
+
+// DramaFrames 给一条候选出抽帧拼图，存成资源并记一条结论待定的 frames 证据。
+func (s *Service) DramaFrames(userID string, projectID string, artifactID string) (model.ShotEvidence, error) {
+	artifact, err := s.dramaArtifactForQA(userID, projectID, artifactID)
+	if err != nil {
+		return model.ShotEvidence{}, err
+	}
+	tools, err := drama.DefaultTools()
+	if err != nil {
+		return model.ShotEvidence{}, NewAppError(http.StatusServiceUnavailable, err.Error())
+	}
+	var sheet *model.Resource
+	err = s.withResourceFile(userID, artifact.ResourceID, func(path string, _ *model.Resource) error {
+		out := filepath.Join(filepath.Dir(path), "sheet.jpg")
+		if err := drama.ContactSheet(context.Background(), tools, path, out); err != nil {
+			return BadAuthRequest(err.Error())
+		}
+		file, err := os.Open(out)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		sheet, err = s.UploadResourceFile(userID, "contact-sheet-"+artifact.ID+".jpg", info.Size(), "image", 0, 0, 0, file)
+		return err
+	})
+	if err != nil {
+		return model.ShotEvidence{}, err
+	}
+	evidence := model.ShotEvidence{ID: newID(), ProjectID: projectID, UnitID: artifact.UnitID, ShotID: artifact.ShotID, ArtifactID: artifact.ID, Kind: drama.EvidenceFrames, MetricsJSON: "{}", ResourceID: sheet.ID, Note: "抽帧拼图，待看过后判无崩坏", CreatedBy: userID, CreatedAt: time.Now()}
+	if err := s.repo.CreateShotEvidence(&evidence); err != nil {
+		return model.ShotEvidence{}, err
+	}
+	return evidence, nil
+}
+
+var briefLoudnessPattern = regexp.MustCompile(`(-\d+(?:\.\d+)?)\s*LUFS`)
+
+func briefTargetLUFS(project *model.Project) float64 {
+	var doc struct {
+		Platform struct {
+			Value string `json:"value"`
+		} `json:"platform"`
+	}
+	if json.Unmarshal([]byte(project.BriefJSON), &doc) == nil {
+		if m := briefLoudnessPattern.FindStringSubmatch(doc.Platform.Value); m != nil {
+			if v, err := strconv.ParseFloat(m[1], 64); err == nil {
+				return v
+			}
+		}
+	}
+	return drama.DefaultTargetLUFS
+}
+
+// DramaGate 对成片（或一条候选）跑门禁；不给候选时记为成片级证据。
+func (s *Service) DramaGate(userID string, projectID string, req DramaGateRequest) (DramaGateResult, error) {
+	project, err := s.activeProjectForUser(userID, projectID)
+	if err != nil {
+		return DramaGateResult{}, err
+	}
+	evidence := model.ShotEvidence{ID: newID(), ProjectID: projectID, Kind: drama.EvidenceGate, CreatedBy: userID}
+	resourceID := strings.TrimSpace(req.ResourceID)
+	if artifactID := strings.TrimSpace(req.ArtifactID); artifactID != "" {
+		artifact, err := s.dramaArtifactForQA(userID, projectID, artifactID)
+		if err != nil {
+			return DramaGateResult{}, err
+		}
+		resourceID = artifact.ResourceID
+		evidence.ArtifactID, evidence.ShotID, evidence.UnitID, evidence.Kind = artifact.ID, artifact.ShotID, artifact.UnitID, drama.EvidenceLevels
+	}
+	if resourceID == "" {
+		// 不指定时检查最近一次剪辑导出的成片。
+		if film := s.latestProjectFilm(userID, projectID); film != nil {
+			resourceID = film.ResourceID
+			evidence.TaskID = film.TaskID
+		}
+	}
+	if resourceID == "" {
+		return DramaGateResult{}, BadAuthRequest("还没有导出的成片：请先在剪辑里导出，或指定成片资源与候选")
+	}
+	target := briefTargetLUFS(project)
+	if req.TargetLUFS != nil {
+		target = *req.TargetLUFS
+	}
+	tools, err := drama.DefaultTools()
+	if err != nil {
+		return DramaGateResult{}, NewAppError(http.StatusServiceUnavailable, err.Error())
+	}
+	var report drama.GateReport
+	err = s.withResourceFile(userID, resourceID, func(path string, _ *model.Resource) error {
+		var measureErr error
+		report, measureErr = drama.Gate(context.Background(), tools, path, target)
+		if measureErr != nil {
+			return BadAuthRequest(measureErr.Error())
+		}
+		return nil
+	})
+	if err != nil {
+		return DramaGateResult{}, err
+	}
+	encoded, _ := json.Marshal(report)
+	evidence.MetricsJSON = string(encoded)
+	evidence.ResourceID = resourceID
+	if evidence.Kind == drama.EvidenceGate {
+		passed := report.Passed
+		evidence.Passed = &passed
+		evidence.Note = "成片门禁"
+	} else {
+		evidence.Note = "候选响度量数（只报数）"
+	}
+	evidence.CreatedAt = time.Now()
+	if err := s.repo.CreateShotEvidence(&evidence); err != nil {
+		return DramaGateResult{}, err
+	}
+	return DramaGateResult{Report: report, Evidence: evidence}, nil
+}
+
+// enforceDramaSegmentTaskDuration 拦下超过项目生成模型单段上限的短剧视频任务（只看带项目和镜头标识的任务）。
+func (s *Service) enforceDramaSegmentTaskDuration(userID string, input map[string]any) error {
+	if mode, _ := input["mode"].(string); mode != "video" {
+		return nil
+	}
+	projectID, _ := input["domainProjectId"].(string)
+	shotID, _ := input["shotId"].(string)
+	if metadata, ok := input["metadata"].(map[string]any); ok {
+		if projectID == "" {
+			projectID, _ = metadata["domainProjectId"].(string)
+		}
+		if shotID == "" {
+			shotID, _ = metadata["shotId"].(string)
+		}
+	}
+	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(shotID) == "" {
+		return nil
+	}
+	config, _ := input["config"].(map[string]any)
+	seconds := 0.0
+	switch value := config["videoSeconds"].(type) {
+	case string:
+		seconds, _ = strconv.ParseFloat(strings.TrimSpace(value), 64)
+	case float64:
+		seconds = value
+	}
+	if seconds <= 0 {
+		return nil
+	}
+	project, err := s.repo.ProjectForUser(userID, strings.TrimSpace(projectID))
+	if err != nil {
+		return nil
+	}
+	m, err := projectDramaModel(project)
+	if err != nil {
+		return err
+	}
+	if seconds > float64(m.Duration.Max) {
+		return segmentTooLongError(m, "本段视频", int64(seconds*1000))
+	}
+	return nil
+}

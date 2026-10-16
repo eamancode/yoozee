@@ -127,6 +127,12 @@ type (
 	CreateProjectCharacterRequest          = app.CreateProjectCharacterRequest
 	CreateProjectRequest                   = app.CreateProjectRequest
 	CreateProjectShotRequest               = app.CreateProjectShotRequest
+	UpdateProjectDramaDocumentRequest      = app.UpdateProjectDramaDocumentRequest
+	DramaSegmentsWriteRequest              = app.DramaSegmentsWriteRequest
+	CompileProjectShotRequest              = app.CompileProjectShotRequest
+	CreateShotEvidenceRequest              = app.CreateShotEvidenceRequest
+	PickShotArtifactRequest                = app.PickShotArtifactRequest
+	DramaGateRequest                       = app.DramaGateRequest
 	CreateProjectUnitRequest               = app.CreateProjectUnitRequest
 	CreateRedeemBatchRequest               = app.CreateRedeemBatchRequest
 	CreateRedeemBatchResult                = app.CreateRedeemBatchResult

@@ -45,6 +45,9 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	if err != nil {
 		return nil, err
 	}
+	if err := s.enforceDramaSegmentTaskDuration(userID, normalizedInput); err != nil {
+		return nil, err
+	}
 	// Fail admission before queueing or charging; the worker validates again in
 	// case a tool is deleted or its visibility changes while queued.
 	toolMode, _ := normalizedInput["mode"].(string)

@@ -71,6 +71,7 @@ func (r *Repository) DeleteAdminResources(resources []model.Resource, deletionJo
 			{&model.AssetRepresentation{}, "resource_id IN ?"},
 			{&model.VoiceProfile{}, "sample_resource_id IN ?"},
 			{&model.ShotArtifact{}, "resource_id IN ?"},
+			{&model.ShotEvidence{}, "resource_id IN ?"},
 		} {
 			var count int64
 			if err := tx.Model(check.model).Where(check.query, resourceIDs).Count(&count).Error; err != nil {

@@ -32,6 +32,8 @@ const (
 	ReasonNotFound               ErrorReason = "not_found"
 	ReasonConflict               ErrorReason = "conflict"
 	ReasonProjectNameConflict    ErrorReason = "project_name_conflict"
+	ReasonSegmentTooLong         ErrorReason = "segment_too_long"
+	ReasonEvidenceMissing        ErrorReason = "evidence_missing"
 	ReasonCanvasResourcesMissing ErrorReason = "canvas_history_resources_missing"
 	ReasonFailedPrecondition     ErrorReason = "failed_precondition"
 	ReasonQuotaExceeded          ErrorReason = "quota_exceeded"

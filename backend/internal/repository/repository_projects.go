@@ -64,8 +64,26 @@ func (r *Repository) UpdateProject(project *model.Project) error {
 		"description": project.Description, "cover_resource_id": project.CoverResourceID,
 		"style_preset_id": project.StylePresetID, "style_profile_json": project.StyleProfileJSON,
 		"default_image_model": project.DefaultImageModel, "default_video_model": project.DefaultVideoModel,
+		"generation_model": project.GenerationModel, "auth_mode": project.AuthMode,
 		"status": project.Status, "revision": project.Revision, "updated_at": project.UpdatedAt,
 	}).Error
+}
+
+// UpdateProjectDramaDocument 写需求文档或连戏表（field 只能是 brief_json / bible_json）。
+func (r *Repository) UpdateProjectDramaDocument(userID string, projectID string, field string, value string, updatedAt time.Time) error {
+	if field != "brief_json" && field != "bible_json" {
+		return fmt.Errorf("不支持的项目文档字段: %s", field)
+	}
+	result := r.db.Model(&model.Project{}).Where("id = ? AND user_id = ?", projectID, userID).Updates(map[string]any{
+		field: value, "revision": gorm.Expr("revision + 1"), "updated_at": updatedAt,
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []model.CanvasProject) error {
@@ -115,6 +133,9 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 			return err
 		}
 		if err := tx.Where("project_id = ?", id).Delete(&model.ShotArtifact{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&model.ShotEvidence{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotRevision{}).Error; err != nil {

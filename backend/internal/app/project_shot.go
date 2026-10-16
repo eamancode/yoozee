@@ -35,6 +35,8 @@ type ShotRevisionInput struct {
 	NegativePrompt  string           `json:"negativePrompt"`
 	ContinuityNotes string           `json:"continuityNotes"`
 	ActionBeats     []map[string]any `json:"actionBeats"`
+	// Spec 是这一段的中性分段（契约 segment）。给了就以它为准，旧字段由它补齐。
+	Spec json.RawMessage `json:"spec,omitempty"`
 }
 
 type ReplaceProjectUnitShotsRequest struct {
@@ -68,7 +70,8 @@ type CreateAssetCandidatesRequest struct {
 const assetCandidateSourceChapterCharacter = "chapter_character_extract"
 
 func (s *Service) CreateProjectShot(userID string, projectID string, req CreateProjectShotRequest) (model.Shot, error) {
-	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+	project, err := s.activeProjectForUser(userID, projectID)
+	if err != nil {
 		return model.Shot{}, err
 	}
 	unitID := strings.TrimSpace(req.UnitID)
@@ -115,15 +118,19 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 	if err != nil {
 		return model.Shot{}, err
 	}
+	if err := ensureSegmentWithinModel(project, title, revision.DurationMs); err != nil {
+		return model.Shot{}, err
+	}
 	shot := model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, CurrentRevisionID: revision.ID, Title: title, Description: revision.PlotDescription, Position: req.Position, DurationMs: revision.DurationMs, Status: status, CreatedAt: now, UpdatedAt: updatedAt}
-	if err := s.repo.SaveShotWithRevision(&shot, &revision, create); err != nil {
+	if err := s.repo.SaveShotWithRevisionSelective(&shot, &revision, create, staleDeciderFor(&revision)); err != nil {
 		return model.Shot{}, err
 	}
 	return shot, nil
 }
 
 func (s *Service) ReplaceProjectUnitShots(userID string, projectID string, unitID string, req ReplaceProjectUnitShotsRequest) ([]model.Shot, error) {
-	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+	project, err := s.activeProjectForUser(userID, projectID)
+	if err != nil {
 		return nil, err
 	}
 	unitID = strings.TrimSpace(unitID)
@@ -146,6 +153,9 @@ func (s *Service) ReplaceProjectUnitShots(userID string, projectID string, unitI
 		shotID := newID()
 		revision, err := newShotRevision(userID, shotID, input.Revision, description, input.DurationMs, now)
 		if err != nil {
+			return nil, err
+		}
+		if err := ensureSegmentWithinModel(project, title, revision.DurationMs); err != nil {
 			return nil, err
 		}
 		revision.Version = 1
@@ -178,7 +188,8 @@ func (s *Service) ReplaceProjectUnitShots(userID string, projectID string, unitI
 }
 
 func (s *Service) CreateShotRevision(userID string, projectID string, shotID string, input ShotRevisionInput) (model.Shot, model.ShotRevision, error) {
-	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+	project, err := s.activeProjectForUser(userID, projectID)
+	if err != nil {
 		return model.Shot{}, model.ShotRevision{}, err
 	}
 	shot, err := s.repo.ShotForProject(projectID, strings.TrimSpace(shotID))
@@ -190,11 +201,14 @@ func (s *Service) CreateShotRevision(userID string, projectID string, shotID str
 	if err != nil {
 		return model.Shot{}, model.ShotRevision{}, err
 	}
+	if err := ensureSegmentWithinModel(project, shot.Title, revision.DurationMs); err != nil {
+		return model.Shot{}, model.ShotRevision{}, err
+	}
 	shot.Description = revision.PlotDescription
 	shot.DurationMs = revision.DurationMs
 	shot.Status = "draft"
 	shot.UpdatedAt = now
-	if err := s.repo.SaveShotWithRevision(shot, &revision, false); err != nil {
+	if err := s.repo.SaveShotWithRevisionSelective(shot, &revision, false, staleDeciderFor(&revision)); err != nil {
 		return model.Shot{}, model.ShotRevision{}, err
 	}
 	return *shot, revision, nil
@@ -215,6 +229,10 @@ func (s *Service) DeleteProjectShot(userID string, projectID string, shotID stri
 }
 
 func newShotRevision(userID string, shotID string, input ShotRevisionInput, fallbackDescription string, fallbackDuration int64, now time.Time) (model.ShotRevision, error) {
+	specJSON, err := applyRevisionSpec(&input)
+	if err != nil {
+		return model.ShotRevision{}, err
+	}
 	plotDescription := strings.TrimSpace(input.PlotDescription)
 	if plotDescription == "" {
 		plotDescription = strings.TrimSpace(fallbackDescription)
@@ -241,7 +259,7 @@ func newShotRevision(userID string, shotID string, input ShotRevisionInput, fall
 		ID: newID(), ShotID: shotID, PlotDescription: plotDescription, Action: strings.TrimSpace(input.Action), Dialogue: strings.TrimSpace(input.Dialogue),
 		ShotSize: strings.TrimSpace(input.ShotSize), CameraAngle: strings.TrimSpace(input.CameraAngle), CameraMovement: strings.TrimSpace(input.CameraMovement), DurationMs: durationMs,
 		ImagePrompt: strings.TrimSpace(input.ImagePrompt), VideoPrompt: strings.TrimSpace(input.VideoPrompt), NegativePrompt: strings.TrimSpace(input.NegativePrompt),
-		ContinuityNotes: strings.TrimSpace(input.ContinuityNotes), ActionBeatsJSON: actionBeatsJSON, CreatedBy: userID, CreatedAt: now,
+		ContinuityNotes: strings.TrimSpace(input.ContinuityNotes), ActionBeatsJSON: actionBeatsJSON, SpecJSON: specJSON, CreatedBy: userID, CreatedAt: now,
 	}, nil
 }
 

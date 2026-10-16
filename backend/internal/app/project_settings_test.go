@@ -21,7 +21,7 @@ func newProjectSettingsTestService(t *testing.T) (*Service, *gorm.DB) {
 		&model.Project{}, &model.ProjectUnit{}, &model.Resource{}, &model.Asset{}, &model.AssetVersion{}, &model.AssetRepresentation{},
 		&model.CanvasProject{}, &model.StyleProfile{}, &model.ProjectAssetCandidate{}, &model.WorkflowInstance{}, &model.WorkflowStepInstance{},
 		&model.CanvasSnapshot{}, &model.CanvasSnapshotResource{},
-		&model.Shot{}, &model.ShotArtifact{}, &model.VoiceProfile{},
+		&model.Shot{}, &model.ShotArtifact{}, &model.ShotEvidence{}, &model.VoiceProfile{},
 		&model.Task{}, &model.TaskLog{}, &model.Result{},
 		&model.CreationRun{}, &model.CreationSubmission{},
 		&model.CloudAgentResourceLease{}, &model.Tool{},
@@ -97,9 +97,17 @@ func TestUpdateProjectPersistsDefaultGenerationModels(t *testing.T) {
 
 	imageModel := " system-channel::image-model "
 	videoModel := "user-channel::MiniMax-H3"
-	updated, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{DefaultImageModel: &imageModel, DefaultVideoModel: &videoModel})
+	// 默认视频模型必须属于项目的生成模型族：先不改生成模型（默认 Seedance 2.0）应被拒绝。
+	if _, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{DefaultVideoModel: &videoModel}); err == nil {
+		t.Fatal("expected family mismatch between default video model and generation model to be rejected")
+	}
+	generationModel := "minimax-h3"
+	updated, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{DefaultImageModel: &imageModel, DefaultVideoModel: &videoModel, GenerationModel: &generationModel})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if updated.GenerationModel != generationModel {
+		t.Fatalf("generation model = %q", updated.GenerationModel)
 	}
 	if updated.DefaultImageModel != "system-channel::image-model" || updated.DefaultVideoModel != videoModel {
 		t.Fatalf("updated model defaults = %q / %q", updated.DefaultImageModel, updated.DefaultVideoModel)

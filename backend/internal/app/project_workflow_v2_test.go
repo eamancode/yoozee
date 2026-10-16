@@ -21,7 +21,7 @@ func newProjectWorkflowV2TestService(t *testing.T) (*Service, *gorm.DB) {
 	if err := db.AutoMigrate(
 		&model.Project{}, &model.ProjectUnit{}, &model.CanvasProject{}, &model.Asset{}, &model.AssetVersion{}, &model.ProjectAssetLink{}, &model.ProjectAssetCandidate{},
 		&model.AssetRepresentation{}, &model.CharacterVoiceBinding{},
-		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotAssetReference{},
+		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotEvidence{}, &model.ShotAssetReference{},
 		&model.WorkflowTemplateVersion{}, &model.WorkflowInstance{}, &model.WorkflowStepInstance{}, &model.WorkflowStepTask{},
 		&model.ProductionTaskLink{}, &model.Task{}, &model.Resource{},
 	); err != nil {

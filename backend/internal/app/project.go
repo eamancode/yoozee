@@ -24,6 +24,10 @@ type CreateProjectRequest struct {
 	StyleProfileJSON  string `json:"styleProfileJson"`
 	DefaultImageModel string `json:"defaultImageModel"`
 	DefaultVideoModel string `json:"defaultVideoModel"`
+	// GenerationModel 是视频生成模型族（seedance-2.0 / seedance-2.5 / minimax-h3），决定一段最长几秒；空则用默认。
+	GenerationModel string `json:"generationModel"`
+	// AuthMode：step 每步确认；full 全权。空则为每步确认。
+	AuthMode string `json:"authMode"`
 }
 
 type UpdateProjectRequest struct {
@@ -37,6 +41,8 @@ type UpdateProjectRequest struct {
 	StyleProfileJSON  *string `json:"styleProfileJson"`
 	DefaultImageModel *string `json:"defaultImageModel"`
 	DefaultVideoModel *string `json:"defaultVideoModel"`
+	GenerationModel   *string `json:"generationModel"`
+	AuthMode          *string `json:"authMode"`
 	Status            string  `json:"status"`
 }
 
@@ -253,7 +259,18 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 	if err != nil {
 		return model.Project{}, err
 	}
-	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	generationModel, err := normalizeProjectGenerationModel(req.GenerationModel)
+	if err != nil {
+		return model.Project{}, err
+	}
+	authMode, err := normalizeProjectAuthMode(req.AuthMode)
+	if err != nil {
+		return model.Project{}, err
+	}
+	if err := checkProjectVideoModelFamily(generationModel, defaultVideoModel); err != nil {
+		return model.Project{}, err
+	}
+	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel, GenerationModel: generationModel, AuthMode: authMode, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
 	if err := s.repo.CreateProject(&project); err != nil {
 		if errors.Is(err, repository.ErrProjectNameConflict) {
 			// 项目名称冲突需要明确返回 409，页面才能按已有逻辑换一个名称重试。
@@ -333,6 +350,29 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 			return model.Project{}, modelErr
 		}
 		project.DefaultVideoModel = defaultVideoModel
+	}
+	if req.GenerationModel != nil {
+		generationModel, modelErr := normalizeProjectGenerationModel(*req.GenerationModel)
+		if modelErr != nil {
+			return model.Project{}, modelErr
+		}
+		project.GenerationModel = generationModel
+	}
+	if req.AuthMode != nil {
+		authMode, modeErr := normalizeProjectAuthMode(*req.AuthMode)
+		if modeErr != nil {
+			return model.Project{}, modeErr
+		}
+		project.AuthMode = authMode
+	}
+	if req.GenerationModel != nil || req.DefaultVideoModel != nil {
+		generationModel, modelErr := normalizeProjectGenerationModel(project.GenerationModel)
+		if modelErr != nil {
+			return model.Project{}, modelErr
+		}
+		if err := checkProjectVideoModelFamily(generationModel, project.DefaultVideoModel); err != nil {
+			return model.Project{}, err
+		}
 	}
 	if err := validateStyleProfilePreset(project.StylePresetID, project.StyleProfileJSON); err != nil {
 		return model.Project{}, BadAuthRequest(err.Error())

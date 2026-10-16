@@ -43,6 +43,9 @@ type CloudAgentRequest struct {
 		MaxSteps int `json:"maxSteps,omitempty"`
 	} `json:"budget"`
 	IdempotencyKey string `json:"idempotencyKey"`
+	// DramaProjectID 是当前画布所属的短剧项目，由服务端在创建 run 时按画布定格（客户端传入值被忽略）；
+	// 非空时暴露 drama_* 项目工具。
+	DramaProjectID string `json:"dramaProjectId,omitempty"`
 	// VisionEnabled 决定是否给模型暴露看图工具，由服务端在创建 run 时按渠道模型合同
 	// （text.references.maxImages > 0）重新推导并覆盖，客户端传入值一律被忽略；
 	// 必须持久化：工具授权校验每步都从落库状态重建，丢掉这个标记会让模型看得见工具
@@ -466,6 +469,12 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	// 看图能力取决于本轮渠道模型自己的合同（text.references.maxImages），在建 run 时定格并
 	// 持久化：工具授权每步都从落库状态重建，运行期间不再变化，客户端传入值被忽略。
 	req.VisionEnabled = s.cloudAgentVisionEnabled(req)
+	req.DramaProjectID = ""
+	if canvas != nil && strings.TrimSpace(canvas.ProjectID) != "" {
+		if project, projectErr := s.repo.ProjectForUser(userID, canvas.ProjectID); projectErr == nil && project.Status != model.ProjectStatusArchived {
+			req.DramaProjectID = project.ID
+		}
+	}
 	canvasSummary := ""
 	if len(req.ContextScope) != 0 {
 		canvasSummary, err = cloudAgentCanvasSummary(canvas, req.FocusNodeIDs...)
