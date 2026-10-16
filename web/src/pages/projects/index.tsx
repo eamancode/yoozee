@@ -24,8 +24,10 @@ import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store"
 
 import { sourceTypeLabel } from "./detail/shared";
 import { Select } from "@/components/ui/base/select";
+import type { DramaAuthMode } from "@/services/api/drama";
+import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, dramaModelOptions, findDramaModel, useDramaModels } from "./drama-model";
 
-type ProjectForm = { name: string; aspectRatio: string; sourceType: string };
+type ProjectForm = { name: string; aspectRatio: string; sourceType: string; generationModel: string; authMode: DramaAuthMode };
 
 export default function ProjectsPage() {
     const navigate = useNavigate();
@@ -49,6 +51,13 @@ export default function ProjectsPage() {
     const [generatePerspective, setGeneratePerspective] = useState("第三人称");
     const [generateTone, setGenerateTone] = useState("平稳叙事");
     const [generateCharacterScale, setGenerateCharacterScale] = useState("3-4 个");
+    const dramaModels = useDramaModels();
+    const [launcherModel, setLauncherModel] = useState("");
+    const [launcherAuth, setLauncherAuth] = useState<DramaAuthMode>("step");
+    const defaultDramaModel = dramaModels.data?.default || DEFAULT_DRAMA_MODEL;
+    const createModelId = Form.useWatch("generationModel", createForm);
+    const createModel = findDramaModel(dramaModels.data, createModelId);
+    const createAuth = Form.useWatch("authMode", createForm);
     const [generating, setGenerating] = useState(false);
     const [generationStatus, setGenerationStatus] = useState("");
     const [generationPreview, setGenerationPreview] = useState("");
@@ -69,8 +78,10 @@ export default function ProjectsPage() {
             name: storyDraft.trim().slice(0, 24) || "",
             sourceType: createSource,
             aspectRatio: "9:16",
+            generationModel: launcherModel || defaultDramaModel,
+            authMode: launcherAuth,
         });
-    }, [createForm, createOpen, createSource, storyDraft]);
+    }, [createForm, createOpen, createSource, storyDraft, launcherModel, launcherAuth, defaultDramaModel]);
 
     const generateStory = async () => {
         const story = storyDraft.trim();
@@ -94,7 +105,7 @@ export default function ProjectsPage() {
         setGenerationStatus("正在创建项目…");
         setGenerationPreview("");
         try {
-            const project = await createUniqueProjectName(story, selectedStyle);
+            const project = await createUniqueProjectName(story, selectedStyle, { generationModel: launcherModel || defaultDramaModel, authMode: launcherAuth });
             setGenerationStatus("AI 正在生成故事大纲与章节…");
             const result = await runBackendGenerationTask({
                 projectId: project.project.id,
@@ -232,6 +243,8 @@ export default function ProjectsPage() {
                 <details className="story-launcher-options">
                     <summary>故事设置 · {generateChapterCount} 章 · {generatePerspective} · {generateTone}</summary>
                 <div className="story-launcher-controls">
+                    <label><span>生成模型</span><Select size="small" className="min-w-52" value={launcherModel || defaultDramaModel} onChange={setLauncherModel} options={dramaModelOptions(dramaModels.data)} /></label>
+                    <label><span>授权档位</span><Select size="small" className="min-w-28" value={launcherAuth} onChange={setLauncherAuth} options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} /></label>
                     <label><span>章节数量</span><Select size="small" className="min-w-28" value={generateChapterCount} onChange={setGenerateChapterCount} options={[{ label: "3 章", value: "3" }, { label: "5 章", value: "5" }, { label: "8 章", value: "8" }, { label: "10 章", value: "10" }]} /></label>
                     <label><span>叙事结构</span><Select size="small" className="min-w-32" value={generateStructure} onChange={setGenerateStructure} options={[{ label: "单线推进", value: "单线推进" }, { label: "双线并行", value: "双线并行" }, { label: "群像多线", value: "群像多线" }, { label: "反转嵌套", value: "反转嵌套" }]} /></label>
                     <label><span>章节篇幅</span><Select size="small" className="min-w-28" value={generateChapterLength} onChange={setGenerateChapterLength} options={[{ label: "精炼", value: "短" }, { label: "均衡", value: "中" }, { label: "丰满", value: "长" }]} /></label>
@@ -268,7 +281,7 @@ export default function ProjectsPage() {
             ) : null}
 
             <Modal className="library-modal" title="创建短剧项目" open={createOpen} footer={null} destroyOnHidden onCancel={() => setCreateOpen(false)} width={560} styles={{ body: { paddingTop: 12 } }}>
-                <Form<ProjectForm> form={createForm} layout="vertical" initialValues={{ aspectRatio: "9:16", sourceType: "blank" }} onFinish={(values) => mutation.mutate({ ...values, type: "short-drama", ...(selectedStyle ? { stylePresetId: selectedStyle.id, styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)) } : {}) })}>
+                <Form<ProjectForm> form={createForm} layout="vertical" initialValues={{ aspectRatio: "9:16", sourceType: "blank", generationModel: DEFAULT_DRAMA_MODEL, authMode: "step" }} onFinish={(values) => mutation.mutate({ ...values, type: "short-drama", ...(selectedStyle ? { stylePresetId: selectedStyle.id, styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)) } : {}) })}>
                     <div className="mb-4 grid grid-cols-3 gap-2">
                         <button type="button" className={createSource === "blank" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("blank"); createForm.setFieldValue("sourceType", "blank"); }}><FolderKanban className="size-4" /><span>空白开始</span></button>
                         <button type="button" className={createSource === "novel" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("novel"); createForm.setFieldValue("sourceType", "novel"); }}><FileText className="size-4" /><span>导入小说</span></button>
@@ -278,6 +291,10 @@ export default function ProjectsPage() {
                     <div className="grid grid-cols-2 gap-3">
                         <Form.Item name="aspectRatio" label="默认画幅"><Select options={[{ label: "9:16 竖屏", value: "9:16" }, { label: "16:9 横屏", value: "16:9" }, { label: "1:1 方形", value: "1:1" }]} /></Form.Item>
                         <Form.Item name="sourceType" label="内容来源"><Select options={[{ label: "空白开始", value: "blank" }, { label: "导入小说", value: "novel" }, { label: "粘贴文本", value: "text" }]} /></Form.Item>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <Form.Item name="generationModel" label="生成模型" rules={[{ required: true, message: "请选择生成模型" }]} extra={createModel ? `一段 = 一次生成，最长 ${createModel.duration.max} 秒；建项后可在设置里改，但已有超长的段需要先拆分。` : undefined}><Select loading={dramaModels.isLoading} options={dramaModelOptions(dramaModels.data)} /></Form.Item>
+                        <Form.Item name="authMode" label="授权档位" extra={DRAMA_AUTH_OPTIONS.find((item) => item.value === createAuth)?.hint}><Select options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} /></Form.Item>
                     </div>
                     <Form.Item label="项目画风"><button type="button" className="app-story-modal-style" onClick={() => setStylePickerOpen(true)}>{selectedStyle ? <><img src={selectedStyle.imageUrl} alt="" /><span>{selectedStyle.title}</span><em>更换</em></> : <><Palette className="size-4" /><span>选择项目画风（可选）</span></>}</button></Form.Item>
                     <p className="-mt-1 mb-5 text-xs leading-5 text-foreground/48">创建后先进入项目概览。章节、画风和参考资产可以逐步补充。</p>
@@ -325,7 +342,7 @@ export default function ProjectsPage() {
     );
 }
 
-async function createUniqueProjectName(story: string, selectedStyle: CanvasStylePreset | null) {
+async function createUniqueProjectName(story: string, selectedStyle: CanvasStylePreset | null, drama: { generationModel: string; authMode: DramaAuthMode }) {
     const base = story.trim().slice(0, 24);
     const buildInput = (name: string) => ({
         name,
@@ -333,6 +350,7 @@ async function createUniqueProjectName(story: string, selectedStyle: CanvasStyle
         aspectRatio: "9:16",
         sourceType: "blank",
         description: story.trim(),
+        ...drama,
         ...(selectedStyle ? { stylePresetId: selectedStyle.id, styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)) } : {}),
     });
     let attempt = 0;

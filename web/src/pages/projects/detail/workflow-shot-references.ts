@@ -214,3 +214,34 @@ function characterVoiceDescription(asset: ProjectAsset) {
 function stringValue(value: unknown) {
     return typeof value === "string" ? value.trim() : "";
 }
+
+/**
+ * 把方言编译结果里的素材清单（@图片N / @音频N）换成生成任务的参考媒体，顺序与编号一致。
+ * 契约里 file 是柚子资产 ID 或资产版本 ID；找不到的素材返回在 missing 里，由调用方拦下。
+ */
+export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: string, files: Array<{ file: string; tag: string; role: string }>) {
+    const references = (detail.shotReferences || []).filter((reference) => reference.shotId === shotId && reference.status === "linked");
+    const findAsset = (file: string) => {
+        const reference = references.find((item) => item.assetVersionId === file || item.asset?.id === file || item.referencedVersion?.id === file);
+        const asset = reference?.asset || detail.assets.find((item) => item.id === file || item.primaryVersionId === file);
+        return asset ? { asset, reference } : undefined;
+    };
+    const images: ReferenceImage[] = [];
+    const audios: ReferenceAudio[] = [];
+    const missing: string[] = [];
+    for (const item of files) {
+        const found = findAsset(item.file);
+        if (item.tag.startsWith("@图片")) {
+            const image = found ? projectAssetReferenceImage(found.asset, found.reference) : undefined;
+            if (image) images.push(image);
+            else missing.push(`${item.tag}（${item.file}）`);
+        } else if (item.tag.startsWith("@音频")) {
+            const sampleResourceId = stringValue(found?.asset.character?.voice?.profile.sampleResourceId);
+            if (found && sampleResourceId) audios.push({ id: `project-character-voice:${found.asset.id}`, name: `${found.asset.title}-声音样本`, type: "audio/*", url: resourceFileUrl(sampleResourceId), storageKey: resourceStorageKey(sampleResourceId) });
+            else missing.push(`${item.tag}（${item.file}）`);
+        } else {
+            missing.push(`${item.tag}（${item.file}，工作台暂不支持视频参考）`);
+        }
+    }
+    return { images, audios, missing };
+}

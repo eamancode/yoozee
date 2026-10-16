@@ -86,14 +86,6 @@ async function loadPendingCanvasMutationJournal(scope = getActiveUserScope()) {
     }
 }
 
-/** patch_node 的 patch 或 before 只要序列化后为空，服务端就会按「节点补丁缺少字段基线」整笔拒绝。 */
-function patchNodeLacksBaseline(operation: CanvasOperation): boolean {
-    if (operation.type !== "patch_node") return false;
-    const patch = operation.patch as Record<string, unknown> | undefined;
-    const before = operation.before as Record<string, unknown> | undefined;
-    return !patch || !Object.keys(patch).length || !before || !Object.keys(before).length;
-}
-
 /**
  * 修复旧版生成器写入 journal 的无效请求，这些请求服务端必然拒绝：
  * 1. 新画布请求在 create_canvas.patch 之后又追加了同字段 set_field（beforeValue 缺失或为 null），
@@ -103,26 +95,9 @@ function patchNodeLacksBaseline(operation: CanvasOperation): boolean {
  */
 export function repairPendingCanvasMutationRequest(request: CanvasOperationsRequest, baseline?: CanvasProject, prepared?: CanvasProject): CanvasOperationsRequest {
     let changed = false;
-
-    // 旧版生成器把 undefined 直接写进 patch/before，JSON 序列化会丢掉这些属性，于是整条
-    // patch_node 变成「空 patch」或「空 before」，服务端按「节点补丁缺少字段基线」整笔拒绝；
-    // journal 只在成功后删除，重放又是原样发送，画布就永远同步不上。
-    // 这类请求的字段意图已在线上格式里丢失，但 journal 同时保存了当时的基线与本地投影，可整批重建。
-    // mutationId 保持不变：被拒的请求整笔回滚、不写 receipt，不会触发 canvas_mutation_id_reused。
-    if (baseline && prepared && request.operations.some(patchNodeLacksBaseline)) {
-        const rebuilt = buildCanvasOperations(baseline, prepared);
-        if (rebuilt.length) return { ...request, operations: rebuilt };
-    }
-
     const create = request.operations.find((operation) => operation.type === "create_canvas");
     const createdFields = new Set(create && create.type === "create_canvas" ? Object.keys(create.patch || {}) : []);
     const kept = request.operations.filter((operation) => {
-        if (operation.type === "patch_node" && (!operation.patch || !Object.keys(operation.patch).length)) {
-            // 空 patch 本身就是 no-op。即便没有本地投影、拿不回原始字段意图，也不能让它
-            // 把整批请求永远卡在「节点补丁缺少字段基线」的 400 循环里。
-            changed = true;
-            return false;
-        }
         if (operation.type === "set_field" && operation.field === "projectId" && (operation.value === null || operation.value === undefined) && operation.beforeValue === "") {
             // 空字符串和缺省 projectId 都表示未关联项目。旧版本把这次语义上的 no-op
             // 记录成 set_field，服务端按字面字段比较时会误报冲突；移除它不会丢弃编辑。
@@ -134,20 +109,6 @@ export function repairPendingCanvasMutationRequest(request: CanvasOperationsRequ
         return false;
     });
     const operations = kept.map((operation) => {
-        if (operation.type === "patch_node") {
-            const before = (operation.before && typeof operation.before === "object" ? operation.before : {}) as Record<string, unknown>;
-            const paths = Object.keys((operation.patch || {}) as Record<string, unknown>);
-            const missing = paths.filter((path) => !Object.prototype.hasOwnProperty.call(before, path) || before[path] === undefined);
-            if (!missing.length) return operation;
-            // 旧版生成器把 undefined 直接塞进 before，JSON 序列化后 before 变成 {}，
-            // 服务端按「节点补丁缺少字段基线」整笔拒绝并无限重放。用 journal 里已确认的
-            // 基线补回这些字段的原始值；基线已被他人改写时会如实返回冲突，不再空转。
-            const node = ((baseline?.nodes || []) as unknown as Record<string, unknown>[]).find((item) => item.id === operation.id);
-            const repaired = { ...before };
-            for (const path of missing) repaired[path] = canvasOperationValue(node ? readCanvasOperationPath(node, path) : undefined);
-            changed = true;
-            return { ...operation, before: repaired };
-        }
         if (operation.type !== "set_field") return operation;
         const hasBefore = Object.prototype.hasOwnProperty.call(operation, "beforeValue") && operation.beforeValue !== undefined;
         const hasValue = Object.prototype.hasOwnProperty.call(operation, "value") && operation.value !== undefined;
@@ -924,26 +885,14 @@ function diffCanvasObject(before: Record<string, unknown>, after: Record<string,
             continue;
         }
         if (hasBefore && hasAfter && canvasOperationValueEqual(oldValue, newValue)) continue;
-        // undefined 不能出现在 JSON 里：JSON.stringify 会直接丢掉整个属性，把 before 变成 {}，
-        // 服务端按「节点补丁缺少字段基线」整笔拒绝。这里统一编码成 null，与 set_field 的规则一致。
-        previous[path] = canvasOperationValue(hasBefore ? oldValue : null);
-        patch[path] = canvasOperationValue(hasAfter ? newValue : null);
+        previous[path] = hasBefore ? oldValue : null;
+        patch[path] = hasAfter ? newValue : null;
     }
     return { patch, previous };
 }
 
 function canvasOperationValue(value: unknown) {
     return value === undefined ? null : value;
-}
-
-/** 按服务端的点分路径（如 metadata.prompt）读取对象字段，用于还原字段基线。 */
-function readCanvasOperationPath(source: Record<string, unknown>, path: string): unknown {
-    let current: unknown = source;
-    for (const key of path.split(".")) {
-        if (!current || typeof current !== "object") return undefined;
-        current = (current as Record<string, unknown>)[key];
-    }
-    return current;
 }
 
 const CANVAS_OPERATION_FIELDS = ["title", "projectId", "chatSessions", "activeChatId", "starterMode", "appearance", "backgroundMode", "showImageInfo", "previsScenes", "timeline"] as const;

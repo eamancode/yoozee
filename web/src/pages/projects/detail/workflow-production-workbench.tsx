@@ -54,7 +54,10 @@ import {
     formatDuration,
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { compileProjectShot } from "@/services/api/drama";
+import { findDramaModel, useDramaModels } from "../drama-model";
+import { DramaTakeEvidencePanel, useInvalidateDrama } from "./drama-panels";
 import { Select } from "@/components/ui/base/select";
 
 type ShotEditorValues = Omit<ShotRevisionInput, "durationMs"> & {
@@ -144,6 +147,12 @@ export default function WorkflowProductionWorkbench(props: Props) {
             ...(reference.asset?.primaryVersionId ? [[reference.asset.primaryVersionId, reference] as const] : []),
         ]));
     }, [detail.shotReferences, selectedShot?.id]);
+    const dramaModels = useDramaModels();
+    const dramaModel = findDramaModel(dramaModels.data, detail.project.generationModel);
+    const segmentMaxSeconds = dramaModel?.duration.max || 0;
+    const segmentSpecJson = revision?.specJson || "";
+    const segmentSpecShots = useMemo(() => segmentShotCount(segmentSpecJson), [segmentSpecJson]);
+    const invalidateDrama = useInvalidateDrama(projectId);
     const currentDurationSeconds = Number(watchedDuration || Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
     const generationSeconds = String(Math.max(1, Math.round(currentDurationSeconds)));
     const generationReferenceAudios = generationCapability === "video" ? shotAssetReferenceContext.referenceAudios : [];
@@ -296,10 +305,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 position: selectedShot.position,
                 durationMs: Math.round(values.durationSeconds * 1000),
                 status: selectedShot.status,
-                revision: revisionInput(values),
+                revision: revisionInput(values, segmentSpecJson),
             });
         },
-        onSuccess: async () => { setEditorDirty(false); await onRefresh(); message.success("镜头脚本已保存为新版本"); },
+        onSuccess: async () => { setEditorDirty(false); await Promise.all([onRefresh(), invalidateDrama()]); message.success("分段脚本已保存为新版本"); },
         onError: (error) => message.error(error instanceof Error ? error.message : "镜头保存失败"),
     });
 
@@ -348,10 +357,25 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 position: submittingShot.position,
                 durationMs: Math.round(values.durationSeconds * 1000),
                 status: submittingShot.status,
-                revision: revisionInput(values),
+                revision: revisionInput(values, segmentSpecJson),
             });
             const mode = generationCapability;
-            const config = { ...generationConfig, videoSeconds: String(Math.max(1, Math.round(values.durationSeconds))) };
+            let config = { ...generationConfig, videoSeconds: String(Math.max(1, Math.round(values.durationSeconds))) };
+            // 视频按项目生成模型的方言编译：分段 JSON 存在时，提示词和参考清单都以编译结果为准。
+            let dialect: { prompt: string; images: typeof shotAssetReferenceContext.referenceImages; audios: typeof generationReferenceAudios; metadata: Record<string, unknown> } | null = null;
+            if (mode === "video") {
+                const { compiled } = await compileProjectShot(projectId, saved.shot.id);
+                const errors = compiled.result.issues.filter((issue) => issue.level === "error");
+                if (errors.length) throw new Error(`分段检查未通过：${errors.map((issue) => issue.message).join("；")}`);
+                if (!compiled.derived) {
+                    const media = referenceMediaForCompiledFiles(detail, saved.shot.id, compiled.result.files);
+                    if (media.missing.length) throw new Error(`编译清单里的素材没有绑定到这一段：${media.missing.join("、")}`);
+                    const warnings = compiled.result.issues.filter((issue) => issue.level === "warn");
+                    if (warnings.length) message.warning(warnings.map((issue) => issue.message).join("；"));
+                    config = { ...config, videoSeconds: String(compiled.result.duration) };
+                    dialect = { prompt: compiled.result.prompt, images: media.images, audios: media.audios, metadata: { promptSource: "yoozee-dialect", dramaModel: compiled.result.model, dramaSegment: compiled.result.segment } };
+                }
+            }
             if (!isAiConfigReady(config, routedModel)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
             const basePrompt = mode === "video"
                 ? [values.videoPrompt || values.plotDescription, values.action, values.dialogue && `台词：${values.dialogue}`, values.continuityNotes].filter(Boolean).join("\n")
@@ -362,16 +386,18 @@ export default function WorkflowProductionWorkbench(props: Props) {
             // 放得下就注入（必要时按预算截断），放不下就整段不注入并提示，而不是等上游 4xx。
             const promptMaxChars = modelPromptMaxChars(effectiveConfig, routedModel, mode);
             const skillContextBudget = promptMaxChars > 0 ? promptMaxChars - Array.from(resolvedPrompt).length - SKILL_CONTEXT_OVERHEAD_CHARS : 0;
-            if (promptMaxChars > 0 && selectedSkillIds.length && skillContextBudget < MIN_SKILL_CONTEXT_CHARS) {
+            if (!dialect && promptMaxChars > 0 && selectedSkillIds.length && skillContextBudget < MIN_SKILL_CONTEXT_CHARS) {
                 message.warning("提示词已接近当前模型上限，本次未注入技能库；如需技能上下文请精简镜头提示词后重试");
             }
-            const skillExecution = await skillRuntime.prepare({
-                profile: "shortDrama",
-                prompt: resolvedPrompt,
-                skills: availableSkills,
-                selectedSkillIds,
-                ...(promptMaxChars > 0 ? { maxContextChars: Math.max(0, skillContextBudget) } : {}),
-            });
+            const skillExecution = dialect
+                ? { prompt: dialect.prompt, metadata: dialect.metadata }
+                : await skillRuntime.prepare({
+                    profile: "shortDrama",
+                    prompt: resolvedPrompt,
+                    skills: availableSkills,
+                    selectedSkillIds,
+                    ...(promptMaxChars > 0 ? { maxContextChars: Math.max(0, skillContextBudget) } : {}),
+                });
             const promptLengthError = modelPromptLengthError(effectiveConfig, routedModel, mode, skillExecution.prompt);
             if (promptLengthError) throw new Error(promptLengthError);
             await submitBackendGenerationTask({
@@ -379,8 +405,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 mode,
                 prompt: skillExecution.prompt,
                 config,
-                referenceImages: shotAssetReferenceContext.referenceImages,
-                referenceAudios: generationReferenceAudios,
+                referenceImages: dialect ? dialect.images : shotAssetReferenceContext.referenceImages,
+                referenceAudios: dialect ? dialect.audios : generationReferenceAudios,
                 metadata: {
                     ...skillExecution.metadata,
                     workflowStepId: productionStep.id,
@@ -391,13 +417,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     artifactType,
                     role: "output",
                     source: "short-drama-workflow",
-                    ...(mode === "video" && shotAssetReferenceContext.referenceImages.length ? { videoEditOperation: "reference_to_video" } : {}),
+                    ...(mode === "video" && (dialect ? dialect.images.length : shotAssetReferenceContext.referenceImages.length) ? { videoEditOperation: "reference_to_video" } : {}),
                     resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
                     artifactMetadata: { model: routedModel, aspectRatio, resolution, durationSeconds: values.durationSeconds, ...skillExecution.metadata },
                 },
             });
             if (activeShotIdRef.current === submittingShot.id) setEditorDirty(false);
-            await onRefresh();
+            await Promise.all([onRefresh(), invalidateDrama()]);
             message.success(`${productionStageCopy[activeStage as "storyboard" | "previz" | "video"].label}任务已提交`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "生成任务提交失败");
@@ -495,7 +521,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     </header>
                     <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate(values)}>
                         <div className="workflow-shot-form-scroll thin-scrollbar">
-                            <div className="workflow-form-section-heading"><span>镜头脚本</span><small>先写清镜头里发生什么，再调整生成参数</small></div>
+                            <div className="workflow-form-section-heading"><span>分段脚本</span><small>一段 = 一次生成；先写清段里发生什么，再调整生成参数</small></div>
+                            {segmentSpecShots ? <p className="mb-3 rounded-md bg-surface-active px-3 py-2 text-[var(--fs-label)] leading-5 text-foreground/55">这一段由分段表维护（段内 {segmentSpecShots} 个镜头）。生成视频时提示词按 {dramaModel?.label || "项目生成模型"} 方言从分段表编译，下面的视频提示词只作备注；改段内镜头、台词请让短剧 Agent 改分段表。</p> : null}
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
                             <Form.Item name="videoPrompt" label="视频提示词" rules={[{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
                             <BoundAssets detail={detail} shotId={selectedShot.id} changing={changeAssetBinding.isPending} onUnlink={(reference) => changeAssetBinding.mutate({ reference })} />
@@ -526,10 +553,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                     </Form.Item>
                                     <Form.Item label="技能库"><SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} /></Form.Item>
                                     <div className="workflow-form-grid is-three">
-                                        <Form.Item name="durationSeconds" label="镜头时长（秒）">
+                                        <Form.Item name="durationSeconds" label="段时长（秒）" extra={dramaModel ? `${dramaModel.label} 一段最长 ${segmentMaxSeconds} 秒` : undefined} rules={segmentMaxSeconds ? [{ validator: (_rule, value) => Number(value) > segmentMaxSeconds ? Promise.reject(new Error(`超过 ${dramaModel?.label} 一段 ${segmentMaxSeconds} 秒的上限，请拆成两段`)) : Promise.resolve() }] : undefined}>
                                             {generationCapability === "video" && videoProfile?.duration.selection === "enum"
-                                                ? <Select options={videoDurationOptions(videoProfile).map((value) => ({ value, label: `${value} 秒` }))} />
-                                                : <InputNumber className="w-full" min={generationCapability === "video" ? videoProfile?.duration.min || 1 : 0.5} max={generationCapability === "video" ? videoProfile?.duration.max || 60 : 60} step={generationCapability === "video" ? videoProfile?.duration.step || 1 : 0.5} />}
+                                                ? <Select options={videoDurationOptions(videoProfile).filter((value) => !segmentMaxSeconds || Number(value) <= segmentMaxSeconds).map((value) => ({ value, label: `${value} 秒` }))} />
+                                                : <InputNumber className="w-full" min={generationCapability === "video" ? videoProfile?.duration.min || 1 : 0.5} max={cappedSeconds(generationCapability === "video" ? videoProfile?.duration.max || 60 : 60, segmentMaxSeconds)} step={generationCapability === "video" ? videoProfile?.duration.step || 1 : 0.5} />}
                                         </Form.Item>
                                         {generationCapability === "video" ? <Form.Item label="画幅"><Select value={aspectRatio} onChange={setAspectRatio} options={(videoProfile?.ratios || []).map((value) => ({value, label:value}))} /></Form.Item> : null}
                                         {generationCapability === "video" ? (
@@ -592,6 +619,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
                         <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? `${formatDuration(selectedShot.durationMs)} · ${resolution}p · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
                         <div className="workflow-preview-actions"><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
+                        {activeStage === "video" && previewArtifact?.status === "ready" ? <DramaTakeEvidencePanel projectId={projectId} shotId={selectedShot.id} artifact={previewArtifact} characterImages={shotAssetReferenceContext.referenceImages} onPicked={onRefresh} /> : null}
                         <ArtifactHistory artifacts={artifacts.slice(0, 4)} activeId={previewArtifact?.id} onSelect={(artifact) => setPreviewArtifactId(artifact.id)} compact />
                     </div>
                 </aside>
@@ -759,8 +787,30 @@ function TimelineShot({ artifactType, detail, shot, task, submitting, index, sel
     return <button type="button" className={`workflow-timeline-shot ${selected ? "is-active" : ""}`} onClick={onSelect}><span className="workflow-timeline-media">{preview?.resourceId && preview.type !== "video" ? <img src={resourceFileUrl(preview.resourceId)} alt="" loading="lazy" /> : <Film />}</span><span className="workflow-timeline-copy"><span className="workflow-timeline-heading"><strong>{formatShotOrdinal(index)}</strong><b>{formatDuration(shot.durationMs)}</b></span>{customShotTitle(shot.title, index) ? <em className="workflow-timeline-title">{customShotTitle(shot.title, index)}</em> : null}<small className="workflow-timeline-meta">{cameraMeta}</small><span className="workflow-timeline-status"><span>{stageLabel}{stateArtifact ? ` · v${stateArtifact.version}` : ""}</span><ArtifactStatus artifact={stateArtifact} taskStatus={submitting ? "queued" : task?.status} compact /></span></span></button>;
 }
 
-function revisionInput(values: ShotEditorValues): ShotRevisionInput {
+function cappedSeconds(modelMax: number, segmentMax: number) {
+    return segmentMax ? Math.min(modelMax, segmentMax) : modelMax;
+}
+
+function parseSegmentSpec(specJson: string): Record<string, unknown> | undefined {
+    if (!specJson.trim()) return undefined;
+    try {
+        const parsed = JSON.parse(specJson);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function segmentShotCount(specJson: string) {
+    const shots = parseSegmentSpec(specJson)?.shots;
+    return Array.isArray(shots) ? shots.length : 0;
+}
+
+/** 保存时带上分段 JSON（只同步段时长），否则新版本会丢掉分段表。 */
+function revisionInput(values: ShotEditorValues, specJson = ""): ShotRevisionInput {
+    const spec = parseSegmentSpec(specJson);
     return {
+        ...(spec ? { spec: { ...spec, dur: values.durationSeconds } } : {}),
         plotDescription: values.plotDescription,
         action: values.action,
         dialogue: values.dialogue,

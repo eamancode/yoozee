@@ -16,6 +16,12 @@ export type Project = {
     styleProfileJson?: string;
     defaultImageModel?: string;
     defaultVideoModel?: string;
+    /** 短剧生成模型族（kb-dialects/models.json 的 id），决定一段最长秒数。 */
+    generationModel?: string;
+    /** 授权档位：step 每步确认，full 全权。 */
+    authMode?: "step" | "full" | "";
+    briefJson?: string;
+    bibleJson?: string;
     status: "active" | "archived" | string;
     revision: number;
     createdAt: string;
@@ -161,6 +167,8 @@ export type ShotRevision = {
     negativePrompt: string;
     continuityNotes: string;
     actionBeatsJson: string;
+    /** 契约 segment JSON（一段 = 一次生成，段内多镜头）；为空时由旧字段推导。 */
+    specJson?: string;
     createdBy?: string;
     createdAt: string;
 };
@@ -178,6 +186,8 @@ export type ShotArtifact = {
     status: "pending" | "running" | "ready" | "failed" | "stale" | string;
     selected: boolean;
     metadataJson: string;
+    /** 生成时输入的哈希；输入变了才会被标记为过期。 */
+    inputHash?: string;
     createdAt: string;
     updatedAt: string;
 };
@@ -195,6 +205,8 @@ export type ShotRevisionInput = {
     negativePrompt?: string;
     continuityNotes?: string;
     actionBeats?: Array<Record<string, unknown>>;
+    /** 契约 segment；提交后服务端按项目生成模型校验段长。 */
+    spec?: Record<string, unknown>;
 };
 
 export type ShotAssetReference = {
@@ -431,11 +443,11 @@ function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
     };
 }
 
-export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string }) {
+export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string; generationModel?: string; authMode?: "step" | "full" }) {
     return http.post<{ project: Project }>("/projects", input);
 }
 
-export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "status">>) {
+export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "authMode" | "status">>) {
     return http.patch<{ project: Project }>(`/projects/${encodeURIComponent(projectId)}`, input);
 }
 

@@ -6,6 +6,7 @@ import type { ProjectStageCell, ProjectWorkbenchAction } from "@/lib/project-wor
 import type { ProjectOverview, ProjectOverviewMetrics } from "@/services/api/projects";
 
 import { formatTime, type ProjectDetailViewProps } from "./shared";
+import { DramaOverviewPanel } from "./drama-panels";
 
 export default function ProjectOverviewView({ detail, overview }: ProjectDetailViewProps & { overview: ProjectOverview }) {
     const { project } = detail;
@@ -29,11 +30,11 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
     const productionSteps = [
         { id: "story", icon: BookOpenText, label: "剧情章节", description: "导入或编写正文，确认每章叙事目标", metric: `${metrics.unitCount} 章 · ${formatCompactCount(metrics.totalWordCount)} 字`, href: `/projects/${project.id}/chapters`, complete: metrics.unitCount > 0 },
         { id: "assets", icon: UsersRound, label: "角色与资产", description: "确认角色、场景、道具和项目画风", metric: `${metrics.assetCount} 项资产`, href: `/projects/${project.id}/assets`, complete: metrics.assetCount > 0 },
-        { id: "storyboard", icon: Clapperboard, label: "分镜脚本与画面", description: "拆分镜头并确认构图、对白和时长", metric: `${metrics.shotCount} 镜 · ${metrics.readyStoryboardCount} 张图`, href: workflowHref("storyboard"), complete: metrics.shotCount > 0 },
-        { id: "previz", icon: PlaySquare, label: "动作预演", description: "检查表演节拍、运镜和连续性", metric: `${metrics.readyPrevizCount}/${metrics.shotCount || 0} 镜`, href: workflowHref("previz"), complete: metrics.shotCount > 0 && metrics.readyPrevizCount === metrics.shotCount },
-        { id: "video", icon: Film, label: "镜头视频", description: "逐镜生成、筛选版本并锁定成片", metric: `${metrics.readyVideoCount}/${metrics.shotCount || 0} 镜`, href: workflowHref("video"), complete: metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount },
-        { id: "editor", icon: Scissors, label: "剪辑成片", description: "在时间线中编排镜头、添加字幕并输出成片", metric: metrics.renderSucceededCount > 0 ? `已输出 ${metrics.renderSucceededCount} 个成片` : metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount ? "可以开始剪辑" : `还差 ${Math.max(0, metrics.shotCount - metrics.readyVideoCount)} 镜`, href: `/projects/${project.id}/editor`, complete: metrics.renderSucceededCount > 0 },
-        { id: "delivery", icon: PackageCheck, label: "交付与打包", description: "检查缺失镜头并整理最终产物", metric: metrics.readyVideoCount && metrics.readyVideoCount === metrics.shotCount ? "可以交付" : `还差 ${Math.max(0, metrics.shotCount - metrics.readyVideoCount)} 镜`, href: workflowHref("delivery"), complete: metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount },
+        { id: "storyboard", icon: Clapperboard, label: "分段脚本与画面", description: "按生成模型的单段上限拆段，段内写多镜头、对白和时长", metric: `${metrics.shotCount} 段 · ${metrics.readyStoryboardCount} 张图`, href: workflowHref("storyboard"), complete: metrics.shotCount > 0 },
+        { id: "previz", icon: PlaySquare, label: "动作预演", description: "检查表演节拍、运镜和连续性", metric: `${metrics.readyPrevizCount}/${metrics.shotCount || 0} 段`, href: workflowHref("previz"), complete: metrics.shotCount > 0 && metrics.readyPrevizCount === metrics.shotCount },
+        { id: "video", icon: Film, label: "分段视频", description: "逐段生成多条候选，留证据过审后选定一条", metric: `${metrics.readyVideoCount}/${metrics.shotCount || 0} 段`, href: workflowHref("video"), complete: metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount },
+        { id: "editor", icon: Scissors, label: "剪辑成片", description: "在时间线中编排镜头、添加字幕并输出成片", metric: metrics.renderSucceededCount > 0 ? `已输出 ${metrics.renderSucceededCount} 个成片` : metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount ? "可以开始剪辑" : `还差 ${Math.max(0, metrics.shotCount - metrics.readyVideoCount)} 段`, href: `/projects/${project.id}/editor`, complete: metrics.renderSucceededCount > 0 },
+        { id: "delivery", icon: PackageCheck, label: "交付与打包", description: "成片过门禁，下载交付包与甲方验收单", metric: metrics.readyVideoCount && metrics.readyVideoCount === metrics.shotCount ? "可以交付" : `还差 ${Math.max(0, metrics.shotCount - metrics.readyVideoCount)} 段`, href: workflowHref("delivery"), complete: metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount },
     ];
     const gaps = [
         metrics.unitCount === 0 ? "还没有剧情章节" : metrics.unitsWithoutText ? `${metrics.unitsWithoutText} 章还没有正文` : "章节正文已就绪",
@@ -88,6 +89,8 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
                     </aside>
                 </div>
             </section>
+
+            <DramaOverviewPanel projectId={project.id} />
 
             <section className="project-standard-flow">
                 <div className="project-standard-flow-head"><div><span>标准制作流程</span><h2>从章节到可交付镜头</h2><p>先确认故事与资产，再逐镜完成画面、动作和视频。每个步骤都可直接进入对应工作区。</p></div><Link to={primaryAction.href}>继续当前任务<ArrowRight /></Link></div>

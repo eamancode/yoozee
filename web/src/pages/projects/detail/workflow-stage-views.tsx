@@ -7,6 +7,7 @@ import { ASSET_CATEGORIES } from "@/lib/asset-category";
 import { listProjectAssetsPage, type ProjectDetail } from "@/services/api/projects";
 
 import { assetCategoryLabel, formatDuration, MetricCard, StageHeading } from "./workflow-shared";
+import { DramaDeliveryPanel } from "./drama-panels";
 
 export function StoryStage({ detail, projectId, unitId }: { detail: ProjectDetail; projectId: string; unitId: string }) {
     const unit = detail.units.find((item) => item.id === unitId)!;
@@ -32,10 +33,10 @@ export function DeliveryStage({ detail, unitId }: { detail: ProjectDetail; unitI
             <StageHeading
                 eyebrow="06 / 交付与打包"
                 title="交付前质量门禁"
-                description="所有镜头视频就绪、过期产物清零后，再打包成片与生产资料。"
+                description="每段选定一条过审候选、过期产物清零、成片过门禁后，再打包成片与生产资料。"
             />
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
-                <MetricCard icon={<Film className="size-5" />} label="视频已就绪" value={`${readyVideos.length} / ${shots.length}`} />
+                <MetricCard icon={<Film className="size-5" />} label="本章已选定的段" value={`${readyVideos.length} / ${shots.length}`} />
                 <MetricCard
                     icon={<Clock3 className="size-5" />}
                     label="总时长"
@@ -49,14 +50,12 @@ export function DeliveryStage({ detail, unitId }: { detail: ProjectDetail; unitI
                     <div>
                         <h3 className="text-sm font-semibold">计划交付内容</h3>
                         <p className="mt-1 text-xs leading-5 text-foreground/48">
-                            成片 MP4、字幕 SRT、分镜 JSON/CSV、资产清单和生成参数 ZIP。
+                            成片（以资源列出）、字幕 SRT、分段表 JSON/CSV、连戏表、资产清单、每段生成参数、证据与甲方验收单。
                         </p>
                     </div>
                 </div>
-                <p className="mt-5 text-xs leading-5 text-foreground/48">
-                    当前版本只提供交付前检查，不提供交付包生成入口；待后端打包任务、产物存储和下载权限具备后再开放导出。
-                </p>
             </div>
+            <DramaDeliveryPanel projectId={detail.project.id} projectName={detail.project.name} />
         </section>
     );
 }
