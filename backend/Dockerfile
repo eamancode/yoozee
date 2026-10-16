@@ -67,7 +67,9 @@ RUN npm ci --omit=dev --ignore-scripts
 
 FROM node:22.19-alpine
 
-RUN apk add --no-cache ca-certificates tzdata wget \
+# ffmpeg 提供 ffmpeg 与 ffprobe 两个可执行文件，是时间线导出、视频转码、
+# 短剧抽帧拼图与成片门禁（响度/黑场/真峰值）的前提；缺了它这些路径会直接报错。
+RUN apk add --no-cache ca-certificates tzdata wget ffmpeg \
     && addgroup -S app \
     && adduser -S app -G app
 
