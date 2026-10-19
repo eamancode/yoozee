@@ -19,6 +19,7 @@ import {
 import { getAudioTracks, getSubtitleTracks, getVisualTracks } from "@/lib/timeline/timeline-tracks";
 import { TRACK_KIND_BASE_LABELS } from "@/lib/timeline/editor-commands";
 import { computeSnap } from "@/lib/timeline/timeline-snap";
+import { timelineClipLabel } from "@/lib/timeline/clip-label";
 import type { TimelineClip, TimelineProject, TimelineTrack, TimelineTrackKind } from "@/types/timeline";
 
 const MIN_VISUAL_END_MS = 1_000;
@@ -721,7 +722,7 @@ function ClipItem({
     const isAudio = clip.kind === "audio";
     const left = clip.startMs * pxPerMs;
     const width = clip.durationMs * pxPerMs;
-    const label = clip.text || clip.nodeId || clip.id;
+    const label = timelineClipLabel(clip);
     const playheadInside = playheadMs >= clip.startMs && playheadMs <= clip.startMs + clip.durationMs;
 
     const razorSplitAt = (e: React.PointerEvent) => {

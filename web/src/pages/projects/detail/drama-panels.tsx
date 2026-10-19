@@ -1,9 +1,12 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Checkbox, Input } from "antd";
-import { CheckCircle2, Circle, CircleAlert, Download, Pause, Play, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Circle, CircleAlert, Download, FileText, Pause, Play, ShieldCheck } from "lucide-react";
+import { Link } from "react-router";
 
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
+import { Select } from "@/components/ui/base/select";
+import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, getDramaBible, getDramaBrief, putDramaBible, putDramaBrief, framesShotArtifact, getDramaProgress, listDramaEvidence, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, type DramaBible, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaProgress, type DramaSegment, type DramaSegmentProgress } from "@/services/api/drama";
 import { listProjectAssets, type ShotArtifact } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
@@ -12,9 +15,11 @@ import type { ReferenceImage } from "@/types/image";
 
 import { dramaAuthLabel } from "../drama-model";
 import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
+import { applyBriefFacts, bibleSummary, BRIEF_FACTS, BRIEF_STATUSES, briefConfirmedCount, briefFactsFromDocument, parseDocumentJson, type BriefFactDraft, type BriefFactKey } from "./drama-brief";
 
 export const dramaProgressKey = (projectId: string) => ["project", projectId, "drama", "progress"] as const;
 export const dramaEvidenceKey = (projectId: string) => ["project", projectId, "drama", "evidence"] as const;
+export const dramaBriefKey = (projectId: string) => ["project", projectId, "drama", "brief"] as const;
 
 export function useDramaProgress(projectId: string) {
     return useQuery({ queryKey: dramaProgressKey(projectId), queryFn: async ({ signal }) => (await getDramaProgress(projectId, signal)).progress });
@@ -44,6 +49,7 @@ const EVIDENCE_LABELS: Record<string, string> = { faces: "人脸核对", frames:
 export function DramaOverviewPanel({ projectId }: { projectId: string }) {
     const query = useDramaProgress(projectId);
     const [expanded, setExpanded] = useState(false);
+    const [documentOpen, setDocumentOpen] = useState<"brief" | "bible" | null>(null);
     const progress = query.data;
     if (query.isLoading) return <section className="rounded-xl border border-border/70 bg-surface p-5 text-xs text-foreground/45">正在读取段级进度…</section>;
     if (query.isError || !progress) return <section className="rounded-xl border border-border/70 bg-surface p-5 text-xs text-foreground/55">段级进度读取失败：{query.error instanceof Error ? query.error.message : "未知错误"} <Button size="small" type="link" onClick={() => void query.refetch()}>重试</Button></section>;
@@ -63,10 +69,12 @@ export function DramaOverviewPanel({ projectId }: { projectId: string }) {
                     <li key={state.key} className={`rounded-lg border px-3 py-2.5 ${state.done ? "border-border/50 bg-surface-active" : progress.next?.key === state.key ? "border-[var(--workspace-accent)]/50" : "border-border/70"}`}>
                         <div className="flex items-center gap-1.5 text-xs font-medium">{state.done ? <CheckCircle2 className="size-3.5 text-[var(--workspace-accent)]" /> : <Circle className="size-3.5 text-foreground/30" />}<span className="text-foreground/40">{index + 1}</span><span className="truncate">{state.label}</span></div>
                         <p className="mt-1 line-clamp-2 text-[var(--fs-label)] leading-5 text-foreground/50">{state.detail}</p>
-                        <span className="mt-1 block text-[var(--fs-tiny)] text-foreground/35">{state.skill}</span>
+                        <span className="mt-1 flex items-center justify-between gap-2 text-[var(--fs-tiny)] text-foreground/35"><span>{state.skill}</span>{DOCUMENT_BY_END_STATE[state.key] ? <Button type="link" size="small" className="!h-auto !px-0 !text-[var(--fs-tiny)]" icon={<FileText className="size-3" />} onClick={() => setDocumentOpen(DOCUMENT_BY_END_STATE[state.key]!)}>{DOCUMENT_BY_END_STATE[state.key] === "brief" ? "打开需求文档" : "打开连戏表"}</Button> : null}</span>
                     </li>
                 ))}
             </ol>
+            <DramaBriefModal projectId={projectId} open={documentOpen === "brief"} onClose={() => setDocumentOpen(null)} />
+            <DramaBibleModal projectId={projectId} open={documentOpen === "bible"} onClose={() => setDocumentOpen(null)} />
             {progress.segments.length ? (
                 <div className="mt-4 overflow-x-auto">
                     <table className="w-full min-w-[640px] text-left text-xs">
@@ -86,6 +94,132 @@ export function DramaOverviewPanel({ projectId }: { projectId: string }) {
                 </div>
             ) : null}
         </section>
+    );
+}
+
+// 终态 1 靠需求文档六项确认；终态 2、3 靠连戏表有人物并逐项校验。前端要能直接打开它们，不能只靠 Agent 写。
+const DOCUMENT_BY_END_STATE: Record<string, "brief" | "bible" | undefined> = { brief: "brief", script: "bible", refs: "bible" };
+
+/** 需求文档：六项事实可以逐项填写、改状态；其余字段（要求、不做、待确认……）在 JSON 里改。 */
+export function DramaBriefModal({ projectId, open, onClose }: { projectId: string; open: boolean; onClose: () => void }) {
+    const { message } = App.useApp();
+    const queryClient = useQueryClient();
+    const briefQuery = useQuery({ queryKey: dramaBriefKey(projectId), queryFn: async () => (await getDramaBrief(projectId)).document, enabled: open });
+    const [mode, setMode] = useState<"form" | "json">("form");
+    const [title, setTitle] = useState("");
+    const [facts, setFacts] = useState<Record<BriefFactKey, BriefFactDraft> | null>(null);
+    const [jsonText, setJsonText] = useState("");
+    useEffect(() => {
+        if (!open || !briefQuery.data) return;
+        setMode("form");
+        setTitle(typeof briefQuery.data.title === "string" ? briefQuery.data.title : "");
+        setFacts(briefFactsFromDocument(briefQuery.data));
+        setJsonText(JSON.stringify(briefQuery.data, null, 2));
+    }, [briefQuery.data, open]);
+    const formDocument = () => ({ ...applyBriefFacts(briefQuery.data || {}, facts || briefFactsFromDocument({})), ...(title.trim() ? { title: title.trim() } : {}) });
+    const switchMode = (next: "form" | "json") => {
+        if (next === mode) return;
+        try {
+            if (next === "json") setJsonText(JSON.stringify(formDocument(), null, 2));
+            else {
+                const parsed = parseDocumentJson(jsonText);
+                setTitle(typeof parsed.title === "string" ? parsed.title : "");
+                setFacts(briefFactsFromDocument(parsed));
+            }
+            setMode(next);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "JSON 格式不对");
+        }
+    };
+    const save = useMutation({
+        mutationFn: () => putDramaBrief(projectId, mode === "json" ? parseDocumentJson(jsonText) : formDocument()),
+        onSuccess: ({ document }) => {
+            queryClient.setQueryData(dramaBriefKey(projectId), document);
+            // 需求文档里的生成模型、授权档位会同步到项目字段，项目和进度都要刷新。
+            void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+            message.success("需求文档已保存");
+            onClose();
+        },
+        onError: (error) => message.error(error instanceof Error ? error.message : "需求文档没保存上"),
+    });
+    const confirmed = facts ? briefConfirmedCount(facts) : 0;
+    return (
+        <AppModal open={open} title="需求文档" width="min(720px, calc(100vw - 32px))" okText="保存需求文档" cancelText="取消" okButtonProps={{ loading: save.isPending, disabled: !briefQuery.data }} onOk={() => save.mutate()} onCancel={onClose}>
+            {briefQuery.isLoading ? <p className="py-6 text-center text-xs text-foreground/45">正在读取需求文档…</p> : briefQuery.isError ? <p className="py-6 text-center text-xs text-foreground/55">需求文档读取失败：{briefQuery.error instanceof Error ? briefQuery.error.message : "未知错误"}</p> : (
+                <div className="grid gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="m-0 text-[var(--fs-label)] text-foreground/50">六项都标成「已确认」或「默认，已授权」，终态「需求问透了」才成立。当前 {confirmed}/6。</p>
+                        <SegmentedControl size="sm" value={mode} onChange={(value) => switchMode(value as "form" | "json")} options={[{ value: "form", label: "六项事实" }, { value: "json", label: "完整 JSON" }]} />
+                    </div>
+                    {mode === "form" && facts ? (
+                        <div className="grid gap-3">
+                            <label className="grid gap-1 text-xs"><span className="font-medium text-foreground/62">片名</span><Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="项目或这一集的片名" /></label>
+                            {BRIEF_FACTS.map((fact) => (
+                                <div key={fact.key} className="grid gap-1 text-xs">
+                                    <span className="font-medium text-foreground/62">{fact.label}</span>
+                                    <div className="flex flex-col gap-2 sm:flex-row">
+                                        <Input.TextArea className="min-w-0 flex-1" autoSize={{ minRows: 1, maxRows: 4 }} value={facts[fact.key].value} placeholder={fact.placeholder} aria-label={fact.label} onChange={(event) => setFacts((current) => current ? { ...current, [fact.key]: { ...current[fact.key], value: event.target.value } } : current)} />
+                                        <Select className="sm:!w-40" value={facts[fact.key].status} options={BRIEF_STATUSES.map((status) => ({ value: status, label: status }))} ariaLabel={`${fact.label}状态`} onChange={(status: string) => setFacts((current) => current ? { ...current, [fact.key]: { ...current[fact.key], status } } : current)} />
+                                    </div>
+                                </div>
+                            ))}
+                            <p className="m-0 text-[var(--fs-tiny)] leading-5 text-foreground/40">值留空的一项不写入。要求（R-）、不做、约束、待确认问题请在「完整 JSON」里改，或用看片反馈追加。</p>
+                        </div>
+                    ) : (
+                        <Input.TextArea className="font-mono !text-xs" autoSize={{ minRows: 14, maxRows: 26 }} value={jsonText} onChange={(event) => setJsonText(event.target.value)} aria-label="需求文档 JSON" spellCheck={false} />
+                    )}
+                </div>
+            )}
+        </AppModal>
+    );
+}
+
+/** 连戏表：看人物、道具、场景的数量和未校验项；没人物时一键按已确认资产起草，细项在 JSON 里改，逐项过门禁去资产页。 */
+export function DramaBibleModal({ projectId, open, onClose }: { projectId: string; open: boolean; onClose: () => void }) {
+    const { message } = App.useApp();
+    const queryClient = useQueryClient();
+    const bibleQuery = useQuery({ queryKey: dramaBibleKey(projectId), queryFn: async () => (await getDramaBible(projectId)).document, enabled: open });
+    const assetsQuery = useQuery({ queryKey: dramaChecklistAssetsKey(projectId), queryFn: async () => (await listProjectAssets(projectId)).assets, enabled: open });
+    const [jsonText, setJsonText] = useState("");
+    useEffect(() => {
+        if (open && bibleQuery.data) setJsonText(JSON.stringify(bibleQuery.data, null, 2));
+    }, [bibleQuery.data, open]);
+    const save = useMutation({
+        mutationFn: (document: DramaBible) => putDramaBible(projectId, document),
+        onSuccess: ({ document }) => {
+            queryClient.setQueryData(dramaBibleKey(projectId), document);
+            setJsonText(JSON.stringify(document, null, 2));
+            void queryClient.invalidateQueries({ queryKey: ["project", projectId, "drama"] });
+            message.success("连戏表已保存");
+        },
+        onError: (error) => message.error(error instanceof Error ? error.message : "连戏表没保存上"),
+    });
+    const summary = bibleSummary(bibleQuery.data);
+    const assets = assetsQuery.data || [];
+    const draftable = assets.some((asset) => asset.category === "character" || asset.category === "environment" || asset.category === "prop");
+    const saveJson = () => {
+        try {
+            save.mutate(parseDocumentJson(jsonText) as DramaBible);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "JSON 格式不对");
+        }
+    };
+    return (
+        <AppModal open={open} title="连戏表" width="min(760px, calc(100vw - 32px))" okText="保存连戏表" cancelText="关闭" okButtonProps={{ loading: save.isPending, disabled: !bibleQuery.data }} onOk={saveJson} onCancel={onClose}>
+            {bibleQuery.isLoading ? <p className="py-6 text-center text-xs text-foreground/45">正在读取连戏表…</p> : bibleQuery.isError ? <p className="py-6 text-center text-xs text-foreground/55">连戏表读取失败：{bibleQuery.error instanceof Error ? bibleQuery.error.message : "未知错误"}</p> : (
+                <div className="grid gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-active px-3 py-2 text-xs">
+                        <span className="text-foreground/60">人物 {summary.characters} · 道具 {summary.props} · 场景 {summary.locations}{summary.unchecked ? ` · ${summary.unchecked} 项没过门禁` : ""}</span>
+                        <span className="flex flex-wrap items-center gap-2">
+                            {summary.characters === 0 ? <Button size="small" disabled={!draftable} loading={save.isPending} onClick={() => save.mutate(draftBibleFromAssets(bibleQuery.data, assets))}>按已确认资产起草</Button> : null}
+                            <Link to={`/projects/${projectId}/assets`} onClick={onClose} className="text-[var(--workspace-accent)]">去资产页逐项过门禁</Link>
+                        </span>
+                    </div>
+                    <p className="m-0 text-[var(--fs-label)] leading-5 text-foreground/50">终态「剧本定了」要求连戏表里有人物；「参考齐了」要求每个造型、道具、场景都勾过门禁。characters、props、locations 等字段必须是数组。</p>
+                    <Input.TextArea className="font-mono !text-xs" autoSize={{ minRows: 14, maxRows: 26 }} value={jsonText} onChange={(event) => setJsonText(event.target.value)} aria-label="连戏表 JSON" spellCheck={false} />
+                </div>
+            )}
+        </AppModal>
     );
 }
 
