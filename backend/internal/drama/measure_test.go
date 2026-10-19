@@ -2,8 +2,11 @@ package drama
 
 import (
 	"context"
+	"encoding/json"
+	"math"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +17,55 @@ func TestHolesAndPeaks(t *testing.T) {
 	}
 	if len(peaks) != 1 || peaks[0] != 5 {
 		t.Fatalf("peaks = %v", peaks)
+	}
+}
+
+func TestLoudnessOfSilentTrack(t *testing.T) {
+	// ffmpeg ebur128 对一条完全无声的音轨的摘要。
+	summary := `[Parsed_ebur128_0 @ 0x0] Summary:
+
+  Integrated loudness:
+    I:         -70.0 LUFS
+    Threshold:   0.0 LUFS
+
+  Loudness range:
+    LRA:         0.0 LU
+    Threshold:   0.0 LUFS
+    LRA low:     0.0 LUFS
+    LRA high:    0.0 LUFS
+
+  True peak:
+    Peak:       -inf dBFS`
+	reading := parseLoudness(summary)
+	if !reading.HasTruePeak || !math.IsInf(reading.TruePeak, -1) {
+		t.Fatalf("真峰值应读成 -inf: %+v", reading)
+	}
+	if !reading.Silent() {
+		t.Fatalf("应判为无声: %+v", reading)
+	}
+	ok, detail := truePeakCheck(reading)
+	if !ok || !strings.Contains(detail, "无声") || strings.Contains(detail, "0.0 dBTP") {
+		t.Fatalf("无声不能报 0.0 dBTP: ok=%v detail=%q", ok, detail)
+	}
+	if detail := loudnessDetail(reading, -16); !strings.Contains(detail, "无声") {
+		t.Fatalf("响度明细应标无声: %q", detail)
+	}
+	if finiteOrNil(reading.TruePeak) != nil {
+		t.Fatal("-inf 必须以 null 写进 JSON")
+	}
+	if _, err := json.Marshal(map[string]any{"truePeak": finiteOrNil(reading.TruePeak)}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoudnessMissingTruePeak(t *testing.T) {
+	reading := parseLoudness("    I:         -16.2 LUFS\n")
+	if ok, detail := truePeakCheck(reading); ok || detail != "没量到真峰值" {
+		t.Fatalf("量不到真峰值时不能当成 0 dBTP: ok=%v detail=%q", ok, detail)
+	}
+	reading = parseLoudness("    I:   -16.2 LUFS\n    Peak:   -0.4 dBFS\n")
+	if ok, detail := truePeakCheck(reading); ok || !strings.Contains(detail, "-0.4 dBTP") {
+		t.Fatalf("超限真峰值应不通过: ok=%v detail=%q", ok, detail)
 	}
 }
 

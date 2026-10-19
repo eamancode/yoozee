@@ -25,12 +25,23 @@ func TestProviderErrorDetail(t *testing.T) {
 		{"html", "<html>502 private gateway</html>", ""},
 		{"malformed", `{"message":"partial`, ""},
 		{"diagnostics", `{"request_id":"private","headers":{"Authorization":"private"}}`, ""},
+		{"new-api request id", `{"error":{"message":"No available channel for model doubao-seedance-2-5 under group default (request id: 20261019103000123456789)","type":"new_api_error"}}`, "No available channel for model doubao-seedance-2-5 under group default"},
+		{"full-width request id", `{"error":{"message":"当前分组 default 下对于模型 seedance 无可用渠道（request id：abc123）"}}`, "当前分组 default 下对于模型 seedance 无可用渠道"},
+		{"request id inline", `{"message":"upstream rejected, request_id=private"}`, ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := providerErrorDetail(tt.raw); got != tt.want {
 				t.Fatalf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestProviderHTTPErrorKeepsNoChannelReason(t *testing.T) {
+	err := providerHTTPError{StatusCode: http.StatusServiceUnavailable, Body: `{"error":{"message":"No available channel for model seedance under group default (request id: 2026101910)","type":"new_api_error"}}`}
+	want := "模型服务暂时不可用（HTTP 503）；上游：No available channel for model seedance under group default"
+	if got := err.Error(); got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 

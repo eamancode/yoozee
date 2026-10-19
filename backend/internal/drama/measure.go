@@ -93,8 +93,9 @@ func parseRate(rate string) float64 {
 }
 
 var (
-	reIntegrated = regexp.MustCompile(`I:\s+(-?[\d.]+) LUFS`)
-	reTruePeak   = regexp.MustCompile(`Peak:\s+(-?[\d.]+) dBFS`)
+	// 完全无声时 ebur128 的真峰值是「-inf dBFS」，数字正则匹配不到会被当成 0 dBTP。
+	reIntegrated = regexp.MustCompile(`I:\s+(-?(?:[\d.]+|inf)) LUFS`)
+	reTruePeak   = regexp.MustCompile(`Peak:\s+(-?(?:[\d.]+|inf)) dBFS`)
 	reLRA        = regexp.MustCompile(`LRA:\s+([\d.]+) LU`)
 )
 
@@ -200,14 +201,66 @@ func Gate(ctx context.Context, tools Tools, path string, target float64) (GateRe
 	if err != nil {
 		return GateReport{}, fmt.Errorf("量响度失败：%s", tailText(string(loud)))
 	}
-	lufs, okI := lastMatch(reIntegrated, string(loud))
-	tp, okTP := lastMatch(reTruePeak, string(loud))
-	lra, _ := lastMatch(reLRA, string(loud))
-	report.Metrics["lufs"], report.Metrics["truePeak"], report.Metrics["lra"] = lufs, tp, lra
+	reading := parseLoudness(string(loud))
+	report.Metrics["lufs"], report.Metrics["truePeak"], report.Metrics["lra"] = finiteOrNil(reading.LUFS), finiteOrNil(reading.TruePeak), finiteOrNil(reading.LRA)
 	report.Metrics["holes"], report.Metrics["peaks"] = holes, peaks
-	check("整合响度", okI && math.Abs(lufs-target) <= gateLoudnessTol, fmt.Sprintf("%.1f LUFS（目标 %.0f ± %.0f）", lufs, target, gateLoudnessTol))
-	check("真峰值", okTP && tp <= gateTruePeakMax, fmt.Sprintf("%.1f dBTP（≤ %.1f）", tp, gateTruePeakMax))
+	if reading.Silent() {
+		report.Metrics["silent"] = true
+	}
+	check("整合响度", reading.HasLUFS && math.Abs(reading.LUFS-target) <= gateLoudnessTol, loudnessDetail(reading, target))
+	ok, detail := truePeakCheck(reading)
+	check("真峰值", ok, detail)
 	return report, nil
+}
+
+// loudnessReading 是 ebur128 摘要里的读数。
+type loudnessReading struct {
+	LUFS, TruePeak, LRA  float64
+	HasLUFS, HasTruePeak bool
+}
+
+// ebur128 对无声的整合响度报 -70 LUFS（门限下限），真峰值报 -inf。
+const silentLUFS = -70.0
+
+func (r loudnessReading) Silent() bool {
+	return (r.HasTruePeak && math.IsInf(r.TruePeak, -1)) || (r.HasLUFS && r.LUFS <= silentLUFS)
+}
+
+func parseLoudness(text string) loudnessReading {
+	var r loudnessReading
+	r.LUFS, r.HasLUFS = lastMatch(reIntegrated, text)
+	r.TruePeak, r.HasTruePeak = lastMatch(reTruePeak, text)
+	r.LRA, _ = lastMatch(reLRA, text)
+	return r
+}
+
+func loudnessDetail(r loudnessReading, target float64) string {
+	switch {
+	case !r.HasLUFS:
+		return "没量到整合响度"
+	case r.Silent():
+		return fmt.Sprintf("无声（%.1f LUFS，目标 %.0f ± %.0f）", r.LUFS, target, gateLoudnessTol)
+	}
+	return fmt.Sprintf("%.1f LUFS（目标 %.0f ± %.0f）", r.LUFS, target, gateLoudnessTol)
+}
+
+// truePeakCheck 判真峰值：量不到就报量不到，无声就报无声，不能把缺失的读数当成 0 dBTP。
+func truePeakCheck(r loudnessReading) (bool, string) {
+	switch {
+	case !r.HasTruePeak:
+		return false, "没量到真峰值"
+	case math.IsInf(r.TruePeak, -1):
+		return true, fmt.Sprintf("无声，没有峰值（-∞ dBTP，≤ %.1f）", gateTruePeakMax)
+	}
+	return r.TruePeak <= gateTruePeakMax, fmt.Sprintf("%.1f dBTP（≤ %.1f）", r.TruePeak, gateTruePeakMax)
+}
+
+// finiteOrNil 让 -inf / NaN 以 null 写进 JSON（encoding/json 遇到无穷会整体序列化失败）。
+func finiteOrNil(value float64) any {
+	if math.IsInf(value, 0) || math.IsNaN(value) {
+		return nil
+	}
+	return value
 }
 
 // ContactSheet 抽帧拼成一张图（约 24 格，6 列），写到 outPath（PNG/JPG 按扩展名）。

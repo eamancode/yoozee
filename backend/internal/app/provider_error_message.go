@@ -7,6 +7,10 @@ import (
 )
 
 var providerErrorURL = regexp.MustCompile(`(?i)https?://[^\s<>"'，。；）]+`)
+
+// new-api / one-api 的错误正文几乎都带「(request id: …)」后缀。只剥掉这段编号，原因本身照常展示；
+// 否则整条原因会被当成诊断信息隐藏，用户只剩「HTTP 503」，前端再归成「网络异常」。
+var providerErrorRequestID = regexp.MustCompile(`(?i)\s*[(（\[]\s*(?:request|trace)[ _-]?id\s*[:：=]?\s*[^)）\]]*[)）\]]`)
 var providerErrorSensitive = regexp.MustCompile(`(?i)余额|额度|配额|欠费|账单|充值|计费|密钥|密码|令牌|balance|quota|billing|credit|payment|funds|wallet|api[ _-]?key|authorization|bearer|cookie|(?:access|refresh|auth|session)[ _-]?token|token\s*[=:]|secret|password|credential|sk-[a-z0-9]|tenant|trace[ _-]?id|request[ _-]?id|internal stack|stack\s*trace|dial tcp|no such host|prompt\s*[=:]`)
 
 // 只提取错误消息字段，不序列化整个响应，避免回传 headers、请求正文和诊断信息。
@@ -18,6 +22,7 @@ func providerErrorDetail(raw string) string {
 	} else if strings.HasPrefix(raw, "{") || strings.HasPrefix(raw, "[") {
 		return ""
 	}
+	raw = strings.TrimSpace(providerErrorRequestID.ReplaceAllString(raw, ""))
 	// 网关 HTML、敏感账务/凭据诊断整条隐藏；普通消息里的 URL 单独移除。
 	if strings.HasPrefix(raw, "{") || strings.HasPrefix(raw, "[") || strings.ContainsAny(raw, "<>") || providerErrorSensitive.MatchString(raw) {
 		return ""
