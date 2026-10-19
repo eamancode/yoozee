@@ -1,9 +1,33 @@
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
 import { PromptTemplateOperation, promptTemplateTaskPlaceholder } from "@/lib/prompts";
 import { resolveStyleExecutionPlan, serializeStyleProfile, type StyleProfileSnapshot } from "@/lib/canvas/style-profile";
-import { logicalModelIDForConfig, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import type { GenerationTask } from "@/services/api/task-center";
+import { configuredModelMatchesCapability, logicalModelIDForConfig, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 type ProjectStylePrompt = { id: string; title: string; prompt: string; profile?: StyleProfileSnapshot };
+
+const CHARACTER_TURNAROUND_NODE_PREFIX = "character-turnaround:";
+
+/** 三视图优先用项目默认图片模型；没设或当前渠道里没有这个模型时，才退回全局图片模型。 */
+export function turnaroundImageModel(config: AiConfig, projectDefaultImageModel?: string) {
+    const projectModel = projectDefaultImageModel?.trim() || "";
+    if (projectModel && configuredModelMatchesCapability(config, projectModel, "image")) return projectModel;
+    return config.imageModel || config.model;
+}
+
+/**
+ * 三视图任务由后端在完成时绑定到新角色版本；页面刷新或离开后，前端的 mutation 状态就丢了。
+ * 按任务的 nodeId 找回还在排队或生成的角色，页面据此显示生成中，避免重复提交、重复扣费。
+ */
+export function pendingTurnaroundAssetIds(tasks: GenerationTask[]) {
+    const ids = new Set<string>();
+    for (const task of tasks) {
+        if (task.status !== "queued" && task.status !== "running") continue;
+        const nodeId = task.clientContext?.nodeId || "";
+        if (nodeId.startsWith(CHARACTER_TURNAROUND_NODE_PREFIX)) ids.add(nodeId.slice(CHARACTER_TURNAROUND_NODE_PREFIX.length));
+    }
+    return ids;
+}
 
 export async function generateCharacterTurnaround(input: { projectId: string; assetId: string; versionId: string; name: string; definition: Record<string, unknown>; projectStyle?: ProjectStylePrompt; config: AiConfig }) {
     const promptTemplateVariables = characterTurnaroundVariables(input.name, input.definition, input.projectStyle);
@@ -13,7 +37,7 @@ export async function generateCharacterTurnaround(input: { projectId: string; as
     if (styleExecutionPlan?.status === "blocked" && !logicalModelIDForConfig(generationConfig)) throw new Error(`当前图片模型无法完整执行项目画风：${styleExecutionPlan.warnings.join("；")}。请切换图片模型，或在项目设置中停用对应画风资产`);
     await runBackendCanvasGenerationTask({
         projectId: input.projectId,
-        nodeId: `character-turnaround:${input.assetId}`,
+        nodeId: `${CHARACTER_TURNAROUND_NODE_PREFIX}${input.assetId}`,
         mode: "image",
         prompt: promptTemplateTaskPlaceholder("角色三视图"),
         config: generationConfig,

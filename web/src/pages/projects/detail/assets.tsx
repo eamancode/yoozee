@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown, Form, Input, Modal, Popconfirm, Tabs, type FormInstance } from "antd";
 import { Box, Check, ChevronDown, Download, FileText, FolderOpen, FolderPlus, Image as ImageIcon, Link2, MoreHorizontal, MoveRight, Music2, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, UserRound, Video, VolumeX } from "lucide-react";
@@ -41,6 +41,7 @@ import {
     type ProjectAsset,
     type ProjectAssetFolder,
 } from "@/services/api/projects";
+import { listGenerationTasks } from "@/services/api/task-center";
 import { saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { useAssetStore, type Asset, type AssetCategory, type AssetStatus, type EntityAsset, type ImageAsset } from "@/stores/use-asset-store";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -50,7 +51,8 @@ import { DramaAssetChecklist } from "./drama-panels";
 import { ProjectCharacterCard } from "./project-character-card";
 import { projectCharacterCover } from "./project-character-cover";
 import { linkSelectedProjectAssets } from "./project-asset-linking";
-import { generateCharacterTurnaround } from "./project-character-media";
+import { removeConfirmedCandidate } from "./project-cache";
+import { generateCharacterTurnaround, pendingTurnaroundAssetIds, turnaroundImageModel } from "./project-character-media";
 import { categoryLabels, categoryLabel, mediaLabel, StatusPill, formatTime, textValue, type ProjectDetailViewProps } from "./shared";
 
 const categories = ["all", ...ASSET_CATEGORIES];
@@ -225,7 +227,20 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         filters: { mutationKey: ["project-character-turnaround", detail.project.id], status: "pending" },
         select: (mutation) => mutation.state.variables as ProjectAsset | undefined,
     });
-    const generatingAssetIds = new Set(generatingAssets.map((asset) => asset?.id).filter((id): id is string => Boolean(id)));
+    // 刷新或重新进入页面后，本页的 mutation 状态已丢失；后端仍在跑的三视图任务按 nodeId 找回，完成时由后端绑定新版本。
+    const turnaroundTasksQuery = useQuery({
+        queryKey: ["project", detail.project.id, "character-turnaround-tasks"],
+        queryFn: () => listGenerationTasks(100, { projectId: detail.project.id, activeOnly: true }),
+        refetchInterval: (query) => pendingTurnaroundAssetIds(query.state.data || []).size ? 3_000 : false,
+    });
+    const serverGeneratingIds = useMemo(() => pendingTurnaroundAssetIds(turnaroundTasksQuery.data || []), [turnaroundTasksQuery.data]);
+    const previousServerGeneratingIds = useRef(serverGeneratingIds);
+    useEffect(() => {
+        const finished = [...previousServerGeneratingIds.current].some((id) => !serverGeneratingIds.has(id));
+        previousServerGeneratingIds.current = serverGeneratingIds;
+        if (finished) refreshProject();
+    }, [refreshProject, serverGeneratingIds]);
+    const generatingAssetIds = new Set([...generatingAssets.map((asset) => asset?.id).filter((id): id is string => Boolean(id)), ...serverGeneratingIds]);
 
     const done = (content: string) => { refreshProject(); message.success(content); };
     const failed = (fallback: string) => (error: unknown) => message.error(error instanceof Error ? error.message : fallback);
@@ -303,7 +318,9 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onSuccess: ({ asset }, variables) => {
             if (asset.category === "character") syncPersonalCharacterProjection(asset);
             const label = asset.category === "character" ? "角色卡" : categoryLabel(asset.category);
-            // 确认会改变候选、资产列表和左侧计数三处数据，必须一并失效缓存，否则计数与列表滞后。
+            // 确认会改变候选、资产列表和左侧计数三处数据，必须一并失效缓存，否则计数与列表滞后；
+            // 先把这条候选从已缓存的待确认页里拿掉，避免重取完成前被再点一次重复建资产。
+            queryClient.setQueriesData({ queryKey: ["project", detail.project.id, "asset-candidates"] }, (current: Parameters<typeof removeConfirmedCandidate>[0]) => removeConfirmedCandidate(current, variables.candidateId));
             void Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "asset-candidates"] }),
                 queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }),
@@ -325,7 +342,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         mutationKey: ["project-character-turnaround", detail.project.id],
         mutationFn: async (asset: ProjectAsset) => {
             if (!asset.character) throw new Error("角色版本信息不完整");
-            const model = effectiveConfig.imageModel || effectiveConfig.model;
+            const model = turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
             const config = { ...effectiveConfig, model };
             if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
             const projectStyle = resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson);
