@@ -18,12 +18,13 @@ import common as C  # noqa: E402
 
 TAG = "video_minimax_h3"
 CAPABILITIES = {
+    "model": "minimax-h3",  # models.json 里的 id；segments.py 用它核对需求文档的生成模型，不一致就不出任务
     "modes": {"lock_identity": "参考模式：reference_image（≤9，人物干净参考图 + 空景图/机位背景图）+ reference_audio（≤3，合计 ≤15 秒）；画面稳、音色锁得住，但场景参考会被当成每个机位的背景贴",
               "lock_first_frame": "首帧模式：first_frame 一张图；构图光线照图，但只锁第一帧的脸，人一动脸就变；不能同时挂任何参考"},
     "exclusive": True, "duration": {"min": 4, "max": 15, "step": 1}, "resolutions": ["768P", "2K"],
     "ref_audio_total_sec": 15, "ref_images_max": 9, "price_per_sec": {"768P": 0.08, "2K": 0.13}, "audio_in_video": True,
     "ref_image_fee": {"free": 5, "per_image": 0.04},  # 2026-10-09 文档：第 6 张参考图起每张 0.04 美元
-    "ratios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],  # 参考模式按段的 "ratio" 传（默认 21:9）；首帧模式比例跟图走
+    "ratios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],  # 参考模式按需求文档「平台与画幅」的比例传（段里写了 ratio 以段为准）；首帧模式比例跟图走
     "output": {"768P": "21:9 1536x672（首帧 2.39:1 1568x672）；16:9 1344x768", "2K": "21:9 2944x1248；16:9 2560x1440", "fps": 24, "audio": "32kHz AAC"},
 }
 _T = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -40,8 +41,9 @@ def _t(sec):
     return f"{int(sec // 60):02d}:{sec % 60:06.3f}"
 
 
-def build_job(seg, resolution="768P", n=1):
-    """中性分段 → H3 任务。方言：integrated_multimodal_description 里 [Shot k] At mm:ss.mmm，说话人 (S1)，台词 <d>[Chinese] …</d>，参考 <Picture k>；再加 overall_soundscape 和 non_diegetic_music。"""
+def build_job(seg, resolution="768P", n=1, ratio=None):
+    """中性分段 → H3 任务。方言：integrated_multimodal_description 里 [Shot k] At mm:ss.mmm，说话人 (S1)，台词 <d>[Chinese] …</d>，参考 <Picture k>；再加 overall_soundscape 和 non_diegetic_music。
+    ratio 是需求文档的画幅；参考模式没有画幅、或画幅 H3 不支持时抛 ValueError。"""
     mode = seg.get("mode", "lock_identity")
     job = {"id": seg["id"], "out": f"生成/{seg['id']}.mp4", "model": "MiniMax-H3", "duration": int(seg["dur"]), "resolution": resolution, "n": n}
     head = STYLE + ACTING + (seg.get("rules", "") + " " if seg.get("rules") else "")
@@ -60,7 +62,12 @@ def build_job(seg, resolution="768P", n=1):
         if roles:
             body += "Reference roles: " + "; ".join(roles) + "."
             body += (" How each line is delivered (volume, pitch, emotion, pace, breath) comes only from the acting described in the scene, never from the audio references; do not reuse any words from them." if speakers else "") + "\n"
-        job.update(ratio=seg.get("ratio", "21:9"), ref_images=imgs, ref_audio=[v["file"] for v in seg.get("voices", [])])
+        ratio = seg.get("ratio") or ratio
+        if not ratio:
+            raise ValueError(f"{seg['id']} 没有画幅：在需求文档「平台与画幅」一行写明比例（如 9:16）")
+        if ratio not in CAPABILITIES["ratios"]:
+            raise ValueError(f"{seg['id']} 的画幅 {ratio} MiniMax-H3 不支持；可选：{'、'.join(CAPABILITIES['ratios'])}")
+        job.update(ratio=ratio, ref_images=imgs, ref_audio=[v["file"] for v in seg.get("voices", [])])
     for k, sh in enumerate(seg["shots"], 1):
         line = (head if k == 1 else "") + sh["text"]
         for ln in sh.get("lines", []):

@@ -37,7 +37,7 @@
 | `image.crop_sheet` | `python3 {{TOOLS}}/crop_sheet.py 素材库/人物/名字_三视图.png` |
 | `voice.design` / `voice.speak` | 配音适配（默认 `{{TOOLS}}/adapters/tts_minimax.py design / speak`） |
 | `prompt.compile` | `python3 {{TOOLS}}/compile.py S03`（不给 --model 就读需求文档的生成模型）；`compile.py all` 检查整张表 |
-| `cost.estimate` | `python3 {{TOOLS}}/segments.py jobs --adapter <视频适配> --ids … --n 候选数 --out 生成/jobs.json` 打印秒数和估价；没有适配的模型按 models.json 的 `price_per_sec_usd` 手算 |
+| `cost.estimate` | `python3 {{TOOLS}}/segments.py jobs --adapter <视频适配> --ids … --n 候选数 --out 生成/jobs.json` 打印秒数、画幅和估价；适配必须是需求文档生成模型的（不符就拒绝并列出可用的适配），画幅取需求文档「平台与画幅」里的比例；没有适配的模型按 models.json 的 `price_per_sec_usd` 手算 |
 | `spend.approve` | 直接问用户，给出段数、秒数、估价、预算余量 |
 | `video.generate` | `python3 {{TOOLS}}/segments.py run --adapter <视频适配> --jobs 生成/jobs.json`；长任务用 `{{TOOLS}}/bg.sh 名字 命令…` 后台跑，已存在的文件跳过。Seedance 两家还没有本机适配：先用 yz-calibrate 照适配规格写一个，或把 compile.py 的粘贴版交给用户在即梦里出 |
 | `media.frames` | `python3 {{TOOLS}}/qa.py sheet 文件` |

@@ -19,6 +19,7 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [x] 旧流程只读与素材清单：`TestLegacyWorkflowIsReadOnly`、`TestRegisterTaskOutputFromTaskPersistsMediaAssetAndArtifactIdempotently`（不带 `workflowStepId` 也登记产物、不建流程实例）、`TestDramaCanvasInstallsBuiltinSuiteAndDropsLegacySkill`；前端 `bun test test/drama-asset-checklist.test.ts` 7 项通过，`drama-panels.test.tsx` 新增素材清单与候选并排用例（需本机依赖运行）。
 - [x] 线上联调补的后端用例：`TestDramaGateWithoutFilmAsksForExport`、`TestDramaVideoTaskRejectsOtherModelFamily`、`TestDramaChaptersReadPagesSourceText`、`TestDramaCanvasGetsSkillReadersWithoutPickedSkills`、`TestBriefWriteFollowsContract`、`TestTextOnlySegmentNeedsReferencesWhenSomeoneSpeaks`、`TestNormalizeBriefKeepsLegacyContentInContractShape`，云端 `go test` 通过。
 - [x] 段格式编译的 Python / Go 对照：`TestCompileMatchesSkillPackageGoldens` 用 `yoozee-skills/tests` 的同一批样例与期望结果比对，两版逐字一致。
+- [x] 本机 `segments.py jobs` 的画幅与模型族：画幅取需求文档「平台与画幅」里的比例（竖屏 9:16 的空跑项目出的 jobs.json 是 9:16），没写比例或比例适配不支持时拒绝；适配的 `CAPABILITIES["model"]` 与需求文档生成模型不一致时 `jobs` / `run` 非零退出并列出可用的适配。本机空跑项目复现通过，未提交生成。
 - 后端 app 层新增 `internal/app/project_drama_rules_test.go`（默认视频模型同族校验、两档授权校验、Agent 工具按权限模式分组共 16 个（含 `drama_chapters_read`）、批量写段超长整批拒绝且不留部分写入、改小模型后概览标超长）。`go vet ./internal/app/` 通过；本机没有 CGO 工具链（go-sqlite3 需要），本机未运行；云端环境 `go test` 已通过。
 
 仍需人工/真实环境验收：
@@ -28,6 +29,7 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [ ] 候选证据：出抽帧拼图、人判画面与人脸、有台词时转写（需本地 ffmpeg 与转写模型），三项通过并写理由后能选定；证据不齐时选定被拒（面板门槛已由静态渲染覆盖，抽帧与转写要真实 ffmpeg 与转写模型）。
 - [ ] 交付页：剪辑导出成片后跑门禁；下载交付包，确认 zip 内容齐全且无密钥（zip 内容与「无 .env」已由 `TestDeliveryPackageContainsContractsAndRecordsDelivery` 覆盖，真实成片与浏览器下载未验）。
 - [ ] 云端 Agent：短剧项目画布出现 drama_* 工具，只读模式下只有读工具（工具分组已自动化）；每步确认 / 全权两档的提问行为要真实模型会话。
+- [ ] MiniMax-H3 竖屏 9:16 参考模式真实出片：像素与构图（档案只有 2K 1440×2560 的官方数据，768P 未见样片）。
 - [ ] Seedance 2.0 / 2.5 方言档案需用真实样片校准（yz-calibrate），两份 `calibrated` 目前都是 `false`。
 - [ ] 明文 HTTP 访问（如 `http://IP/`）时云端 Agent 能正常发消息（已去掉对 `crypto.randomUUID` 的依赖）。
 - [ ] 短剧项目画布上不勾技能也能读 yz-producer；Agent 能用 `drama_chapters_read` 读章节原文、按契约写需求文档和分段表，写错时看到具体原因并自己改。
