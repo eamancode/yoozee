@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { App, Button, Input, Modal } from "antd";
+import { useBlocker } from "react-router";
 import { Select } from "@/components/ui/base/select";
 import { Archive, Check, Eye, FolderOpen, Image as ImageIcon, Palette, Pencil, Save, ShieldAlert, Trash2 } from "lucide-react";
 
@@ -19,7 +20,7 @@ import type { ProjectDetailViewProps } from "./shared";
 import { DRAMA_AUTH_OPTIONS, dramaModelOptions, findDramaModel, useDramaChannelFamilies, useDramaModels } from "../drama-model";
 
 export default function ProjectSettingsView({ detail, refreshProject }: ProjectDetailViewProps) {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const { project } = detail;
     const personalAssets = useAssetStore((state) => state.assets);
@@ -106,6 +107,30 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     }, [coverResourceByItemId]);
     const currentCoverItemId = coverPickerItems.find((item) => coverResourceByItemId.get(item.id) === project.coverResourceId)?.id;
     const saveMutation = useMutation({ mutationFn: () => updateProject(project.id, { name: name.trim(), description, aspectRatio, sourceType, stylePresetId, styleProfileJson, defaultImageModel, defaultVideoModel, authMode, ...(generationModel ? { generationModel } : {}) }), onSuccess: () => { refreshProject(); void dramaProgressQuery.refetch(); message.success("项目设置已保存"); }, onError: (error) => message.error(error instanceof Error ? error.message : "项目设置保存失败") });
+    // 选了画风、改了模型却没点「保存设置」就离开，改动会静默丢失；路由跳转和关闭标签页都要先问一句。
+    const unsaved = dirty && !saveMutation.isPending;
+    const blocker = useBlocker(unsaved);
+    const leaveConfirmOpenRef = useRef(false);
+    useEffect(() => {
+        const beforeUnload = (event: BeforeUnloadEvent) => {
+            if (unsaved) event.preventDefault();
+        };
+        window.addEventListener("beforeunload", beforeUnload);
+        return () => window.removeEventListener("beforeunload", beforeUnload);
+    }, [unsaved]);
+    useEffect(() => {
+        if (blocker.state !== "blocked" || leaveConfirmOpenRef.current) return;
+        leaveConfirmOpenRef.current = true;
+        modal.confirm({
+            title: "项目设置还没保存",
+            content: "画风、模型或基础信息的修改还没有保存，离开后会丢失。",
+            okText: "放弃修改并离开",
+            okButtonProps: { danger: true },
+            cancelText: "留下保存",
+            onOk: () => { leaveConfirmOpenRef.current = false; blocker.proceed(); },
+            onCancel: () => { leaveConfirmOpenRef.current = false; blocker.reset(); },
+        });
+    }, [blocker, modal]);
     const archiveMutation = useMutation({ mutationFn: () => updateProject(project.id, { status: project.status === "archived" ? "active" : "archived" }), onSuccess: () => { setArchiveOpen(false); refreshProject(); message.success(project.status === "archived" ? "项目已恢复" : "项目已归档"); }, onError: (error) => message.error(error instanceof Error ? error.message : "项目状态更新失败") });
     const coverMutation = useMutation({ mutationFn: (coverResourceId: string) => updateProject(project.id, { coverResourceId }), onSuccess: (_, coverResourceId) => { setCoverPickerOpen(false); refreshProject(); message.success(coverResourceId ? "项目主图已更新" : "项目主图已移除"); }, onError: (error) => message.error(error instanceof Error ? error.message : "项目主图更新失败") });
 
@@ -172,6 +197,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2"><Button icon={<Eye className="size-3.5" />} disabled={!selectedStyle} onClick={() => setStyleDetail(selectedStyle || null)}>查看规范</Button><Button icon={<Pencil className="size-3.5" />} disabled={!styleProfile} onClick={() => { setStyleEditorRequested(true); setStylePickerOpen(true); }}>编辑画风</Button><Button icon={<Palette className="size-3.5" />} onClick={() => { setStyleEditorRequested(false); setStylePickerOpen(true); }}>{selectedStyle ? "更换画风" : "选择画风"}</Button></div>
                 </div>
+                {stylePresetId !== (project.stylePresetId || "") || styleProfileJson !== (project.styleProfileJson || "") ? <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400"><span>画风已选好，保存设置后才对分镜和生成生效。</span><Button size="small" type="primary" icon={<Save className="size-3.5" />} disabled={!name.trim()} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>保存设置</Button></div> : null}
                 {styleProfile ? <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5"><StyleMetric label="执行策略" value={styleProfile.executionPolicy === "strict-assets" ? "严格校验" : "兼容降级"} /><StyleMetric label="绑定资产" value={`${styleProfile.assets.length} 个`} /><StyleMetric label="已启用" value={`${enabledStyleAssets.length} 个`} /><StyleMetric label="图片执行" value={styleExecutionStatusLabel(styleExecutionPlans?.image.status)} /><StyleMetric label="视频执行" value={styleExecutionStatusLabel(styleExecutionPlans?.video.status)} /></div> : null}
                 {styleExecutionPlans && (styleExecutionPlans.image.warnings.length || styleExecutionPlans.video.warnings.length) ? <div className="mt-2 grid gap-1 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">{styleExecutionPlans.image.warnings.length ? <p>图片：{styleExecutionPlans.image.warnings.join("；")}</p> : null}{styleExecutionPlans.video.warnings.length ? <p>视频：{styleExecutionPlans.video.warnings.join("；")}</p> : null}</div> : null}
             </section>

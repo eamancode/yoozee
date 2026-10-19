@@ -297,8 +297,8 @@ export default function ProjectsPage() {
                         <Form.Item name="generationModel" label="生成模型" rules={[{ required: true, message: "请选择生成模型" }]} extra={createModel ? (dramaFamilies && !dramaFamilies.has(createModel.id) ? `当前没有 ${createModel.label} 的视频渠道，建了项目也生成不了视频；先在设置里配置渠道，或换一个模型。` : `一段 = 一次生成，最长 ${createModel.duration.max} 秒；建项后可在设置里改，但已有超长的段需要先拆分。`) : undefined}><Select loading={dramaModels.isLoading} options={dramaModelOptions(dramaModels.data, dramaFamilies)} /></Form.Item>
                         <Form.Item name="authMode" label="授权档位" extra={DRAMA_AUTH_OPTIONS.find((item) => item.value === createAuth)?.hint}><Select options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} /></Form.Item>
                     </div>
-                    <Form.Item label="项目画风"><button type="button" className="app-story-modal-style" onClick={() => setStylePickerOpen(true)}>{selectedStyle ? <><img src={selectedStyle.imageUrl} alt="" /><span>{selectedStyle.title}</span><em>更换</em></> : <><Palette className="size-4" /><span>选择项目画风（可选）</span></>}</button></Form.Item>
-                    <p className="-mt-1 mb-5 text-xs leading-5 text-foreground/48">创建后先进入项目概览。章节、画风和参考资产可以逐步补充。</p>
+                    <Form.Item label="项目画风"><button type="button" className="app-story-modal-style" onClick={() => setStylePickerOpen(true)}>{selectedStyle ? <><img src={selectedStyle.imageUrl} alt="" /><span>{selectedStyle.title}</span><em>更换</em></> : <><Palette className="size-4" /><span>选择项目画风（生成分镜前必选）</span></>}</button></Form.Item>
+                    <p className="-mt-1 mb-5 text-xs leading-5 text-foreground/48">创建后先进入项目概览。章节和参考资产可以逐步补充；画风可以晚点选，但生成分镜前必须选好。</p>
                     <div className="flex justify-end gap-2"><Button onClick={() => setCreateOpen(false)}>取消</Button><Button type="primary" htmlType="submit" loading={mutation.isPending}>创建项目</Button></div>
                 </Form>
             </Modal>
