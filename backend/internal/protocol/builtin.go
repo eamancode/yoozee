@@ -79,7 +79,7 @@ func Builtins() *Registry {
 	}
 	registry, err := NewRegistry(
 		openAIChatAdapter(), openAIResponsesAdapter(), claudeAdapter(),
-		openAIVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(),
+		openAIVideosAdapter(), vippromptVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(),
 		agnesAdapter(),
 	)
 	if err != nil {
@@ -218,6 +218,29 @@ func openAIVideoParams() []Parameter {
 		{Name: "generateAudio", Type: "boolean", Mapping: "unsupported", Description: "当前适配器不额外发送该字段。"},
 		{Name: "watermark", Type: "boolean", Mapping: "unsupported", Description: "当前适配器不额外发送该字段。"},
 	}
+}
+
+// vippromptVideosAdapter 对应 Vipprompt 系的视频模型（模型名形如 lec-vp-*）。
+// 上游只接受 JSON：POST /v1/videos 带顶层 prompt/size/seconds，再用 GET /v1/videos/{id} 轮询。
+// 与 OpenAI Videos 适配器的请求体完全一致，区别仅在于不发送 multipart —— 发 multipart 会被上游
+// 直接拒绝（"Vipprompt video only supports JSON requests"）。
+func vippromptVideosAdapter() Adapter {
+	info := metadata("vipprompt-video", "Vipprompt 视频", "Vipprompt", CapabilityVideo, "POST /v1/videos", "GET /v1/videos/{task_id}", "application/json")
+	info.LegacyAliases = []string{"vipprompt"}
+	info.Parameters = openAIVideoParams()
+	return videoAdapter(info, func(r GenerationRequest) (RequestSpec, error) {
+		body := map[string]any{"model": r.Model, "prompt": r.Prompt}
+		if r.Duration > 0 {
+			body["seconds"] = strconv.Itoa(r.Duration)
+		}
+		if r.AspectRatio != "" {
+			body["size"] = r.AspectRatio
+		}
+		if len(r.Images) > 0 {
+			body["input_reference"] = mediaValues(r.Images)
+		}
+		return jsonSpec(http.MethodPost, "/v1/videos", body), nil
+	})
 }
 
 func newAPIVideosAdapter() Adapter {
