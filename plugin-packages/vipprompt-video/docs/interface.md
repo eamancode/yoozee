@@ -177,7 +177,7 @@
                 "$ref": "request.duration"
               }
             },
-            "size": {
+            "aspect_ratio": {
               "$omitEmpty": {
                 "$ref": "request.aspectRatio"
               }
