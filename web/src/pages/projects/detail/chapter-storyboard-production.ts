@@ -1,6 +1,8 @@
 import type { StoryboardAssetRole, StoryboardCharacterReference, StoryboardRow } from "@/types/canvas";
 import { assetCategoryLabel } from "@/lib/asset-category";
+import { withStoryboardOutputContract } from "@/lib/canvas/canvas-project-domain";
 import { normalizeStoryboardAssetBindings } from "@/lib/canvas/canvas-storyboard-assets";
+import { storyboardCharacterAppearancePrompt, storyboardStylePrompt } from "@/lib/canvas/canvas-storyboard-context";
 import { formatShotOrdinal } from "@/lib/shot-label";
 import type { ProjectDetail, ShotRevisionInput } from "@/services/api/projects";
 import { ensureShotAssetMentionPrompt } from "./workflow-shot-references";
@@ -85,6 +87,17 @@ const ROLE_BY_KIND: Record<AssetKind, StoryboardAssetRole> = { character: "chara
 const NAME_NOISE = /[\s·・,，。、；;：:!！?？"'“”‘’「」『』《》〈〉()（）[\]【】<>_—-]/g;
 // 文字兜底匹配看的字段：首帧画面最能说明镜头在哪，排在最前；台词只认说话人，且只用来认角色。
 const TEXT_FIELDS = ["imageGenerationPrompt", "plotDescription", "performanceBlocking", "videoMotionPrompt", "continuityOut"] as const;
+
+/**
+ * 章节分镜任务实际发给模型的提示词。后端不读任务 input 里的 projectStyle / characters / canvasAssets，
+ * 项目画风、已确认角色的外观和资产清单都只能写进提示词，各段自带字数上限；画风和角色放在输出契约前，
+ * 资产清单带着 assets 字段要求跟在契约后。待确认角色的设定还没定稿，不写外观。
+ */
+export function chapterStoryboardTaskPrompt(skillPrompt: string, context: { sourceText: string; projectStyle: { title: string; prompt: string }; characters: ChapterStoryboardCharacter[]; assets: ChapterStoryboardAsset[] }) {
+    const confirmed = context.characters.filter((character) => character.assetId && character.versionId);
+    const projectContext = [skillPrompt, storyboardStylePrompt(context.projectStyle), storyboardCharacterAppearancePrompt(confirmed, context.sourceText)].filter(Boolean).join("\n\n");
+    return [withStoryboardOutputContract(projectContext), chapterStoryboardAssetPrompt(context.assets)].filter(Boolean).join("\n\n");
+}
 
 /**
  * 生成分镜时交给模型的资产清单：后端不读任务 input 里的 canvasAssets，清单只能写进提示词；

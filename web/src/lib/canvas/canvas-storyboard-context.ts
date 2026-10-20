@@ -51,3 +51,86 @@ export function inspectStoryboardReadiness(nodes: CanvasNodeData[]) {
         ],
     };
 }
+
+// 分镜任务的项目画风和角色外观只能写进提示词：后端 canvasGenerationInput 不读任务 input 里的 projectStyle / characters。
+// 两段都限长，正文和技能上下文的预算优先。
+const STYLE_PROMPT_CHARS = 1200;
+const CHARACTER_PROMPT_CHARS = 1600;
+const CHARACTER_LINE_CHARS = 220;
+const CHARACTER_FIELD_CHARS = 80;
+// 画风小节按对写分镜画面的用处排序，超预算时从后往前舍弃：项目定位与风格组合重复，资产一致性是通用约束。
+const STORYBOARD_STYLE_SECTIONS = ["风格组合", "视觉媒介", "角色设计系统", "项目色彩与光影", "服饰、材质与场景", "全局禁用", "影像与动态基线", "叙事气质", "题材世界观", "使用边界", "资产一致性", "项目定位"];
+const CHARACTER_VISUAL_FIELDS = [["appearance", "外貌"], ["clothing", "服装"], ["physique", "体型"], ["props", "随身道具"], ["consistencyPrompt", "一致性"]] as const;
+
+/** 项目画风按小节取到预算为止、按原顺序输出；自由书写的画风没有【】小节，按行截取。 */
+export function storyboardStylePrompt(style?: { title: string; prompt: string }) {
+    const lines = (style?.prompt || "").split("\n").map(compactText).filter(Boolean);
+    if (!style || !lines.length) return "";
+    const rank = (line: string) => {
+        const index = STORYBOARD_STYLE_SECTIONS.indexOf(/^【([^】]+)】/.exec(line)?.[1] || "");
+        return index < 0 ? STORYBOARD_STYLE_SECTIONS.length : index;
+    };
+    const kept = new Map<number, string>();
+    let remaining = STYLE_PROMPT_CHARS;
+    for (const { line, index } of lines.map((line, index) => ({ line, index })).sort((left, right) => rank(left.line) - rank(right.line) || left.index - right.index)) {
+        if (line.length <= remaining) {
+            kept.set(index, line);
+            remaining -= line.length;
+        } else if (remaining >= 60) {
+            kept.set(index, `${line.slice(0, remaining - 1)}…`);
+            break;
+        }
+    }
+    return [
+        `【项目画风：${style.title.trim() || "未命名画风"}】分镜里的画面、光影、服饰和场景描述都按这个画风写，不要写成其他媒介；这是项目级基线，不要整段抄进每个镜头。`,
+        ...Array.from(kept.entries()).sort((left, right) => left[0] - right[0]).map(([, line]) => line),
+    ].join("\n");
+}
+
+/** 角色外观只取画面相关字段；本章正文里先出现的角色排在前面，超预算的角色不写（资产清单里仍有名字）。 */
+export function storyboardCharacterAppearancePrompt(characters: Array<{ name: string; definition: Record<string, unknown> }>, sourceText = "") {
+    const firstMention = (character: { name: string; definition: Record<string, unknown> }) => {
+        const aliases = Array.isArray(character.definition.aliases) ? character.definition.aliases : [];
+        const positions = [character.name, ...aliases].flatMap((name) => {
+            const index = typeof name === "string" && name.trim() ? sourceText.indexOf(name.trim()) : -1;
+            return index < 0 ? [] : [index];
+        });
+        return positions.length ? Math.min(...positions) : Number.POSITIVE_INFINITY;
+    };
+    const ordered = characters
+        .map((character, index) => ({ line: characterAppearanceLine(character), position: firstMention(character), index }))
+        .filter((item) => item.line)
+        .sort((left, right) => left.position - right.position || left.index - right.index);
+    const lines: string[] = [];
+    let remaining = CHARACTER_PROMPT_CHARS;
+    for (const { line } of ordered) {
+        if (line.length > remaining) break;
+        lines.push(line);
+        remaining -= line.length;
+    }
+    if (!lines.length) return "";
+    return ["【已确认角色外观】角色出镜时，imageGenerationPrompt 写出本镜看得见的外貌、发型、服装和标志物，与下面的设定一致，不要自行改换；剧情明确换装或受伤时才改。", ...lines].join("\n");
+}
+
+function characterAppearanceLine(character: { name: string; definition: Record<string, unknown> }) {
+    const name = character.name.trim();
+    const parts = CHARACTER_VISUAL_FIELDS.flatMap(([key, label]) => {
+        const text = truncateText(compactText(character.definition[key]), CHARACTER_FIELD_CHARS);
+        return text ? [`${label}：${text}`] : [];
+    });
+    // 画布角色卡只有一段角色提示词时，definition 是 { prompt }。
+    if (!parts.length) {
+        const prompt = compactText(character.definition.prompt);
+        if (prompt) parts.push(prompt);
+    }
+    if (!name || !parts.length) return "";
+    return truncateText(`- ${name}｜${parts.join("；")}`, CHARACTER_LINE_CHARS);
+}
+
+function compactText(value: unknown) {
+    return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function truncateText(value: string, maxChars: number) {
+    return value.length > maxChars ? `${value.slice(0, maxChars - 1)}…` : value;
+}

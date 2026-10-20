@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { storyboardRowsFromTask } from "@/lib/canvas/canvas-project-domain";
+import { compileCanvasStylePreset } from "@/lib/canvas/canvas-style-system";
 import { segmentDurationRule, storyboardRowsToSegments } from "@/pages/projects/detail/chapter-segments";
 import {
     bindStoryboardRowAssets,
@@ -8,6 +9,7 @@ import {
     chapterStoryboardAssets,
     chapterStoryboardCharacters,
     chapterStoryboardReplaceImpact,
+    chapterStoryboardTaskPrompt,
     storyboardRowsToProjectShots,
 } from "@/pages/projects/detail/chapter-storyboard-production";
 import type { DramaSegment } from "@/services/api/drama";
@@ -61,6 +63,28 @@ describe("章节分镜写入分镜制作", () => {
         expect(prompt).toContain("- 旧信封（道具）：泛黄的旧信封");
         expect(prompt).toContain("rows 每项再加 assets");
         expect(chapterStoryboardAssetPrompt([])).toBe("");
+    });
+
+    test("分镜任务提示词带上项目画风和已确认角色外观，待确认角色不写外观", () => {
+        const detail = projectDetail();
+        detail.assets[0].character!.definition = { appearance: "瘦高，眉骨有一道旧疤", clothing: "黑色风衣", consistencyPrompt: "始终戴银色怀表" };
+        const style = compileCanvasStylePreset({ world: "suspense", tone: "dark", medium: "ink", character: "stylized" });
+        const prompt = chapterStoryboardTaskPrompt("【用户任务】\n章节：雨夜\n\n林默推门进入旧屋。", {
+            sourceText: "林默推门进入旧屋。张天昊在屋里等他。",
+            projectStyle: { title: style.title, prompt: style.prompt },
+            characters: chapterStoryboardCharacters(detail, "chapter-1"),
+            assets: chapterStoryboardAssets(detail),
+        });
+
+        expect(prompt).toStartWith("【用户任务】\n章节：雨夜");
+        expect(prompt).toContain(`【项目画风：${style.title}】`);
+        expect(prompt).toContain("【视觉媒介】");
+        expect(prompt).toContain(style.prompt.split("\n").find((line) => line.startsWith("【视觉媒介】")));
+        expect(prompt).toContain("- 林默｜外貌：瘦高，眉骨有一道旧疤；服装：黑色风衣；一致性：始终戴银色怀表");
+        expect(prompt).not.toContain("张天昊｜");
+        expect(prompt.indexOf("【项目画风")).toBeLessThan(prompt.indexOf("【已确认角色外观】"));
+        expect(prompt.indexOf("【已确认角色外观】")).toBeLessThan(prompt.indexOf("【受保护输出契约】"));
+        expect(prompt.indexOf("【受保护输出契约】")).toBeLessThan(prompt.indexOf("【项目已确认资产】"));
     });
 
     test("模型按名称给的资产落成分镜行绑定，按场景装成两段（走廊 4 镜 + 病房 2 镜）", () => {
