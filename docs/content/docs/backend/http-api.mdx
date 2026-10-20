@@ -364,7 +364,7 @@ CSV 使用中文表头、UTF-8 BOM、CRLF；金额按整数分精确转换为两
 - `GET /projects/:id/drama/progress`：每段六格（剧本 / 参考 / 生成 / 过审 / 入片 / 验收）、8 个终态和一句进度。
 - `GET|PUT /projects/:id/drama/brief`、`/drama/bible`：需求文档与连戏表（`{ document }`）。需求文档按契约 brief 校验（六项事实是 `{value, status}`，R- / Q- 有编号，不认识的字段拒绝），写入时同步项目的生成模型和授权档位；早期不合契约的文档在读取时整理成契约形状，不认识的字段挪进 `constraints`。
 - `GET|PUT /projects/:id/drama/segments`：按段号读写分段（`GET` 可带 `?unitId=`）；`PUT { unitId, segments, order? }` 按段号新增或更新，逐段校验上限，同一批里段号不能重复。已有段写新版本时沿用上一版的视频提示词备注和负面提示词。拆段、合段时给 `order`（本章全部段号的新顺序）：段按它重排位置，新段插在对应位置而不是追加到章末，不在 `order` 里的段连同生成结果和证据删除；没有分段 JSON 的旧镜头（`derived`）必须列在 `order` 里，不能靠省略删除。不给 `order` 时不删段。
-- `POST /projects/:id/shots/:shotId/compile`：按生成模型的方言编译提示词，返回 `prompt`、参考清单（`files[].file/tag/role`）和 `issues`；没有分段 JSON 的旧镜头按单镜头段推导（`derived: true`）。
+- `POST /projects/:id/shots/:shotId/compile`：按生成模型的方言编译提示词，返回 `prompt`、参考清单（`files[].file/tag/role`）和 `issues`；没有分段 JSON 的旧镜头按单镜头段推导（`derived: true`）。段内镜头可带 `sound`（这一镜的声音）和 `end_state`（这一镜结束时的状态）：段没写 `sound` 时按镜头顺序接各镜头的声音，没写 `rules` 时取最后一镜的 `end_state`，拆段、合段、移镜头后声音和结尾约束跟着镜头走。与 `yoozee-skills` 的 `compile.py` 共用 `tests/fixtures` 对照用例。
 - `GET|POST /projects/:id/drama/evidence`：证据。`transcript` 必须带成功的转写任务 `taskId`，字错率由服务端计算（阈值 5%）。
 - `POST /projects/:id/artifacts/:artifactId/transcribe`：对候选创建本地转写任务；`/frames`：生成抽帧拼图并记一条待人判的 `frames` 证据；`/pick`：`{ reason }` 选定候选，证据不齐返回 `evidence_missing`。
 - `POST /projects/:id/drama/gate`：成片门禁（同步、黑场 / 静音、响度 ±1 LUFS、真峰值 ≤ -1.5 dBTP）。不传 `resourceId` / `artifactId` 时检查最近一次剪辑导出的成片；传 `artifactId` 只记响度量数。

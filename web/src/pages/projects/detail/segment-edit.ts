@@ -89,6 +89,29 @@ export function editSubShot(list: DramaSegmentView[], index: number, shotIndex: 
     return { segments: [rebuild(segment, shots, seconds, rule)], removedShotIds: [] };
 }
 
+/** 段没有人物/场景参考（纯文本，或锁人物却一个参考都没挂）：人物在段与段之间只靠文字保持一致。有首帧的锁首帧段不算。 */
+export function segmentLacksReferences(segment: DramaSegment) {
+    if (segment.mode === "lock_first_frame") return !segment.first_frame;
+    return segment.mode === "text_only" || !segment.refs?.length;
+}
+
+/**
+ * 镜头资产绑定变了，段的参考跟着变：生成视频只认段里的参考，只绑镜头资产、不改段，编译出来仍然没有参考。
+ * 加参考时纯文本段改成锁人物；去掉最后一个参考（也没有音色参考）时锁人物段改回纯文本。
+ * 锁首帧段只认首帧（多数模型首帧与参考互斥），不往里加参考。没有变化时返回 undefined。
+ */
+export function withSegmentRef(segment: DramaSegment, change: { add: { file: string; role: string; note?: string } } | { removeFiles: string[] }): DramaSegment | undefined {
+    const refs = segment.refs || [];
+    if ("add" in change) {
+        if (segment.mode === "lock_first_frame" || !change.add.file || refs.some((ref) => ref.file === change.add.file)) return undefined;
+        return { ...segment, refs: [...refs, change.add], mode: segment.mode === "text_only" ? "lock_identity" : segment.mode };
+    }
+    const kept = refs.filter((ref) => !change.removeFiles.includes(ref.file));
+    if (kept.length === refs.length) return undefined;
+    const mode = segment.mode === "lock_identity" && !kept.length && !segment.voices?.length ? "text_only" : segment.mode;
+    return { ...segment, refs: kept.length ? kept : undefined, mode };
+}
+
 function editable(list: DramaSegmentView[], index: number) {
     const view = list[index];
     if (!view) throw new Error("没有相邻的段");

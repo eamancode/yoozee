@@ -134,8 +134,8 @@ func compileSeedance(seg Segment, m Model, style, acting string) (string, []Comp
 		head = strings.Join(decl, "；") + "；"
 	}
 	head += fmt.Sprintf("生成%d秒视频。整体风格：%s%s", dur, style, acting)
-	if seg.Rules != "" {
-		head += strings.TrimSpace(seg.Rules)
+	if rules := seg.RulesText(); rules != "" {
+		head += rules
 	}
 	lines := []string{head}
 	anchor := -1
@@ -186,7 +186,7 @@ func compileSeedance(seg Segment, m Model, style, acting string) (string, []Comp
 		}
 		lines = append(lines, fmt.Sprintf("%s-%s秒：%s", secText(start), secText(end), text))
 	}
-	sound := strings.TrimRight(strings.TrimSpace(seg.Sound), "。")
+	sound := strings.TrimRight(seg.SoundText("；"), "。")
 	if sound == "" {
 		sound = "环境声与动作音效"
 	}
@@ -206,8 +206,8 @@ func compileSeedance(seg Segment, m Model, style, acting string) (string, []Comp
 func compileH3(seg Segment, m Model, style, acting string) (string, []CompiledFile, int) {
 	files := []CompiledFile{}
 	head := style + " " + acting + " "
-	if seg.Rules != "" {
-		head += strings.TrimSpace(seg.Rules) + " "
+	if rules := seg.RulesText(); rules != "" {
+		head += rules + " "
 	}
 	var body strings.Builder
 	body.WriteString("integrated_multimodal_description:\n")
@@ -278,7 +278,7 @@ func compileH3(seg Segment, m Model, style, acting string) (string, []CompiledFi
 			body.WriteString(fmt.Sprintf("[Shot %d] At %s, %s\n", k+1, mmss(sh.At), line))
 		}
 	}
-	sound := strings.TrimSpace(seg.Sound)
+	sound := seg.SoundText("; ")
 	if sound == "" {
 		sound = "quiet room tone"
 	}

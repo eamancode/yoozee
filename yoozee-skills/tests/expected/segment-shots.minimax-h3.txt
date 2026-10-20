@@ -1,0 +1,19 @@
+model: minimax-h3
+duration: 14
+--- prompt
+integrated_multimodal_description:
+Reference roles: <Picture 1> is the exact identity reference of 林小满，29 岁夜班护士，右眉一道小疤: match the face, hairstyle and distinguishing marks exactly and wear exactly what the reference wears; ignore its plain grey background; <Picture 2> is the location reference: keep its layout, materials, colours and light; it contains no people. 病房走廊，夜.
+[Shot 1] Live-action drama, photorealistic, shot on a cinema camera with prime lenses, natural motivated light from sources that exist in the scene, real matte skin texture with pores, no beauty filter, fine grain. Skin is naturally matte, as with light make-up powder: no shiny nose, forehead or cheeks, no oily or wet sheen, no over-sharpened pores or wrinkles. No readable text, slogans, posters or calendars anywhere in frame except text that already exists in the reference images. Performance is specific to this scene and lived-in: the character's inner thought must be visible (in the eyes, the breath, small shifts of the face) and the intensity follows what the scene calls for, from complete stillness to an outburst; never a blank stare, never stagey or over-acted. Faces stay clear and sharp. 林小满站在七床门口，右手搭在门把上，面朝房门。 夜里的病房走廊，日光灯一盏接一盏，林小满抱着病历夹从尽头走来
+[Shot 2] At 00:04.000, 她边走边翻病历夹，脚步放慢
+[Shot 3] At 00:08.000, 她抬头看向七床的门牌，眉头一紧
+[Shot 4] At 00:11.000, 她走到七床门口，手搭上门把 (S1), 压低声音:
+<d>[Chinese] 七床？</d>
+
+overall_soundscape: 日光灯的嗡声; 远处监护仪的滴滴声
+
+non_diegetic_music: N/A
+--- files
+<Picture 1>	素材库/人物/林小满_特写.png	identity
+<Picture 2>	素材库/场景/病房走廊_夜_空景.png	location
+--- issues
+

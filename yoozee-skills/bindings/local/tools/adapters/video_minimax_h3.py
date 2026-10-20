@@ -15,6 +15,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import common as C  # noqa: E402
+import compile as P  # noqa: E402  段级声音和约束的取法与方言编译一致（段没写时从镜头取）
 
 TAG = "video_minimax_h3"
 CAPABILITIES = {
@@ -46,7 +47,8 @@ def build_job(seg, resolution="768P", n=1, ratio=None):
     ratio 是需求文档的画幅；参考模式没有画幅、或画幅 H3 不支持时抛 ValueError。"""
     mode = seg.get("mode", "lock_identity")
     job = {"id": seg["id"], "out": f"生成/{seg['id']}.mp4", "model": "MiniMax-H3", "duration": int(seg["dur"]), "resolution": resolution, "n": n}
-    head = STYLE + ACTING + (seg.get("rules", "") + " " if seg.get("rules") else "")
+    rules = P.segment_rules(seg)
+    head = STYLE + ACTING + (rules + " " if rules else "")
     body = "integrated_multimodal_description:\n"
     speakers = []
     if mode == "lock_first_frame":
@@ -76,7 +78,7 @@ def build_job(seg, resolution="768P", n=1, ratio=None):
             how = f" {ln['delivery'].strip().rstrip('.,')}" if ln.get("delivery") else ""  # 这一句的表演状态，紧贴台词写（R-008：语气由表演状态决定）
             line += f"{vo} (S{s_idx}),{how}:\n<d>[{seg.get('lang', 'Chinese')}] {ln['text']}</d>" if how else f"{vo} (S{s_idx}):\n<d>[{seg.get('lang', 'Chinese')}] {ln['text']}</d>"
         body += (f"[Shot {k}] " if k == 1 else f"[Shot {k}] At {_t(sh.get('at', 0))}, ") + line + "\n"
-    body += "\noverall_soundscape: " + seg.get("sound", "quiet room tone") + "\n\nnon_diegetic_music: N/A"
+    body += "\noverall_soundscape: " + (P.segment_sound(seg, "; ") or "quiet room tone") + "\n\nnon_diegetic_music: N/A"
     job["prompt"] = body
     return job
 

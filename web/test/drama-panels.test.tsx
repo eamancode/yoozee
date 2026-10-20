@@ -284,6 +284,15 @@ describe("分镜制作页的段卡：段内镜头可拆合、可编辑", () => {
         expect(html).toContain("段长按当前视频渠道（最长 30 秒）取档");
     });
 
+    test("段没有参考时提示人物一致性只靠文字，并给「选择资产」入口；有参考时不提示", () => {
+        const html = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S02" specJson={JSON.stringify(spec("S02", 2))} durationRule={segmentDurationRule(30)} onPickAssets={() => undefined} />, { segments: [view("S02", 2)] });
+        expect(html).toContain("此段没有人物/场景参考，人物一致性只靠文字。");
+        expect(html).toContain("选择资产");
+        const withRefs = { ...spec("S02", 2), mode: "lock_identity" as const, refs: [{ file: "version-a", role: "identity", note: "林小满" }] };
+        const referenced = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S02" specJson={JSON.stringify(withRefs)} durationRule={segmentDurationRule(30)} onPickAssets={() => undefined} />, { segments: [view("S02", 2)] });
+        expect(referenced).not.toContain("人物一致性只靠文字");
+    });
+
     test("相邻的是旧镜头时不给合并；没有段长规则时只能看", () => {
         const html = render(card(), { segments: [view("S01", 2, true), view("S02", 3)] });
         expect(html).not.toContain("并入 S01");

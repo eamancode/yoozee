@@ -55,10 +55,11 @@ import {
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
 import { shotTaskRunningLabel, shotVideoSeconds } from "./shot-generation";
-import { segmentDurationRule } from "./chapter-segments";
+import { segmentDurationRule, segmentRefRole } from "./chapter-segments";
+import { withSegmentRef } from "./segment-edit";
 import { applyShotReferenceChange } from "./project-cache";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
-import { compileProjectShot } from "@/services/api/drama";
+import { compileProjectShot, writeDramaSegments, type DramaSegment } from "@/services/api/drama";
 import { dramaFamilyOf, findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useInvalidateDrama } from "./drama-panels";
 import { Select } from "@/components/ui/base/select";
@@ -347,15 +348,31 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const changeAssetBinding = useMutation({
         mutationFn: async ({ asset, reference }: { asset?: ProjectAsset; reference?: ShotAssetReference }) => {
             if (!selectedShot) throw new Error("请先选择镜头");
-            if (reference) return unlinkShotAsset(projectId, selectedShot.id, reference.id);
-            if (!asset?.primaryVersionId) throw new Error("该资产还没有可绑定版本");
-            return linkShotAsset(projectId, selectedShot.id, { assetVersionId: asset.primaryVersionId, role: "reference" });
+            if (!reference && !asset?.primaryVersionId) throw new Error("该资产还没有可绑定版本");
+            const result = reference
+                ? await unlinkShotAsset(projectId, selectedShot.id, reference.id)
+                : await linkShotAsset(projectId, selectedShot.id, { assetVersionId: asset!.primaryVersionId!, role: "reference" });
+            // 分段表里的段生成视频只认段的 refs：镜头资产变了，段的参考跟着改，否则编译出来仍然没有参考。
+            const spec = parseSegmentSpec(segmentSpecJson) as DramaSegment | undefined;
+            const nextSpec = spec && (reference
+                ? withSegmentRef(spec, { removeFiles: [reference.assetVersionId, reference.asset?.primaryVersionId || ""].filter(Boolean) })
+                : withSegmentRef(spec, { add: { file: asset!.primaryVersionId!, role: segmentRefRole(asset!.category), note: asset!.title } }));
+            let segmentError = "";
+            if (nextSpec) {
+                try {
+                    await writeDramaSegments(projectId, { unitId, segments: [nextSpec] });
+                } catch (error) {
+                    segmentError = error instanceof Error ? error.message : "未知错误";
+                }
+            }
+            return { result, segmentError, segmentChanged: Boolean(nextSpec) };
         },
-        onSuccess: async (result, variables) => {
+        onSuccess: async ({ result, segmentError, segmentChanged }, variables) => {
             const added = !variables.reference && "reference" in result ? result.reference : undefined;
             queryClient.setQueryData(["project", projectId, "unit-workspace", unitId], (current: ProjectUnitWorkspace | undefined) => applyShotReferenceChange(current, variables.reference ? { removedId: variables.reference.id } : { added, asset: variables.asset }));
-            message.success(variables.reference ? "已取消当前镜头的资产引用" : "资产已绑定到当前镜头");
-            await onRefresh();
+            if (segmentError) message.warning(`${variables.reference ? "已取消镜头资产引用" : "资产已绑定到镜头"}，但段的参考没有更新：${segmentError}`);
+            else message.success(variables.reference ? (segmentChanged ? "已取消资产引用，并从段的参考里去掉" : "已取消当前镜头的资产引用") : (segmentChanged ? "资产已绑定，并加进这一段的参考" : "资产已绑定到当前镜头"));
+            await Promise.all([onRefresh(), ...(segmentChanged ? [invalidateDrama()] : [])]);
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "镜头资产更新失败"),
     });
@@ -545,7 +562,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         <div className="workflow-shot-form-scroll thin-scrollbar">
                             <div className="workflow-form-section-heading"><span>分段脚本</span><small>一段 = 一次生成；先写清段里发生什么，再调整生成参数</small></div>
                             {segmentSpecShots ? <p className="mb-3 rounded-md bg-surface-active px-3 py-2 text-[var(--fs-label)] leading-5 text-foreground/55">这一段由分段表维护（段内 {segmentSpecShots} 个镜头）。生成视频时提示词按 {dramaModel?.label || "项目生成模型"} 方言从分段表编译，下面的视频提示词只作备注；{activeStage === "video" ? "拆段、合并、移镜头和改台词在下面的段时间轴里做" : "拆段、合并、移镜头和改台词到「视频」阶段的段时间轴里做"}，也可以让短剧 Agent 改分段表。</p> : null}
-                            {segmentSpecShots && activeStage === "video" ? <DramaSegmentCard projectId={projectId} unitId={unitId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} durationRule={segmentRule} takeCounts={segmentTakeCounts} busyShotIds={busySegmentShotIds} onEdited={async (selectShotId) => { if (selectShotId && selectShotId !== selectedShot.id) onSelectShot(selectShotId); await Promise.all([onRefresh(), invalidateDrama()]); }} /> : null}
+                            {segmentSpecShots && activeStage === "video" ? <DramaSegmentCard projectId={projectId} unitId={unitId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} durationRule={segmentRule} takeCounts={segmentTakeCounts} busyShotIds={busySegmentShotIds} onPickAssets={() => setAssetPickerOpen(true)} onEdited={async (selectShotId) => { if (selectShotId && selectShotId !== selectedShot.id) onSelectShot(selectShotId); await Promise.all([onRefresh(), invalidateDrama()]); }} /> : null}
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
                             <Form.Item name="videoPrompt" label={segmentSpecShots ? "视频提示词（备注）" : "视频提示词"} rules={segmentSpecShots ? undefined : [{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
                             <BoundAssets detail={detail} shotId={selectedShot.id} changing={changeAssetBinding.isPending} onPick={() => setAssetPickerOpen(true)} onUnlink={(reference) => changeAssetBinding.mutate({ reference })} />
@@ -671,7 +688,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 width="min(480px, calc(100vw - 32px))"
                 onCancel={() => setAssetPickerOpen(false)}
             >
-                <p className="mb-3 text-[var(--fs-label)] text-foreground/50">点击资产绑定到当前镜头，再点一次取消绑定。</p>
+                <p className="mb-3 text-[var(--fs-label)] text-foreground/50">点击资产绑定到当前镜头，再点一次取消绑定。{segmentSpecShots ? "这一段由分段表维护：绑定的资产同时写进段的参考，生成视频时带上。" : ""}</p>
                 <div className="workflow-asset-picker-scroll thin-scrollbar">
                     <AssetLibrary detail={detail} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate({ asset, reference })} />
                 </div>

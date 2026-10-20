@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { videoDurationAllowed, type VideoCapabilityConfig } from "@/lib/model-capabilities";
-import { formatDialogue, parseDialogue, segmentDurationRule, storyboardRowsToSegments } from "@/pages/projects/detail/chapter-segments";
-import { editSubShot, mergeWithNext, moveEdgeShot, nextSegmentId, splitSegment } from "@/pages/projects/detail/segment-edit";
+import { formatDialogue, joinClauses, parseDialogue, segmentDurationRule, storyboardRowsToSegments } from "@/pages/projects/detail/chapter-segments";
+import { editSubShot, mergeWithNext, moveEdgeShot, nextSegmentId, segmentLacksReferences, splitSegment, withSegmentRef } from "@/pages/projects/detail/segment-edit";
 import type { DramaSegment, DramaSegmentView } from "@/services/api/drama";
 import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
 import type { StoryboardRow } from "@/types/canvas";
@@ -91,6 +91,34 @@ describe("章节分镜行装段", () => {
         expect(plan.notes[0]).toContain("只带前 2 个");
     });
 
+    test("声音和结尾状态记在镜头上，不写段级 sound / rules", () => {
+        const rows = [
+            { ...row(1, 5, { scene: "corridor" }), audioEffects: "日光灯的嗡声。", continuityOut: "林小满走到七床门口" },
+            { ...row(2, 5, { scene: "corridor" }), audioEffects: "门轴轻响", continuityOut: "林小满停在病床侧面，背对镜头。" },
+        ];
+        const [segment] = specs(storyboardRowsToSegments(rows, detail(), { chapterTitle: "一", rule: segmentDurationRule(15) }).shots);
+        expect(segment.sound).toBeUndefined();
+        expect(segment.rules).toBeUndefined();
+        expect(segment.shots.map((shot) => [shot.sound, shot.end_state])).toEqual([["日光灯的嗡声", "林小满走到七床门口"], ["门轴轻响", "林小满停在病床侧面，背对镜头。"]]);
+        // 拆段后各段只带自己镜头的声音和结尾状态（编译时段级 sound / rules 从镜头取）。
+        const split = splitSegment([{ shotId: "shot-S01", unitId: "unit-1", title: "S01", position: 0, durationMs: 10_000, spec: segment, derived: false }], 0, 1, segmentDurationRule(15));
+        expect(split.segments.map((item) => item.shots.map((shot) => shot.sound))).toEqual([["日光灯的嗡声"], ["门轴轻响"]]);
+        expect(split.segments.map((item) => item.shots[item.shots.length - 1].end_state)).toEqual(["林小满走到七床门口", "林小满停在病床侧面，背对镜头。"]);
+    });
+
+    test("拼接运镜和画面时去掉重复标点", () => {
+        const rows = [{ ...row(1, 5, {}), plotDescription: "林小满推门。", performanceBlocking: "，手停在门把上。", camera: "固定机位。", motion: "缓慢推近。", shotSize: "中景。" }, { ...row(2, 5, {}), plotDescription: "她愣住！", performanceBlocking: "眼神发紧" }];
+        const [segment] = specs(storyboardRowsToSegments(rows, detail(), { chapterTitle: "一", rule: segmentDurationRule(15) }).shots);
+        expect(segment.shots[0]).toMatchObject({ size: "中景", camera: "固定机位，缓慢推近", text: "林小满推门。手停在门把上" });
+        expect(segment.shots[1].text).toBe("她愣住！眼神发紧");
+        expect(joinClauses(["病床空着。", "", "；被子叠好。。"], "；")).toBe("病床空着；被子叠好");
+    });
+
+    test("没有场景绑定而项目里有场景资产时提示整章按一场装段", () => {
+        const plan = storyboardRowsToSegments([row(1, 5, {})], detail(), { chapterTitle: "一", rule: segmentDurationRule(15) });
+        expect(plan.notes.join("；")).toContain("分镜行没有认出场景");
+    });
+
     test("「无」不算台词，也不算接话", () => {
         expect(parseDialogue("（无）")).toEqual([]);
         expect(parseDialogue("林小满（画外）：七床的人呢？\n他走了")).toEqual([
@@ -154,6 +182,26 @@ describe("分镜制作页的段编辑", () => {
         expect(longer.segments[0].shots.map((shot) => shot.at)).toEqual([0, 12]);
         expect(longer.segments[0].dur).toBe(30);
         expect(longer.segments[0].shots[0].lines).toBeUndefined();
+    });
+
+    test("段没有人物/场景参考：纯文本、锁人物没挂参考算；有首帧的锁首帧段不算", () => {
+        expect(segmentLacksReferences(view("S01", [4]).spec)).toBe(true);
+        expect(segmentLacksReferences({ ...view("S01", [4]).spec, mode: "lock_identity" })).toBe(true);
+        expect(segmentLacksReferences(view("S01", [4], ["version-a"]).spec)).toBe(false);
+        expect(segmentLacksReferences({ ...view("S01", [4]).spec, mode: "lock_first_frame", first_frame: "version-frame" })).toBe(false);
+    });
+
+    test("镜头资产绑定变了，段的参考跟着变；没变化时不写", () => {
+        const textOnly = view("S01", [4]).spec;
+        const added = withSegmentRef(textOnly, { add: { file: "version-a", role: "identity", note: "林小满" } });
+        expect(added?.mode).toBe("lock_identity");
+        expect(added?.refs).toEqual([{ file: "version-a", role: "identity", note: "林小满" }]);
+        expect(withSegmentRef(added!, { add: { file: "version-a", role: "identity" } })).toBeUndefined();
+        const removed = withSegmentRef(added!, { removeFiles: ["version-a"] });
+        expect(removed?.refs).toBeUndefined();
+        expect(removed?.mode).toBe("text_only");
+        expect(withSegmentRef(textOnly, { removeFiles: ["version-x"] })).toBeUndefined();
+        expect(withSegmentRef({ ...textOnly, mode: "lock_first_frame", first_frame: "version-frame" }, { add: { file: "version-a", role: "identity" } })).toBeUndefined();
     });
 
     test("旧镜头（没有分段 JSON）不能参与拆合；段号依次往后取字母", () => {

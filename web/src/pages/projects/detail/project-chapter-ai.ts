@@ -9,7 +9,7 @@ import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
 
-import type { ChapterStoryboardAsset, ChapterStoryboardCharacter } from "./chapter-storyboard-production";
+import { chapterStoryboardAssetPrompt, type ChapterStoryboardAsset, type ChapterStoryboardCharacter } from "./chapter-storyboard-production";
 
 type ChapterAnalysisInput = {
     projectId: string;
@@ -91,7 +91,8 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         selectedSkillIds: input.selectedSkillIds,
     });
     // 技能上下文只描述工作流，不会约束输出结构；必须显式带上输出契约，否则模型返回 Markdown 表格。
-    const prompt = withStoryboardOutputContract(skillExecution.prompt);
+    // 资产清单也要写进提示词（后端不读 input.canvasAssets），模型才能按名称给每个镜头标出场的资产。
+    const prompt = [withStoryboardOutputContract(skillExecution.prompt), chapterStoryboardAssetPrompt(input.assets)].filter(Boolean).join("\n\n");
     const task = await createGenerationTask({
         projectId: input.projectId,
         type: "canvas_text",

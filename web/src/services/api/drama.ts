@@ -24,7 +24,8 @@ export type DramaRegistry = { version: string; default: string; models: DramaMod
 export type DramaAuthMode = "step" | "full";
 
 export type DramaLine = { speaker: string; text: string; vo?: boolean; delivery?: string };
-export type DramaSubShot = { at: number; size?: string; camera?: string; text: string; lines?: DramaLine[] };
+/** 段内一个镜头。sound、end_state 记在镜头上：段没写 sound / rules 时后端编译从镜头取，拆段合段后跟着镜头走。 */
+export type DramaSubShot = { at: number; size?: string; camera?: string; text: string; lines?: DramaLine[]; sound?: string; end_state?: string };
 /** 契约 segment：一段 = 一次生成，段内多镜头。 */
 export type DramaSegment = {
     id: string;

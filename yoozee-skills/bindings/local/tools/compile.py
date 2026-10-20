@@ -105,6 +105,29 @@ def _issues(seg, m):
     return out
 
 
+def segment_sound(seg, sep):
+    """这一段的声音：段级 sound；没写时按镜头顺序接各镜头的 sound（去掉句尾标点、去重，用 sep 分隔）。
+    声音记在镜头上，拆段、合段、移镜头之后跟着镜头走。与柚子后端 Segment.SoundText 一致。"""
+    sound = (seg.get("sound") or "").strip()
+    if sound:
+        return sound
+    parts = []
+    for sh in seg.get("shots", []):
+        part = (sh.get("sound") or "").strip().rstrip("。；;，,. ")
+        if part and part not in parts:
+            parts.append(part)
+    return sep.join(parts)
+
+
+def segment_rules(seg):
+    """这一段写死的约束：段级 rules；没写时取最后一镜的 end_state（这一段结束时的连戏状态）。与 Segment.RulesText 一致。"""
+    rules = (seg.get("rules") or "").strip()
+    if rules:
+        return rules
+    shots = seg.get("shots") or []
+    return (shots[-1].get("end_state") or "").strip() if shots else ""
+
+
 def _submit_duration(dur, m):
     lo, hi, step = m["duration"]["min"], m["duration"]["max"], m["duration"].get("step") or 1
     n = math.ceil(round(float(dur), 3) / step) * step
@@ -138,8 +161,7 @@ def compile_seedance(seg, m, style, acting):
             files.append({"file": v["file"], "tag": f"@音频{k}", "role": "voice"})
     dur = _submit_duration(seg["dur"], m)
     head = ("；".join(decl) + "；" if decl else "") + f"生成{dur}秒视频。整体风格：{style}{acting}"
-    if seg.get("rules"):
-        head += seg["rules"].strip()
+    head += segment_rules(seg)
     lines = [head]
     shots = seg["shots"]
     anchor_k = None
@@ -161,7 +183,7 @@ def compile_seedance(seg, m, style, acting):
         if k == anchor_k:
             text = REANCHOR + text
         lines.append(f"{_sec(start)}-{_sec(end)}秒：{text}")
-    sound = (seg.get("sound") or "").strip().rstrip("。")
+    sound = segment_sound(seg, "；").rstrip("。")
     lines.append(f"声音：{sound or '环境声与动作音效'}；不要背景音乐和配乐。")
     constraint = SEEDANCE_CONSTRAINT
     lang = (seg.get("lang") or "").strip()
@@ -174,7 +196,8 @@ def compile_seedance(seg, m, style, acting):
 def compile_h3(seg, m, style, acting):
     mode = seg.get("mode", "lock_identity")
     files = []
-    head = style + " " + acting + " " + ((seg.get("rules") or "").strip() + " " if seg.get("rules") else "")
+    rules = segment_rules(seg)
+    head = style + " " + acting + " " + (rules + " " if rules else "")
     body = "integrated_multimodal_description:\n"
     speakers = []
     if mode == "lock_first_frame":
@@ -204,7 +227,7 @@ def compile_h3(seg, m, style, acting):
             how = (ln.get("delivery") or "").strip().rstrip(".,。，")
             line += f"{vo} (S{s_idx}), {how}:\n<d>[{lang}] {ln['text']}</d>" if how else f"{vo} (S{s_idx}):\n<d>[{lang}] {ln['text']}</d>"
         body += (f"[Shot {k}] " if k == 1 else f"[Shot {k}] At {_mmss(float(sh.get('at', 0)))}, ") + line + "\n"
-    body += "\noverall_soundscape: " + ((seg.get("sound") or "").strip() or "quiet room tone") + "\n\nnon_diegetic_music: N/A"
+    body += "\noverall_soundscape: " + (segment_sound(seg, "; ") or "quiet room tone") + "\n\nnon_diegetic_music: N/A"
     return body, files, _submit_duration(seg["dur"], m)
 
 

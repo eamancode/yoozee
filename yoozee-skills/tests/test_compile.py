@@ -15,7 +15,8 @@ import compile as P  # noqa: E402
 MODELS = {m["id"]: m for m in json.loads((ROOT / "kb" / "kb-dialects" / "models.json").read_text(encoding="utf-8"))["models"]}
 CASES = [("segment-dialogue", "seedance-2.0"), ("segment-dialogue", "seedance-2.5"), ("segment-dialogue", "minimax-h3"),
          ("segment-long", "seedance-2.5"), ("segment-long", "seedance-2.0"), ("segment-long", "minimax-h3"),
-         ("segment-firstframe", "seedance-2.0"), ("segment-firstframe", "minimax-h3")]
+         ("segment-firstframe", "seedance-2.0"), ("segment-firstframe", "minimax-h3"),
+         ("segment-shots", "seedance-2.0"), ("segment-shots", "seedance-2.5"), ("segment-shots", "minimax-h3")]
 
 
 def render(result):
@@ -32,7 +33,7 @@ def main():
         got = render(P.compile_segment(seg, MODELS[model]))
         path = HERE / "expected" / f"{fixture}.{model}.txt"
         if update:
-            path.write_text(got, encoding="utf-8")
+            path.write_bytes(got.encode("utf-8"))  # 固定 LF：Go 端按字节对照，Windows 文本模式会写成 CRLF
             continue
         want = path.read_text(encoding="utf-8")
         if got != want:

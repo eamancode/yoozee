@@ -75,7 +75,7 @@ import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
-import { chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
+import { bindStoryboardRowAssets, chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
 import { chapterDialogueCoverage, DEFAULT_SEGMENT_TARGET, segmentDurationRule, storyboardRowsToSegments } from "./chapter-segments";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
@@ -401,7 +401,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     };
     const storeGeneratedStoryboard = async (unitId: string, rows: ReturnType<typeof chapterStoryboardFromGenerationTask>["rows"]) => {
         const unit = detail.units.find((item) => item.id === unitId);
-        const plan = storyboardRowsToSegments(rows, await storyboardDetail(), { chapterTitle: unit?.title || "", rule: segmentRule, target: DEFAULT_SEGMENT_TARGET, maxRefs: dramaModel?.refs.images ?? undefined });
+        const assetDetail = await storyboardDetail();
+        // 模型按名称给的资产（或镜头文字里出现的资产名）先落成分镜行绑定，装段才能按场景切场、带上参考。
+        const boundRows = bindStoryboardRowAssets(rows, chapterStoryboardAssets(assetDetail));
+        const plan = storyboardRowsToSegments(boundRows, assetDetail, { chapterTitle: unit?.title || "", rule: segmentRule, target: DEFAULT_SEGMENT_TARGET, maxRefs: dramaModel?.refs.images ?? undefined });
         await replaceProjectUnitShots(detail.project.id, unitId, plan.shots, detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));
         await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),

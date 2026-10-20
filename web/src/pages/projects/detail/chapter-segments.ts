@@ -74,7 +74,7 @@ export type SegmentPlanOptions = {
 export type SegmentPlan = { shots: ProjectShotReplacementInput[]; notes: string[] };
 
 type PlannedRow = { row: StoryboardRow; shot: ProjectShotReplacementInput; seconds: number };
-type PlannedScene = { name: string; rows: PlannedRow[]; versionIds: string[] };
+type PlannedScene = { key: string; name: string; rows: PlannedRow[]; versionIds: string[] };
 
 const SCENE_CATEGORIES = new Set(["scene", "environment", "location"]);
 const LOCKED_CUT = 1000;
@@ -97,6 +97,8 @@ export function storyboardRowsToSegments(rows: StoryboardRow[], detail: ProjectD
     if (rule.problem) notes.push(`${rule.problem}：段按内容时长写入，这个渠道提交不了，先换视频渠道或改项目生成模型`);
 
     const scenes = groupRowsByScene(rows, shots, detail.assets, options.chapterTitle, rule.maxSeconds);
+    const sceneAssets = detail.assets.filter((asset) => SCENE_CATEGORIES.has(asset.category)).map((asset) => asset.title);
+    if (scenes.every((scene) => !scene.key) && sceneAssets.length) notes.push(`分镜行没有认出场景（项目里有「${sceneAssets.slice(0, 3).join("」「")}」），整章按一场装段：可以在分镜制作页拆段，或给镜头绑定场景后重新生成分段`);
     const groups: Array<{ scene: PlannedScene; rows: PlannedRow[]; refs: string[]; lockedCutBefore: boolean }> = [];
     for (const scene of scenes) {
         const refs = orderedRefs(scene.versionIds, assetByVersionId);
@@ -112,15 +114,22 @@ export function storyboardRowsToSegments(rows: StoryboardRow[], detail: ProjectD
         const id = segmentId(index);
         if (group.lockedCutBefore) notes.push(`${segmentId(index - 1)} 和 ${id} 之间拆开了一段连续对话：这段对话超过 ${rule.maxSeconds} 秒，一段放不下`);
         let at = 0;
+        // 声音和结尾状态记在镜头上，不写段级 sound / rules：拆段、合段、移镜头后编译按新段的镜头取。
         const subShots: DramaSubShot[] = group.rows.map(({ row, seconds }) => {
+            const size = trimClause(row.shotSize);
+            const camera = joinClauses([row.camera, row.motion], "，");
+            const sound = trimClause(row.audioEffects);
+            const endState = row.continuityOut.trim();
             const shot: DramaSubShot = {
                 at,
-                ...(row.shotSize.trim() ? { size: row.shotSize.trim() } : {}),
-                ...([row.camera, row.motion].some((value) => value.trim()) ? { camera: [row.camera.trim(), row.motion.trim()].filter(Boolean).join("，") } : {}),
-                text: [row.plotDescription.trim(), row.performanceBlocking.trim()].filter(Boolean).join("。") || row.videoMotionPrompt.trim() || "（待补充画面）",
+                ...(size ? { size } : {}),
+                ...(camera ? { camera } : {}),
+                text: joinClauses([row.plotDescription, row.performanceBlocking], "。") || trimClause(row.videoMotionPrompt) || "（待补充画面）",
             };
             const lines = parseDialogue(row.dialogue);
             if (lines.length) shot.lines = lines;
+            if (sound) shot.sound = sound;
+            if (endState) shot.end_state = endState;
             at += seconds;
             return shot;
         });
@@ -128,19 +137,16 @@ export function storyboardRowsToSegments(rows: StoryboardRow[], detail: ProjectD
         const dur = submit(content) ?? content;
         if (dur > content) padded.push(`${id} 内容 ${content} 秒按 ${dur} 秒生成`);
         const versionIds = group.refs;
-        const sounds = group.rows.map(({ row }) => row.audioEffects.trim()).filter(Boolean);
         const segment: DramaSegment = {
             id,
             scene: group.scene.name,
             title: firstSentence(group.rows[0].row.plotDescription) || id,
             dur,
             mode: versionIds.length ? "lock_identity" : "text_only",
-            ...(versionIds.length ? { refs: versionIds.map((versionId) => ({ file: versionId, role: refRole(assetByVersionId.get(versionId)?.category || ""), note: assetByVersionId.get(versionId)?.title || "" })) } : {}),
+            ...(versionIds.length ? { refs: versionIds.map((versionId) => ({ file: versionId, role: segmentRefRole(assetByVersionId.get(versionId)?.category || ""), note: assetByVersionId.get(versionId)?.title || "" })) } : {}),
             shots: subShots,
-            ...(sounds.length ? { sound: sounds.join("；") } : {}),
-            ...(group.rows[group.rows.length - 1].row.continuityOut.trim() ? { rules: group.rows[group.rows.length - 1].row.continuityOut.trim() } : {}),
         };
-        const description = subShots.map((shot) => shot.text).join("；");
+        const description = joinClauses(subShots.map((shot) => shot.text), "；");
         return {
             title: `${id} ${segment.title}`,
             description,
@@ -184,7 +190,7 @@ function groupRowsByScene(rows: StoryboardRow[], shots: ProjectShotReplacementIn
             scene.rows.push(planned);
             scene.versionIds.push(...planned.shot.assetVersionIds);
         } else {
-            scenes.push({ name: current.name, rows: [planned], versionIds: [...planned.shot.assetVersionIds] });
+            scenes.push({ key: current.key, name: current.name, rows: [planned], versionIds: [...planned.shot.assetVersionIds] });
         }
         lastKey = current.key;
     });
@@ -245,7 +251,7 @@ function shotSizeRank(value: string) {
 /** 参考按用途排：角色、场景、道具、其他；同类按出场顺序。 */
 function orderedRefs(versionIds: string[], assetByVersionId: Map<string, ProjectAsset>) {
     const unique = Array.from(new Set(versionIds));
-    const rank = (versionId: string) => ["identity", "location", "prop", "frame"].indexOf(refRole(assetByVersionId.get(versionId)?.category || ""));
+    const rank = (versionId: string) => ["identity", "location", "prop", "frame"].indexOf(segmentRefRole(assetByVersionId.get(versionId)?.category || ""));
     return unique.map((versionId, index) => ({ versionId, index })).sort((left, right) => rank(left.versionId) - rank(right.versionId) || left.index - right.index).map((item) => item.versionId);
 }
 
@@ -293,11 +299,24 @@ function normalizeLine(value: string) {
     return value.replace(/[\s，。！？、…,.!?—-]/g, "");
 }
 
+// 模型常在每格句尾自带「。」「，」：拼接前去掉首尾的这类标点，避免「。，」「。。」。
+const CLAUSE_EDGE = /^[\s，。；、,.;：:]+|[\s，。；、,.;：:]+$/g;
+
+function trimClause(value: string) {
+    return value.replace(CLAUSE_EDGE, "");
+}
+
+/** 把几格文字接成一句：每格去掉首尾标点再用 separator 接；上一格以「！？…」收尾时直接接，不再补分隔符。 */
+export function joinClauses(values: string[], separator: string) {
+    return values.map(trimClause).filter(Boolean).reduce((text, part) => !text ? part : `${text}${/[！？!?…]$/.test(text) ? "" : separator}${part}`, "");
+}
+
 export function firstSentence(value: string) {
     return value.trim().split(/[。！？\n]/)[0].slice(0, 16);
 }
 
-function refRole(category: string) {
+/** 资产分类 → 段参考的用途（identity 人物、location 场景、prop 道具，其余只作构图参考）。 */
+export function segmentRefRole(category: string) {
     if (category === "character") return "identity";
     if (SCENE_CATEGORIES.has(category)) return "location";
     if (category === "prop") return "prop";

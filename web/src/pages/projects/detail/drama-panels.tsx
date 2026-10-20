@@ -5,6 +5,7 @@ import { CheckCircle2, Circle, CircleAlert, Download, FileText, MoreHorizontal, 
 import { Link } from "react-router";
 
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
+import { Callout } from "@/components/ui/product/callout";
 import { Select } from "@/components/ui/base/select";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, getDramaBible, getDramaBrief, putDramaBible, putDramaBrief, framesShotArtifact, getDramaProgress, listDramaEvidence, listDramaSegments, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, writeDramaSegments, type DramaBible, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaLine, type DramaProgress, type DramaSegment, type DramaSegmentProgress, type DramaSegmentView, type DramaSubShot } from "@/services/api/drama";
@@ -16,7 +17,7 @@ import type { ReferenceImage } from "@/types/image";
 import { dramaAuthLabel } from "../drama-model";
 import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
 import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
-import { editSubShot, mergeWithNext, moveEdgeShot, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
+import { editSubShot, mergeWithNext, moveEdgeShot, segmentLacksReferences, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
 import { applyBriefFacts, bibleSummary, BRIEF_FACTS, BRIEF_STATUSES, briefConfirmedCount, briefFactsFromDocument, parseDocumentJson, type BriefFactDraft, type BriefFactKey } from "./drama-brief";
 
 export const dramaProgressKey = (projectId: string) => ["project", projectId, "drama", "progress"] as const;
@@ -372,9 +373,9 @@ function EvidenceRow({ label, evidence, pending, detail, children }: { label: st
 /**
  * 分镜制作页的段卡：段内镜头时间轴，以及「生成前看一眼」——按项目生成模型编译出的提示词、参考清单和检查结果。
  * 时间轴上可以拆段、与相邻段合并、把首尾镜头移到相邻段、改镜头画面/台词/时长，保存走 PUT /drama/segments。
- * 编译只读、不花钱；估价沿用工作台底部按渠道报出的积分。
+ * 编译只读、不花钱；估价沿用工作台底部按渠道报出的积分。段没有人物/场景参考时明确提示，并给「选择资产」入口。
  */
-export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJson, estimate, durationRule, takeCounts, busyShotIds, onEdited }: {
+export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJson, estimate, durationRule, takeCounts, busyShotIds, onEdited, onPickAssets }: {
     projectId: string;
     unitId: string;
     shotId: string;
@@ -389,6 +390,8 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     busyShotIds?: ReadonlySet<string>;
     /** 保存成功后刷新；selectShotId 是保存后应选中的段（当前段并入上一段时）。 */
     onEdited?: (selectShotId?: string) => Promise<unknown> | void;
+    /** 打开资产选择：选中的资产绑到这一段并写进段的参考。 */
+    onPickAssets?: () => void;
 }) {
     const { message, modal } = App.useApp();
     const queryClient = useQueryClient();
@@ -494,6 +497,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
         if (key === "prev" || key === "next") apply((rule) => moveEdgeShot(list, index, key, rule), () => `已把镜头移到 ${(key === "prev" ? previous : next)?.spec.id}`);
     };
     const shotSeconds = subShotSeconds(spec);
+    const lacksReferences = segmentLacksReferences(spec);
 
     return (
         <div className="mb-3 rounded-lg border border-border/70 px-3 py-2.5 text-xs">
@@ -507,6 +511,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
             </div>
             {durationRule ? <p className="mt-1 leading-5 text-foreground/40">{editable ? `段长按当前视频渠道（${durationRule.label}）取档：拆段、合并、改时长后自动取能提交的段长。` : segmentsQuery.isLoading ? "正在读取本章分段…" : segmentsQuery.isError ? "本章分段读取失败，暂时不能拆合。" : "这一段还不是分段表里的段，不能拆合。"}</p> : null}
             {saveError ? <p className="mt-1 text-red-500" role="alert">保存失败：{saveError}</p> : null}
+            {lacksReferences ? <Callout tone="warning" className="mt-2 px-2.5 py-2" action={onPickAssets ? <Button size="small" onClick={onPickAssets}>选择资产</Button> : undefined}>{NO_REFERENCE_HINT}</Callout> : null}
             <ol className="mt-2 space-y-1">
                 {spec.shots.map((shot, shotIndex) => {
                     const end = spec.shots[shotIndex + 1]?.at ?? spec.dur;
@@ -540,7 +545,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
                         <>
                             <div className="flex flex-wrap gap-x-3 gap-y-1 text-foreground/50"><span>{result.model}</span><span>提交 {result.duration} 秒</span><span>{result.chars} 字</span>{estimate ? <span>预估 {estimate}</span> : null}</div>
                             {result.issues.length ? <ul className="mt-1 space-y-0.5">{result.issues.map((issue, issueIndex) => <li key={issueIndex} className={issue.level === "error" ? "text-red-500" : "text-amber-600 dark:text-amber-400"}>{issue.level === "error" ? "不能提交：" : "注意："}{issue.message}</li>)}</ul> : null}
-                            {result.files.length ? <p className="mt-1 text-foreground/50">参考：{result.files.map((file) => `${file.tag}=${file.role}`).join("，")}</p> : null}
+                            {result.files.length ? <p className="mt-1 text-foreground/50">参考：{result.files.map((file) => `${file.tag}=${file.role}`).join("，")}</p> : <p className="mt-1 text-amber-600 dark:text-amber-400">参考：无。{NO_REFERENCE_HINT}{onPickAssets ? "点上方「选择资产」绑定。" : ""}</p>}
                             <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-surface-active p-2 text-[var(--fs-label)] leading-5 text-foreground/70">{result.prompt}</pre>
                         </>
                     ) : null}
@@ -549,6 +554,8 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
         </div>
     );
 }
+
+const NO_REFERENCE_HINT = "此段没有人物/场景参考，人物一致性只靠文字。";
 
 /** 段内一个镜头的编辑：画面、台词（每行一句「说话人：台词」）、时长。 */
 function SubShotEditor({ shot, seconds, saving, onSave, onCancel }: { shot: DramaSubShot; seconds: number; saving: boolean; onSave: (patch: { text: string; lines: DramaLine[]; seconds: number }) => void; onCancel: () => void }) {
