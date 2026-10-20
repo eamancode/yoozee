@@ -101,7 +101,7 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - 现在由前端 `chapterStoryboardTaskPrompt` 拼出实际发给模型的提示词：技能上下文与本章正文 →【项目画风：标题】→【已确认角色外观】→ 输出契约 →【项目已确认资产】。只改前端，后端不读这些 input 字段的现状不变（字段仍留在 input 里作任务记录）。
 - 画风（`storyboardStylePrompt`）：按小节重要性取到 1200 字为止、按原顺序输出（风格组合、视觉媒介、角色设计系统、色彩光影、服饰材质场景、全局禁用优先；项目定位、资产一致性最先舍弃），放不下的那一节截断；没有【】小节的自定义画风按行截取。内置画风约 1.1–1.25k 字，基本整段带上。要求画面描述按画风写、不要整段抄进每个镜头（成片生成时画风规范另有执行块）。
 - 角色外观（`storyboardCharacterAppearancePrompt`）：只写已确认角色（有角色资产与版本），取外貌、服装、体型、随身道具、一致性五项，每项 80 字、每个角色 220 字、合计 1600 字封顶；本章正文里（含别名）先出现的角色排前面，超预算的角色不写外观（资产清单里仍有名字）。待确认角色的设定未定稿，不写外观。
-- 画布节点拆镜（`use-canvas-storyboard.ts`）同样把 `canvasAssets`、`characters`、`requirements` 放在 input 里，后端同样丢弃；提示词只有剧情（`stripProjectStyleExecutionBlocks` 有意去掉旧版追加的画风执行块）、被 @ 引用的文本节点展开内容、技能上下文和输出契约，不带画风节点和角色卡外观。本次未改画布路径，两个格式化函数放在 `lib/canvas/canvas-storyboard-context.ts`，画布路径可直接复用。
+- 画布节点拆镜同样丢字段，已在下一节「画布节点拆镜带上画风节点与角色外观」复用这两个函数修好。
 
 自动化覆盖：
 
@@ -112,6 +112,28 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 - [ ] 项目选一个非真人画风（如国漫 2D 或水墨），已确认角色填了外貌和服装，「生成分段」后在任务中心看该分镜任务的提示词：有【项目画风：…】和【已确认角色外观】两段；生成的分镜行首帧画面按该画风描述（不出现「真人实拍」「照片级」之类），角色出镜时写出设定里的发型、服装和标志物。
 - [ ] 角色较多（十个以上）、章节较长时，分镜任务仍能正常返回、没有因提示词变长而超时或截断输出。
+
+## 画布节点拆镜带上画风节点与角色外观
+
+画布分镜节点「生成分镜」（`use-canvas-storyboard.ts` 的 `generateScriptRows`）把 `canvasAssets`、`characters`、`requirements` 放在任务 input 里，后端 `canvasGenerationInput` 不解析，全部丢弃。提示词里原先只有剧情（`stripProjectStyleExecutionBlocks` 有意去掉旧版追加的【项目画风执行规范】）、被 @ 的文本节点展开内容、技能上下文和输出契约，模型看不到画风节点和角色卡外观。
+
+- 现在由 `lib/canvas/canvas-storyboard-context.ts` 的 `canvasStoryboardTaskPrompt` 拼出实际发出的 prompt：技能上下文与剧情 →【项目画风：标题】→【已确认角色外观】→ 输出契约（含镜头数、每镜时长）。画风和角色两段沿用章节路径的 `storyboardStylePrompt`（1200 字）和 `storyboardCharacterAppearancePrompt`（1600 字），角色按剧情里首次出现的位置排序。
+- 画风取 `workflowKind === "styleboard"` 且有 `stylePresetId` 的节点（`canvasStoryboardStyle`），标题去掉「项目画风 · 」前缀，正文取 `content`，没有再取 `prompt`。节点正文是画风规范原文（`profile.prompt`），不是图片 / 视频执行时 `applyStyleExecutionPlan` 追加的执行块；执行块里的全局负面 Prompt 和 LoRA / 模板片段不进分镜提示词。画风占位节点（无正文或无预设）不输出。
+- 用户已 @ 画风节点时，剧情展开后已有画风原文，不再追加【项目画风：…】，避免同一段画风出现两次。
+- 角色只来自已同步版本的角色卡（`resolveStoryboardGenerationContext`，缺版本时仍然拦下），即已确认角色。
+- 资产清单不写进画布提示词。章节路径写清单，是因为 `bindStoryboardRowAssets` 会按模型返回的 `assets` 名称落 `assetBindings`，装段要靠场景绑定切场。画布行的 `assetBindings` 只由用户把节点连到分镜行（`attachNodeToStoryboardRow`）或模型直接返回节点 ID 落成，画布路径没有按名称绑定的步骤，也不装段；写清单只会多占预算，没有消费方。角色名和外观已在【已确认角色外观】里。
+- `requirements`（「输出可直接编辑并用于批量生成图片和视频的分镜表」）与输出契约里的「每个镜头必须能独立用于生成首帧图片和镜头视频」同义，不再单独写。input 里的这几个字段保留作任务记录。
+
+自动化覆盖：
+
+- [x] `bun test test/canvas-storyboard-context.test.ts`：`canvasStoryboardTaskPrompt` 含【项目画风：仙侠水墨】与画风原文、两种角色卡（外观字段和 `{ prompt }`）的外观，不含性格字段，按剧情首次出现排序，段落顺序为剧情 → 画风 → 角色 → 输出契约；剧情带旧执行块时去掉后不含【项目画风执行规范】和负面 Prompt；@ 了画风节点时画风原文只出现一次、不再加【项目画风：…】；画风占位节点和无预设节点不输出；12 节长画风加 30 个角色时，新增部分不超过 1200 + 1600 + 400 字，靠后的角色不写。
+- [x] `bun test test/canvas-storyboard-panel.test.ts`：画布拆镜调用 `canvasStoryboardTaskPrompt`，`sourceText` 传去掉旧画风块后的剧情。
+
+仍需人工/真实环境验收：
+
+- [ ] 短剧项目画布上已应用非真人画风（如水墨），画布有已同步的角色卡，分镜节点「生成分镜」后在任务中心看该任务的 prompt：有【项目画风：…】和【已确认角色外观】；首帧画面按画风描述，角色出镜时写出设定的发型、服装和标志物。
+- [ ] 分镜剧情里 @ 了画风节点时，任务 prompt 里画风只出现一次。
+- [ ] 没有画风节点、或画风节点还是「选择画风」占位时，拆镜照常，prompt 里没有画风段。
 
 ## 短剧前端走查修复
 

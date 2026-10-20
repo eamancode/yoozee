@@ -1,3 +1,4 @@
+import { withStoryboardOutputContract } from "@/lib/canvas/canvas-project-domain";
 import type { CanvasNodeData } from "@/types/canvas";
 
 export type StoryboardGenerationContext = {
@@ -110,6 +111,29 @@ export function storyboardCharacterAppearancePrompt(characters: Array<{ name: st
     }
     if (!lines.length) return "";
     return ["【已确认角色外观】角色出镜时，imageGenerationPrompt 写出本镜看得见的外貌、发型、服装和标志物，与下面的设定一致，不要自行改换；剧情明确换装或受伤时才改。", ...lines].join("\n");
+}
+
+/** 画布上的项目画风节点。节点正文是画风规范原文（profile.prompt），不是图片 / 视频执行时追加的【项目画风执行规范】块。 */
+export function canvasStoryboardStyle(nodes: CanvasNodeData[]) {
+    const styleNode = nodes.find((node) => node.metadata?.workflowKind === "styleboard");
+    const prompt = String(styleNode?.metadata?.content || styleNode?.metadata?.prompt || "").trim();
+    if (!styleNode?.metadata?.stylePresetId?.trim() || !prompt) return undefined;
+    return { title: styleNode.title.replace(/^(?:项目)?画风\s*[·：:]?\s*/, "").trim() || styleNode.title, prompt };
+}
+
+/**
+ * 画布节点拆镜任务实际发给模型的提示词。后端不读任务 input 里的 canvasAssets / characters / requirements，
+ * 画风节点和角色卡外观只能写进提示词，和章节分镜一样放在输出契约前。用户 @ 了画风节点时正文里已有画风原文，不再追加。
+ * 角色按剧情里首次出现的位置排序，所以 sourceText 传去掉旧画风块后的剧情，不传展开后的设定。
+ */
+export function canvasStoryboardTaskPrompt(skillPrompt: string, context: { sourceText: string; nodes: CanvasNodeData[]; characters: StoryboardGenerationContext["characters"]; shotCount?: number; shotDurationSeconds?: number }) {
+    const style = canvasStoryboardStyle(context.nodes);
+    const projectContext = [
+        skillPrompt,
+        style && !skillPrompt.includes(style.prompt) ? storyboardStylePrompt(style) : "",
+        storyboardCharacterAppearancePrompt(context.characters, context.sourceText),
+    ].filter(Boolean).join("\n\n");
+    return withStoryboardOutputContract(projectContext, { shotCount: context.shotCount, shotDurationSeconds: context.shotDurationSeconds });
 }
 
 function characterAppearanceLine(character: { name: string; definition: Record<string, unknown> }) {

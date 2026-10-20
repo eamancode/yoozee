@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
-import { resolveStoryboardGenerationContext, storyboardCharacterAppearancePrompt, storyboardStylePrompt } from "@/lib/canvas/canvas-storyboard-context";
+import { expandStoryboardTextMentions, stripProjectStyleExecutionBlocks, withStoryboardOutputContract } from "@/lib/canvas/canvas-project-domain";
+import { canvasStoryboardStyle, canvasStoryboardTaskPrompt, resolveStoryboardGenerationContext, storyboardCharacterAppearancePrompt, storyboardStylePrompt } from "@/lib/canvas/canvas-storyboard-context";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 const node = (id: string, type: CanvasNodeType, metadata: CanvasNodeData["metadata"] = {}): CanvasNodeData => ({
@@ -134,5 +135,71 @@ describe("storyboard style and character prompts", () => {
         expect(lines.every((line) => line.length <= 220)).toBe(true);
         expect(lines.join("").length).toBeLessThanOrEqual(1600);
         expect(lines[0]).toStartWith("- 角色1｜");
+    });
+});
+
+describe("canvas storyboard task prompt", () => {
+    const inkStyle = ["【风格组合】视觉媒介：水墨；角色造型：写意。", "【视觉媒介】宣纸水墨，留白。", "【全局禁用】霓虹灯、赛博朋克。"].join("\n");
+    const projectStyleNode = { ...node("style", CanvasNodeType.Text, { workflowKind: "styleboard", stylePresetId: "ink-v1", content: inkStyle, prompt: inkStyle, locked: true }), title: "项目画风 · 仙侠水墨" };
+    const lin = node("lin", CanvasNodeType.Image, {
+        workflowKind: "character",
+        characterAssetId: "asset-lin",
+        characterVersionId: "version-lin",
+        characterName: "林小满",
+        characterDefinition: { appearance: "圆脸短发", clothing: "白色护士服", personality: "倔强" },
+    });
+    const card = node("card", CanvasNodeType.Image, { workflowKind: "character", characterAssetId: "asset-card", characterVersionId: "version-card", characterName: "周医生", characterPrompt: "银框眼镜，灰色西装" });
+    const nodes = [projectStyleNode, lin, card];
+    const characters = resolveStoryboardGenerationContext(nodes).characters;
+    const occurrences = (text: string, part: string) => text.split(part).length - 1;
+
+    it("writes the style node and confirmed character looks before the output contract", () => {
+        const story = "周医生在走廊叫住林小满。";
+        const prompt = canvasStoryboardTaskPrompt(`<skill-context>拆镜方法</skill-context>\n\n${story}`, { sourceText: story, nodes, characters, shotCount: 6, shotDurationSeconds: 5 });
+
+        expect(prompt).toContain("【项目画风：仙侠水墨】");
+        expect(prompt).toContain("【视觉媒介】宣纸水墨，留白。");
+        expect(prompt).toContain("【已确认角色外观】");
+        expect(prompt).toContain("- 林小满｜外貌：圆脸短发；服装：白色护士服");
+        expect(prompt).toContain("- 周医生｜银框眼镜，灰色西装");
+        expect(prompt).not.toContain("倔强");
+        expect(prompt.indexOf("- 周医生")).toBeLessThan(prompt.indexOf("- 林小满"));
+        expect(prompt.indexOf(story)).toBeLessThan(prompt.indexOf("【项目画风：仙侠水墨】"));
+        expect(prompt.indexOf("【项目画风：仙侠水墨】")).toBeLessThan(prompt.indexOf("【已确认角色外观】"));
+        expect(prompt.indexOf("【已确认角色外观】")).toBeLessThan(prompt.indexOf("【受保护输出契约】"));
+        expect(prompt).toContain("全片共 6 个镜头；每镜约 5 秒");
+    });
+
+    it("does not bring back the legacy execution block or repeat a style the user already mentioned", () => {
+        const composer = `@[node:style] 周医生在走廊叫住林小满。\n\n【项目画风执行规范】\n${inkStyle}\n【全局负面 Prompt】\n低清晰度`;
+        const story = stripProjectStyleExecutionBlocks(composer);
+        const expanded = expandStoryboardTextMentions(story, [{ id: "style", nodeId: "style", kind: "text", label: "文本1", title: projectStyleNode.title, text: inkStyle, active: true }]);
+        const prompt = canvasStoryboardTaskPrompt(expanded, { sourceText: story, nodes, characters });
+
+        expect(prompt).not.toContain("【项目画风执行规范】");
+        expect(prompt).not.toContain("低清晰度");
+        expect(prompt).not.toContain("【项目画风：");
+        expect(occurrences(prompt, "【视觉媒介】宣纸水墨，留白。")).toBe(1);
+        expect(prompt).toContain("【已确认角色外观】");
+
+        const plain = canvasStoryboardTaskPrompt(stripProjectStyleExecutionBlocks("周医生在走廊叫住林小满。\n\n【项目画风执行规范】\n" + inkStyle), { sourceText: "周医生在走廊叫住林小满。", nodes, characters });
+        expect(occurrences(plain, "【项目画风：")).toBe(1);
+        expect(occurrences(plain, "【视觉媒介】宣纸水墨，留白。")).toBe(1);
+    });
+
+    it("skips a style placeholder and keeps the added sections within budget", () => {
+        expect(canvasStoryboardStyle([node("placeholder", CanvasNodeType.Text, { workflowKind: "styleboard", content: "" })])).toBeUndefined();
+        expect(canvasStoryboardStyle([node("no-preset", CanvasNodeType.Text, { workflowKind: "styleboard", content: inkStyle })])).toBeUndefined();
+        expect(canvasStoryboardTaskPrompt("剧情", { sourceText: "剧情", nodes: [], characters: [] })).toBe(withStoryboardOutputContract("剧情"));
+
+        const longStyle = { ...projectStyleNode, metadata: { ...projectStyleNode.metadata, content: Array.from({ length: 12 }, (_, index) => `【小节${index}】${"长".repeat(300)}`).join("\n") } };
+        const crowd = Array.from({ length: 30 }, (_, index) => ({ assetId: `asset-${index}`, versionId: `version-${index}`, name: `角色${index + 1}`, definition: { appearance: "外".repeat(120), clothing: "衣".repeat(120), props: "物".repeat(120) } }));
+        const prompt = canvasStoryboardTaskPrompt("剧情", { sourceText: "剧情", nodes: [longStyle], characters: crowd });
+        const added = prompt.length - withStoryboardOutputContract("剧情").length;
+
+        expect(prompt).toContain("【项目画风：仙侠水墨】");
+        expect(prompt).toContain("- 角色1｜");
+        expect(prompt).not.toContain("- 角色30｜");
+        expect(added).toBeLessThanOrEqual(1200 + 1600 + 400);
     });
 });
