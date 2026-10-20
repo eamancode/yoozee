@@ -57,11 +57,14 @@ import { WorkspaceState } from "@/components/layout/workspace-state";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { decodeNovelText, splitTextIntoChapters } from "@/lib/canvas/canvas-document";
 import { navigateToSettings } from "@/lib/settings-navigation";
+import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import {
     createProjectAssetCandidates,
     createProjectUnit,
     deleteProjectUnit,
     importProjectUnits,
+    listProjectAssetCandidates,
+    listProjectAssets,
     replaceProjectUnitShots,
     reorderProjectUnits,
     updateProjectUnit,
@@ -73,8 +76,8 @@ import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
-import { chapterDialogueCoverage, storyboardRowsToSegments } from "./chapter-segments";
-import { findDramaModel, useDramaModels } from "../drama-model";
+import { chapterDialogueCoverage, DEFAULT_SEGMENT_TARGET, segmentDurationRule, storyboardRowsToSegments } from "./chapter-segments";
+import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
 import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
 
@@ -142,6 +145,21 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const dramaModels = useDramaModels();
     const dramaModel = findDramaModel(dramaModels.data, detail.project.generationModel);
     const segmentMaxSeconds = dramaModel?.duration.max || 15;
+    // 段长还要能被所选视频渠道提交（如只能 15/30 秒、最少 5 秒）：渠道取分镜制作页默认会用的那个视频模型。
+    const segmentVideoModel = projectVideoModel(effectiveConfig, detail.project.defaultVideoModel, dramaModels.data, dramaModel);
+    const segmentRule = useMemo(() => segmentDurationRule(segmentMaxSeconds, segmentVideoModel ? modelCapabilityConfigFor(effectiveConfig, segmentVideoModel).video?.duration : undefined, dramaModel?.label), [dramaModel?.label, effectiveConfig, segmentMaxSeconds, segmentVideoModel]);
+    // 本章工作区只带本章镜头已引用的资产；生成分镜和装段要看项目里全部已确认的资产，否则新章节的段带不上参考。
+    const projectAssetsKey = ["project", detail.project.id, "assets", "chapter-storyboard"] as const;
+    const loadProjectAssets = async () => (await listProjectAssets(detail.project.id)).assets;
+    const projectAssetsQuery = useQuery({ queryKey: projectAssetsKey, queryFn: loadProjectAssets, enabled: storyboardOpen });
+    const pendingCandidatesQuery = useQuery({
+        queryKey: ["project", detail.project.id, "asset-candidates", "pending-total"],
+        queryFn: () => listProjectAssetCandidates(detail.project.id, { page: 1, pageSize: 1, status: "pending_confirmation" }),
+        enabled: storyboardOpen,
+    });
+    const pendingCandidateCount = pendingCandidatesQuery.data?.total ?? detail.assetCandidates.filter((candidate) => candidate.status === "pending_confirmation").length;
+    const referenceAssetCount = (projectAssetsQuery.data || []).filter((asset) => asset.primaryVersionId && (asset.category !== "character" || asset.character?.versionId)).length;
+    const assetsNotReady = projectAssetsQuery.isSuccess && (pendingCandidateCount > 0 || referenceAssetCount === 0);
     // 建项目时画风可以先空着，但生成分镜要按画风写画面：在对话框里直接说明并给入口，而不是提交后顶部闪一下。
     const projectStyleMissing = !resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt.trim();
     // 台词覆盖率和超长段：拿本章正文里引号中的台词，对照各段 lines；超过项目模型上限的段要拆。
@@ -376,16 +394,22 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         refreshProject();
         return created.candidates.length;
     };
+    const storyboardDetail = async (): Promise<ProjectDetail> => {
+        const assets = await queryClient.ensureQueryData({ queryKey: projectAssetsKey, queryFn: loadProjectAssets });
+        const projectIds = new Set(assets.map((asset) => asset.id));
+        return { ...detail, assets: [...assets, ...detail.assets.filter((asset) => !projectIds.has(asset.id))] };
+    };
     const storeGeneratedStoryboard = async (unitId: string, rows: ReturnType<typeof chapterStoryboardFromGenerationTask>["rows"]) => {
         const unit = detail.units.find((item) => item.id === unitId);
-        const shots = storyboardRowsToSegments(rows, detail, unit?.title || "", segmentMaxSeconds);
-        await replaceProjectUnitShots(detail.project.id, unitId, shots, detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));
+        const plan = storyboardRowsToSegments(rows, await storyboardDetail(), { chapterTitle: unit?.title || "", rule: segmentRule, target: DEFAULT_SEGMENT_TARGET, maxRefs: dramaModel?.refs.images ?? undefined });
+        await replaceProjectUnitShots(detail.project.id, unitId, plan.shots, detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));
         await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
             queryClient.invalidateQueries({ queryKey: ["projects"] }),
         ]);
         markChapterOperationCompleted(unitId, "storyboard");
-        return shots.length;
+        if (plan.notes.length) message.warning(plan.notes.join("；"), 10);
+        return { count: plan.shots.length, scenes: new Set(plan.shots.map((shot) => String(shot.revision.spec?.scene || ""))).size };
     };
     const extractCharacters = async () => {
         let operationUnitId = "";
@@ -418,6 +442,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (!sourceText) return message.warning("当前章节没有可用于分镜的正文");
         const projectStyle = resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson);
         if (!projectStyle?.prompt.trim()) return message.warning("请先在项目设置中选择项目画风，再生成分镜");
+        if (segmentRule.problem) return message.warning(`${segmentRule.problem}，先在项目设置里换默认视频模型或生成模型`);
         const textModel = selectedTextModel;
         const config = { ...effectiveConfig, model: textModel, textModel };
         if (!isAiConfigReady(config, textModel)) {
@@ -429,6 +454,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         beginChapterOperation(unit.id, "storyboard");
         message.info("分镜生成任务已开始，可继续编辑或切换章节");
         try {
+            const assetDetail = await storyboardDetail();
             const result = await generateChapterStoryboard({
                 projectId: detail.project.id,
                 chapterId: unit.id,
@@ -440,14 +466,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     prompt: projectStyle.prompt,
                     profileJson: detail.project.styleProfileJson,
                 },
-                characters: chapterStoryboardCharacters(detail, unit.id),
-                assets: chapterStoryboardAssets(detail),
+                characters: chapterStoryboardCharacters(assetDetail, unit.id),
+                assets: chapterStoryboardAssets(assetDetail),
                 config,
                 skills: availableSkills,
                 selectedSkillIds,
             }, { onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task) });
-            const shotCount = await storeGeneratedStoryboard(unit.id, result.rows);
-            message.success(result.skillCount ? `已生成 ${shotCount} 段（每段不超过 ${segmentMaxSeconds} 秒），并应用 ${result.skillCount} 个技能` : `已生成 ${shotCount} 段（每段不超过 ${segmentMaxSeconds} 秒）`);
+            const stored = await storeGeneratedStoryboard(unit.id, result.rows);
+            const summary = `已按 ${stored.scenes} 场生成 ${stored.count} 段（每段 ${segmentRule.label}）`;
+            message.success(result.skillCount ? `${summary}，并应用 ${result.skillCount} 个技能` : summary);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/video`);
         } catch (error) {
             refreshProject();
@@ -641,14 +668,16 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     </label>
                 </div>
             </Modal>
-            <Modal className="library-modal" title="生成章节分段" open={storyboardOpen} width={560} okText={storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard()} styles={{ body: { paddingTop: 12 } }}>
+            <Modal className="library-modal" title="生成章节分段" open={storyboardOpen} width={560} okText={storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard()} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
                     {projectStyleMissing ? <Callout tone="warning" title="还没有项目画风" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去选画风</Button>}>分镜要按项目画风写画面和参考，先在项目设置里选一个画风并保存，再回来生成。</Callout> : null}
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
                         <div className="text-[var(--fs-tiny)] text-foreground/42">当前章节</div>
                         <div className="mt-1 truncate text-sm font-medium text-foreground/85">{selectedUnit?.title}</div>
-                        <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文将作为分段依据：一段 = 一次视频生成，按 {dramaModel?.label || "项目生成模型"} 每段最长 {segmentMaxSeconds} 秒装段，段内可有多个镜头；结果写入“分镜制作”。</div>
+                        <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文将作为分段依据：一场戏一组镜头，一段 = 一次视频生成。按场景切段，每段目标 {Math.min(DEFAULT_SEGMENT_TARGET.min, segmentRule.maxSeconds)}–{Math.min(DEFAULT_SEGMENT_TARGET.max, segmentRule.maxSeconds)} 秒（{dramaModel?.label || "项目生成模型"}最长 {segmentMaxSeconds} 秒，视频渠道 {segmentRule.label}），不在接话之间切；结果写入“分镜制作”。</div>
                     </div>
+                    {segmentRule.problem ? <Callout tone="warning" title="当前视频渠道交不了这种段长" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去项目设置</Button>}>{segmentRule.problem}。按这个渠道装出来的段提交时必然被拒，先换默认视频模型或项目生成模型。</Callout> : null}
+                    {assetsNotReady ? <Callout tone="warning" title="先确认资产，段才会自动带上参考" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/assets`); }}>去确认资产</Button>}>{pendingCandidateCount ? `项目里还有 ${pendingCandidateCount} 个待确认的角色、场景或道具。` : ""}{referenceAssetCount ? "确认后再生成，同一场的段会带上这一场绑定的全部资产作为参考。" : "现在没有已确认的资产，生成的段都不带参考，人物和场景在段与段之间容易不一致。"}也可以先生成，之后在分镜制作页给段绑定资产。</Callout> : null}
                     {storyboardImpact.shotCount ? <Callout tone="warning" title={`本章已有 ${storyboardImpact.shotCount} 段`}>继续后会先生成新分段；生成成功后，再整体替换旧段及其关联数据。</Callout> : null}
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>

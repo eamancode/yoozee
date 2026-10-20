@@ -219,6 +219,22 @@ func (r *Repository) DeleteProjectShot(projectID string, shotID string, updatedA
 	})
 }
 
+// ReorderUnitShots 按给定顺序重写一章镜头的位置（拆段、合段后用）。
+func (r *Repository) ReorderUnitShots(projectID string, unitID string, shotIDs []string, updatedAt time.Time) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		for position, shotID := range shotIDs {
+			result := tx.Model(&model.Shot{}).Where("id = ? AND project_id = ? AND unit_id = ?", shotID, projectID, unitID).Updates(map[string]any{"position": position, "updated_at": updatedAt})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return gorm.ErrRecordNotFound
+			}
+		}
+		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": updatedAt}).Error
+	})
+}
+
 func (r *Repository) ProjectShotRevisions(projectID string) ([]model.ShotRevision, error) {
 	var revisions []model.ShotRevision
 	err := r.db.Table("shot_revisions").Select("shot_revisions.*").

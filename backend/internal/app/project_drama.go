@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -89,6 +90,8 @@ type DramaSegmentView struct {
 type DramaSegmentsWriteRequest struct {
 	UnitID   string            `json:"unitId"`
 	Segments []json.RawMessage `json:"segments"`
+	// Order 是本章全部段号的新顺序，拆段、合段时给：段按它排位置，不在其中的段连同生成结果删除。只改段内容时不给。
+	Order []string `json:"order,omitempty"`
 }
 
 // DramaModels 返回可选的生成模型目录。
@@ -486,7 +489,8 @@ func (s *Service) DramaSegments(userID string, projectID string, unitID string) 
 	return out, nil
 }
 
-// WriteDramaSegments 按段号新增或修改一章的段：已有段号的写新版本，新段号建新镜头。不删除段。
+// WriteDramaSegments 按段号新增或修改一章的段：已有段号的写新版本，新段号建新镜头。
+// 不给 Order 时不删除段；给了 Order（拆段、合段）就按它重排，并删除不在其中的段。
 func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]DramaSegmentView, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
@@ -507,11 +511,16 @@ func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaS
 		return nil, err
 	}
 	parsed := make([]drama.Segment, 0, len(req.Segments))
+	written := make([]string, 0, len(req.Segments))
 	for _, raw := range req.Segments {
 		seg, err := drama.ParseSegment(raw)
 		if err != nil {
 			return nil, BadAuthRequest(err.Error())
 		}
+		if slices.Contains(written, seg.ID) {
+			return nil, BadAuthRequest(fmt.Sprintf("一次写入里段号 %s 出现了两次", seg.ID))
+		}
+		written = append(written, seg.ID)
 		if issues := drama.Issues(seg, m); drama.HasError(issues) {
 			for _, issue := range issues {
 				if issue.Level == "error" && strings.Contains(issue.Message, "超过") && strings.Contains(issue.Message, "时长") {
@@ -528,9 +537,15 @@ func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaS
 	}
 	byID := map[string]DramaSegmentView{}
 	maxPosition := -1
+	current := make([]drama.ExistingSegment, 0, len(existing))
 	for _, view := range existing {
 		byID[view.Spec.ID] = view
 		maxPosition = max(maxPosition, view.Position)
+		current = append(current, drama.ExistingSegment{ID: view.Spec.ID, Derived: view.Derived})
+	}
+	removed, err := drama.PlanSegmentOrder(req.Order, written, current)
+	if err != nil {
+		return nil, BadAuthRequest(err.Error())
 	}
 	for _, seg := range parsed {
 		spec, _ := json.Marshal(seg)
@@ -539,6 +554,13 @@ func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaS
 		if view, ok := byID[seg.ID]; ok {
 			input.ID = view.ShotID
 			input.Position = view.Position
+			// 分段 JSON 管不到的备注（视频提示词备注、负面提示词）沿用上一版，改段内容时不能清空。
+			if view.RevisionID != "" {
+				if previous, err := s.repo.ShotRevisionForShot(view.ShotID, view.RevisionID); err == nil {
+					input.Revision.VideoPrompt = previous.VideoPrompt
+					input.Revision.NegativePrompt = previous.NegativePrompt
+				}
+			}
 		} else {
 			maxPosition++
 			input.Position = maxPosition
@@ -549,6 +571,36 @@ func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaS
 		if _, err := s.CreateProjectShot(userID, projectID, input); err != nil {
 			return nil, err
 		}
+	}
+	if len(req.Order) == 0 {
+		return s.DramaSegments(userID, projectID, unitID)
+	}
+	now := time.Now()
+	for _, id := range removed {
+		if err := s.repo.DeleteProjectShot(projectID, byID[id].ShotID, now); err != nil {
+			return nil, err
+		}
+	}
+	views, err := s.DramaSegments(userID, projectID, unitID)
+	if err != nil {
+		return nil, err
+	}
+	// 合成段号随位置变，删段后会漂移：已有段用写入前的镜头 ID，新段从写入后的分段里找。
+	shotByID := make(map[string]string, len(views))
+	for _, view := range views {
+		if !view.Derived {
+			shotByID[view.Spec.ID] = view.ShotID
+		}
+	}
+	for id, view := range byID {
+		shotByID[id] = view.ShotID
+	}
+	ordered := make([]string, 0, len(req.Order))
+	for _, id := range req.Order {
+		ordered = append(ordered, shotByID[strings.TrimSpace(id)])
+	}
+	if err := s.repo.ReorderUnitShots(projectID, unitID, ordered, now); err != nil {
+		return nil, err
 	}
 	return s.DramaSegments(userID, projectID, unitID)
 }

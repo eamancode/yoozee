@@ -134,6 +134,21 @@ export function putDramaBible(projectId: string, document: DramaBible) {
     return http.put<{ document: DramaBible }>(`/projects/${projectId}/drama/bible`, { document });
 }
 
+/** 一章里的一段：derived 为 true 表示旧镜头没有分段 JSON，段号按位置合成，只能看不能拆合。 */
+export type DramaSegmentView = { shotId: string; unitId: string; title: string; position: number; durationMs: number; revisionId?: string; spec: DramaSegment; derived: boolean };
+
+export function listDramaSegments(projectId: string, unitId: string, signal?: AbortSignal) {
+    return http.get<{ segments: DramaSegmentView[] }>(`/projects/${projectId}/drama/segments`, { params: { unitId }, signal });
+}
+
+/**
+ * 按段号写入一章的段（后端按项目生成模型校验段长）。拆段、合段时给 order：本章全部段号的新顺序，
+ * 不在其中的段连同生成结果删除；只改段内容时不给。
+ */
+export function writeDramaSegments(projectId: string, input: { unitId: string; segments: DramaSegment[]; order?: string[] }) {
+    return http.put<{ segments: DramaSegmentView[] }>(`/projects/${projectId}/drama/segments`, input);
+}
+
 export function compileProjectShot(projectId: string, shotId: string, input: { model?: string } = {}) {
     return http.post<{ compiled: DramaCompileResult }>(`/projects/${projectId}/shots/${shotId}/compile`, input);
 }

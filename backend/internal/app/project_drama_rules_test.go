@@ -269,3 +269,86 @@ func TestDramaProgressMarksOverLimitAfterShrinkingModel(t *testing.T) {
 		t.Fatalf("概览的一句话要点明超长：%q", after.Line)
 	}
 }
+
+// 拆段、合段走同一个写入接口：给出本章段顺序，新段插在原段后面，被合并掉的段连同生成结果删除。
+func TestWriteDramaSegmentsOrderSplitsAndMergesInPlace(t *testing.T) {
+	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	views, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S01", 8, "第一句"), dramaSpec("S02", 12, "第二句"), dramaSpec("S03", 6, "第三句")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s02, s03 := views[1].ShotID, views[2].ShotID
+	if err := db.Create(&model.ShotArtifact{ID: "artifact-s03", ProjectID: project.ID, UnitID: unit.ID, ShotID: s03, Type: "video", Version: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 拆 S02：S02b 要排在 S02 后面、S03 前面，而不是追加到章末。
+	views, err = service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S02", 5, "第二句"), dramaSpec("S02b", 7, "")},
+		Order:    []string{"S01", "S02", "S02b", "S03"},
+	})
+	if err != nil {
+		t.Fatalf("拆段应成功：%v", err)
+	}
+	if got := segmentIDs(views); got != "S01,S02,S02b,S03" {
+		t.Fatalf("拆出的段应插在原段后面，得到 %s", got)
+	}
+	if views[1].ShotID != s02 || views[1].Spec.Dur != 5 {
+		t.Fatalf("原段应写新版本而不是新建：%+v", views[1])
+	}
+
+	// S02b 并回 S02：S02b 删除，其余段位置连续。
+	views, err = service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S02", 12, "第二句")},
+		Order:    []string{"S01", "S02", "S03"},
+	})
+	if err != nil {
+		t.Fatalf("合段应成功：%v", err)
+	}
+	if got := segmentIDs(views); got != "S01,S02,S03" {
+		t.Fatalf("合段后应剩三段，得到 %s", got)
+	}
+	for index, view := range views {
+		if view.Position != index {
+			t.Fatalf("合段后位置应连续：%+v", views)
+		}
+	}
+
+	// 顺序里漏掉的段会被删掉，连同它的生成结果。
+	if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S02", 18, "第二句")},
+		Order:    []string{"S01", "S02"},
+	}); err != nil {
+		t.Fatalf("把 S03 并进 S02 应成功：%v", err)
+	}
+	var artifacts int64
+	if err := db.Model(&model.ShotArtifact{}).Where("shot_id = ?", s03).Count(&artifacts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if artifacts != 0 {
+		t.Fatalf("被合并掉的段的生成结果应一起删除，还剩 %d 个", artifacts)
+	}
+
+	// 顺序和写入对不上时整批拒绝，不落库。
+	if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S04", 5, "")},
+		Order:    []string{"S01", "S02"},
+	}); err == nil {
+		t.Fatal("写入的段不在顺序里应被拒绝")
+	}
+}
+
+func segmentIDs(views []DramaSegmentView) string {
+	ids := make([]string, 0, len(views))
+	for _, view := range views {
+		ids = append(ids, view.Spec.ID)
+	}
+	return strings.Join(ids, ",")
+}

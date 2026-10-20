@@ -4,8 +4,9 @@ import { App } from "antd";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { DramaAssetChecklist, DramaDeliveryPanel, DramaModelChips, DramaOverviewPanel, DramaTakeCompare, DramaTakeEvidencePanel, dramaBibleKey, dramaChecklistAssetsKey, dramaEvidenceKey, dramaProgressKey, takeEvidenceStatus } from "@/pages/projects/detail/drama-panels";
-import type { DramaBible, DramaEvidence, DramaProgress, DramaSegmentProgress } from "@/services/api/drama";
+import { segmentDurationRule } from "@/pages/projects/detail/chapter-segments";
+import { DramaAssetChecklist, DramaDeliveryPanel, DramaModelChips, DramaOverviewPanel, DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, dramaBibleKey, dramaChecklistAssetsKey, dramaEvidenceKey, dramaProgressKey, dramaSegmentsKey, takeEvidenceStatus } from "@/pages/projects/detail/drama-panels";
+import type { DramaBible, DramaEvidence, DramaProgress, DramaSegment, DramaSegmentProgress, DramaSegmentView } from "@/services/api/drama";
 import type { ProjectAsset, ShotArtifact } from "@/services/api/projects";
 
 const model = {
@@ -64,12 +65,13 @@ function evidence(patch: Partial<DramaEvidence> = {}): DramaEvidence {
 
 const artifact = { id: "take-1", projectId: "p1", shotId: "shot-1", type: "video", version: 3, status: "ready", selected: false, metadataJson: "{}", createdAt: "", updatedAt: "" } as ShotArtifact;
 
-function render(element: ReactElement, seed: { progress?: DramaProgress; evidence?: DramaEvidence[]; bible?: DramaBible; assets?: ProjectAsset[] } = {}) {
+function render(element: ReactElement, seed: { progress?: DramaProgress; evidence?: DramaEvidence[]; bible?: DramaBible; assets?: ProjectAsset[]; segments?: DramaSegmentView[] } = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     if (seed.progress) client.setQueryData(dramaProgressKey("p1"), seed.progress);
     if (seed.evidence) client.setQueryData(dramaEvidenceKey("p1"), seed.evidence);
     if (seed.bible) client.setQueryData(dramaBibleKey("p1"), seed.bible);
     if (seed.assets) client.setQueryData(dramaChecklistAssetsKey("p1"), seed.assets);
+    if (seed.segments) client.setQueryData(dramaSegmentsKey("p1", "unit-1"), seed.segments);
     return renderToStaticMarkup(
         <QueryClientProvider client={client}>
             <App>{element}</App>
@@ -265,5 +267,28 @@ describe("候选并排对比", () => {
         expect(status.required.map((item) => [item.kind, item.passed])).toEqual([["frames", true], ["faces", null], ["transcript", true]]);
         expect(status.passedAll).toBe(false);
         expect(status.cer).toBe(0.02);
+    });
+});
+
+describe("分镜制作页的段卡：段内镜头可拆合、可编辑", () => {
+    const spec = (id: string, shots: number): DramaSegment => ({ id, scene: "七床病房", dur: shots * 4, mode: "text_only", shots: Array.from({ length: shots }, (_, index) => ({ at: index * 4, text: `${id} 镜头${index + 1}` })) });
+    const view = (id: string, shots: number, derived = false): DramaSegmentView => ({ shotId: `shot-${id}`, unitId: "unit-1", title: id, position: 0, durationMs: shots * 4000, spec: spec(id, shots), derived });
+    const card = (rule = segmentDurationRule(30)) => <DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S02" specJson={JSON.stringify(spec("S02", 3))} durationRule={rule} />;
+
+    test("有相邻段时给合并入口，每个镜头有铅笔和拆合菜单", () => {
+        const html = render(card(), { segments: [view("S01", 2), view("S02", 3), view("S03", 1)] });
+        expect(html).toContain("并入 S01");
+        expect(html).toContain("合并 S03");
+        expect(html).toContain("编辑第 1 个镜头的画面、台词和时长");
+        expect(html).toContain("第 2 个镜头：拆段或移到相邻段");
+        expect(html).toContain("段长按当前视频渠道（最长 30 秒）取档");
+    });
+
+    test("相邻的是旧镜头时不给合并；没有段长规则时只能看", () => {
+        const html = render(card(), { segments: [view("S01", 2, true), view("S02", 3)] });
+        expect(html).not.toContain("并入 S01");
+        const readOnly = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S02" specJson={JSON.stringify(spec("S02", 3))} />, { segments: [view("S01", 2), view("S02", 3)] });
+        expect(readOnly).not.toContain("编辑第 1 个镜头");
+        expect(readOnly).toContain("S02 镜头3");
     });
 });

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Checkbox, Input } from "antd";
-import { CheckCircle2, Circle, CircleAlert, Download, FileText, Pause, Play, ShieldCheck } from "lucide-react";
+import { App, Button, Checkbox, Dropdown, Input, InputNumber } from "antd";
+import { CheckCircle2, Circle, CircleAlert, Download, FileText, MoreHorizontal, Pause, Pencil, Play, ShieldCheck } from "lucide-react";
 import { Link } from "react-router";
 
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Select } from "@/components/ui/base/select";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
-import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, getDramaBible, getDramaBrief, putDramaBible, putDramaBrief, framesShotArtifact, getDramaProgress, listDramaEvidence, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, type DramaBible, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaProgress, type DramaSegment, type DramaSegmentProgress } from "@/services/api/drama";
+import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, getDramaBible, getDramaBrief, putDramaBible, putDramaBrief, framesShotArtifact, getDramaProgress, listDramaEvidence, listDramaSegments, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, writeDramaSegments, type DramaBible, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaLine, type DramaProgress, type DramaSegment, type DramaSegmentProgress, type DramaSegmentView, type DramaSubShot } from "@/services/api/drama";
 import { listProjectAssets, type ShotArtifact } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
 import { waitForGenerationTask } from "@/services/api/task-center";
@@ -15,11 +15,14 @@ import type { ReferenceImage } from "@/types/image";
 
 import { dramaAuthLabel } from "../drama-model";
 import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
+import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
+import { editSubShot, mergeWithNext, moveEdgeShot, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
 import { applyBriefFacts, bibleSummary, BRIEF_FACTS, BRIEF_STATUSES, briefConfirmedCount, briefFactsFromDocument, parseDocumentJson, type BriefFactDraft, type BriefFactKey } from "./drama-brief";
 
 export const dramaProgressKey = (projectId: string) => ["project", projectId, "drama", "progress"] as const;
 export const dramaEvidenceKey = (projectId: string) => ["project", projectId, "drama", "evidence"] as const;
 export const dramaBriefKey = (projectId: string) => ["project", projectId, "drama", "brief"] as const;
+export const dramaSegmentsKey = (projectId: string, unitId: string) => ["project", projectId, "drama", "segments", unitId] as const;
 
 export function useDramaProgress(projectId: string) {
     return useQuery({ queryKey: dramaProgressKey(projectId), queryFn: async ({ signal }) => (await getDramaProgress(projectId, signal)).progress });
@@ -368,10 +371,30 @@ function EvidenceRow({ label, evidence, pending, detail, children }: { label: st
 
 /**
  * 分镜制作页的段卡：段内镜头时间轴，以及「生成前看一眼」——按项目生成模型编译出的提示词、参考清单和检查结果。
+ * 时间轴上可以拆段、与相邻段合并、把首尾镜头移到相邻段、改镜头画面/台词/时长，保存走 PUT /drama/segments。
  * 编译只读、不花钱；估价沿用工作台底部按渠道报出的积分。
  */
-export function DramaSegmentCard({ projectId, shotId, revisionId, specJson, estimate }: { projectId: string; shotId: string; revisionId?: string; specJson: string; estimate?: string }) {
+export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJson, estimate, durationRule, takeCounts, busyShotIds, onEdited }: {
+    projectId: string;
+    unitId: string;
+    shotId: string;
+    revisionId?: string;
+    specJson: string;
+    estimate?: string;
+    /** 段长规则（项目生成模型 + 当前视频渠道）；拆合、改时长后按它取合法段长。没有时只能看。 */
+    durationRule?: SegmentDurationRule;
+    /** 各段已有的生成结果数：合段会删掉被并入的段和它的结果，要先确认。 */
+    takeCounts?: Record<string, number>;
+    /** 正在生成的段：不能拆合。 */
+    busyShotIds?: ReadonlySet<string>;
+    /** 保存成功后刷新；selectShotId 是保存后应选中的段（当前段并入上一段时）。 */
+    onEdited?: (selectShotId?: string) => Promise<unknown> | void;
+}) {
+    const { message, modal } = App.useApp();
+    const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
+    const [editingShot, setEditingShot] = useState<number | null>(null);
+    const [saveError, setSaveError] = useState("");
     const spec = useMemo(() => {
         try {
             return JSON.parse(specJson) as DramaSegment;
@@ -385,21 +408,126 @@ export function DramaSegmentCard({ projectId, shotId, revisionId, specJson, esti
         enabled: open,
         staleTime: 30_000,
     });
+    const segmentsQuery = useQuery({
+        queryKey: dramaSegmentsKey(projectId, unitId),
+        queryFn: async ({ signal }) => (await listDramaSegments(projectId, unitId, signal)).segments,
+        enabled: Boolean(unitId),
+    });
+    // 本段以工作台当前版本为准，相邻段取服务端分段列表。
+    const list = useMemo(() => (segmentsQuery.data || []).map((view) => view.shotId === shotId && spec ? { ...view, spec } : view), [segmentsQuery.data, shotId, spec]);
+    const index = list.findIndex((view) => view.shotId === shotId);
+    useEffect(() => {
+        setEditingShot(null);
+        setSaveError("");
+    }, [shotId]);
+    const save = useMutation({
+        mutationFn: (edit: SegmentEdit) => writeDramaSegments(projectId, { unitId, segments: edit.segments, ...(edit.order ? { order: edit.order } : {}) }),
+        onSuccess: async (result, edit) => {
+            setSaveError("");
+            setEditingShot(null);
+            queryClient.setQueryData(dramaSegmentsKey(projectId, unitId), result.segments);
+            await onEdited?.(edit.selectShotId);
+        },
+        onError: (error) => {
+            const text = error instanceof Error ? error.message : "段保存失败";
+            setSaveError(text);
+            message.error(`段保存失败：${text}`);
+        },
+    });
     if (!spec) return null;
     const result = compileQuery.data?.result;
+    const editable = Boolean(durationRule && index >= 0 && !list[index].derived);
+    const previous = index > 0 && !list[index - 1].derived ? list[index - 1] : undefined;
+    const next = index >= 0 && index < list.length - 1 && !list[index + 1].derived ? list[index + 1] : undefined;
+    const takesOf = (id: string) => takeCounts?.[id] || 0;
+
+    /** 先在前端算出要写回的段，再按影响确认：被删的段和已有生成结果的段都要说清楚。 */
+    const apply = (build: (rule: SegmentDurationRule) => SegmentEdit, success: (edit: SegmentEdit) => string, confirm?: (edit: SegmentEdit) => { title: string; lines: string[]; danger?: boolean }) => {
+        if (!durationRule || save.isPending) return;
+        let edit: SegmentEdit;
+        try {
+            edit = build(durationRule);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "段编辑失败");
+            return;
+        }
+        const touched = [...edit.segments.flatMap((segment) => list.find((view) => view.spec.id === segment.id)?.shotId || []), ...edit.removedShotIds];
+        const busy = list.find((view) => touched.includes(view.shotId) && busyShotIds?.has(view.shotId));
+        if (busy) {
+            message.warning(`${busy.spec.id} 正在生成，等它结束再改`);
+            return;
+        }
+        const submit = () => save.mutateAsync(edit).then(() => { message.success(success(edit)); }, () => undefined);
+        const stale = touched.filter((id) => !edit.removedShotIds.includes(id) && takesOf(id) > 0).map((id) => list.find((view) => view.shotId === id)?.spec.id || "").filter(Boolean);
+        const asked = confirm?.(edit);
+        if (!asked && !stale.length) {
+            void submit();
+            return;
+        }
+        const lines = [...(asked?.lines || []), ...(stale.length ? [`${stale.join("、")} 已有生成结果，改动后它们对应改动前的段，需要重新生成。`] : [])];
+        modal.confirm({
+            title: asked?.title || "改动已有生成结果的段？",
+            content: <div className="space-y-1.5 text-sm leading-6 text-foreground/62">{lines.map((line) => <p key={line}>{line}</p>)}</div>,
+            okText: "确定",
+            okButtonProps: asked?.danger ? { danger: true } : undefined,
+            cancelText: "取消",
+            centered: true,
+            onOk: submit,
+        });
+    };
+    const mergeConfirm = (first: DramaSegmentView, second: DramaSegmentView) => (edit: SegmentEdit) => ({
+        title: `把 ${second.spec.id} 并入 ${first.spec.id}？`,
+        danger: takesOf(second.shotId) > 0,
+        lines: [
+            `合并后 ${first.spec.id} 共 ${edit.segments[0].shots.length} 个镜头、${edit.segments[0].dur} 秒，${second.spec.id} 删除${takesOf(second.shotId) ? `，它的 ${takesOf(second.shotId)} 个生成结果一起删除，不能撤销` : ""}。`,
+            ...(first.spec.scene !== second.spec.scene ? [`两段不是同一场（${first.spec.scene} / ${second.spec.scene}），合并后按「${first.spec.scene}」写。`] : []),
+        ],
+    });
+    const mergedMessage = (edit: SegmentEdit) => `已合并为 ${edit.segments[0].id}（${edit.segments[0].dur} 秒）`;
+    const shotActions = (shotIndex: number) => [
+        ...(shotIndex > 0 ? [{ key: "split", label: "从这个镜头起拆成新段" }] : []),
+        ...(shotIndex === 0 && previous && spec.shots.length > 1 ? [{ key: "prev", label: `移到 ${previous.spec.id} 末尾` }] : []),
+        ...(shotIndex === spec.shots.length - 1 && next && spec.shots.length > 1 ? [{ key: "next", label: `移到 ${next.spec.id} 开头` }] : []),
+    ];
+    const runShotAction = (shotIndex: number, key: string) => {
+        if (key === "split") apply((rule) => splitSegment(list, index, shotIndex, rule), (edit) => `已拆成 ${edit.segments.map((segment) => segment.id).join(" 和 ")}`);
+        if (key === "prev" || key === "next") apply((rule) => moveEdgeShot(list, index, key, rule), () => `已把镜头移到 ${(key === "prev" ? previous : next)?.spec.id}`);
+    };
+    const shotSeconds = subShotSeconds(spec);
+
     return (
         <div className="mb-3 rounded-lg border border-border/70 px-3 py-2.5 text-xs">
-            <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{spec.id} · {spec.dur} 秒 · 段内 {spec.shots.length} 个镜头</span>
-                <Button size="small" type="link" onClick={() => setOpen((value) => !value)}>{open ? "收起编译结果" : "生成前看提示词"}</Button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">{spec.id} · {spec.scene} · {spec.dur} 秒 · 段内 {spec.shots.length} 个镜头</span>
+                <span className="flex flex-wrap items-center gap-1">
+                    {editable && previous ? <Button size="small" type="text" disabled={save.isPending} onClick={() => apply((rule) => mergeWithNext(list, index - 1, rule), mergedMessage, mergeConfirm(previous, list[index]))}>并入 {previous.spec.id}</Button> : null}
+                    {editable && next ? <Button size="small" type="text" disabled={save.isPending} onClick={() => apply((rule) => mergeWithNext(list, index, rule), mergedMessage, mergeConfirm(list[index], next))}>合并 {next.spec.id}</Button> : null}
+                    <Button size="small" type="link" onClick={() => setOpen((value) => !value)}>{open ? "收起编译结果" : "生成前看提示词"}</Button>
+                </span>
             </div>
+            {durationRule ? <p className="mt-1 leading-5 text-foreground/40">{editable ? `段长按当前视频渠道（${durationRule.label}）取档：拆段、合并、改时长后自动取能提交的段长。` : segmentsQuery.isLoading ? "正在读取本章分段…" : segmentsQuery.isError ? "本章分段读取失败，暂时不能拆合。" : "这一段还不是分段表里的段，不能拆合。"}</p> : null}
+            {saveError ? <p className="mt-1 text-red-500" role="alert">保存失败：{saveError}</p> : null}
             <ol className="mt-2 space-y-1">
-                {spec.shots.map((shot, index) => {
-                    const end = spec.shots[index + 1]?.at ?? spec.dur;
+                {spec.shots.map((shot, shotIndex) => {
+                    const end = spec.shots[shotIndex + 1]?.at ?? spec.dur;
+                    const actions = editable ? shotActions(shotIndex) : [];
+                    if (editingShot === shotIndex && editable) {
+                        return <li key={`${shot.at}-${shotIndex}`}><SubShotEditor shot={shot} seconds={shotSeconds[shotIndex]} saving={save.isPending} onCancel={() => setEditingShot(null)} onSave={(patch) => apply((rule) => editSubShot(list, index, shotIndex, patch, rule), () => `已保存 ${spec.id} 第 ${shotIndex + 1} 个镜头`)} /></li>;
+                    }
                     return (
-                        <li key={`${shot.at}-${index}`} className="flex gap-2 leading-5">
+                        <li key={`${shot.at}-${shotIndex}`} className="flex gap-2 leading-5">
                             <span className="w-16 shrink-0 tabular-nums text-foreground/45">{shot.at}–{end}s</span>
                             <span className="min-w-0 flex-1 text-foreground/70">{[shot.size, shot.camera].filter(Boolean).join(" · ")}{shot.size || shot.camera ? "：" : ""}{shot.text}{shot.lines?.length ? <span className="block text-foreground/55">{shot.lines.map((line) => `${line.speaker}${line.vo ? "（画外）" : ""}：「${line.text}」`).join(" ")}</span> : null}</span>
+                            {editable ? (
+                                <span className="flex shrink-0 items-start">
+                                    <Button type="text" size="small" disabled={save.isPending} icon={<Pencil className="size-3.5" />} aria-label={`编辑第 ${shotIndex + 1} 个镜头的画面、台词和时长`} title="改画面、台词和时长" onClick={() => setEditingShot(shotIndex)} />
+                                    {actions.length ? (
+                                        <Dropdown trigger={["click"]} disabled={save.isPending} menu={{ items: actions, onClick: ({ key }) => runShotAction(shotIndex, key) }}>
+                                            <Button type="text" size="small" icon={<MoreHorizontal className="size-3.5" />} aria-label={`第 ${shotIndex + 1} 个镜头：拆段或移到相邻段`} />
+                                        </Dropdown>
+                                    ) : null}
+                                </span>
+                            ) : null}
                         </li>
                     );
                 })}
@@ -411,13 +539,33 @@ export function DramaSegmentCard({ projectId, shotId, revisionId, specJson, esti
                     {result ? (
                         <>
                             <div className="flex flex-wrap gap-x-3 gap-y-1 text-foreground/50"><span>{result.model}</span><span>提交 {result.duration} 秒</span><span>{result.chars} 字</span>{estimate ? <span>预估 {estimate}</span> : null}</div>
-                            {result.issues.length ? <ul className="mt-1 space-y-0.5">{result.issues.map((issue, index) => <li key={index} className={issue.level === "error" ? "text-red-500" : "text-amber-600 dark:text-amber-400"}>{issue.level === "error" ? "不能提交：" : "注意："}{issue.message}</li>)}</ul> : null}
+                            {result.issues.length ? <ul className="mt-1 space-y-0.5">{result.issues.map((issue, issueIndex) => <li key={issueIndex} className={issue.level === "error" ? "text-red-500" : "text-amber-600 dark:text-amber-400"}>{issue.level === "error" ? "不能提交：" : "注意："}{issue.message}</li>)}</ul> : null}
                             {result.files.length ? <p className="mt-1 text-foreground/50">参考：{result.files.map((file) => `${file.tag}=${file.role}`).join("，")}</p> : null}
                             <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-surface-active p-2 text-[var(--fs-label)] leading-5 text-foreground/70">{result.prompt}</pre>
                         </>
                     ) : null}
                 </div>
             ) : null}
+        </div>
+    );
+}
+
+/** 段内一个镜头的编辑：画面、台词（每行一句「说话人：台词」）、时长。 */
+function SubShotEditor({ shot, seconds, saving, onSave, onCancel }: { shot: DramaSubShot; seconds: number; saving: boolean; onSave: (patch: { text: string; lines: DramaLine[]; seconds: number }) => void; onCancel: () => void }) {
+    const [text, setText] = useState(shot.text);
+    const [lines, setLines] = useState(() => formatDialogue(shot.lines));
+    const [length, setLength] = useState<number | null>(seconds);
+    return (
+        <div className="grid gap-1.5 rounded-md border border-border/70 bg-surface-active p-2">
+            <label className="grid gap-1"><span className="text-foreground/50">画面</span><Input.TextArea autoFocus value={text} onChange={(event) => setText(event.target.value)} autoSize={{ minRows: 2, maxRows: 6 }} /></label>
+            <label className="grid gap-1"><span className="text-foreground/50">台词（每行一句「说话人：台词」，画外音写成「说话人（画外）：台词」）</span><Input.TextArea value={lines} onChange={(event) => setLines(event.target.value)} autoSize={{ minRows: 1, maxRows: 6 }} placeholder="林小满：七床的人呢？" /></label>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="flex items-center gap-1.5"><span className="text-foreground/50">时长</span><InputNumber size="small" min={0.5} max={60} step={0.5} value={length} onChange={setLength} className="w-20" /><span className="text-foreground/50">秒</span></label>
+                <span className="flex gap-1.5">
+                    <Button size="small" onClick={onCancel} disabled={saving}>取消</Button>
+                    <Button size="small" type="primary" loading={saving} disabled={!text.trim() || !length} onClick={() => onSave({ text, lines: parseDialogue(lines), seconds: length || seconds })}>保存</Button>
+                </span>
+            </div>
         </div>
     );
 }

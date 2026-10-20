@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { modelDisplayName, selectableModelsByCapability, useEffectiveConfig } from "@/stores/use-config-store";
+import { configuredModelMatchesCapability, modelDisplayName, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { listDramaModels, type DramaAuthMode, type DramaModel, type DramaRegistry } from "@/services/api/drama";
 
 /** models.json 的默认值；目录还没读到时用它占位，最终以服务端校验为准。 */
@@ -39,6 +39,17 @@ export function preferredDramaModel(registry: DramaRegistry | undefined, availab
 export function dramaModelOptions(registry?: DramaRegistry, available?: Set<string>) {
     if (!registry?.models?.length) return [{ label: "Seedance 2.0 · 每段最长 15 秒", value: DEFAULT_DRAMA_MODEL }];
     return registry.models.map((item) => ({ label: `${item.label} · 每段最长 ${item.duration.max} 秒${available && !available.has(item.id) ? " · 没有可用渠道" : item.calibrated ? "" : " · 未校准"}`, value: item.id }));
+}
+
+/**
+ * 分镜制作页默认用的视频模型（与工作台一致）：项目默认视频模型优先，其次是与项目生成模型同族的渠道模型，
+ * 最后是全局默认。章节装段要按它的时长档位取段长。
+ */
+export function projectVideoModel(config: AiConfig, projectDefault: string | undefined, registry: DramaRegistry | undefined, family: DramaModel | undefined) {
+    if (projectDefault && configuredModelMatchesCapability(config, projectDefault, "video")) return projectDefault;
+    const options = selectableModelsByCapability(config, "video");
+    const sameFamily = family ? options.find((value) => dramaFamilyOf(registry, value, modelDisplayName(config, value))?.id === family.id) : undefined;
+    return sameFamily || config.videoModel || options[0] || "";
 }
 
 export function findDramaModel(registry: DramaRegistry | undefined, id: string | undefined): DramaModel | undefined {

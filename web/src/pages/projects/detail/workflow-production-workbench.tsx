@@ -55,10 +55,11 @@ import {
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
 import { shotTaskRunningLabel, shotVideoSeconds } from "./shot-generation";
+import { segmentDurationRule } from "./chapter-segments";
 import { applyShotReferenceChange } from "./project-cache";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
 import { compileProjectShot } from "@/services/api/drama";
-import { dramaFamilyOf, findDramaModel, useDramaModels } from "../drama-model";
+import { dramaFamilyOf, findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useInvalidateDrama } from "./drama-panels";
 import { Select } from "@/components/ui/base/select";
 
@@ -140,14 +141,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const previewArtifact = artifacts.find((item) => item.id === previewArtifactId) || newestArtifact;
     const generationCapability = activeStage === "video" ? "video" as const : "image" as const;
     const modelOptions = useMemo(() => selectableModelsByCapability(effectiveConfig, generationCapability), [effectiveConfig, generationCapability]);
-    const projectDefaultModel = generationCapability === "video" ? detail.project.defaultVideoModel : detail.project.defaultImageModel;
-    const globalDefaultModel = generationCapability === "video" ? effectiveConfig.videoModel : effectiveConfig.imageModel;
     const dramaModels = useDramaModels();
     const dramaModel = findDramaModel(dramaModels.data, detail.project.generationModel);
     const familyOf = (value: string) => dramaFamilyOf(dramaModels.data, value, modelDisplayName(effectiveConfig, value));
-    // 视频优先用项目默认；没设时挑一个和项目生成模型同族的渠道模型，避免全局默认是别的模型族。
-    const familyDefaultModel = generationCapability === "video" && dramaModel ? modelOptions.find((value) => familyOf(value)?.id === dramaModel.id) : undefined;
-    const defaultModel = projectDefaultModel && configuredModelMatchesCapability(effectiveConfig, projectDefaultModel, generationCapability) ? projectDefaultModel : familyDefaultModel || globalDefaultModel;
+    // 视频优先用项目默认；没设时挑一个和项目生成模型同族的渠道模型，避免全局默认是别的模型族。章节装段用同一个选择。
+    const defaultModel = generationCapability === "video"
+        ? projectVideoModel(effectiveConfig, detail.project.defaultVideoModel, dramaModels.data, dramaModel)
+        : detail.project.defaultImageModel && configuredModelMatchesCapability(effectiveConfig, detail.project.defaultImageModel, "image") ? detail.project.defaultImageModel : effectiveConfig.imageModel;
     const initialModel = defaultModel || modelOptions[0] || "";
     const [selectedModel, setSelectedModel] = useState(initialModel);
     const selectedModelRef = useRef(initialModel);
@@ -187,6 +187,14 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const familyMismatch = Boolean(dramaModel && routedFamily && routedFamily.id !== dramaModel.id);
     const activeProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, routedModel), [effectiveConfig, routedModel]);
     const videoProfile = generationCapability === "video" ? activeProfile.video : undefined;
+    // 段卡拆合、改时长时按当前视频渠道的时长档位取段长，和下面提交前的时长校验同一份能力画像。
+    const segmentRule = useMemo(() => generationCapability === "video" && dramaModel ? segmentDurationRule(segmentMaxSeconds, videoProfile?.duration, dramaModel.label) : undefined, [dramaModel, generationCapability, segmentMaxSeconds, videoProfile?.duration]);
+    const segmentTakeCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        for (const artifact of detail.shotArtifacts || []) if (artifact.unitId === unitId) counts[artifact.shotId] = (counts[artifact.shotId] || 0) + 1;
+        return counts;
+    }, [detail.shotArtifacts, unitId]);
+    const busySegmentShotIds = useMemo(() => new Set((detail.tasks || []).flatMap((task) => task.clientContext?.shotId && (task.status === "queued" || task.status === "running") ? [task.clientContext.shotId] : [])), [detail.tasks]);
     const imageProfile = generationCapability === "image" ? activeProfile.image : undefined;
     const videoBooleanOptions = useMemo(() => generationCapability === "video"
         ? resolveModelVideoBooleanOptions(effectiveConfig, routedModel, {}, {
@@ -536,8 +544,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate(values)}>
                         <div className="workflow-shot-form-scroll thin-scrollbar">
                             <div className="workflow-form-section-heading"><span>分段脚本</span><small>一段 = 一次生成；先写清段里发生什么，再调整生成参数</small></div>
-                            {segmentSpecShots ? <p className="mb-3 rounded-md bg-surface-active px-3 py-2 text-[var(--fs-label)] leading-5 text-foreground/55">这一段由分段表维护（段内 {segmentSpecShots} 个镜头）。生成视频时提示词按 {dramaModel?.label || "项目生成模型"} 方言从分段表编译，下面的视频提示词只作备注；改段内镜头、台词请让短剧 Agent 改分段表。</p> : null}
-                            {segmentSpecShots && activeStage === "video" ? <DramaSegmentCard projectId={projectId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} /> : null}
+                            {segmentSpecShots ? <p className="mb-3 rounded-md bg-surface-active px-3 py-2 text-[var(--fs-label)] leading-5 text-foreground/55">这一段由分段表维护（段内 {segmentSpecShots} 个镜头）。生成视频时提示词按 {dramaModel?.label || "项目生成模型"} 方言从分段表编译，下面的视频提示词只作备注；{activeStage === "video" ? "拆段、合并、移镜头和改台词在下面的段时间轴里做" : "拆段、合并、移镜头和改台词到「视频」阶段的段时间轴里做"}，也可以让短剧 Agent 改分段表。</p> : null}
+                            {segmentSpecShots && activeStage === "video" ? <DramaSegmentCard projectId={projectId} unitId={unitId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} durationRule={segmentRule} takeCounts={segmentTakeCounts} busyShotIds={busySegmentShotIds} onEdited={async (selectShotId) => { if (selectShotId && selectShotId !== selectedShot.id) onSelectShot(selectShotId); await Promise.all([onRefresh(), invalidateDrama()]); }} /> : null}
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
                             <Form.Item name="videoPrompt" label={segmentSpecShots ? "视频提示词（备注）" : "视频提示词"} rules={segmentSpecShots ? undefined : [{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
                             <BoundAssets detail={detail} shotId={selectedShot.id} changing={changeAssetBinding.isPending} onPick={() => setAssetPickerOpen(true)} onUnlink={(reference) => changeAssetBinding.mutate({ reference })} />
