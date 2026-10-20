@@ -58,3 +58,29 @@ func TestPlanSegmentOrderWithoutOrderIsNoop(t *testing.T) {
 		t.Fatalf("没有顺序时不应重排：%v %v", removed, err)
 	}
 }
+
+// 无效段号要截短、去掉引号和换行再进报错：错误整句回给 Agent，不能被一串镜头 ID 或控制字符撑坏。
+func TestPlanSegmentOrderEchoesInvalidIDsSafely(t *testing.T) {
+	existing := []ExistingSegment{{ID: "S01"}}
+	cases := []struct {
+		name string
+		id   string
+	}{
+		{"把镜头 ID 当段号", strings.Repeat("0123456789abcdef", 8)},
+		{"带引号和换行", "S02\n\"b\"\\"},
+		{"中文", "第二段"},
+		{"空串", ""},
+	}
+	for _, c := range cases {
+		_, err := PlanSegmentOrder([]string{"S01", c.id}, nil, existing)
+		if err == nil || !strings.Contains(err.Error(), "无效") {
+			t.Fatalf("%s：应报段号无效，得到 %v", c.name, err)
+		}
+		if strings.ContainsAny(err.Error(), "\r\n\"\\") || len([]rune(err.Error())) > 120 {
+			t.Fatalf("%s：报错应是一句短话，得到 %q", c.name, err.Error())
+		}
+	}
+	if _, err := PlanSegmentOrder([]string{" S01 "}, nil, existing); err != nil {
+		t.Fatalf("段号前后的空格应被忽略：%v", err)
+	}
+}

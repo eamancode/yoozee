@@ -369,7 +369,7 @@ CSV 使用中文表头、UTF-8 BOM、CRLF；金额按整数分精确转换为两
 - `POST /projects/:id/artifacts/:artifactId/transcribe`：对候选创建本地转写任务；`/frames`：生成抽帧拼图并记一条待人判的 `frames` 证据；`/pick`：`{ reason }` 选定候选，证据不齐返回 `evidence_missing`。
 - `POST /projects/:id/drama/gate`：成片门禁（同步、黑场 / 静音、响度 ±1 LUFS、真峰值 ≤ -1.5 dBTP）。不传 `resourceId` / `artifactId` 时检查最近一次剪辑导出的成片；传 `artifactId` 只记响度量数。
 - `GET /projects/:id/drama/delivery`：下载交付包 zip（需求文档、连戏表、分段表 JSON/CSV、生成参数、资产清单、证据、进度、验收单、字幕；成片以资源 ID 列出），同时记一条 `delivery` 证据。包里不含密钥。
-- 短剧 Agent 的 `drama_*` 工具只在画布属于未归档的短剧项目时出现；`read_only` 权限下只出现读工具。这时 yz-* / kb-* 技能自动带入本轮快照：平台内置、已上架但用户还没加进技能库的会顺手加入，用户停用或已删除的跳过；旧六步技能即使被选中也不进快照。`skill_read_file` 随之可用；`drama_chapters_read` 列章节、分页读原文。工具的契约错误（字段不对、章节 ID 不在项目里）原样返回给 Agent，不再笼统成「工具执行失败」。
+- 短剧 Agent 的 `drama_*` 工具只在画布属于未归档的短剧项目时出现；`read_only` 权限下只出现读工具。这时 yz-* / kb-* 技能自动带入本轮快照：平台内置、已上架但用户还没加进技能库的会顺手加入，用户停用或已删除的跳过；旧六步技能即使被选中也不进快照。`skill_read_file` 随之可用；`drama_chapters_read` 列章节、分页读原文。工具的契约错误（字段不对、章节 ID 不在项目里）原样返回给 Agent，不再笼统成「工具执行失败」。`drama_segments_write` 的参数与 `PUT /projects/:id/drama/segments` 一致，也有可选的 `order`：拆段、合段时给本章全部段号的新顺序，新段（S02 → S02b）插在原段后面，不在其中的段连同候选视频和证据删除；不给时新段号追加到章末、不删段。`order` 的校验错误（段号格式、重复、不存在、旧镜头漏列）同样原样返回，段号会截短并去掉引号、换行后再回显。
 - 带项目和段标识的视频任务还要与项目生成模型同族：渠道模型名能认出模型族（如 Seedance 2.5）且与项目不一致时拒绝。
 - 旧六步流程（`workflow_instances` / `workflow_step_instances`）已只读：`POST /projects/:id/workflows` 和 `PATCH /projects/:id/workflow-steps/:stepId` 返回 400「旧六步流程已改为只读」，新项目也不再建流程实例；已有记录仍随项目详情返回，供旧项目查看。生成任务的 metadata 只要带 `domainProjectId` 与 `shotId`，成功后就登记成该段的产物，不再需要 `workflowStepId`；旧任务带 `workflowStepId` 的照常登记，但步骤状态不再推进。改镜头、改章节正文只让产物过期，不再回退步骤状态。
 - 连戏表也是素材清单：角色与资产页按 `/drama/bible` 列出每个人物造型、场景、道具，机器能查的项（三视图、8～12 项锁定卡、有台词时的音色、无人空景、道具图）都齐了才能勾「过门禁」，勾选写回 `checked`；概览的「参考齐了」按它算。

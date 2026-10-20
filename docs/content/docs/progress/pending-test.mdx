@@ -51,19 +51,22 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - 参考：同一场的各段共用这一场所有镜头绑定资产的并集（按角色、场景、道具排序），超过项目生成模型 `refs.images` 时截断并提示；镜头资产引用取同一组的前 6 个。
 - 章节页把项目全部已确认资产交给分镜模型和装段（本章工作区只带本章镜头已引用的资产，新章节原先拿不到任何资产，段没有参考）。生成分段对话框在项目还有待确认候选、或没有已确认资产时提示「先确认资产，段才会自动带上参考」，给「去确认资产」入口，不硬拦。
 - 段编辑（分镜制作页视频阶段的段卡）：每个镜头有铅笔（改画面、台词、时长）和菜单（从这个镜头起拆成新段、首镜头移到上一段、尾镜头移到下一段）；段头有「并入上一段」「合并下一段」。拆出的新段号是 S02b、S02c，紧跟原段；合并会删除被并入的段，它有生成结果时先确认；改动已有生成结果的段会提示需要重新生成；正在生成的段不能拆合；旧镜头（没有分段 JSON）不能参与拆合。拆合、改时长后按当前视频渠道取合法段长，保存走 `PUT /projects/:id/drama/segments`（新增 `order`），后端按项目生成模型校验，失败时在段卡里显示后端原因。
+- Agent 拆段、合段：云端 Agent 的 `drama_segments_write` 也有可选的 `order` 参数（`cloud_agent_tools_drama.go` 的 `dramaSegmentsWriteDescription`），说明里写了何时传、S02 → S02b 的编号、不在 `order` 里的段连同候选视频和证据一起删除；参数由通用解码原样带进 `WriteDramaSegments`，`PlanSegmentOrder` 的报错原样回给 Agent（无效段号截短并去掉引号、换行后回显）。yz-producer 的 `RUNTIME.md` 端口表同步写了拆段、合段怎么传（`python yoozee-skills/build.py` 已重打 `backend/builtin/yz-producer/RUNTIME.md`）。
 
 自动化覆盖：
 
 - [x] `bun test test/drama-segment-plan.test.ts`（14 项）：两场戏不跨段且同场多段共用整场参考；无场景绑定按章节一场；41 秒「七床」10 镜头（4,5,3,4,5,4,3,3,5,5 秒，07→08 接话）在无渠道限制时装成 25 + 16 秒、不在 07/08 之间切；MD 型 15/30 秒与 HAYA 型 5–15 秒渠道下每段都是合法时长、接话不拆；过短尾段并入相邻镜头；渠道档位全超上限时给提示；参考超上限截断；拆段、合并、移首尾镜头、改镜头文字与时长、旧镜头不能拆合、段号取字母。
 - [x] `bun test test/drama-panels.test.tsx`：段卡有相邻段时给合并入口、每个镜头有编辑和拆合菜单；相邻是旧镜头时不给合并；没有段长规则时只读。
 - [x] `CGO_ENABLED=0 go test ./internal/drama/...`：`PlanSegmentOrder` 的拆段、合段、顺序与写入不一致、重复段号、旧镜头不能靠省略删除。
-- 后端 `TestWriteDramaSegmentsOrderSplitsAndMergesInPlace`（拆出的段插在原段后面、合段后位置连续、被并入段的生成结果一起删除、顺序和写入对不上整批拒绝）需要 CGO 的 sqlite，本机未运行。
+- [x] `CGO_ENABLED=0 go test ./internal/app -run 'TestDramaSegmentsWriteToolAdvertisesOrder|TestDramaSegmentsWriteToolDecodesOrderStraightThrough|TestSegmentOrderErrorsReachAgentVerbatim'`：工具 schema 里 `order` 是可选字符串数组、说明不再写「不删除段」；带 `order` 的参数能解码、写成字符串时给类型提示；`PlanSegmentOrder` 的每类报错（含把镜头 ID 或带引号换行的串当段号）经 `cloudAgentSafeToolError` 后与原文一致。`TestPlanSegmentOrderEchoesInvalidIDsSafely` 在 `internal/drama` 里覆盖回显截短。
+- 后端 `TestWriteDramaSegmentsOrderSplitsAndMergesInPlace`（拆出的段插在原段后面、合段后位置连续、被并入段的生成结果一起删除、顺序和写入对不上整批拒绝）、`TestDramaSegmentsWriteToolSplitsAndMergesWithOrder`（经 Agent 工具入口：不传 `order` 追加章末、传 `order` 摆回原段后面、写错的 `order` 报错可读且章节不变、合段删候选）和 `TestDramaSegmentsWriteToolOrderMustListLegacySegments`（旧镜头漏列被拒、列出后原样保留）需要 CGO 的 sqlite，本机未运行。
 
 仍需人工/真实环境验收：
 
 - [ ] 章节生成分段：绑了两个场景资产的章节装成两组段，段卡标题显示场景名；同一场的各段参考相同；接话不被拆开。
 - [ ] SLL 的 MD 渠道（只能 15/30 秒）设为项目默认视频模型时，生成的段时长都是 15 或 30，分镜制作页能直接提交；HAYA 渠道（最少 5 秒）下没有短于 5 秒的段。
 - [ ] 项目还有待确认候选时，生成分段对话框出现「先确认资产」提示与入口；确认资产后再生成，新章节的段带上参考。
+- [ ] Agent 拆段、合段：在短剧项目画布里让 Agent 把某场戏拆成两段，应写 S02 加 S02b 并带 `order`，S02b 紧跟 S02 而不是排到章末；让它把两段并成一段，应只写保留的那段、`order` 里不含被并掉的段，分镜制作页里被并掉的段及其候选消失；故意给错段号时，Agent 的工具结果里能看到「段顺序里……」的原因并改正。
 - [ ] 分镜制作页段卡：拆段后 S02b 紧跟 S02 出现在镜头列表里；并入上一段后自动选中上一段；合并有生成结果的段时先确认，确认后被并入的段消失；改台词后编译结果里出现新台词；后端拒绝（如合并后超过项目模型上限）时段卡显示原因。
 
 ## 短剧前端走查修复

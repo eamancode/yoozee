@@ -190,9 +190,10 @@ func compileCloudAgentTools(req CloudAgentRequest, includeProfileTool bool) []ma
 		if req.PermissionMode != "read_only" {
 			add("drama_brief_write", "整份写入需求文档（契约 brief），形状不对会被拒绝。用户原话原样记在 quote、带 date；你定的 status 标「默认，待确认」或「默认，已授权」。改 video_model 或 auth_mode 会同步改项目设置。不改画布、不花钱。"+drama.BriefShape, map[string]any{"document": dramaObject("完整的需求文档 JSON 对象")}, "document")
 			add("drama_bible_write", "整份写入连戏表（契约 bible）。先 drama_bible_read，在它的基础上改。", map[string]any{"document": dramaObject("完整的连戏表 JSON 对象")}, "document")
-			add("drama_segments_write", "按段号写一章的分段：已有段号写新版本（只让依赖输入真的变了的产物过期），新段号新建一段；不删除段。每段必须符合契约 segment，时长不超过项目生成模型的上限（Seedance 2.0 / MiniMax-H3 15 秒，Seedance 2.5 30 秒），否则整批拒绝。"+drama.SegmentShape, map[string]any{
+			add("drama_segments_write", dramaSegmentsWriteDescription+drama.SegmentShape, map[string]any{
 				"unitId":   str("章节 ID，来自 drama_chapters_read"),
 				"segments": map[string]any{"type": "array", "minItems": 1, "maxItems": 60, "items": dramaObject("一段中性分段（契约 segment）")},
+				"order":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "可选，只在拆段、合段时给：本章全部段号的新顺序，含没改动的段和 derived 的旧镜头。不在其中的已有段连同候选视频、证据一起删除。只改段内容时不要传。"},
 			}, "unitId", "segments")
 			add("drama_artifact_register", "把一个已成功的生成任务登记为某段的一条候选（generate_media 出的视频、分镜图或预演）。登记后它就是这段当前选中的产物，还要补证据才算过审。", map[string]any{
 				"shotId":       str("镜头（段）ID"),
