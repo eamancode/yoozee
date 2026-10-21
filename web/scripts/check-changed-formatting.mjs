@@ -38,19 +38,9 @@ export async function checkChangedFormatting({ cwd = process.cwd(), baseSha = pr
         const options = { ...(await prettier.resolveConfig(filepath)), filepath };
         // 只允许明确的历史格式问题跳过；语法、Git、文件读取错误全部向上抛出。
         const previous = previousFiles.has(file) ? git(["show", `${base}:${prefix}${file}`]) : null;
-        if (previous !== null) {
-            let previousFormatted = true;
-            try {
-                previousFormatted = await prettier.check(previous, options);
-            } catch {
-                // 基线版本本身就无法解析（历史遗留 CSS，例如 globals-5.css 曾多一个 }），
-                // 按“历史未格式化”跳过；head 版本仍会走下面的 check，新增语法错误照常暴露。
-                previousFormatted = false;
-            }
-            if (!previousFormatted) {
-                log(`Skipping legacy unformatted file: ${file}`);
-                continue;
-            }
+        if (previous !== null && !(await prettier.check(previous, options))) {
+            log(`Skipping legacy unformatted file: ${file}`);
+            continue;
         }
         if (!(await prettier.check(await readFile(filepath, "utf8"), options))) failures.push(file);
     }
