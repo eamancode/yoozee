@@ -4,15 +4,7 @@ import { ChevronDown } from "lucide-react";
 
 import { AppModal } from "@/components/ui/product/app-modal";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
-import {
-    listVideoEnhanceModels,
-    videoEnhanceProfile,
-    videoEnhanceQuoteRequest,
-    videoEnhanceResolutionShortEdge,
-    videoEnhanceSourceError,
-    type VideoEnhanceBitrateLevel,
-    type VideoEnhanceParams,
-} from "@/lib/canvas/canvas-video-enhance";
+import { listVideoEnhanceModels, videoEnhanceProfile, videoEnhanceQuoteRequest, videoEnhanceResolutionShortEdge, videoEnhanceSourceError, type VideoEnhanceBitrateLevel, type VideoEnhanceParams } from "@/lib/canvas/canvas-video-enhance";
 import { modelQuoteDescription } from "@/lib/model-pricing";
 import { quoteModel, type LogicalModelQuote } from "@/services/api/logical-models";
 import { modelDisplayName, type AiConfig } from "@/stores/use-config-store";
@@ -131,7 +123,9 @@ function EnhanceEditor({ node, config, onClose, onConfirm }: Props) {
             </div>
 
             {!models.length ? (
-                <p role="alert" className="text-sm text-destructive">管理员尚未配置可用的画质增强模型。</p>
+                <p role="alert" className="text-sm text-destructive">
+                    管理员尚未配置可用的画质增强模型。
+                </p>
             ) : (
                 <div className="flex flex-col gap-4">
                     {models.length > 1 ? (
@@ -180,7 +174,9 @@ function EnhanceEditor({ node, config, onClose, onConfirm }: Props) {
             )}
 
             {sourceError ? (
-                <p role="alert" className="mt-4 text-sm text-destructive">{sourceError}</p>
+                <p role="alert" className="mt-4 text-sm text-destructive">
+                    {sourceError}
+                </p>
             ) : null}
         </AppModal>
     );

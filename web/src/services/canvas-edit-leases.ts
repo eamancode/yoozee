@@ -212,7 +212,7 @@ export function createCanvasEditLeaseClient(deps: Dependencies) {
             for (const proof of previousProofs) {
                 if (!nodeIds.has(proof.nodeId) || own.get(canvasId)?.has(proof.nodeId)) continue;
                 let entries = own.get(canvasId);
-                if (!entries) own.set(canvasId, entries = new Map());
+                if (!entries) own.set(canvasId, (entries = new Map()));
                 entries.set(proof.nodeId, { proof: { nodeId: proof.nodeId, sessionId, token: "" }, version: 1, savedVersion: 0, lastInput: deps.now(), lastRenew: 0, expires: 0 });
             }
             for (const [nodeId, entry] of own.get(canvasId) || []) {
@@ -249,7 +249,8 @@ export function createCanvasEditLeaseClient(deps: Dependencies) {
             for (const [nodeId, entry] of own.get(canvasId) || []) {
                 while (entry.pending) await entry.pending;
                 if (!valid(canvasId, nodeId, entry, startedScope) || !entry.proof.token || entry.expires <= deps.now()) continue;
-                const pending = deps.change(canvasId, entry.proof, "release")
+                const pending = deps
+                    .change(canvasId, entry.proof, "release")
                     .then(() => {
                         if (!valid(canvasId, nodeId, entry, startedScope)) return;
                         entry.expires = 0;
