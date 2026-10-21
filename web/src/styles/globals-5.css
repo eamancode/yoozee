@@ -88,7 +88,6 @@
 
     .creation-duration-choices button:hover { background: rgba(255, 255, 255, .055); color: #eff1f2; }
     .creation-custom-value.is-duration { width: 100%; grid-column: auto; margin-top: 7px; }
-}
 
 /* 解除旧版参数侧栏 Grid，Popover 必须是纵向信息分组。 */
 .creation-parameter-section {
