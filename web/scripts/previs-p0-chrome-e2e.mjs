@@ -110,6 +110,8 @@ async function launchVite(port) {
 async function launchChrome(chromePath, cdpPort, profileDir) {
     const args = [
         "--headless=new",
+        // 预演台「监看窗口」走 window.open，无头浏览器默认拦截弹窗，会让 G8/shotOutputs 假失败。
+        "--disable-popup-blocking",
         `--remote-debugging-port=${cdpPort}`,
         `--user-data-dir=${profileDir}`,
         "--no-first-run",
@@ -427,7 +429,8 @@ async function smokeWorkbench(cdp, baseUrl) {
     const hoverPoint = await cdp.evaluate(`(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); if (!b) return null; const r = b.getBoundingClientRect(); return {x:r.x+r.width/2, y:r.y+r.height/2}; })()`);
     if (!hoverPoint) throw new Error("A: 适配全部对象 dock button not found");
     await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...hoverPoint });
-    const describedTooltip = `(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); return !!b && [...b.querySelectorAll('.aceternity-dock-tooltip')].some((t) => (t.textContent || '').includes('适配全部对象')); })()`;
+    // Dock 重写后 tooltip 渲染在按钮的兄弟节点（同一工具条容器内），不再嵌套在 button 里。
+    const describedTooltip = `(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); if (!b) return false; const root = b.closest('[role="toolbar"]') || document; return [...root.querySelectorAll('.aceternity-dock-tooltip')].some((t) => (t.textContent || '').includes('适配全部对象')); })()`;
     assert(await cdp.poll(describedTooltip, "tooltip on hover", 5000), "A5b Tooltip hover describes the actual control");
     await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
     assert(await cdp.poll(`!(${describedTooltip})`, "tooltip dismiss", 5000), "A5b Tooltip dismisses when pointer leaves");
@@ -456,12 +459,9 @@ async function smokeWorkbench(cdp, baseUrl) {
     if (!(await cdp.click('button[data-mode="layout"]'))) throw new Error("A: 摆场模式按钮不可点击");
     assert(await cdp.poll(`document.querySelectorAll('.previs-sequencer').length === 0`, "layout hides sequencer", 10000), "A7b 回到摆场模式隐藏时间轴");
 
-    const propMenuOpened = await cdp.click('[aria-label="添加道具"]');
-    if (!propMenuOpened) throw new Error("A: 添加道具 button not clickable");
-    const cubeMenuReady = await cdp.poll(`!![...document.querySelectorAll('[role="menuitem"]')].find((item) => (item.textContent || '').trim() === '立方体' && item.getClientRects().length > 0)`, "cube menu item", 10000);
-    if (!cubeMenuReady) throw new Error("A: 立方体 menu item not visible");
-    const addedCube = await cdp.clickText("立方体", '[role="menuitem"]');
-    if (!addedCube) throw new Error("A: 立方体 menu item not clickable");
+    // 预演台改为视口 dock 直选：旧的「添加道具」菜单已拆成添加演员/立方体/灯光/摄影机按钮。
+    const addedCube = await cdp.click('[aria-label="添加立方体"]');
+    if (!addedCube) throw new Error("A: 添加立方体 button not clickable");
     const cubeAppeared = await cdp.poll(`!!document.querySelector('[aria-label="删除 立方体"]')`, "cube row", 20000);
     assert(cubeAppeared, "A10 added cube appears in object list");
 
@@ -723,12 +723,8 @@ async function saveFailureCloseGuard(cdp, baseUrl) {
     assert(hasCanvas, "F2 workbench open with real canvas");
 
     // canonical 改动：dock 新增立方体会走 commit → coordinator.edit → flush（被强制失败）。
-    const propMenuOpened = await cdp.click('[aria-label="添加道具"]');
-    if (!propMenuOpened) throw new Error("F: 添加道具 button not clickable");
-    const cubeMenuReady = await cdp.poll(`!![...document.querySelectorAll('[role="menuitem"]')].find((item) => (item.textContent || '').trim() === '立方体' && item.getClientRects().length > 0)`, "cube menu item", 10000);
-    if (!cubeMenuReady) throw new Error("F: 立方体 menu item not visible");
-    const addedCube = await cdp.clickText("立方体", '[role="menuitem"]');
-    if (!addedCube) throw new Error("F: 立方体 menu item not clickable");
+    const addedCube = await cdp.click('[aria-label="添加立方体"]');
+    if (!addedCube) throw new Error("F: 添加立方体 button not clickable");
 
     const errorState = await cdp.poll(`(document.body.innerText || "").includes('保存失败')`, "save failure header", 40000);
     assert(errorState, "F3 header surfaces 保存失败 after forced flush failure");
