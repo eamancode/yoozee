@@ -20,7 +20,7 @@
 | `bitrate` | `providerOptions.….bitrate` | 10-150000 kbps，同时给出时优先于 `bitrate_level`。 |
 | `client_token` | 宿主幂等键 | 同一次提交重试不会重复创建任务。 |
 
-未接入 `media_output_destination`、`callback_url`、`callback_args`、`queue_id`：结果统一由宿主轮询并落到影策资源存储。
+未接入 `media_output_destination`、`callback_url`、`callback_args`、`queue_id`：结果统一由宿主轮询并落到柚子资源存储。
 
 ### 耗时与计费
 
@@ -39,7 +39,7 @@
   "id": "volcengine-mediakit",
   "name": "Volcengine AI MediaKit",
   "version": "1.0.0",
-  "author": "Volcengine / 影策",
+  "author": "Volcengine / 柚子",
   "description": "火山引擎 AI MediaKit 媒体处理工具协议插件，当前提供画质增强（大模型版）。",
   "permissions": [
     "generation.run",
