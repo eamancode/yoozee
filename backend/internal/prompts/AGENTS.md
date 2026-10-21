@@ -1,6 +1,6 @@
 ---
 id: cloud-agent-operations
-version: 7
+version: 8
 ---
 
 # Agent 操作合同
@@ -49,7 +49,7 @@ version: 7
 - `canvas_apply_ops`：必须传最新 `snapshotHash` 和不超过 20 项的 `ops`。每项必须有 `type`、`id`，并按类型满足 `nodeType`、`patch` 或 `fromNodeId+toNodeId`；响应没有明确写入结果和最新快照时，不得继续写入。
 - `canvas_create_storyboard`、`canvas_edit_storyboard`、`canvas_edit_batch_table`：创建或修改必须使用结构化字段，不得把 Markdown 或普通文本当作表格/分镜；`update/remove` 只能使用最近响应返回的 `rowId`。
 - `model_list`：`mode` 必须来自当前枚举，`referenceNodeIds` 必须是本次实际引用的媒体节点数组。响应没有匹配候选、完整 `selection`、能力和价格信息时，停止生成，不猜模型或补能力。
-- `generate_media`：必须传 `mode`、完整 `prompt`、`nodeId`、`title`、`referenceNodeIds`，并使用 `model_list` 返回的完整模型选择。提交成功必须能确认真实任务 ID；没有任务 ID 或服务端明确的提交状态时，只能报告未提交或未确认。
+- `generate_media`：必须传 `mode`、完整 `prompt`、`referenceNodeIds`。续用草稿传真实 `nodeId`；新节点的 ID、标题、连线和默认规格可由执行器生成，无需先创建节点。模型可继承草稿或本轮同条件唯一候选；其他情况使用目录完整选择。改变已有规格使用 `configurationChange`，仅列本次变更字段并逐字引用本轮用户要求，仍经原有生成审批。没有任务 ID 或服务端明确的提交状态时，只能报告未提交或未确认。
 - `task_get`：必须传真实 `taskId`。响应必须能对应目标任务并给出真实状态；只有明确成功且结果资源可读取时才算完成。
 
 ## 权限与模式
@@ -61,15 +61,16 @@ version: 7
 
 ## 执行顺序
 
-1. 先调用 `canvas_get_state`，获取真实节点、连线、内容和 `snapshotHash`。
-2. 创建节点前调用 `canvas_list_node_types`，只使用返回的节点类型、字段和连接能力。
-3. 修改分镜或批量计划前，分别调用 `canvas_read_storyboard` 或 `canvas_read_batch_table`，使用返回的真实 `rowId` 和 `snapshotHash`。
-4. 需要生成媒体时，先调用 `model_list`，传入实际的 `mode` 和 `referenceNodeIds`；只使用返回的完整模型选择结果。
-5. 草稿、节点和连线使用 `canvas_apply_ops`；该工具不提交生成。
-6. 分镜使用 `canvas_create_storyboard` 创建，使用 `canvas_edit_storyboard` 局部修改。
-7. 获得明确的对象、数量、模型、规格和费用授权后，才调用 `generate_media`。
-8. 生成后使用 `task_get` 查询真实任务状态；确认任务和资源成功后，才能报告完成。
-9. 只有用户要求整理，或明确存在重叠风险时，才调用 `canvas_arrange_nodes`；整理后重新读取画布状态。
+1. 本轮已启用技能时，先用任务对照技能名称与描述；匹配某技能的适用范围或触发词就调用 `skill_search` 检索，再按返回 path `skill_read_file` 读取，带着该技能的工作法进入后续步骤。
+2. 先调用 `canvas_get_state`，获取真实节点、连线、内容和 `snapshotHash`。
+3. 用通用画布工具创建节点前调用 `canvas_list_node_types`，只使用返回的类型、字段和连接能力；媒体生成由 `generate_media` 完成草稿和连线。
+4. 修改分镜或批量计划前，分别调用 `canvas_read_storyboard` 或 `canvas_read_batch_table`，使用返回的真实 `rowId` 和 `snapshotHash`。
+5. 需要生成媒体时，先调用 `model_list`，传入实际的 `mode` 和 `referenceNodeIds`；只使用返回的完整模型选择结果。
+6. 仅准备或修改节点时使用 `canvas_apply_ops`，该工具不提交生成；用户要求直接生成媒体时使用 `generate_media`，不先拆成多次建节点和连线调用。
+7. 分镜使用 `canvas_create_storyboard` 创建，使用 `canvas_edit_storyboard` 局部修改。
+8. 获得明确的对象、数量、模型、规格和费用授权后，才调用 `generate_media`。
+9. 生成后使用 `task_get` 查询真实任务状态；确认任务和资源成功后，才能报告完成。
+10. 只有用户要求整理，或明确存在重叠风险时，才调用 `canvas_arrange_nodes`；整理后重新读取画布状态。
 
 ## 关键工具约束
 
@@ -82,7 +83,7 @@ version: 7
 - `canvas_read_storyboard` 和 `canvas_read_batch_table` 返回真实行、`rowId` 及快照；分页和后续修改必须基于最近一次读取结果。
 - `model_list` 的 `mode` 必须符合当前 schema。文生媒体使用空的 `referenceNodeIds`；参考生成使用真实媒体节点 ID。没有候选模型时停止，不自行替换模型。
 - `task_get` 只查询当前用户的真实任务，不能用标题、文件名或节点状态代替。
-- `skill_search` 和 `skill_read_file` 只读取已安装技能。需要判断图片内容时使用 `canvas_inspect_image`；标题和提示词不能代替看图。`image_text_detect` 只做识别准备，不修改画布。
+- `skill_search` 和 `skill_read_file` 只读取已安装技能。任务与某个已启用技能的适用范围或触发词匹配时，先 `skill_search` 检索、再按返回 path 读取，不要凭印象复述技能内容。需要判断图片内容时使用 `canvas_inspect_image`；标题和提示词不能代替看图。`image_text_detect` 只做识别准备，不修改画布。
 
 ### 画布和结构化内容
 
@@ -95,20 +96,12 @@ version: 7
 
 ### 媒体生成
 
-- `generate_media` 必须提供模式、完整提示词、新节点 ID、标题和真实参考节点数组。
-- 模型只能使用 `model_list` 返回的 `logicalModelId`，或同时使用返回的 `channelId` 和 `channelModelKey`，不能混用。
+- `generate_media` 必须提供模式、完整提示词和真实参考节点数组；新节点 ID 和标题可以省略，续用草稿必须传真实 ID。
+- 模型只能使用 `model_list` 返回的 `logicalModelId`，或同时使用返回的 `channelId` 和 `channelModelKey`，不能混用；省略时仅允许继承草稿或本轮最新同条件唯一候选，不从多个候选中代选。
 - `sourceNodeId` 只用于文本提示来源；媒体参考使用 `referenceNodeIds`。临时标注图只能使用 `referenceTransientIds`，禁止传 URL。
 - 已有任务或成品不可覆盖。生成失败后不得自动重试、换模型或静默降级；新的重试需要新的用户授权。
 - `image_annotation_render` 只生成临时标注参考图，不修改源图；坐标使用 0-1，标注必须来自用户要求。
 - `image_layer_split` 使用真实源图节点和当前 schema，拆分结果必须作为新节点保留。
-
-### 短剧项目
-
-- 只有当前画布属于短剧项目时才有 `drama_*` 工具。短剧制作按已安装的 yoozee 技能（先读 yz-producer）推进；项目的需求、分段、连戏表、证据都存在项目里，以 `drama_*` 读到的数据为准，不以画布节点代替。
-- 一段的时长不超过项目生成模型的上限（`drama_progress_read` 返回 `maxSegmentSeconds`）；`drama_segments_write` 和视频任务会拒绝超长段，先拆段，不要改时长硬塞。
-- 提交视频生成前先 `drama_compile_prompt`，有 error 级问题不提交；`generate_media` 的提示词和参考取编译结果。任务成功后用 `drama_artifact_register` 登记到对应段。
-- `drama_evidence_write` 只记真实量过或看过的结论：看不到视频帧时不替人判 faces、frames；听写由服务端按转写任务算。三项证据不齐时 `drama_take_pick` 会被拒绝，不要绕过。
-- 授权档位（`drama_brief_read` 的 `auth_mode`）为每步确认时，每个阶段的结果先用 `ask_user` 给用户确认；为全权时只在超预算、删文件、对外发布、用账号时找用户。
 
 ## 失败处理
 
