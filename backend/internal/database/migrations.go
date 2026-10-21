@@ -33,6 +33,15 @@ const workbenchToolsMigrationName = "workbench_tools_and_presets"
 const workbenchToolsMigrationChecksum = "sha256:workbench-tools-presets-v54-20261014"
 const legacyWorkbenchToolsMigrationChecksum = "sha256:workbench-tools-presets-v51-20261014"
 
+// 短剧段级迁移在本 fork 曾占用 v51；与上游合并后顺延到 v58，旧库启动时由
+// normalizeLegacyDramaMigration 自动改写账本，不需要人工改 schema_migrations。
+const (
+	dramaSegmentsEvidenceMigrationVersion  int64 = 58
+	dramaSegmentsEvidenceMigrationName           = "drama_segments_evidence"
+	dramaSegmentsEvidenceMigrationChecksum       = "sha256:drama-segments-evidence-v58-20261015"
+	legacyDramaSegmentsMigrationChecksum         = "sha256:drama-segments-evidence-v51-20261015"
+)
+
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
 type SchemaStatus struct {
@@ -198,7 +207,7 @@ var schemaMigrations = []migration{
 	{version: 56, name: "sql_perf_indexes", checksum: "sha256:sql-perf-indexes-v56-20261016", apply: migrateSchemaV56},
 	{version: 57, name: "canvas_multi_session_sync", checksum: "sha256:canvas-multi-session-sync-v57", apply: migrateCanvasCollaboration},
 	// yoozee 1.0 skills：项目生成模型、授权档位、需求文档与连戏表；段的中性分段；产物依赖指纹；证据表。
-	{version: 58, name: "drama_segments_evidence", checksum: "sha256:drama-segments-evidence-v58-20261015", apply: func(tx *gorm.DB) error {
+	{version: dramaSegmentsEvidenceMigrationVersion, name: dramaSegmentsEvidenceMigrationName, checksum: dramaSegmentsEvidenceMigrationChecksum, apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.Project{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotEvidence{})
 	}},
 }
@@ -569,6 +578,44 @@ func normalizeLegacyWorkbenchMigration(tx *gorm.DB) error {
 	return nil
 }
 
+// normalizeLegacyDramaMigration 把本 fork 曾占用 v51 的短剧段级迁移改写到 v58，
+// 让从旧版 fork 升级上来的库直接接受上游 v51..v57，不需要人工改迁移账本。
+func normalizeLegacyDramaMigration(tx *gorm.DB) error {
+	var legacy schemaMigration
+	if err := tx.First(&legacy, "version = ?", 51).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return fmt.Errorf("读取旧短剧迁移记录：%w", err)
+	}
+	if legacy.Name != dramaSegmentsEvidenceMigrationName || legacy.Checksum != legacyDramaSegmentsMigrationChecksum {
+		return nil
+	}
+
+	var later []schemaMigration
+	if err := tx.Where("version > ?", legacy.Version).Order("version asc").Find(&later).Error; err != nil {
+		return fmt.Errorf("读取旧短剧迁移后的记录：%w", err)
+	}
+	if len(later) > 0 {
+		return fmt.Errorf("数据库迁移 51 使用旧短剧身份，但已存在后续迁移记录 %d；拒绝自动改写迁移账本", later[0].Version)
+	}
+
+	result := tx.Model(&schemaMigration{}).
+		Where("version = ? AND name = ? AND checksum = ?", legacy.Version, legacy.Name, legacy.Checksum).
+		Updates(map[string]any{
+			"version":  dramaSegmentsEvidenceMigrationVersion,
+			"name":     dramaSegmentsEvidenceMigrationName,
+			"checksum": dramaSegmentsEvidenceMigrationChecksum,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("归一化旧短剧迁移记录：%w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("归一化旧短剧迁移记录影响 %d 行，拒绝继续启动", result.RowsAffected)
+	}
+	return nil
+}
+
 const workbenchToolsMigrationVersion int64 = 54
 
 func migrateSchemaV56(tx *gorm.DB) error {
@@ -597,6 +644,9 @@ func MigrateSchema(db *gorm.DB) error {
 			return fmt.Errorf("初始化数据库迁移记录：%w", err)
 		}
 		if err := normalizeLegacyWorkbenchMigration(tx); err != nil {
+			return err
+		}
+		if err := normalizeLegacyDramaMigration(tx); err != nil {
 			return err
 		}
 		plan, err := migrationsForDatabase(tx)
