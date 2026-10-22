@@ -230,7 +230,7 @@ func TestShotlistSameNamedScenesKeepTheirOwnCast(t *testing.T) {
 		t.Fatalf("夹具前提：第二、三场同名，得到 %q / %q", script.Scenes[1].Heading, script.Scenes[2].Heading)
 	}
 	m, _ := drama.ModelByID("seedance-2.5")
-	plan, err := planDramaShotlist(rows, &script, assets, m)
+	plan, err := planDramaShotlist(rows, &script, assets, m, nil)
 	if err != nil {
 		t.Fatalf("on3 应能保存：%v", err)
 	}

@@ -350,16 +350,33 @@ type ShotEvidence struct {
 // DramaShotlist 是一章的镜头表（yoozee 契约 shotlist）：段由它装出来，用户改镜头表就重装段。
 // ScriptJSON 是由章节正文转出的台词表，CheckJSON 是最近一次检查结果。一章一份，按 unit_id 唯一。
 type DramaShotlist struct {
-	ID           string    `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID    string    `json:"projectId" gorm:"index;size:36;not null"`
-	UnitID       string    `json:"unitId" gorm:"uniqueIndex;size:36;not null"`
-	Version      int       `json:"version" gorm:"not null;default:1"`
-	ShotlistJSON string    `json:"shotlistJson" gorm:"type:text"`
-	ScriptJSON   string    `json:"scriptJson" gorm:"type:text"`
-	CheckJSON    string    `json:"checkJson" gorm:"type:text"`
-	CreatedBy    string    `json:"createdBy,omitempty" gorm:"size:36"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID           string `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID    string `json:"projectId" gorm:"index;size:36;not null"`
+	UnitID       string `json:"unitId" gorm:"uniqueIndex;size:36;not null"`
+	Version      int    `json:"version" gorm:"not null;default:1"`
+	ShotlistJSON string `json:"shotlistJson" gorm:"type:text"`
+	ScriptJSON   string `json:"scriptJson" gorm:"type:text"`
+	CheckJSON    string `json:"checkJson" gorm:"type:text"`
+	// RowsJSON 是这次写入的分镜行原文（评测重放用）；CompileProfileVersion 是装段用的编译档案版本，0 为内置默认。
+	RowsJSON              string    `json:"-" gorm:"type:text"`
+	CompileProfileVersion int       `json:"compileProfileVersion" gorm:"not null;default:0"`
+	CreatedBy             string    `json:"createdBy,omitempty" gorm:"size:36"`
+	CreatedAt             time.Time `json:"createdAt"`
+	UpdatedAt             time.Time `json:"updatedAt"`
+}
+
+// DramaCompileProfile 是编译档案的一个版本（M5）：装段、编译里影响质量的文字。content_json 只写要改的项，
+// 读取时叠在内置默认（版本 0）上；同一时刻最多一个启用，没有启用的就用内置默认。
+type DramaCompileProfile struct {
+	ID          string    `json:"id" gorm:"primaryKey;size:36"`
+	Version     int       `json:"version" gorm:"uniqueIndex;not null"`
+	Name        string    `json:"name" gorm:"size:120"`
+	ContentJSON string    `json:"-" gorm:"type:text"`
+	Note        string    `json:"note" gorm:"size:500"`
+	Enabled     bool      `json:"enabled" gorm:"index"`
+	CreatedBy   string    `json:"createdBy" gorm:"size:36"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 type ShotAssetReference struct {

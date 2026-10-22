@@ -74,6 +74,8 @@ type DramaCompileResult struct {
 	Spec    drama.Segment       `json:"spec"`
 	Derived bool                `json:"derived"`
 	Result  drama.CompileResult `json:"result"`
+	// CompileProfile 是这次编译用的编译档案（0 为内置默认）；段里的镜头画面句是装段时按当时的档案写的。
+	CompileProfile DramaCompileProfileRef `json:"compileProfile"`
 }
 
 type DramaSegmentView struct {
@@ -637,11 +639,15 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 			return DramaCompileResult{}, BadAuthRequest(err.Error())
 		}
 	}
-	result, err := drama.CompileWithProfile(seg, m, req.Style, req.Acting, profile)
+	phrases, err := s.activeCompileProfile()
 	if err != nil {
 		return DramaCompileResult{}, err
 	}
-	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result}, nil
+	result, err := drama.CompileWith(seg, m, req.Style, req.Acting, profile, phrases)
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result, CompileProfile: compileProfileRef(phrases)}, nil
 }
 
 // ---------------------------------------------------------------- 证据、选中、进度

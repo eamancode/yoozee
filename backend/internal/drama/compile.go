@@ -27,61 +27,19 @@ type CompileResult struct {
 	Issues   []Issue        `json:"issues"`
 }
 
-var seedanceRole = map[string]string{
-	"identity": "@图片%d为人物参考（%s；脸、发型、小特征和服装照此，忽略灰色背景）",
-	"location": "@图片%d为场景参考（布局、材质、颜色和光线照此，图中无人）%s",
-	"plate":    "@图片%d为这一机位身后的背景%s",
-	"prop":     "@图片%d为道具参考%s",
-	"frame":    "@图片%d只作构图参考（取景、光线、位置），人物的脸以人物参考为准%s",
-}
+// softPromptBudget 是模型字数上限未写也未实测时的软预算（只警告）。
+const softPromptBudget = 4000
 
-var h3Role = map[string]string{
-	"identity": "is the exact identity reference of %s: match the face, hairstyle and distinguishing marks exactly and wear exactly what the reference wears; ignore its plain grey background",
-	"location": "is the location reference: keep its layout, materials, colours and light; it contains no people. %s",
-	"plate":    "is the background for one camera side: %s",
-	"prop":     "is the exact prop: %s",
-	"frame":    "is a composition reference only (framing, light, seating); the faces must follow the identity references, not this picture. %s",
-}
-
-const (
-	seedanceConstraint = "约束：人物与参考一致、场景连续、光源方向不变、口型与台词同步、无字幕、无水印、除参考里已有的字外不出现可读文字。"
-	reanchor           = "（再锚点：人物形象、服装与光源方向与开头一致）"
-	bridgeFrameNote    = "上一段的末帧：构图、人物位置与此刻状态照此，人脸以人物参考为准"
-	bridgeClipNote     = "上一段末尾的运镜与姿态连续参考，不复刻其中的人物与场景"
-	// softPromptBudget 是模型字数上限未写也未实测时的软预算（只警告）。
-	softPromptBudget = 4000
-)
-
-// riskWarnings 把 risk_tags 写成 ⚠️ 文案：只追加本段真有的风险，不堆通用负面词。顺序即 compile.py 的 RISK_WARNINGS。
-var riskWarnings = map[string]string{
-	"limb_distortion":        "⚠️肢体结构正确：五指清晰、关节不畸形、身体不僵硬、不扭曲。",
-	"model_clip":             "⚠️武器、头发、身体不穿模，膝盖不穿透地面，身体不互相穿透。",
-	"physics":                "⚠️动作符合物理：脚踏实地、不同手同脚、重心真实、步伐不僵硬。",
-	"bg_extras":              "⚠️背景不出现无关人物，背景虚化适度。",
-	"proportion":             "⚠️两人身体比例与服装风格一致。",
-	"handle_contamination":   "⚠️各参考只按声明的用途使用：人物参考只取人物，场景参考只取场景，不把人物参考里的背景或场景参考里的任何人形带进画面。",
-	"identity_drift":         "⚠️人物面部、发型、小特征与服装全程与人物参考一致，不随景别和光线变化。",
-	"light_spill":            "⚠️屏幕、灯具只作为画面里发光的物件，不向人物皮肤与服装投射大面积色光。",
-	"prop_misplace":          "⚠️道具位置与状态按描述固定，不凭空出现或消失，不复制成多件。",
-	"insert_focus_drift":     "⚠️插入镜头的焦点落在道具与手上，不漂到背景。",
-	"closeup_rotation":       "⚠️近景时机位不做大幅环绕或旋转，运动幅度小、匀速。",
-	"three_axis":             "⚠️每个时间段只做一到两种运镜，不同时推拉、升降、环绕。",
-	"phantom_across_barrier": "⚠️河流、墙、门、车辆等阻隔物的另一侧没有人，除非描述里写了。",
-	"readable_text":          "⚠️除参考里已有的字外不出现任何可读文字、字幕、水印。",
-	"group_same_face":        "⚠️群像人物面孔各不相同，按描述的差异化特征区分，不复制同一张脸。",
-	"big_action":             "⚠️大动作（走路、起身、转身）完整、连贯、重心真实，不穿模、不多出肢体。",
-	"long_take_drift":        "⚠️段落较长：人物形象、服装、光源方向在后半段与开头完全一致。",
-}
-
-// riskTags 是本段要追加 ⚠️ 的风险标签：段级 warnings 在前，镜头 risk_tags 按顺序接上，去重。
-func riskTags(seg Segment) []string {
+// riskTags 是本段要追加 ⚠️ 的风险标签：段级 warnings 在前，镜头 risk_tags 按顺序接上，去重；只认档案里有文案的标签。
+// 文案在编译档案 risk 里，只追加本段真有的风险，不堆通用负面词。
+func riskTags(seg Segment, cp *CompileProfile) []string {
 	tags := slices.Clone(seg.Warnings)
 	for _, sh := range seg.Shots {
 		tags = append(tags, sh.RiskTags...)
 	}
 	var out []string
 	for _, t := range tags {
-		if _, ok := riskWarnings[t]; ok && !slices.Contains(out, t) {
+		if _, ok := cp.Risk[t]; ok && !slices.Contains(out, t) {
 			out = append(out, t)
 		}
 	}
@@ -89,27 +47,46 @@ func riskTags(seg Segment) []string {
 }
 
 // lineText 写一句台词：三元齐全时写即梦四元「音色 + 语速 + 语调 + 情感」，否则沿用 delivery 一句话。
-func lineText(ln Line) string {
+func lineText(ln Line, cp *CompileProfile) string {
+	lp := cp.Line
 	vo := ""
 	if ln.VO {
-		vo = "画外音，嘴不动"
+		vo = lp.VO
 	}
 	if ln.Pace != "" && ln.Tone != "" && ln.Emotion != "" {
 		timbre := ""
 		if ln.Timbre != "" {
-			timbre = "音色：" + ln.Timbre
+			timbre = fill(lp.Timbre, "value", ln.Timbre)
 		}
-		how := joinNonEmpty([]string{vo, timbre, "语速：" + ln.Pace, "语调：" + ln.Tone, "情感：" + ln.Emotion, ln.Placement}, "；")
-		return fmt.Sprintf("%s（%s）：“%s”", ln.Speaker, how, ln.Text)
+		how := joinNonEmpty([]string{vo, timbre, fill(lp.Pace, "value", ln.Pace), fill(lp.Tone, "value", ln.Tone), fill(lp.Emotion, "value", ln.Emotion), ln.Placement}, "；")
+		return fill(lp.WithHow, "speaker", ln.Speaker, "how", how, "text", ln.Text)
 	}
 	how := joinNonEmpty([]string{vo, strings.TrimRight(strings.TrimSpace(ln.Delivery), "。，,.")}, "，")
 	if how != "" {
-		return fmt.Sprintf("%s（%s）：“%s”", ln.Speaker, how, ln.Text)
+		return fill(lp.WithHow, "speaker", ln.Speaker, "how", how, "text", ln.Text)
 	}
-	return fmt.Sprintf("%s：“%s”", ln.Speaker, ln.Text)
+	return fill(lp.Plain, "speaker", ln.Speaker, "text", ln.Text)
 }
 
-func castDecl(c CastLine) string { return "人物·" + c.Name + "：" + strings.Join(c.Lock, "，") }
+func castDecl(c CastLine, cp *CompileProfile) string {
+	return fill(cp.Cast.Decl, "name", c.Name, "lock", strings.Join(c.Lock, "，"))
+}
+
+// seedanceRoleTemplate 取一种参考用途的声明模板；不认识的用途按构图参考写。
+func seedanceRoleTemplate(sp SeedancePhrases, role string) string {
+	switch role {
+	case "identity":
+		return sp.RoleIdentity
+	case "location":
+		return sp.RoleLocation
+	case "plate":
+		return sp.RolePlate
+	case "prop":
+		return sp.RoleProp
+	default:
+		return sp.RoleFrame
+	}
+}
 
 // secText 与 compile.py 的 _sec 一致：四舍五入到 0.1 秒，整数不带小数点。
 func secText(x float64) string {
@@ -144,7 +121,14 @@ func hasSentenceEnd(text string) bool {
 	return false
 }
 
-func compileSeedance(seg Segment, m Model, style, acting string) (string, []CompiledFile, int) {
+func compileSeedance(seg Segment, m Model, style, acting string, cp *CompileProfile) (string, []CompiledFile, int) {
+	sp := cp.Seedance
+	notePart := func(note string) string {
+		if note == "" {
+			return ""
+		}
+		return fill(sp.NotePrefix, "note", note)
+	}
 	bridge := seg.ContinuityBridge
 	if bridge == nil {
 		bridge = &ContinuityBridge{}
@@ -153,16 +137,16 @@ func compileSeedance(seg Segment, m Model, style, acting string) (string, []Comp
 	files := []CompiledFile{}
 	switch seg.Mode {
 	case ModeLockFirstFrame:
-		decl = append(decl, "以@图片1为首帧（构图、人物、服装和光线照此）")
+		decl = append(decl, fill(sp.FirstFrame, "ref", "@图片1"))
 		files = append(files, CompiledFile{seg.FirstFrame, "@图片1", "first_frame"})
 		if seg.LastFrame != "" {
-			decl = append(decl, "以@图片2为尾帧，视频结束在这一画面")
+			decl = append(decl, fill(sp.LastFrame, "ref", "@图片2"))
 			files = append(files, CompiledFile{seg.LastFrame, "@图片2", "last_frame"})
 		}
 	case ModeLockIdentity:
 		i, j := 0, 0
 		for _, c := range seg.Cast {
-			decl = append(decl, castDecl(c))
+			decl = append(decl, castDecl(c, cp))
 		}
 		for _, r := range seg.Refs {
 			note := strings.TrimSpace(r.Note)
@@ -170,56 +154,49 @@ func compileSeedance(seg Segment, m Model, style, acting string) (string, []Comp
 				if note != "" {
 					note += "；"
 				}
-				note += "此刻" + strings.TrimSpace(r.State)
+				note += fill(sp.RefState, "state", strings.TrimSpace(r.State))
 			}
 			if r.Role == "motion" {
 				j++
-				text := fmt.Sprintf("@视频%d为运镜参考", j)
-				if note != "" {
-					text += "：" + note
-				}
-				decl = append(decl, text)
-				files = append(files, CompiledFile{r.File, fmt.Sprintf("@视频%d", j), "motion"})
+				ref := fmt.Sprintf("@视频%d", j)
+				decl = append(decl, fill(sp.RoleMotion, "ref", ref, "note", notePart(note)))
+				files = append(files, CompiledFile{r.File, ref, "motion"})
 				continue
 			}
 			i++
-			tpl, ok := seedanceRole[r.Role]
-			if !ok {
-				tpl = seedanceRole["frame"]
-			}
+			ref := fmt.Sprintf("@图片%d", i)
 			if r.Role == "identity" {
 				who := note
 				if who == "" {
-					who = "该人物"
+					who = sp.IdentityDefault
 				}
-				decl = append(decl, fmt.Sprintf(tpl, i, who))
+				decl = append(decl, fill(sp.RoleIdentity, "ref", ref, "note", who))
 			} else {
-				tail := ""
-				if note != "" {
-					tail = "：" + note
-				}
-				decl = append(decl, fmt.Sprintf(tpl, i, tail))
+				decl = append(decl, fill(seedanceRoleTemplate(sp, r.Role), "ref", ref, "note", notePart(note)))
 			}
-			files = append(files, CompiledFile{r.File, fmt.Sprintf("@图片%d", i), r.Role})
+			files = append(files, CompiledFile{r.File, ref, r.Role})
 		}
 		if bridge.BridgeFrame != "" {
 			i++
-			decl = append(decl, fmt.Sprintf(seedanceRole["frame"], i, "："+bridgeFrameNote))
-			files = append(files, CompiledFile{bridge.BridgeFrame, fmt.Sprintf("@图片%d", i), "frame"})
+			ref := fmt.Sprintf("@图片%d", i)
+			decl = append(decl, fill(sp.RoleFrame, "ref", ref, "note", notePart(sp.BridgeFrameNote)))
+			files = append(files, CompiledFile{bridge.BridgeFrame, ref, "frame"})
 		}
 		if bridge.BridgeClip != "" {
 			j++
-			decl = append(decl, fmt.Sprintf("@视频%d为运镜参考：%s", j, bridgeClipNote))
-			files = append(files, CompiledFile{bridge.BridgeClip, fmt.Sprintf("@视频%d", j), "motion"})
+			ref := fmt.Sprintf("@视频%d", j)
+			decl = append(decl, fill(sp.RoleMotion, "ref", ref, "note", notePart(sp.BridgeClipNote)))
+			files = append(files, CompiledFile{bridge.BridgeClip, ref, "motion"})
 		}
 		for k, v := range seg.Voices {
-			decl = append(decl, fmt.Sprintf("@音频%d为%s的音色参考（只取音色，不复用其中的话）", k+1, v.Character))
-			files = append(files, CompiledFile{v.File, fmt.Sprintf("@音频%d", k+1), "voice"})
+			ref := fmt.Sprintf("@音频%d", k+1)
+			decl = append(decl, fill(sp.RoleVoice, "ref", ref, "name", v.Character))
+			files = append(files, CompiledFile{v.File, ref, "voice"})
 		}
 	}
 	if seg.Mode != ModeLockIdentity { // 纯文字 / 首帧模式：没有身份参考图的人物用外貌声明兜底
 		for _, c := range seg.Cast {
-			decl = append(decl, castDecl(c))
+			decl = append(decl, castDecl(c, cp))
 		}
 	}
 	dur := SubmitDuration(seg.Dur, m)
@@ -227,7 +204,7 @@ func compileSeedance(seg Segment, m Model, style, acting string) (string, []Comp
 	if len(decl) > 0 {
 		head = strings.Join(decl, "；") + "；"
 	}
-	head += fmt.Sprintf("生成%d秒视频。整体风格：%s%s", dur, style, acting)
+	head += fill(sp.Head, "dur", fmt.Sprintf("%d", dur), "style", style, "acting", acting)
 	if text := strings.TrimSpace(bridge.ReanchorText); text != "" {
 		head += text
 		if !(strings.HasSuffix(text, "。") || strings.HasSuffix(text, "！") || strings.HasSuffix(text, "？")) {
@@ -268,16 +245,16 @@ func compileSeedance(seg Segment, m Model, style, acting string) (string, []Comp
 			text += "。"
 		}
 		for _, ln := range sh.Lines {
-			text += lineText(ln)
+			text += lineText(ln, cp)
 		}
 		if k == anchor {
-			text = reanchor + text
+			text = sp.ReanchorMid + text
 		}
 		lines = append(lines, fmt.Sprintf("%s-%s秒：%s", secText(start), secText(end), text))
 	}
 	sound := strings.TrimRight(seg.SoundText("；"), "。")
 	if bed := strings.TrimRight(strings.TrimSpace(bridge.SharedBed), "。"); bed != "" {
-		parts := []string{bed + "（与上一段相同、不中断）"}
+		parts := []string{fill(sp.SharedBed, "bed", bed)}
 		for _, x := range strings.Split(sound, "；") {
 			if x = strings.TrimSpace(x); x != "" && x != bed {
 				parts = append(parts, x)
@@ -286,42 +263,44 @@ func compileSeedance(seg Segment, m Model, style, acting string) (string, []Comp
 		sound = strings.Join(parts, "；")
 	}
 	if sound == "" {
-		sound = "环境声与动作音效"
+		sound = sp.SoundDefault
 	}
-	lines = append(lines, "声音："+sound+"；不要背景音乐和配乐。")
-	for _, t := range riskTags(seg) {
+	lines = append(lines, fill(sp.Sound, "sound", sound))
+	for _, t := range riskTags(seg, cp) {
 		if t == "readable_text" && len(seg.ScreenText) > 0 {
 			quoted := make([]string, len(seg.ScreenText))
 			for i, x := range seg.ScreenText {
 				quoted[i] = "「" + x + "」"
 			}
-			lines = append(lines, "⚠️画面里只出现这些登记过的文字："+strings.Join(quoted, "、")+"，写法要正确；其他地方不出现任何可读文字、字幕、水印。")
+			lines = append(lines, fill(sp.ScreenText, "texts", strings.Join(quoted, "、")))
 		} else {
-			lines = append(lines, riskWarnings[t])
+			lines = append(lines, cp.Risk[t])
 		}
 	}
 	if seg.Jimeng != nil && seg.Jimeng.GroupVariation != "" {
-		lines = append(lines, "⚠️群像差异化："+seg.Jimeng.GroupVariation+"；禁止同脸。")
+		lines = append(lines, fill(sp.GroupVariation, "text", seg.Jimeng.GroupVariation))
 	}
-	constraint := seedanceConstraint
+	identity, readable := sp.IdentityRefs, sp.TextRefs
 	if len(seg.ScreenText) > 0 {
-		constraint = strings.Replace(constraint, "除参考里已有的字外不出现可读文字", "除登记的文字外不出现可读文字", 1)
+		readable = sp.TextRegistered
 	}
 	if len(seg.Cast) > 0 {
-		constraint = strings.Replace(constraint, "人物与参考一致", "人物外貌全程与开头的人物声明一致", 1)
+		identity = sp.IdentityCast
 	}
+	constraint := fill(sp.Constraint, "identity", identity, "text", readable)
 	if lang := strings.TrimSpace(seg.Lang); lang != "" {
 		switch strings.ToLower(lang) {
 		case "chinese", "中文", "zh":
 		default:
-			constraint += "台词用" + lang + "说。"
+			constraint += fill(sp.Lang, "lang", lang)
 		}
 	}
 	lines = append(lines, constraint)
 	return strings.Join(lines, "\n"), files, dur
 }
 
-func compileH3(seg Segment, m Model, style, acting string) (string, []CompiledFile, int) {
+func compileH3(seg Segment, m Model, style, acting string, cp *CompileProfile) (string, []CompiledFile, int) {
+	hp := cp.H3
 	bridge := seg.ContinuityBridge
 	if bridge == nil {
 		bridge = &ContinuityBridge{}
@@ -340,16 +319,16 @@ func compileH3(seg Segment, m Model, style, acting string) (string, []CompiledFi
 	switch seg.Mode {
 	case ModeLockFirstFrame:
 		files = append(files, CompiledFile{seg.FirstFrame, "first_frame", "first_frame"})
-		head += "Keep the exact framing, faces, wardrobe and lighting of the first frame. "
+		head += hp.FirstFrame
 		if seg.LastFrame != "" {
 			files = append(files, CompiledFile{seg.LastFrame, "last_frame", "last_frame"})
-			head += "The video must end exactly on the last frame. "
+			head += hp.LastFrame
 		}
 	case ModeLockIdentity:
 		var roles []string
 		refs := slices.Clone(seg.Refs)
 		if bridge.BridgeFrame != "" {
-			refs = append(refs, Ref{File: bridge.BridgeFrame, Role: "frame", Note: "last frame of the previous segment: keep framing, positions and the current state; faces follow the identity references"})
+			refs = append(refs, Ref{File: bridge.BridgeFrame, Role: "frame", Note: hp.BridgeFrameNote})
 		}
 		for i, r := range refs {
 			note := r.Note
@@ -357,31 +336,32 @@ func compileH3(seg Segment, m Model, style, acting string) (string, []CompiledFi
 				if note != "" {
 					note += "; "
 				}
-				note += "current state: " + strings.TrimSpace(r.State)
+				note += fill(hp.RefState, "state", strings.TrimSpace(r.State))
 			}
 			files = append(files, CompiledFile{r.File, fmt.Sprintf("<Picture %d>", i+1), r.Role})
-			tpl, ok := h3Role[r.Role]
+			tpl, ok := hp.Roles[r.Role]
 			if !ok {
-				tpl = "%s"
+				tpl = hp.RoleOther
 			}
-			roles = append(roles, fmt.Sprintf("<Picture %d> ", i+1)+strings.TrimSpace(fmt.Sprintf(tpl, note)))
+			roles = append(roles, fmt.Sprintf("<Picture %d> ", i+1)+strings.TrimSpace(fill(tpl, "note", note)))
 		}
 		for k, v := range seg.Voices {
 			speakers = append(speakers, v.Character)
-			files = append(files, CompiledFile{v.File, fmt.Sprintf("<Audio %d>", k+1), "voice"})
-			roles = append(roles, fmt.Sprintf("<Audio %d> gives only the sound of the voice (timbre) of %s (S%d)", k+1, v.Character, k+1))
+			ref := fmt.Sprintf("<Audio %d>", k+1)
+			files = append(files, CompiledFile{v.File, ref, "voice"})
+			roles = append(roles, fill(hp.RoleVoice, "ref", ref, "name", v.Character, "speaker", fmt.Sprintf("S%d", k+1)))
 		}
 		if len(roles) > 0 {
 			body.WriteString("Reference roles: " + strings.Join(roles, "; ") + ".")
 			if len(speakers) > 0 {
-				body.WriteString(" How each line is delivered (volume, pitch, emotion, pace, breath) comes only from the acting described in the scene, never from the audio references; do not reuse any words from them.")
+				body.WriteString(hp.DeliveryNote)
 			}
 			body.WriteString("\n")
 		}
 	}
 	lang := seg.Lang
 	if lang == "" {
-		lang = "Chinese"
+		lang = cp.Line.Language
 	}
 	for k, sh := range seg.Shots {
 		line := ""
@@ -399,13 +379,14 @@ func compileH3(seg Segment, m Model, style, acting string) (string, []CompiledFi
 			}
 			vo := ""
 			if ln.VO {
-				vo = " [off-screen voiceover]"
+				vo = cp.Line.H3VO
 			}
+			speaker := fmt.Sprintf("S%d", idx)
 			how := strings.TrimRight(strings.TrimSpace(ln.Delivery), ".,。，")
 			if how != "" {
-				line += fmt.Sprintf("%s (S%d), %s:\n<d>[%s] %s</d>", vo, idx, how, lang, ln.Text)
+				line += fill(cp.Line.H3Line, "vo", vo, "speaker", speaker, "how", how, "lang", lang, "text", ln.Text)
 			} else {
-				line += fmt.Sprintf("%s (S%d):\n<d>[%s] %s</d>", vo, idx, lang, ln.Text)
+				line += fill(cp.Line.H3NoHow, "vo", vo, "speaker", speaker, "lang", lang, "text", ln.Text)
 			}
 		}
 		if k == 0 {
@@ -416,12 +397,12 @@ func compileH3(seg Segment, m Model, style, acting string) (string, []CompiledFi
 	}
 	sound := seg.SoundText("; ")
 	if sound == "" {
-		sound = "quiet room tone"
+		sound = hp.SoundDefault
 	}
 	body.WriteString("\noverall_soundscape: " + sound + "\n\nnon_diegetic_music: N/A")
 	var warns []string
-	for _, t := range riskTags(seg) {
-		warns = append(warns, riskWarnings[t])
+	for _, t := range riskTags(seg, cp) {
+		warns = append(warns, cp.Risk[t])
 	}
 	if len(warns) > 0 {
 		body.WriteString("\n\nconstraints: " + strings.Join(warns, " "))
@@ -444,14 +425,15 @@ func profileBlocks(p *Profile, dialect string) (string, string) {
 
 // CompileWithProfile 同 Compile；给了风格档案时默认块取档案的 style_block / acting_block（2.1 段写了 profile）。
 func CompileWithProfile(seg Segment, m Model, style, acting *string, profile *Profile) (CompileResult, error) {
-	var defaultStyle, defaultActing string
-	if profile != nil {
-		defaultStyle, defaultActing = profileBlocks(profile, m.Dialect())
-	} else {
-		var err error
-		if defaultStyle, defaultActing, err = Blocks(m.Dialect()); err != nil {
-			return CompileResult{}, err
-		}
+	return CompileWith(seg, m, style, acting, profile, nil)
+}
+
+// CompileWith 同 CompileWithProfile，文字取编译档案 phrases（nil 用内置默认）；风格块和表演块档案有覆盖时优先。
+func CompileWith(seg Segment, m Model, style, acting *string, profile *Profile, phrases *CompileProfile) (CompileResult, error) {
+	cp := mustCompileProfile(phrases)
+	defaultStyle, defaultActing, err := cp.blocksFor(profile, m.Dialect())
+	if err != nil {
+		return CompileResult{}, err
 	}
 	s, a := defaultStyle, defaultActing
 	if style != nil {
@@ -465,9 +447,9 @@ func CompileWithProfile(seg Segment, m Model, style, acting *string, profile *Pr
 	var files []CompiledFile
 	var dur int
 	if m.Dialect() == "seedance" {
-		prompt, files, dur = compileSeedance(seg, m, s, a)
+		prompt, files, dur = compileSeedance(seg, m, s, a, cp)
 	} else {
-		prompt, files, dur = compileH3(seg, m, s, a)
+		prompt, files, dur = compileH3(seg, m, s, a, cp)
 	}
 	chars := len([]rune(prompt))
 	limit := m.PromptMaxChars
@@ -499,8 +481,8 @@ func CompileWithProfile(seg Segment, m Model, style, acting *string, profile *Pr
 		issues = []Issue{}
 	}
 	warnings := []string{}
-	for _, t := range riskTags(seg) {
-		warnings = append(warnings, riskWarnings[t])
+	for _, t := range riskTags(seg, cp) {
+		warnings = append(warnings, cp.Risk[t])
 	}
 	result := CompileResult{Segment: seg.ID, Model: m.ID, Duration: dur, Prompt: prompt, Files: files, Chars: chars, Warnings: warnings, Issues: issues}
 	result.Paste = prompt

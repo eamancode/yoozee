@@ -448,29 +448,29 @@ func TestExpandArcRulesMatchPython(t *testing.T) {
 		}
 		return s
 	}
-	txt, used, fam := ExpandArc(shot(EmotionArcRef{ID: "arc-sadness-001"}, false), 3.5, prof, v, 0)
+	txt, used, fam := ExpandArc(shot(EmotionArcRef{ID: "arc-sadness-001"}, false), 3.5, prof, v, 0, nil)
 	if !(strings.HasSuffix(txt, "眼神空洞") || strings.Contains(txt, "3.5秒")) || !slices.Equal(used, []int{1, 2, 3, 4}) || fam != "sadness" {
 		t.Errorf("缩放：%s %v %s", txt, used, fam)
 	}
-	if txt, used, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-sadness-001"}, false), 2.5, prof, v, 0); !slices.Equal(used, []int{1, 2}) || !strings.Contains(txt, "2.5秒") {
+	if txt, used, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-sadness-001"}, false), 2.5, prof, v, 0, nil); !slices.Equal(used, []int{1, 2}) || !strings.Contains(txt, "2.5秒") {
 		t.Errorf("短镜前两段：%s %v", txt, used)
 	}
-	if _, used, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-cold-001", PhaseFrom: 3, PhaseTo: 5}, false), 6, prof, v, 0); !slices.Equal(used, []int{3, 4, 5}) {
+	if _, used, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-cold-001", PhaseFrom: 3, PhaseTo: 5}, false), 6, prof, v, 0, nil); !slices.Equal(used, []int{3, 4, 5}) {
 		t.Errorf("截段：%v", used)
 	}
-	if _, used, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-shock-002", Continues: "P"}, false), 3, prof, v, 2); !slices.Equal(used, []int{3, 4}) {
+	if _, used, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-shock-002", Continues: "P"}, false), 3, prof, v, 2, nil); !slices.Equal(used, []int{3, 4}) {
 		t.Errorf("续接：%v", used)
 	}
-	if txt, _, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-cold-001", Intensity: "hidden7"}, false), 8, prof, v, 0); strings.Contains(txt, "掩面") || !strings.Contains(txt, "藏七露三") {
+	if txt, _, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-cold-001", Intensity: "hidden7"}, false), 8, prof, v, 0, nil); strings.Contains(txt, "掩面") || !strings.Contains(txt, "藏七露三") {
 		t.Errorf("hidden7：%s", txt)
 	}
-	if txt, _, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-sadness-001"}, true), 6, prof, v, 0); !strings.Contains(txt, "台词落在这一段") {
+	if txt, _, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-sadness-001"}, true), 6, prof, v, 0, nil); !strings.Contains(txt, "台词落在这一段") {
 		t.Errorf("台词落段：%s", txt)
 	}
-	if txt, _, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-love-001"}, false), 2.0, prof, v, 0); strings.Count(txt, "秒：") > 2 {
+	if txt, _, _ := ExpandArc(shot(EmotionArcRef{ID: "arc-love-001"}, false), 2.0, prof, v, 0, nil); strings.Count(txt, "秒：") > 2 {
 		t.Errorf("短段合并：%s", txt)
 	}
-	pat, forbid := actionPatternText(&Shot{ActionPattern: &ActionPatternRef{ID: "act-turn", Variant: "被叫住后回头：肩膀先停，再缓缓侧脸"}}, v)
+	pat, forbid := actionPatternText(&Shot{ActionPattern: &ActionPatternRef{ID: "act-turn", Variant: "被叫住后回头：肩膀先停，再缓缓侧脸"}}, v, mustCompileProfile(nil))
 	if !strings.Contains(pat, "动作模式·转身回头") || !slices.Contains(forbid, "头发穿模") {
 		t.Errorf("动作模式：%s %v", pat, forbid)
 	}

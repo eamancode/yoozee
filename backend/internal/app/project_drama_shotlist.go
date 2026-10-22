@@ -41,12 +41,14 @@ type DramaShotlistWriteRequest struct {
 
 // DramaShotlistView 是一章的镜头表、台词表与最近一次检查结果。
 type DramaShotlistView struct {
-	UnitID    string            `json:"unitId"`
-	Version   int               `json:"version"`
-	Shotlist  drama.Shotlist    `json:"shotlist"`
-	Script    *drama.Script     `json:"script,omitempty"`
-	Check     drama.CheckReport `json:"check"`
-	UpdatedAt time.Time         `json:"updatedAt"`
+	UnitID   string            `json:"unitId"`
+	Version  int               `json:"version"`
+	Shotlist drama.Shotlist    `json:"shotlist"`
+	Script   *drama.Script     `json:"script,omitempty"`
+	Check    drama.CheckReport `json:"check"`
+	// CompileProfile 是装段用的编译档案版本（0 为内置默认）。
+	CompileProfile DramaCompileProfileRef `json:"compileProfile"`
+	UpdatedAt      time.Time              `json:"updatedAt"`
 }
 
 type DramaShotlistWriteResult struct {
@@ -264,7 +266,11 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	plan, err := planDramaShotlist(rows, script, assets, m)
+	phrases, err := s.activeCompileProfile()
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
+	plan, err := planDramaShotlist(rows, script, assets, m, phrases)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
@@ -284,7 +290,8 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	// 5 镜头表与段同一事务写入
 	shotlistJSON, _ := json.Marshal(shotlist)
 	checkJSON, _ := json.Marshal(report)
-	record := &model.DramaShotlist{ShotlistJSON: string(shotlistJSON), CheckJSON: string(checkJSON)}
+	rowsJSON, _ := json.Marshal(req.Rows)
+	record := &model.DramaShotlist{ShotlistJSON: string(shotlistJSON), CheckJSON: string(checkJSON), RowsJSON: string(rowsJSON), CompileProfileVersion: phrases.Version()}
 	if script != nil {
 		scriptJSON, _ := json.Marshal(script)
 		record.ScriptJSON = string(scriptJSON)
@@ -300,7 +307,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if script == nil {
 		notes = append(notes, "章节正文为空，台词覆盖（R-SHOT-001）没有检查")
 	}
-	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, UpdatedAt: record.UpdatedAt}
+	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, CompileProfile: compileProfileRef(phrases), UpdatedAt: record.UpdatedAt}
 	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: report, Stats: plan.Stats, Notes: notes}, nil
 }
 
@@ -330,7 +337,7 @@ type dramaShotlistPlan struct {
 
 // planDramaShotlist 是写镜头表不碰数据库的部分：分镜行 → 镜头表 → 检查（有 error 返回 shotlist_check_failed）→ 按场装段。
 // 场按镜头表的 scene（E01S01…）分，不按绑定的场景资产分：两场戏用同一个场景资产时各装各的段，参考取各自镜头。
-func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, m drama.Model) (dramaShotlistPlan, error) {
+func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, m drama.Model, phrases *drama.CompileProfile) (dramaShotlistPlan, error) {
 	storyRows := make([]drama.StoryboardRow, 0, len(rows))
 	for _, row := range rows {
 		storyRows = append(storyRows, row.StoryboardRow)
@@ -352,7 +359,7 @@ func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []Projec
 	plan.Segments, plan.Problems = drama.Pack(drama.PackInput{
 		Shotlist: drama.Shotlist{Profile: plan.Shotlist.Profile, Episode: plan.Shotlist.Episode, Shots: packShots},
 		Script:   script, Bible: bible, Model: m, Profile: profile, ProfileID: plan.Shotlist.Profile, Vocab: ctx.Vocab,
-		FileExists: func(string) bool { return true },
+		FileExists: func(string) bool { return true }, Phrases: phrases,
 	})
 	return plan, nil
 }
@@ -416,7 +423,13 @@ func (s *Service) DramaShotlist(userID string, projectID string, unitID string) 
 	if err != nil {
 		return nil, err
 	}
-	view := &DramaShotlistView{UnitID: unitID, Version: record.Version, UpdatedAt: record.UpdatedAt}
+	view := &DramaShotlistView{UnitID: unitID, Version: record.Version, CompileProfile: DramaCompileProfileRef{Version: record.CompileProfileVersion, Name: "内置默认"}, UpdatedAt: record.UpdatedAt}
+	if record.CompileProfileVersion > 0 {
+		view.CompileProfile.Name = fmt.Sprintf("v%d", record.CompileProfileVersion)
+		if p, err := s.repo.DramaCompileProfileByVersion(record.CompileProfileVersion); err == nil {
+			view.CompileProfile.Name = p.Name
+		}
+	}
 	if err := json.Unmarshal([]byte(record.ShotlistJSON), &view.Shotlist); err != nil {
 		return nil, fmt.Errorf("镜头表数据损坏: %w", err)
 	}

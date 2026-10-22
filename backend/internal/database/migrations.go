@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 60
+const CurrentSchemaVersion int64 = 61
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -216,6 +216,10 @@ var schemaMigrations = []migration{
 	}},
 	// M5：内置技能可在线编辑出新版本；启动同步只比较内置包与 builtin_version_id，不覆盖在线版本。
 	{version: 60, name: "builtin_skill_online_versions", checksum: "sha256:builtin-skill-online-versions-v60-20261022", apply: migrateBuiltinSkillOnlineVersions},
+	// M5：编译档案（装段、编译的文字）带版本在线编辑；镜头表记下分镜行原文和装段用的档案版本。
+	{version: 61, name: "drama_compile_profiles", checksum: "sha256:drama-compile-profiles-v61-20261022", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaCompileProfile{}, &model.DramaShotlist{})
+	}},
 }
 
 // migrateBuiltinSkillOnlineVersions 加列并回填：内置技能已有的版本都来自内置包，当前版本就是内置版本。
