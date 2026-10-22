@@ -62,6 +62,7 @@ type DramaShotlistWriteResult struct {
 type shotlistRow struct {
 	drama.StoryboardRow
 	Characters []struct {
+		CharacterName    string `json:"characterName"`
 		CharacterAssetID string `json:"characterAssetId"`
 	} `json:"characters"`
 	VideoMotionPrompt     string `json:"videoMotionPrompt"`
@@ -152,12 +153,17 @@ func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []Project
 }
 
 // attachRefsHints 让每镜的 refs_hint 带上这一行绑定的资产名：模型写的提示保留（「病历夹·掉在地上」进装段的状态句），
-// 绑定了但没写进提示的资产补在后面，装段时一起挂成参考。
+// 绑定了但没写进提示的资产补在后面，装段时一起挂成参考。人物资产只补这一镜真在场的（站位、焦点、分镜行人物里有他），
+// 免得同一场景资产串起来的两场戏互相带人（对话场挂上只在打斗场出现的人）。
 func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAssetSummary) {
-	titles := make(map[string]string, len(assets))
+	type boundAsset struct {
+		title     string
+		character bool
+	}
+	byID := make(map[string]boundAsset, len(assets))
 	for _, a := range assets {
 		if a.PrimaryVersionID != "" {
-			titles[a.ID] = strings.TrimSpace(a.Title)
+			byID[a.ID] = boundAsset{strings.TrimSpace(a.Title), dramaRefRole(a.Category) == "identity"}
 		}
 	}
 	for i := range shots {
@@ -170,11 +176,20 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 			name, _, _ := strings.Cut(h, "·")
 			named[name] = true
 		}
+		present := map[string]bool{shots[i].Focus: true}
+		for _, b := range shots[i].Blocking {
+			present[b.Who] = true
+		}
+		for _, c := range rows[i].Characters {
+			present[strings.TrimSpace(c.CharacterName)] = true
+		}
 		for _, id := range rows[i].assetIDs() {
-			if title := titles[id]; title != "" && !named[title] {
-				named[title] = true
-				hints = append(hints, title)
+			a := byID[id]
+			if a.title == "" || named[a.title] || (a.character && !present[a.title]) {
+				continue
 			}
+			named[a.title] = true
+			hints = append(hints, a.title)
 		}
 		shots[i].RefsHint = hints
 	}
@@ -233,54 +248,27 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if len(req.Rows) == 0 || len(req.Rows) > dramaShotlistMaxRows {
 		return DramaShotlistWriteResult{}, BadAuthRequest(fmt.Sprintf("分镜行数量必须在 1 到 %d 之间", dramaShotlistMaxRows))
 	}
-	rows := make([]shotlistRow, 0, len(req.Rows))
-	storyRows := make([]drama.StoryboardRow, 0, len(req.Rows))
-	for i, raw := range req.Rows {
-		var row shotlistRow
-		if err := json.Unmarshal(raw, &row); err != nil {
-			return DramaShotlistWriteResult{}, BadAuthRequest(fmt.Sprintf("第 %d 个分镜行格式无效：%s", i+1, err.Error()))
-		}
-		if len(row.Spec) > dramaShotlistRowMaxBytes {
-			return DramaShotlistWriteResult{}, BadAuthRequest(fmt.Sprintf("第 %d 个分镜行的 spec 超过 %d KB", i+1, dramaShotlistRowMaxBytes>>10))
-		}
-		rows = append(rows, row)
-		storyRows = append(storyRows, row.StoryboardRow)
+	rows, err := parseShotlistRows(req.Rows)
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
 	}
 	m, err := dramaShotlistModel(project, req.Rule)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	// 1 章节正文 → 台词表
 	var script *drama.Script
 	if parsed := drama.ScriptFromText(chapterPlainText(unit.SourceText), unit.Title); len(parsed.Scenes) > 0 {
 		script = &parsed
 	}
-	// 2 分镜行 → 镜头表
-	converted := drama.RowsToShotlist(storyRows, script, drama.DefaultProfileID)
-	shotlist := converted.Shotlist
-	// 3 检查
-	ctx, profile, err := dramaCheckContext(script)
-	if err != nil {
-		return DramaShotlistWriteResult{}, err
-	}
-	report := drama.CheckShots(shotlist, ctx)
-	report.AddSchemaIssues(converted.SchemaIssues)
-	if report.HasErrors() {
-		return DramaShotlistWriteResult{}, shotlistCheckFailed(report, converted.Stats)
-	}
-	// 4 装段：参考取分镜行绑定的项目资产
 	assets, err := s.ProjectAssets(userID, projectID)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	packShots := slices.Clone(shotlist.Shots)
-	attachRefsHints(packShots, rows, assets)
-	bible := dramaShotlistBible(packShots, rows, assets)
-	segments, problems := drama.Pack(drama.PackInput{
-		Shotlist: drama.Shotlist{Profile: shotlist.Profile, Episode: shotlist.Episode, Shots: packShots},
-		Script:   script, Bible: bible, Model: m, Profile: profile, ProfileID: shotlist.Profile, Vocab: ctx.Vocab,
-		FileExists: func(string) bool { return true },
-	})
+	plan, err := planDramaShotlist(rows, script, assets, m)
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
+	shotlist, report, segments, problems := plan.Shotlist, plan.Report, plan.Segments, plan.Problems
 	rowByShot := make(map[string]shotlistRow, len(rows))
 	for i, sh := range shotlist.Shots {
 		rowByShot[sh.ID] = rows[i]
@@ -313,7 +301,60 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 		notes = append(notes, "章节正文为空，台词覆盖（R-SHOT-001）没有检查")
 	}
 	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, UpdatedAt: record.UpdatedAt}
-	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: report, Stats: converted.Stats, Notes: notes}, nil
+	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: report, Stats: plan.Stats, Notes: notes}, nil
+}
+
+func parseShotlistRows(raws []json.RawMessage) ([]shotlistRow, error) {
+	rows := make([]shotlistRow, 0, len(raws))
+	for i, raw := range raws {
+		var row shotlistRow
+		if err := json.Unmarshal(raw, &row); err != nil {
+			return nil, BadAuthRequest(fmt.Sprintf("第 %d 个分镜行格式无效：%s", i+1, err.Error()))
+		}
+		if len(row.Spec) > dramaShotlistRowMaxBytes {
+			return nil, BadAuthRequest(fmt.Sprintf("第 %d 个分镜行的 spec 超过 %d KB", i+1, dramaShotlistRowMaxBytes>>10))
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+// dramaShotlistPlan 是一章分镜行的处理结果：镜头表、检查、装出的段（还没落库）。
+type dramaShotlistPlan struct {
+	Shotlist drama.Shotlist
+	Report   drama.CheckReport
+	Stats    drama.RowsStats
+	Segments []drama.Segment
+	Problems []string
+}
+
+// planDramaShotlist 是写镜头表不碰数据库的部分：分镜行 → 镜头表 → 检查（有 error 返回 shotlist_check_failed）→ 按场装段。
+// 场按镜头表的 scene（E01S01…）分，不按绑定的场景资产分：两场戏用同一个场景资产时各装各的段，参考取各自镜头。
+func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, m drama.Model) (dramaShotlistPlan, error) {
+	storyRows := make([]drama.StoryboardRow, 0, len(rows))
+	for _, row := range rows {
+		storyRows = append(storyRows, row.StoryboardRow)
+	}
+	converted := drama.RowsToShotlist(storyRows, script, drama.DefaultProfileID)
+	plan := dramaShotlistPlan{Shotlist: converted.Shotlist, Stats: converted.Stats}
+	ctx, profile, err := dramaCheckContext(script)
+	if err != nil {
+		return plan, err
+	}
+	plan.Report = drama.CheckShots(plan.Shotlist, ctx)
+	plan.Report.AddSchemaIssues(converted.SchemaIssues)
+	if plan.Report.HasErrors() {
+		return plan, shotlistCheckFailed(plan.Report, converted.Stats)
+	}
+	packShots := slices.Clone(plan.Shotlist.Shots)
+	attachRefsHints(packShots, rows, assets)
+	bible := dramaShotlistBible(packShots, rows, assets)
+	plan.Segments, plan.Problems = drama.Pack(drama.PackInput{
+		Shotlist: drama.Shotlist{Profile: plan.Shotlist.Profile, Episode: plan.Shotlist.Episode, Shots: packShots},
+		Script:   script, Bible: bible, Model: m, Profile: profile, ProfileID: plan.Shotlist.Profile, Vocab: ctx.Vocab,
+		FileExists: func(string) bool { return true },
+	})
+	return plan, nil
 }
 
 // dramaSegmentShotInput 把装出的一段写成章节镜头：段 JSON 进版本 spec，平铺字段由它补齐，分镜行的提示词备注接在后面。

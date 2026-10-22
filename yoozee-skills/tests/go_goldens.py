@@ -6,6 +6,7 @@
 - online-rows.json    rows_to_shotlist 的镜头表与统计（线上实测七床 E01 的分镜行）
 - online-script.json  script.py from-md（七床 E01 章节正文）
 - online-pack-*.json  pack.py 装段（无资产圣经，按模型）
+- online-on3-*        同上，第一期补丁上线后的线上实测（testdata/online-qichuang-on3）
 改了参考实现或夹具后重跑，再看 diff。"""
 import collections
 import json
@@ -133,17 +134,19 @@ def main():
     for name in ("check-bad-shots", "check-bad-shots21"):
         spec = load(HERE / "fixtures" / f"{name}.json")
         dump(f"{name}.json", check(spec, script, bible, spec["profile"]))
-    # 线上实测：章节正文 → 剧本；分镜行 → 镜头表；检查（无资产圣经）；装段
-    body = (ONLINE / "chapter.md").read_text(encoding="utf-8")
-    online_script = SC.from_md(body, "七床")
-    dump("online-script.json", online_script)
-    rows = load(ONLINE / "rows.json")["rows"]
-    shotlist, stats = rows_to_shotlist(rows, online_script)
-    dump("online-rows.json", {"shotlist": shotlist, "stats": stats})
-    dump("check-online.json", check(shotlist, online_script, None, "live-realism"))
-    for model_id in ("seedance-2.0", "seedance-2.5"):
-        segs, problems = PK.pack(json.loads(json.dumps(shotlist)), online_script, None, MODELS[model_id], "live-realism")
-        dump(f"online-pack-{model_id}.json", {"segments": segs, "problems": problems})
+    # 线上实测：章节正文 → 剧本；分镜行 → 镜头表；检查（无资产圣经）；装段。on1 = 第一次线上实测，on3 = 第一期补丁上线后（41 镜，两场同名「内·电梯口·夜」）
+    for tag, sub in (("online", "online-qichuang"), ("online-on3", "online-qichuang-on3")):
+        base = ONLINE.parent / sub
+        body = ((base / "chapter.md") if (base / "chapter.md").exists() else (ONLINE / "chapter.md")).read_text(encoding="utf-8")
+        online_script = SC.from_md(body, "七床")
+        dump(f"{tag}-script.json", online_script)
+        rows = load(base / "rows.json")["rows"]
+        shotlist, stats = rows_to_shotlist(rows, online_script)
+        dump(f"{tag}-rows.json", {"shotlist": shotlist, "stats": stats})
+        dump(f"check-{tag}.json", check(shotlist, online_script, None, "live-realism"))
+        for model_id in ("seedance-2.0", "seedance-2.5"):
+            segs, problems = PK.pack(json.loads(json.dumps(shotlist)), online_script, None, MODELS[model_id], "live-realism")
+            dump(f"{tag}-pack-{model_id}.json", {"segments": segs, "problems": problems})
     print(f"✓ 已写 {OUT.relative_to(REPO)}")
 
 

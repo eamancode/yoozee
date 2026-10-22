@@ -230,12 +230,18 @@ func TestScriptFromTextKeepsExistingIDsAndVoiceOver(t *testing.T) {
 	}
 }
 
-func loadOnlineRows(t *testing.T) []StoryboardRow {
+// 线上实测夹具：on1 是第一次线上实测（29 镜）；on3 是第一期补丁上线后（41 镜，两场同名「内·电梯口·夜」）。两次是同一章正文。
+var onlineCases = []struct {
+	dir, tag string
+	shots    int
+}{{onlineDir, "online", 29}, {"testdata/online-qichuang-on3", "online-on3", 41}}
+
+func loadOnlineRows(t *testing.T, dir string) []StoryboardRow {
 	t.Helper()
 	var doc struct {
 		Rows []StoryboardRow `json:"rows"`
 	}
-	readJSONFile(t, filepath.Join(onlineDir, "rows.json"), &doc)
+	readJSONFile(t, filepath.Join(dir, "rows.json"), &doc)
 	return doc.Rows
 }
 
@@ -250,22 +256,24 @@ func onlineScript(t *testing.T) *Script {
 }
 
 func TestRowsToShotlistMatchesPython(t *testing.T) {
-	result := RowsToShotlist(loadOnlineRows(t), onlineScript(t), "")
-	var want struct {
-		Shotlist json.RawMessage `json:"shotlist"`
-		Stats    RowsStats       `json:"stats"`
-	}
-	readJSONFile(t, filepath.Join(goldenDir, "online-rows.json"), &want)
-	var wantShotlist any
-	if err := json.Unmarshal(want.Shotlist, &wantShotlist); err != nil {
-		t.Fatal(err)
-	}
-	diffJSON(t, "rows → shotlist", result.Shotlist, wantShotlist)
-	if result.Stats != want.Stats {
-		t.Fatalf("统计不同：%+v vs %+v", result.Stats, want.Stats)
-	}
-	if result.Stats.Shots != 29 || result.Stats.LineExact != 16 || result.Stats.LineFuzzy+result.Stats.LineUnmatched != 0 || len(result.SchemaIssues) != 0 {
-		t.Fatalf("线上实测输出应为 29 镜、16 句全对上：%+v %v", result.Stats, result.SchemaIssues)
+	for _, c := range onlineCases {
+		result := RowsToShotlist(loadOnlineRows(t, c.dir), onlineScript(t), "")
+		var want struct {
+			Shotlist json.RawMessage `json:"shotlist"`
+			Stats    RowsStats       `json:"stats"`
+		}
+		readJSONFile(t, filepath.Join(goldenDir, c.tag+"-rows.json"), &want)
+		var wantShotlist any
+		if err := json.Unmarshal(want.Shotlist, &wantShotlist); err != nil {
+			t.Fatal(err)
+		}
+		diffJSON(t, c.tag+" rows → shotlist", result.Shotlist, wantShotlist)
+		if result.Stats != want.Stats {
+			t.Fatalf("%s 统计不同：%+v vs %+v", c.tag, result.Stats, want.Stats)
+		}
+		if result.Stats.Shots != c.shots || result.Stats.LineExact != 16 || result.Stats.LineFuzzy+result.Stats.LineUnmatched != 0 || len(result.SchemaIssues) != 0 {
+			t.Fatalf("%s 应为 %d 镜、16 句全对上：%+v %v", c.tag, c.shots, result.Stats, result.SchemaIssues)
+		}
 	}
 }
 
@@ -364,34 +372,42 @@ func TestCheckShotsMatchesPython(t *testing.T) {
 
 func TestOnlineOutputEndToEnd(t *testing.T) {
 	script := onlineScript(t)
-	rows := RowsToShotlist(loadOnlineRows(t), script, "")
-	report := CheckShots(rows.Shotlist, CheckContext{Script: script, Profile: testProfile(t, "live-realism"), Vocab: testVocab(t), Rules: testShotRules(t)})
-	compareCheck(t, "线上实测（无资产圣经）", report, "check-online.json")
-	if report.HasErrors() {
-		t.Fatalf("线上实测输出应 0 error：%+v", report.Items)
-	}
-	for _, modelID := range []string{"seedance-2.0", "seedance-2.5"} {
-		m, ok := ModelByID(modelID)
-		if !ok {
-			t.Fatal(modelID)
+	for _, c := range onlineCases {
+		rows := RowsToShotlist(loadOnlineRows(t, c.dir), script, "")
+		report := CheckShots(rows.Shotlist, CheckContext{Script: script, Profile: testProfile(t, "live-realism"), Vocab: testVocab(t), Rules: testShotRules(t)})
+		compareCheck(t, c.tag+"（无资产圣经）", report, "check-"+c.tag+".json")
+		if report.HasErrors() {
+			t.Fatalf("%s 应 0 error：%+v", c.tag, report.Items)
 		}
-		segs, problems := Pack(PackInput{Shotlist: rows.Shotlist, Script: script, Model: m, Profile: testProfile(t, "live-realism"), ProfileID: "live-realism", Vocab: testVocab(t)})
-		var want struct {
-			Segments []any    `json:"segments"`
-			Problems []string `json:"problems"`
-		}
-		readJSONFile(t, filepath.Join(goldenDir, "online-pack-"+modelID+".json"), &want)
-		diffJSON(t, "线上装段 "+modelID, segs, want.Segments)
-		if len(problems) != len(want.Problems) {
-			t.Fatalf("%s 装段问题不同：%v vs %v", modelID, problems, want.Problems)
-		}
-		for _, seg := range segs {
-			raw, _ := json.Marshal(seg)
-			if _, err := ParseSegment(raw); err != nil {
-				t.Fatalf("装出的段应能被严格解析：%v", err)
+		for _, modelID := range []string{"seedance-2.0", "seedance-2.5"} {
+			m, ok := ModelByID(modelID)
+			if !ok {
+				t.Fatal(modelID)
 			}
-			if _, err := CompileWithProfile(seg, m, nil, nil, testProfile(t, "live-realism")); err != nil {
-				t.Fatal(err)
+			segs, problems := Pack(PackInput{Shotlist: rows.Shotlist, Script: script, Model: m, Profile: testProfile(t, "live-realism"), ProfileID: "live-realism", Vocab: testVocab(t)})
+			var want struct {
+				Segments []any    `json:"segments"`
+				Problems []string `json:"problems"`
+			}
+			readJSONFile(t, filepath.Join(goldenDir, c.tag+"-pack-"+modelID+".json"), &want)
+			diffJSON(t, c.tag+" 装段 "+modelID, segs, want.Segments)
+			if len(problems) != len(want.Problems) {
+				t.Fatalf("%s %s 装段问题不同：%v vs %v", c.tag, modelID, problems, want.Problems)
+			}
+			for _, seg := range segs {
+				raw, _ := json.Marshal(seg)
+				if _, err := ParseSegment(raw); err != nil {
+					t.Fatalf("装出的段应能被严格解析：%v", err)
+				}
+				if _, err := CompileWithProfile(seg, m, nil, nil, testProfile(t, "live-realism")); err != nil {
+					t.Fatal(err)
+				}
+				// 段按镜头表的场号装：一段的镜头都在同一场（两场同名「内·电梯口·夜」也各装各的）。
+				for _, id := range seg.ShotIDs {
+					if !strings.HasPrefix(id, seg.Scene+"-") {
+						t.Fatalf("%s %s 段 %s（%s）混进了别的场的镜头 %s", c.tag, modelID, seg.ID, seg.Scene, id)
+					}
+				}
 			}
 		}
 	}

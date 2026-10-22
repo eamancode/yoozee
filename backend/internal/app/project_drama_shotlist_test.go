@@ -186,3 +186,99 @@ func TestWriteDramaShotlistChecksPacksAndStores(t *testing.T) {
 		t.Fatal("别人的项目不能写")
 	}
 }
+
+// 线上实测 on3：一章两场都叫「内·电梯口·夜」（E01S02 对话、E01S03 打斗），模型给两场绑的是同一个场景资产。
+// 段按镜头表场号装、参考取各自镜头，对话场的段不能挂只在打斗场出现的阿坤。
+func TestShotlistSameNamedScenesKeepTheirOwnCast(t *testing.T) {
+	const dir = "../drama/testdata/online-qichuang-on3"
+	var doc struct {
+		Rows []json.RawMessage `json:"rows"`
+	}
+	raw, err := os.ReadFile(dir + "/rows.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := parseShotlistRows(doc.Rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stub []struct {
+		ID       string              `json:"id"`
+		Title    string              `json:"title"`
+		Category model.AssetCategory `json:"category"`
+	}
+	raw, err = os.ReadFile(dir + "/assets.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &stub); err != nil {
+		t.Fatal(err)
+	}
+	assets := make([]ProjectAssetSummary, 0, len(stub))
+	for _, a := range stub {
+		assets = append(assets, ProjectAssetSummary{ID: a.ID, Title: a.Title, Category: a.Category, PrimaryVersionID: a.ID + "-v1"})
+	}
+	body, err := os.ReadFile(onlineQichuangDir + "/chapter.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := drama.ScriptFromText(string(body), "七床")
+	if script.Scenes[1].Heading != script.Scenes[2].Heading {
+		t.Fatalf("夹具前提：第二、三场同名，得到 %q / %q", script.Scenes[1].Heading, script.Scenes[2].Heading)
+	}
+	m, _ := drama.ModelByID("seedance-2.5")
+	plan, err := planDramaShotlist(rows, &script, assets, m)
+	if err != nil {
+		t.Fatalf("on3 应能保存：%v", err)
+	}
+	if plan.Stats.Shots != 41 || plan.Stats.LineExact != 16 || plan.Report.Errors != 0 {
+		t.Fatalf("41 镜、16 句全对上、0 error：%+v %d", plan.Stats, plan.Report.Errors)
+	}
+	scenes := map[string][]string{}
+	for _, seg := range plan.Segments {
+		var files []string
+		for _, r := range seg.Refs {
+			files = append(files, r.File)
+		}
+		scenes[seg.Scene] = append(scenes[seg.Scene], strings.Join(files, ","))
+		hasAkun := strings.Contains(strings.Join(files, ","), "char-3-v1")
+		switch seg.Scene {
+		case "E01S01", "E01S02":
+			if hasAkun {
+				t.Fatalf("%s（%s）是阿坤出场前的戏，不该挂阿坤：%v", seg.ID, seg.Scene, files)
+			}
+		case "E01S03":
+			if !hasAkun {
+				t.Fatalf("%s（%s）是打斗场，应挂阿坤：%v", seg.ID, seg.Scene, files)
+			}
+		}
+		if !strings.Contains(strings.Join(files, ","), "loc-2-v1") && seg.Scene != "E01S01" {
+			t.Fatalf("%s 应挂电梯口场景：%v", seg.ID, files)
+		}
+	}
+	if len(scenes["E01S02"]) == 0 || len(scenes["E01S03"]) == 0 {
+		t.Fatalf("两场同名的戏应各自装段：%v", scenes)
+	}
+}
+
+func TestAttachRefsHintsSkipsBoundCharacterNotInShot(t *testing.T) {
+	assets := []ProjectAssetSummary{
+		{ID: "char-3", Title: "阿坤", Category: model.AssetCategoryCharacter, PrimaryVersionID: "char-3-v1"},
+		{ID: "loc-2", Title: "电梯口", Category: model.AssetCategoryEnvironment, PrimaryVersionID: "loc-2-v1"},
+	}
+	rows := []shotlistRow{{StoryboardRow: drama.StoryboardRow{AssetBindings: []drama.RowAssetBinding{{NodeID: "char-3"}, {NodeID: "loc-2"}}}}}
+	shots := []drama.Shot{{ID: "E01S02-03", Focus: "林小满", Blocking: []drama.Blocking{{Who: "林小满", At: "电梯口"}}}}
+	attachRefsHints(shots, rows, assets)
+	if got := strings.Join(shots[0].RefsHint, "|"); got != "电梯口" {
+		t.Fatalf("绑定了但这一镜不在场的人物不挂，场景照挂：%s", got)
+	}
+	shots[0].Blocking = append(shots[0].Blocking, drama.Blocking{Who: "阿坤", At: "楼梯间"})
+	shots[0].RefsHint = nil
+	attachRefsHints(shots, rows, assets)
+	if got := strings.Join(shots[0].RefsHint, "|"); got != "阿坤|电梯口" {
+		t.Fatalf("站位里有他就挂：%s", got)
+	}
+}
