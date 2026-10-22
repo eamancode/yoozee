@@ -13,6 +13,7 @@ import (
 	"log"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/textproto"
 	"net/url"
@@ -202,6 +203,45 @@ func sameProviderOrigin(baseURL string, rawURL string) bool {
 		return false
 	}
 	return strings.EqualFold(base.Scheme, target.Scheme) && strings.EqualFold(base.Host, target.Host)
+}
+
+// lookupProviderHost 解析主机名；测试里替换成固定答案，避免依赖真实 DNS。
+var lookupProviderHost = func(ctx context.Context, host string) ([]string, error) {
+	return net.DefaultResolver.LookupHost(ctx, host)
+}
+
+// providerHostRelated 判断媒体地址是否属于同一家上游：同源，或解析到渠道的同一台服务器。
+// 派普这类网关把视频结果发到同一 IP 的另一个域名（api.lecapi.net 与 api.paipu.net），
+// 而 /v1/videos/{id}/content 仍然要求渠道鉴权；只按域名判断会让结果下载稳定 403。
+func providerHostRelated(baseURL string, rawURL string) bool {
+	if sameProviderOrigin(baseURL, rawURL) {
+		return true
+	}
+	base, baseErr := url.Parse(strings.TrimSpace(baseURL))
+	target, targetErr := url.Parse(strings.TrimSpace(rawURL))
+	if baseErr != nil || targetErr != nil || base.Hostname() == "" || target.Hostname() == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	baseAddrs, err := lookupProviderHost(ctx, base.Hostname())
+	if err != nil || len(baseAddrs) == 0 {
+		return false
+	}
+	targetAddrs, err := lookupProviderHost(ctx, target.Hostname())
+	if err != nil || len(targetAddrs) == 0 {
+		return false
+	}
+	shared := make(map[string]struct{}, len(baseAddrs))
+	for _, addr := range baseAddrs {
+		shared[addr] = struct{}{}
+	}
+	for _, addr := range targetAddrs {
+		if _, ok := shared[addr]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func doJSON(req *http.Request, target interface{}) error {
