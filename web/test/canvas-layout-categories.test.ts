@@ -8,8 +8,7 @@ function node(id: string, type: CanvasNodeType, width = 320, height = 180, locke
 }
 
 function overlaps(a: CanvasNodeData, b: CanvasNodeData, gap: number) {
-    return a.position.x < b.position.x + b.width + gap && b.position.x < a.position.x + a.width + gap
-        && a.position.y < b.position.y + b.height + gap && b.position.y < a.position.y + a.height + gap;
+    return a.position.x < b.position.x + b.width + gap && b.position.x < a.position.x + a.width + gap && a.position.y < b.position.y + b.height + gap && b.position.y < a.position.y + a.height + gap;
 }
 
 /** gap 默认 0；传入标题高度可验证上一行底部不会压住下一行节点标题。 */
@@ -90,7 +89,7 @@ describe("canvas media-aware layout", () => {
 
     test("大量随机节点与连线整理后无重叠（含标题间距）", () => {
         let seed = 7;
-        const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+        const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
         const types = [CanvasNodeType.Text, CanvasNodeType.Image, CanvasNodeType.Video, CanvasNodeType.Audio];
         const nodes = Array.from({ length: 60 }, (_, index) => ({
             ...node(`n${index}`, types[index % types.length]!, 200 + Math.floor(random() * 400), 100 + Math.floor(random() * 500)),
