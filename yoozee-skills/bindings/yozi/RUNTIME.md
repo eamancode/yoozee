@@ -22,11 +22,12 @@
 
 | 端口 | 柚子做法 |
 | --- | --- |
+| `source.read` | `drama_chapters_read`：不传 unitId 列章节，传 unitId 分页读正文（剧情章节页里的原文） |
 | `progress.read` | `drama_progress_read`：每段六格和八个终态 |
 | `brief.read` / `brief.write` | `drama_brief_read` / `drama_brief_write`（整份需求 JSON，写入时校验生成模型和授权档位） |
-| `segments.read` / `segments.write` | `drama_segments_read` / `drama_segments_write`（按段号新增或改；超过项目生成模型上限的段会被拒绝） |
+| `segments.read` / `segments.write` | `drama_segments_read` / `drama_segments_write`（unitId 取自 `drama_chapters_read`；按段号新增或改；形状不合契约 segment 或超过项目生成模型上限的段会被拒绝） |
 | `bible.read` / `bible.write` | `drama_bible_read` / `drama_bible_write` |
-| `assets.check` | `drama_progress_read` 的「参考」一格 + `drama_bible_read` 的 checked；项目的「角色与资产」页是素材库 |
+| `assets.check` | `drama_progress_read` 的「参考」一格 + `drama_bible_read` 的 checked；项目的「角色与资产」页是素材库，顶部按连戏表列出素材清单，文件齐了用户在那里勾「过门禁」 |
 | `image.generate` | `generate_media`（mode=image，经模型、价格、预算校验和界面审批） |
 | `voice.design` / `voice.speak` | 角色卡的声音（画布角色卡 / `canvas_create_character`）；或 `generate_media` 的音频模式 |
 | `prompt.compile` | `drama_compile_prompt`（段号或镜头 ID；不传模型就用项目的生成模型）。返回提示词、参考清单（文件 → 编号 → 用途）和检查结果 |

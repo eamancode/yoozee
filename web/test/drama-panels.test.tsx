@@ -4,9 +4,9 @@ import { App } from "antd";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { DramaDeliveryPanel, DramaModelChips, DramaOverviewPanel, DramaTakeEvidencePanel, dramaEvidenceKey, dramaProgressKey } from "@/pages/projects/detail/drama-panels";
-import type { DramaEvidence, DramaProgress, DramaSegmentProgress } from "@/services/api/drama";
-import type { ShotArtifact } from "@/services/api/projects";
+import { DramaAssetChecklist, DramaDeliveryPanel, DramaModelChips, DramaOverviewPanel, DramaTakeCompare, DramaTakeEvidencePanel, dramaBibleKey, dramaChecklistAssetsKey, dramaEvidenceKey, dramaProgressKey, takeEvidenceStatus } from "@/pages/projects/detail/drama-panels";
+import type { DramaBible, DramaEvidence, DramaProgress, DramaSegmentProgress } from "@/services/api/drama";
+import type { ProjectAsset, ShotArtifact } from "@/services/api/projects";
 
 const model = {
     id: "seedance-2.0",
@@ -64,10 +64,12 @@ function evidence(patch: Partial<DramaEvidence> = {}): DramaEvidence {
 
 const artifact = { id: "take-1", projectId: "p1", shotId: "shot-1", type: "video", version: 3, status: "ready", selected: false, metadataJson: "{}", createdAt: "", updatedAt: "" } as ShotArtifact;
 
-function render(element: ReactElement, seed: { progress?: DramaProgress; evidence?: DramaEvidence[] } = {}) {
+function render(element: ReactElement, seed: { progress?: DramaProgress; evidence?: DramaEvidence[]; bible?: DramaBible; assets?: ProjectAsset[] } = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     if (seed.progress) client.setQueryData(dramaProgressKey("p1"), seed.progress);
     if (seed.evidence) client.setQueryData(dramaEvidenceKey("p1"), seed.evidence);
+    if (seed.bible) client.setQueryData(dramaBibleKey("p1"), seed.bible);
+    if (seed.assets) client.setQueryData(dramaChecklistAssetsKey("p1"), seed.assets);
     return renderToStaticMarkup(
         <QueryClientProvider client={client}>
             <App>{element}</App>
@@ -215,5 +217,53 @@ describe("交付面板：门禁明细与交付包", () => {
             evidence: [evidence({ kind: "gate", passed: true, metricsJson: "{不是 JSON" })],
         });
         expect(html).toContain("最近一次门禁通过");
+    });
+});
+
+describe("角色与资产：素材清单", () => {
+    const lockCard = ["齐耳短发", "左眉一颗痣", "护士服左胸别两支笔", "圆框眼镜", "工牌挂绳蓝色", "白色护士鞋", "右手腕黑色皮筋", "口罩挂在下巴"];
+
+    test("连戏表为空时给起草入口", () => {
+        const html = render(<DramaAssetChecklist projectId="p1" />, { bible: {}, assets: [{ id: "a1", title: "林小满", category: "character", mediaType: "image", status: "ready", versionCount: 1, usages: [], position: 0, updatedAt: "" } as ProjectAsset] });
+        expect(html).toContain("按已确认资产起草清单");
+    });
+
+    test("列出没过门禁的项和缺口，文件不齐的不能勾", () => {
+        const bible: DramaBible = {
+            characters: [{ name: "林小满", variants: [{ label: "默认", sheet: "v-lin", lock_card: lockCard, voice: "voice-lin", checked: true }] }],
+            locations: [{ name: "七床病房" }],
+        };
+        const html = render(<DramaAssetChecklist projectId="p1" />, { bible, assets: [] });
+        expect(html).toContain("过门禁 1/2");
+        expect(html).toContain("还有 1 项没过门禁");
+        expect(html).toContain("七床病房");
+        expect(html).toContain("还没有无人空景图");
+        expect(html).not.toContain("林小满");
+    });
+});
+
+describe("候选并排对比", () => {
+    const take = (id: string, version: number, selected = false) => ({ ...artifact, id, version, selected, resourceId: `res-${id}` }) as ShotArtifact;
+
+    test("不到两条就绪候选时不出现入口", () => {
+        const html = render(<DramaTakeCompare projectId="p1" shotId="shot-1" artifacts={[take("t1", 1), { ...take("t2", 2), status: "running" }]} onOpen={() => undefined} />, { progress: progress() });
+        expect(html).not.toContain("并排对比");
+    });
+
+    test("两条以上就绪候选时给并排入口", () => {
+        const html = render(<DramaTakeCompare projectId="p1" shotId="shot-1" artifacts={[take("t1", 1), take("t2", 2, true)]} onOpen={() => undefined} />, { progress: progress() });
+        expect(html).toContain("并排对比 2 条候选");
+    });
+
+    test("证据现状：有台词要三项，取最新一条，带字错率", () => {
+        const status = takeEvidenceStatus([
+            evidence({ id: "f1", artifactId: "t1", kind: "frames", passed: false, createdAt: "2026-10-15T10:00:00Z" }),
+            evidence({ id: "f2", artifactId: "t1", kind: "frames", passed: true, createdAt: "2026-10-15T11:00:00Z" }),
+            evidence({ id: "tr", artifactId: "t1", kind: "transcript", passed: true, metricsJson: JSON.stringify({ cer: 0.02 }) }),
+            evidence({ id: "other", artifactId: "t2", kind: "faces", passed: true }),
+        ], "t1", true);
+        expect(status.required.map((item) => [item.kind, item.passed])).toEqual([["frames", true], ["faces", null], ["transcript", true]]);
+        expect(status.passedAll).toBe(false);
+        expect(status.cer).toBe(0.02);
     });
 });

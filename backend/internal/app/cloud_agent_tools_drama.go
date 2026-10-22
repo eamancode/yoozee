@@ -38,6 +38,15 @@ func (s *Service) cloudAgentDramaTool(userID string, state *cloudAgentRuntime, c
 			return nil, err
 		}
 		return map[string]any{"projectId": projectID, "model": map[string]any{"id": progress.Model.ID, "label": progress.Model.Label, "maxSegmentSeconds": progress.Model.Duration.Max, "calibrated": progress.Model.Calibrated}, "authMode": progress.AuthMode, "line": progress.Line, "next": progress.Next, "endStates": progress.EndStates, "segments": progress.Segments}, nil
+	case "drama_chapters_read":
+		var args struct {
+			UnitID string `json:"unitId"`
+			Offset int    `json:"offset"`
+		}
+		if err := decode(&args); err != nil {
+			return nil, err
+		}
+		return s.dramaChaptersRead(userID, projectID, strings.TrimSpace(args.UnitID), args.Offset)
 	case "drama_brief_read":
 		if err := decode(&struct{}{}); err != nil {
 			return nil, err
@@ -147,6 +156,49 @@ func (s *Service) cloudAgentDramaTool(userID string, state *cloudAgentRuntime, c
 	return nil, BadAuthRequest("未知的短剧工具：" + call.Function.Name)
 }
 
+const dramaChapterPageRunes = 8000
+
+// dramaChaptersRead 列章节，或分页读一章原文（按字符计，不切断多字节字符）。
+func (s *Service) dramaChaptersRead(userID string, projectID string, unitID string, offset int) (any, error) {
+	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+		return nil, err
+	}
+	if offset < 0 {
+		return nil, BadAuthRequest("offset 不能为负数")
+	}
+	if unitID == "" {
+		units, err := s.repo.ProjectUnitSummaries(projectID)
+		if err != nil {
+			return nil, err
+		}
+		items := make([]map[string]any, 0, len(units))
+		for _, unit := range units {
+			items = append(items, map[string]any{"unitId": unit.ID, "title": unit.Title, "position": unit.Position, "wordCount": unit.WordCount, "kind": unit.Kind})
+		}
+		return map[string]any{"chapters": items, "next": "用 unitId 读某一章正文"}, nil
+	}
+	unit, err := s.repo.ProjectUnit(projectID, unitID)
+	if err != nil {
+		return nil, err
+	}
+	text := []rune(unit.SourceText)
+	if offset > len(text) {
+		offset = len(text)
+	}
+	end := offset + dramaChapterPageRunes
+	if end > len(text) {
+		end = len(text)
+	}
+	out := map[string]any{"unitId": unit.ID, "title": unit.Title, "offset": offset, "total": len(text), "text": string(text[offset:end])}
+	if end < len(text) {
+		out["nextOffset"] = end
+	}
+	if len(text) == 0 {
+		out["note"] = "这一章还没有正文"
+	}
+	return out, nil
+}
+
 func appendUniqueString(items []string, value string) []string {
 	for _, item := range items {
 		if item == value {
@@ -161,8 +213,7 @@ func (s *Service) DramaRegisterArtifact(userID string, projectID string, shotID 
 	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
 		return model.ShotArtifact{}, err
 	}
-	stepKey := map[string]string{drama.ArtifactStoryboard: "storyboard", drama.ArtifactActionBoard: "previz", drama.ArtifactVideo: "video"}[artifactType]
-	if stepKey == "" {
+	if artifactType != drama.ArtifactStoryboard && artifactType != drama.ArtifactActionBoard && artifactType != drama.ArtifactVideo {
 		return model.ShotArtifact{}, BadAuthRequest("产物类型只能是 storyboard、action_board 或 video")
 	}
 	shot, err := s.repo.ShotForProject(projectID, strings.TrimSpace(shotID))
@@ -183,41 +234,12 @@ func (s *Service) DramaRegisterArtifact(userID string, projectID string, shotID 
 	if (artifactType == drama.ArtifactVideo) != (mediaType == "video") {
 		return model.ShotArtifact{}, BadAuthRequest("任务产出的媒体类型与产物类型不一致")
 	}
-	stepID := ""
-	workflows, err := s.ProjectWorkflows(projectID)
-	if err != nil {
-		return model.ShotArtifact{}, err
-	}
-	for _, wf := range workflows {
-		if wf.Instance.UnitID != shot.UnitID {
-			continue
-		}
-		for _, step := range wf.Steps {
-			if step.StepKey == stepKey {
-				stepID = step.ID
-			}
-		}
-	}
-	if stepID == "" {
-		created, err := s.CreateUnitWorkflow(userID, projectID, shot.UnitID)
-		if err != nil {
-			return model.ShotArtifact{}, err
-		}
-		for _, step := range created.Steps {
-			if step.StepKey == stepKey {
-				stepID = step.ID
-			}
-		}
-	}
-	if stepID == "" {
-		return model.ShotArtifact{}, errors.New("章节工作流缺少对应步骤")
-	}
 	assetVersionID, err := s.ensureGeneratedProjectAsset(*task, projectID, shot.ID, resourceID, mediaType)
 	if err != nil {
 		return model.ShotArtifact{}, err
 	}
 	metadata, _ := json.Marshal(map[string]any{"source": "short-drama-agent", "taskId": task.ID, "model": task.Model})
-	if _, err := s.RegisterTaskOutput(userID, projectID, stepID, RegisterTaskOutputRequest{TaskID: task.ID, ShotID: shot.ID, ArtifactType: artifactType, AssetVersionID: assetVersionID, ResourceID: resourceID, MediaType: mediaType, Role: "output", MetadataJSON: string(metadata)}); err != nil {
+	if err := s.RegisterShotOutput(userID, projectID, RegisterTaskOutputRequest{TaskID: task.ID, ShotID: shot.ID, ArtifactType: artifactType, AssetVersionID: assetVersionID, ResourceID: resourceID, MediaType: mediaType, Role: "output", MetadataJSON: string(metadata)}); err != nil {
 		return model.ShotArtifact{}, err
 	}
 	artifacts, err := s.repo.ProjectShotArtifacts(projectID)

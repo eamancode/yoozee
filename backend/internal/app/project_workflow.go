@@ -70,36 +70,6 @@ func (s *Service) EnsureBuiltinProjectWorkflowTemplate() error {
 	return s.repo.CreateWorkflowTemplateVersion(&template)
 }
 
-func (s *Service) createProjectWorkflow(projectID string, unitID string, scope string) (ProjectWorkflowDetail, error) {
-	template, err := s.repo.WorkflowTemplateVersion(builtinShortDramaWorkflowKey, builtinShortDramaWorkflowVersion)
-	if err != nil {
-		return ProjectWorkflowDetail{}, err
-	}
-	if existing, existingErr := s.repo.WorkflowInstanceForScope(projectID, unitID, template.ID); existingErr == nil {
-		steps, stepsErr := s.repo.WorkflowSteps(existing.ID)
-		return ProjectWorkflowDetail{Instance: *existing, Steps: steps}, stepsErr
-	} else if !errors.Is(existingErr, gorm.ErrRecordNotFound) {
-		return ProjectWorkflowDetail{}, existingErr
-	}
-	now := time.Now()
-	instance := model.WorkflowInstance{ID: newID(), ProjectID: projectID, UnitID: unitID, TemplateVersionID: template.ID, Scope: scope, Status: model.WorkflowStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
-	steps := make([]model.WorkflowStepInstance, 0, len(builtinShortDramaSteps))
-	for index, definition := range builtinShortDramaSteps {
-		status := model.WorkflowStepStatusPending
-		if index == 0 {
-			status = model.WorkflowStepStatusReady
-		}
-		steps = append(steps, model.WorkflowStepInstance{ID: newID(), WorkflowInstanceID: instance.ID, StepKey: definition.Key, Name: definition.Name, Position: index, Status: status, InputJSON: "{}", OutputJSON: "{}", CreatedAt: now, UpdatedAt: now})
-	}
-	if err := s.repo.CreateWorkflowInstance(&instance, steps); err != nil {
-		return ProjectWorkflowDetail{}, err
-	}
-	if err := s.repo.BumpProjectRevision(projectID); err != nil {
-		return ProjectWorkflowDetail{}, err
-	}
-	return ProjectWorkflowDetail{Instance: instance, Steps: steps}, nil
-}
-
 func (s *Service) ProjectWorkflows(projectID string) ([]ProjectWorkflowDetail, error) {
 	instances, err := s.repo.ProjectWorkflowInstances(projectID)
 	if err != nil {
@@ -116,6 +86,12 @@ func (s *Service) ProjectWorkflows(projectID string) ([]ProjectWorkflowDetail, e
 	return result, nil
 }
 
+// errWorkflowReadOnly：旧六步流程已改为只读。进度由段、产物和证据推导（见 internal/drama），
+// 不再创建流程实例、不再切换步骤状态；已有记录仍可读，供旧项目查看。
+func errWorkflowReadOnly() error {
+	return BadAuthRequest("旧六步流程已改为只读：进度按段、产物和证据自动推导，不再手动建流程或切换阶段")
+}
+
 func (s *Service) CreateUnitWorkflow(userID string, projectID string, unitID string) (ProjectWorkflowDetail, error) {
 	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
 		return ProjectWorkflowDetail{}, err
@@ -123,10 +99,21 @@ func (s *Service) CreateUnitWorkflow(userID string, projectID string, unitID str
 	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
 		return ProjectWorkflowDetail{}, err
 	}
-	return s.createProjectWorkflow(projectID, unitID, "unit")
+	return ProjectWorkflowDetail{}, errWorkflowReadOnly()
 }
 
-func (s *Service) UpdateWorkflowStep(userID string, projectID string, stepID string, req UpdateWorkflowStepRequest) (model.WorkflowStepInstance, error) {
+func (s *Service) UpdateWorkflowStep(userID string, projectID string, stepID string, _ UpdateWorkflowStepRequest) (model.WorkflowStepInstance, error) {
+	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+		return model.WorkflowStepInstance{}, err
+	}
+	if _, err := s.repo.WorkflowStepForProject(projectID, stepID); err != nil {
+		return model.WorkflowStepInstance{}, err
+	}
+	return model.WorkflowStepInstance{}, errWorkflowReadOnly()
+}
+
+// RegisterTaskOutput 是旧接口：按步骤登记产物。步骤只用来校验归属和推断产物类型，状态不再推进。
+func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID string, req RegisterTaskOutputRequest) (model.WorkflowStepInstance, error) {
 	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
 		return model.WorkflowStepInstance{}, err
 	}
@@ -134,96 +121,48 @@ func (s *Service) UpdateWorkflowStep(userID string, projectID string, stepID str
 	if err != nil {
 		return model.WorkflowStepInstance{}, err
 	}
-	status := model.WorkflowStepStatus(strings.TrimSpace(req.Status))
-	if !validWorkflowStepStatus(status) {
-		return model.WorkflowStepInstance{}, BadAuthRequest("不支持的工作流步骤状态")
-	}
-	if !canTransitionWorkflowStep(step.Status, status) {
-		return model.WorkflowStepInstance{}, BadAuthRequest("当前工作流步骤不能直接切换到目标状态")
-	}
-	now := time.Now()
-	step.Status = status
-	step.OutputJSON = req.OutputJSON
-	if strings.TrimSpace(step.OutputJSON) == "" {
-		step.OutputJSON = "{}"
-	}
-	step.Error = strings.TrimSpace(req.Error)
-	if status == model.WorkflowStepStatusRunning && step.StartedAt == nil {
-		step.StartedAt = &now
-	}
-	if status == model.WorkflowStepStatusCompleted || status == model.WorkflowStepStatusSkipped {
-		step.CompletedAt = &now
-	} else {
-		step.CompletedAt = nil
-	}
-	step.UpdatedAt = now
-	instance, err := s.repo.WorkflowInstance(step.WorkflowInstanceID)
-	if err != nil {
-		return model.WorkflowStepInstance{}, err
-	}
-	if status == model.WorkflowStepStatusCompleted {
-		if err := s.validateWorkflowStepCompletion(projectID, instance, step); err != nil {
-			return model.WorkflowStepInstance{}, err
-		}
-	}
-	instance.Status = model.WorkflowStatusActive
-	instance.Revision++
-	instance.UpdatedAt = now
-	var next *model.WorkflowStepInstance
-	if status == model.WorkflowStepStatusCompleted || status == model.WorkflowStepStatusSkipped {
-		next, err = s.repo.NextWorkflowStep(step.WorkflowInstanceID, step.Position)
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			next = nil
-			instance.Status = model.WorkflowStatusCompleted
-		} else if err != nil {
-			return model.WorkflowStepInstance{}, err
-		} else if next.Status == model.WorkflowStepStatusPending {
-			next.Status = model.WorkflowStepStatusReady
-			next.UpdatedAt = now
-		}
-	} else if status == model.WorkflowStepStatusFailed {
-		instance.Status = model.WorkflowStatusFailed
-	}
-	if err := s.repo.UpdateWorkflowProgress(step, next, instance, projectID); err != nil {
+	if _, err := s.registerTaskOutput(userID, projectID, step.ID, workflowArtifactType(step.StepKey), req); err != nil {
 		return model.WorkflowStepInstance{}, err
 	}
 	return *step, nil
 }
 
-func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID string, req RegisterTaskOutputRequest) (model.WorkflowStepInstance, error) {
+// RegisterShotOutput 把一条成功任务的产物登记到段上，不经旧六步流程。
+func (s *Service) RegisterShotOutput(userID string, projectID string, req RegisterTaskOutputRequest) error {
+	if strings.TrimSpace(req.ShotID) == "" {
+		return BadAuthRequest("登记产物需要指定段")
+	}
+	_, err := s.registerTaskOutput(userID, projectID, "", "", req)
+	return err
+}
+
+func (s *Service) registerTaskOutput(userID string, projectID string, stepID string, fallbackArtifactType string, req RegisterTaskOutputRequest) (*model.ShotArtifact, error) {
 	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
-		return model.WorkflowStepInstance{}, err
+		return nil, err
 	}
 	task, err := s.repo.TaskForUser(userID, strings.TrimSpace(req.TaskID))
 	if err != nil {
-		return model.WorkflowStepInstance{}, err
+		return nil, err
 	}
 	canvasID := strings.TrimSpace(req.CanvasID)
 	if task.ProjectID != projectID {
 		canvas, canvasErr := s.repo.CanvasProjectForUser(userID, task.ProjectID)
 		if canvasErr != nil || canvas.ProjectID != projectID {
-			return model.WorkflowStepInstance{}, BadAuthRequest("任务不属于当前项目")
+			return nil, BadAuthRequest("任务不属于当前项目")
 		}
 		if canvasID != "" && canvasID != canvas.ID {
-			return model.WorkflowStepInstance{}, BadAuthRequest("任务画布与产物画布不一致")
+			return nil, BadAuthRequest("任务画布与产物画布不一致")
 		}
 		canvasID = canvas.ID
 	}
 	if canvasID != "" {
 		canvas, canvasErr := s.repo.CanvasProjectForUser(userID, canvasID)
 		if canvasErr != nil || canvas.ProjectID != projectID {
-			return model.WorkflowStepInstance{}, BadAuthRequest("画布不属于当前项目")
+			return nil, BadAuthRequest("画布不属于当前项目")
 		}
 	}
 	if task.Status != model.TaskStatusSucceeded {
-		return model.WorkflowStepInstance{}, BadAuthRequest("只有成功任务才能登记产物")
-	}
-	step, err := s.repo.WorkflowStepForProject(projectID, stepID)
-	if err != nil {
-		return model.WorkflowStepInstance{}, err
-	}
-	if step.Status == model.WorkflowStepStatusFailed {
-		return model.WorkflowStepInstance{}, BadAuthRequest("失败步骤不能登记成功产物")
+		return nil, BadAuthRequest("只有成功任务才能登记产物")
 	}
 	unitID := strings.TrimSpace(req.UnitID)
 	shotID := strings.TrimSpace(req.ShotID)
@@ -231,16 +170,16 @@ func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID str
 	if shotID != "" {
 		shot, err = s.repo.ShotForProject(projectID, shotID)
 		if err != nil {
-			return model.WorkflowStepInstance{}, err
+			return nil, err
 		}
 		if unitID == "" {
 			unitID = shot.UnitID
 		} else if unitID != shot.UnitID {
-			return model.WorkflowStepInstance{}, BadAuthRequest("镜头不属于指定章节")
+			return nil, BadAuthRequest("镜头不属于指定章节")
 		}
 	} else if unitID != "" {
 		if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
-			return model.WorkflowStepInstance{}, err
+			return nil, err
 		}
 	}
 	shotRevisionID := strings.TrimSpace(req.ShotRevisionID)
@@ -248,19 +187,19 @@ func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID str
 		if shotRevisionID == "" {
 			shotRevisionID = shot.CurrentRevisionID
 		} else if _, revisionErr := s.repo.ShotRevisionForShot(shot.ID, shotRevisionID); revisionErr != nil {
-			return model.WorkflowStepInstance{}, revisionErr
+			return nil, revisionErr
 		}
 	} else if shotRevisionID != "" {
-		return model.WorkflowStepInstance{}, BadAuthRequest("镜头版本缺少所属镜头")
+		return nil, BadAuthRequest("镜头版本缺少所属镜头")
 	}
 	if versionID := strings.TrimSpace(req.AssetVersionID); versionID != "" {
 		if _, err := s.repo.AssetVersionForProject(projectID, versionID); err != nil {
-			return model.WorkflowStepInstance{}, err
+			return nil, err
 		}
 	}
 	if resourceID := strings.TrimSpace(req.ResourceID); resourceID != "" {
 		if _, err := s.repo.ResourceForUser(userID, resourceID); err != nil {
-			return model.WorkflowStepInstance{}, err
+			return nil, err
 		}
 	}
 	metadata := strings.TrimSpace(req.MetadataJSON)
@@ -268,37 +207,9 @@ func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID str
 		metadata = "{}"
 	}
 	if !json.Valid([]byte(metadata)) {
-		return model.WorkflowStepInstance{}, BadAuthRequest("产物元数据必须是有效 JSON")
+		return nil, BadAuthRequest("产物元数据必须是有效 JSON")
 	}
 	now := time.Now()
-	step.Status = model.WorkflowStepStatusCompleted
-	step.OutputJSON = strings.TrimSpace(req.OutputJSON)
-	if step.OutputJSON == "" {
-		step.OutputJSON = task.ResultJSON
-	}
-	if strings.TrimSpace(step.OutputJSON) == "" {
-		step.OutputJSON = "{}"
-	}
-	step.Error = ""
-	step.CompletedAt = &now
-	step.UpdatedAt = now
-	instance, err := s.repo.WorkflowInstance(step.WorkflowInstanceID)
-	if err != nil {
-		return model.WorkflowStepInstance{}, err
-	}
-	instance.Revision++
-	instance.Status = model.WorkflowStatusActive
-	instance.UpdatedAt = now
-	next, nextErr := s.repo.NextWorkflowStep(step.WorkflowInstanceID, step.Position)
-	if errors.Is(nextErr, gorm.ErrRecordNotFound) {
-		instance.Status = model.WorkflowStatusCompleted
-		next = nil
-	} else if nextErr != nil {
-		return model.WorkflowStepInstance{}, nextErr
-	} else if next.Status == model.WorkflowStepStatusPending {
-		next.Status = model.WorkflowStepStatusReady
-		next.UpdatedAt = now
-	}
 	var representation *model.AssetRepresentation
 	if strings.TrimSpace(req.AssetVersionID) != "" {
 		role := strings.TrimSpace(req.Role)
@@ -306,101 +217,24 @@ func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID str
 			role = "output"
 		}
 		if !validShotAssetRole(role) {
-			return model.WorkflowStepInstance{}, BadAuthRequest("不支持的产物用途")
+			return nil, BadAuthRequest("不支持的产物用途")
 		}
 		representation = &model.AssetRepresentation{ID: newID(), TaskID: task.ID, AssetVersionID: strings.TrimSpace(req.AssetVersionID), ResourceID: strings.TrimSpace(req.ResourceID), MediaType: strings.TrimSpace(req.MediaType), Role: role, MetadataJSON: metadata, CreatedAt: now}
 	}
-	link := &model.WorkflowStepTask{ID: newID(), WorkflowStepID: step.ID, TaskID: task.ID, CreatedAt: now}
 	artifactType := strings.TrimSpace(req.ArtifactType)
 	if artifactType == "" && shotID != "" && strings.TrimSpace(req.ResourceID) != "" {
-		artifactType = workflowArtifactType(step.StepKey)
+		artifactType = fallbackArtifactType
 	}
-	productionLink := &model.ProductionTaskLink{ID: newID(), TaskID: task.ID, ProjectID: projectID, CanvasID: canvasID, UnitID: unitID, ShotID: shotID, WorkflowStepID: step.ID, ArtifactType: artifactType, CreatedAt: now, UpdatedAt: now}
+	productionLink := &model.ProductionTaskLink{ID: newID(), TaskID: task.ID, ProjectID: projectID, CanvasID: canvasID, UnitID: unitID, ShotID: shotID, WorkflowStepID: stepID, ArtifactType: artifactType, CreatedAt: now, UpdatedAt: now}
 	var artifact *model.ShotArtifact
 	if shot != nil && strings.TrimSpace(req.ResourceID) != "" && artifactType != "" {
 		artifact = &model.ShotArtifact{ID: newID(), ProjectID: projectID, UnitID: shot.UnitID, ShotID: shot.ID, RevisionID: shotRevisionID, TaskID: task.ID, Type: artifactType, ResourceID: strings.TrimSpace(req.ResourceID), Status: "ready", Selected: true, MetadataJSON: metadata, CreatedAt: now, UpdatedAt: now}
 		artifact.InputHash = s.artifactInputHash(shot.ID, shotRevisionID, artifactType)
 	}
-	// 单镜产物成功只代表该镜头完成，不能提前放行整个章节阶段。
-	if shot != nil {
-		step.Status = model.WorkflowStepStatusRunning
-		step.CompletedAt = nil
-		instance.Status = model.WorkflowStatusActive
-		next = nil
+	if err := s.repo.RegisterTaskOutputRecords(projectID, representation, productionLink, artifact); err != nil {
+		return nil, err
 	}
-	if err := s.repo.RegisterWorkflowTaskOutput(step, next, instance, projectID, link, representation, productionLink, artifact); err != nil {
-		return model.WorkflowStepInstance{}, err
-	}
-	return *step, nil
-}
-
-func (s *Service) validateWorkflowStepCompletion(projectID string, instance *model.WorkflowInstance, step *model.WorkflowStepInstance) error {
-	if instance == nil || strings.TrimSpace(instance.UnitID) == "" {
-		return nil
-	}
-	unit, err := s.repo.ProjectUnit(projectID, instance.UnitID)
-	if err != nil {
-		return err
-	}
-	switch step.StepKey {
-	case "story":
-		if strings.TrimSpace(unit.SourceText) == "" {
-			return BadAuthRequest("章节正文为空，不能完成剧情阶段")
-		}
-	case "assets":
-		candidates, candidateErr := s.repo.ProjectAssetCandidates(projectID)
-		if candidateErr != nil {
-			return candidateErr
-		}
-		for _, candidate := range candidates {
-			if candidate.UnitID == instance.UnitID && candidate.Status == "pending_confirmation" {
-				return BadAuthRequest("仍有待确认资产，不能完成资产拆分阶段")
-			}
-		}
-	case "storyboard", "previz", "video", "delivery":
-		shots, shotErr := s.repo.ProjectShots(projectID)
-		if shotErr != nil {
-			return shotErr
-		}
-		unitShots := make([]model.Shot, 0, len(shots))
-		for _, shot := range shots {
-			if shot.UnitID == instance.UnitID {
-				unitShots = append(unitShots, shot)
-			}
-		}
-		if len(unitShots) == 0 {
-			return BadAuthRequest("当前章节还没有分镜，不能完成本阶段")
-		}
-		if step.StepKey == "storyboard" {
-			for _, shot := range unitShots {
-				if strings.TrimSpace(shot.CurrentRevisionID) == "" {
-					return BadAuthRequest("存在没有分镜版本的镜头，不能完成分镜阶段")
-				}
-			}
-			return nil
-		}
-		artifactType := "action_board"
-		if step.StepKey == "video" || step.StepKey == "delivery" {
-			artifactType = "video"
-		}
-		artifacts, artifactErr := s.repo.ProjectShotArtifacts(projectID)
-		if artifactErr != nil {
-			return artifactErr
-		}
-		readyShots := make(map[string]struct{}, len(unitShots))
-		for _, artifact := range artifacts {
-			if artifact.UnitID == instance.UnitID && artifact.Type == artifactType && artifact.Selected && artifact.Status == "ready" {
-				readyShots[artifact.ShotID] = struct{}{}
-			}
-		}
-		if len(readyShots) != len(unitShots) {
-			if artifactType == "action_board" {
-				return BadAuthRequest("仍有镜头缺少已通过的动作预演，不能完成本阶段")
-			}
-			return BadAuthRequest("仍有镜头缺少可交付视频，不能完成本阶段")
-		}
-	}
-	return nil
+	return artifact, nil
 }
 
 func workflowArtifactType(stepKey string) string {
@@ -495,7 +329,8 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task) error {
 	if strings.TrimSpace(input.MediaType) == "" && strings.TrimSpace(input.ResourceID) != "" {
 		input.MediaType = taskOutputMediaType(task.Type)
 	}
-	if strings.TrimSpace(input.WorkflowStepID) == "" {
+	// 旧任务带 workflowStepId；按段生成的任务只带 domainProjectId 与 shotId。两者都没有就不是短剧产物。
+	if strings.TrimSpace(input.WorkflowStepID) == "" && (strings.TrimSpace(input.ShotID) == "" || strings.TrimSpace(input.DomainProjectID) == "") {
 		return nil
 	}
 	projectID := strings.TrimSpace(input.DomainProjectID)
@@ -514,7 +349,11 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task) error {
 		}
 		input.AssetVersionID = assetVersionID
 	}
-	_, err = s.RegisterTaskOutput(task.UserID, projectID, input.WorkflowStepID, RegisterTaskOutputRequest{TaskID: task.ID, CanvasID: input.CanvasID, UnitID: input.UnitID, ShotID: input.ShotID, ShotRevisionID: input.ShotRevisionID, ArtifactType: input.ArtifactType, AssetVersionID: input.AssetVersionID, ResourceID: input.ResourceID, MediaType: input.MediaType, Role: input.Role, MetadataJSON: input.MetadataJSON, OutputJSON: task.ResultJSON})
+	request := RegisterTaskOutputRequest{TaskID: task.ID, CanvasID: input.CanvasID, UnitID: input.UnitID, ShotID: input.ShotID, ShotRevisionID: input.ShotRevisionID, ArtifactType: input.ArtifactType, AssetVersionID: input.AssetVersionID, ResourceID: input.ResourceID, MediaType: input.MediaType, Role: input.Role, MetadataJSON: input.MetadataJSON, OutputJSON: task.ResultJSON}
+	if strings.TrimSpace(input.WorkflowStepID) == "" {
+		return s.RegisterShotOutput(task.UserID, projectID, request)
+	}
+	_, err = s.RegisterTaskOutput(task.UserID, projectID, input.WorkflowStepID, request)
 	return err
 }
 
@@ -652,29 +491,4 @@ func (s *Service) ensureGeneratedProjectAsset(task model.Task, projectID string,
 func workflowGeneratedEntityID(namespace string, taskID string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(namespace) + ":" + strings.TrimSpace(taskID)))
 	return hex.EncodeToString(sum[:16])
-}
-
-func validWorkflowStepStatus(status model.WorkflowStepStatus) bool {
-	switch status {
-	case model.WorkflowStepStatusPending, model.WorkflowStepStatusReady, model.WorkflowStepStatusRunning, model.WorkflowStepStatusReview, model.WorkflowStepStatusCompleted, model.WorkflowStepStatusFailed, model.WorkflowStepStatusSkipped:
-		return true
-	default:
-		return false
-	}
-}
-
-func canTransitionWorkflowStep(current model.WorkflowStepStatus, next model.WorkflowStepStatus) bool {
-	if current == next {
-		return true
-	}
-	allowed := map[model.WorkflowStepStatus]map[model.WorkflowStepStatus]bool{
-		model.WorkflowStepStatusPending:   {model.WorkflowStepStatusReady: true, model.WorkflowStepStatusSkipped: true},
-		model.WorkflowStepStatusReady:     {model.WorkflowStepStatusRunning: true, model.WorkflowStepStatusSkipped: true},
-		model.WorkflowStepStatusRunning:   {model.WorkflowStepStatusReview: true, model.WorkflowStepStatusCompleted: true, model.WorkflowStepStatusFailed: true},
-		model.WorkflowStepStatusReview:    {model.WorkflowStepStatusRunning: true, model.WorkflowStepStatusCompleted: true, model.WorkflowStepStatusFailed: true},
-		model.WorkflowStepStatusFailed:    {model.WorkflowStepStatusReady: true, model.WorkflowStepStatusRunning: true},
-		model.WorkflowStepStatusCompleted: {model.WorkflowStepStatusRunning: true},
-		model.WorkflowStepStatusSkipped:   {model.WorkflowStepStatusReady: true},
-	}
-	return allowed[current][next]
 }

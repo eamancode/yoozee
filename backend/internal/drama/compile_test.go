@@ -123,3 +123,15 @@ func TestParseSegmentRejectsUnknownFieldsAndBadIDs(t *testing.T) {
 		t.Errorf("台词拼接错误: %v %q", err, seg.Dialogue())
 	}
 }
+
+func TestNormalizeBriefKeepsLegacyContentInContractShape(t *testing.T) {
+	doc := map[string]any{"title": "夜班", "video_model": "seedance-2.0", "auth_mode": "step", "purpose": "第一集验收", "duration_seconds": 40, "aspect_ratio": "9:16", "questions": []any{"真人还是动画？"}}
+	normalized := NormalizeBrief(doc)
+	raw, _ := json.Marshal(normalized)
+	if _, err := ParseBrief(raw); err != nil {
+		t.Fatalf("整理后应符合契约: %v\n%s", err, raw)
+	}
+	if !strings.Contains(string(raw), "aspect_ratio") || !strings.Contains(string(raw), "duration_seconds") {
+		t.Fatalf("不认识的字段应挪进 constraints 而不是丢掉: %s", raw)
+	}
+}

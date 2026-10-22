@@ -44,7 +44,7 @@
       "label": "MiniMax-H3",
       "vendor": "MiniMax",
       "kind": "video",
-      "match": ["minimax-h3", "minimax_h3", "h3"],
+      "match": ["minimax-h3", "minimax_h3", "hailuo-h3"],
       "duration": {"min": 4, "max": 15, "step": 1},
       "refs": {"images": 9, "videos": 0, "audios": 3, "total": 12},
       "frames_exclusive_with_refs": true,

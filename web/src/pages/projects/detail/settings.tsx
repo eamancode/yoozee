@@ -16,7 +16,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { modelDisplayName, resolveModelRequestConfig, useEffectiveConfig } from "@/stores/use-config-store";
 
 import type { ProjectDetailViewProps } from "./shared";
-import { DRAMA_AUTH_OPTIONS, dramaModelOptions, findDramaModel, useDramaModels } from "../drama-model";
+import { DRAMA_AUTH_OPTIONS, dramaModelOptions, findDramaModel, useDramaChannelFamilies, useDramaModels } from "../drama-model";
 
 export default function ProjectSettingsView({ detail, refreshProject }: ProjectDetailViewProps) {
     const { message } = App.useApp();
@@ -33,6 +33,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     const [defaultImageModel, setDefaultImageModel] = useState(project.defaultImageModel || "");
     const [defaultVideoModel, setDefaultVideoModel] = useState(project.defaultVideoModel || "");
     const dramaModels = useDramaModels();
+    const dramaFamilies = useDramaChannelFamilies(dramaModels.data);
     const [generationModel, setGenerationModel] = useState(project.generationModel || "");
     const [authMode, setAuthMode] = useState<DramaAuthMode>(project.authMode === "full" ? "full" : "step");
     const savedGenerationModel = project.generationModel || dramaModels.data?.default || "";
@@ -125,10 +126,11 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
             <section className="border-t border-border/70 py-5">
                 <div className="mb-3"><h3 className="text-sm font-semibold">短剧生成</h3><p className="mt-0.5 text-[var(--fs-label)] text-foreground/45">一段 = 一次视频生成。生成模型决定一段最长几秒和提示词方言；授权档位决定 Agent 每个节点是否停下来等你确认。</p></div>
                 <div className="grid gap-4 md:grid-cols-2">
-                    <Field label="生成模型"><Select className="w-full" loading={dramaModels.isLoading} value={generationModel || savedGenerationModel || undefined} options={dramaModelOptions(dramaModels.data)} onChange={setGenerationModel} /></Field>
+                    <Field label="生成模型"><Select className="w-full" loading={dramaModels.isLoading} value={generationModel || savedGenerationModel || undefined} options={dramaModelOptions(dramaModels.data, dramaFamilies)} onChange={setGenerationModel} /></Field>
                     <Field label="授权档位"><Select className="w-full" value={authMode} options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} onChange={setAuthMode} /></Field>
                 </div>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_AUTH_OPTIONS.find((item) => item.value === authMode)?.hint}{selectedDramaModel && !selectedDramaModel.calibrated ? "。该模型档案尚未用真实样片校准，首次使用请先跑一次校准。" : ""}</p>
+                {selectedDramaModel && dramaFamilies && !dramaFamilies.has(selectedDramaModel.id) ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">当前没有 {selectedDramaModel.label} 的视频渠道，分镜制作页无法按这个模型生成视频。请先配置渠道，或改用已有渠道的模型。</div> : null}
                 {overLimitSegments.length ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {selectedDramaModel?.label} 一段 {selectedDramaModel?.duration.max} 秒的上限（{overLimitSegments.slice(0, 6).map((segment) => segment.segmentId || segment.title).join("、")}{overLimitSegments.length > 6 ? " 等" : ""}）。保存后这些段不能生成视频，需要先拆分。</div> : null}
             </section>
 

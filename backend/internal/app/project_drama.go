@@ -253,6 +253,7 @@ func (s *Service) ProjectBrief(userID string, projectID string) (map[string]any,
 	if strings.TrimSpace(project.BriefJSON) != "" {
 		_ = json.Unmarshal([]byte(project.BriefJSON), &doc)
 	}
+	doc = drama.NormalizeBrief(doc)
 	if _, ok := doc["title"]; !ok {
 		doc["title"] = project.Name
 	}
@@ -275,6 +276,14 @@ func (s *Service) UpdateProjectBrief(userID string, projectID string, raw json.R
 	doc, err := decodeDramaDocument(raw)
 	if err != nil {
 		return nil, err
+	}
+	// 按契约 brief 校验：形状不对的需求文档会让「需求问透了」永远不成立，宁可当场拒绝让写的一方改。
+	if _, ok := doc["title"]; !ok {
+		doc["title"] = project.Name
+	}
+	checked, _ := json.Marshal(doc)
+	if _, err := drama.ParseBrief(checked); err != nil {
+		return nil, BadAuthRequest(err.Error())
 	}
 	update := UpdateProjectRequest{}
 	if value, ok := doc["video_model"].(string); ok && strings.TrimSpace(value) != "" && value != project.GenerationModel {
@@ -485,6 +494,9 @@ func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaS
 	}
 	unitID := strings.TrimSpace(req.UnitID)
 	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, BadAuthRequest(fmt.Sprintf("章节 %q 不在这个项目里：先用 drama_chapters_read 取章节 ID", unitID))
+		}
 		return nil, err
 	}
 	if len(req.Segments) == 0 || len(req.Segments) > 60 {
@@ -809,8 +821,18 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 			if seg, err := drama.ParseSegment([]byte(rev.SpecJSON)); err == nil && len(seg.Refs) > 0 && row.RefCount == 0 {
 				row.RefCount = len(seg.Refs)
 			}
-			if seg, err := drama.ParseSegment([]byte(rev.SpecJSON)); err == nil && seg.Mode != drama.ModeLockIdentity {
-				row.RefCount = max(row.RefCount, 1)
+			// 不锁人物的段：首帧模式要真有首帧；纯文字段只有没人说话（空镜、环境）时才算不需要参考。
+			if seg, err := drama.ParseSegment([]byte(rev.SpecJSON)); err == nil {
+				switch seg.Mode {
+				case drama.ModeLockFirstFrame:
+					if strings.TrimSpace(seg.FirstFrame) != "" {
+						row.RefCount = max(row.RefCount, 1)
+					}
+				case drama.ModeTextOnly:
+					if !seg.HasDialogue() {
+						row.RefCount = max(row.RefCount, 1)
+					}
+				}
 			}
 		}
 		input.Shots = append(input.Shots, row)
@@ -1006,9 +1028,10 @@ func (s *Service) DramaGate(userID string, projectID string, req DramaGateReques
 }
 
 // enforceDramaSegmentTaskDuration 拦下超过项目生成模型单段上限的短剧视频任务（只看带项目和镜头标识的任务）。
-func (s *Service) enforceDramaSegmentTaskDuration(userID string, input map[string]any) error {
+// dramaTaskTarget 取短剧视频任务的项目和镜头标识；不是带项目和镜头的视频任务返回空。
+func dramaTaskTarget(input map[string]any) (string, string) {
 	if mode, _ := input["mode"].(string); mode != "video" {
-		return nil
+		return "", ""
 	}
 	projectID, _ := input["domainProjectId"].(string)
 	shotID, _ := input["shotId"].(string)
@@ -1020,7 +1043,51 @@ func (s *Service) enforceDramaSegmentTaskDuration(userID string, input map[strin
 			shotID, _ = metadata["shotId"].(string)
 		}
 	}
-	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(shotID) == "" {
+	return strings.TrimSpace(projectID), strings.TrimSpace(shotID)
+}
+
+// enforceDramaModelFamily 拦下与项目生成模型不同族的短剧视频任务：分段按项目模型的上限和方言写，
+// 换成别的模型族生成会超长或读错提示词。认不出模型族的渠道模型放行。
+func (s *Service) enforceDramaModelFamily(userID string, input map[string]any, names ...string) error {
+	projectID, shotID := dramaTaskTarget(input)
+	if projectID == "" || shotID == "" {
+		return nil
+	}
+	if config, ok := input["config"].(map[string]any); ok {
+		for _, key := range []string{"videoModel", "model"} {
+			if value, _ := config[key].(string); value != "" {
+				names = append(names, value)
+			}
+		}
+	}
+	var family drama.Model
+	found := false
+	for _, name := range names {
+		if m, ok := drama.MatchChannelModel(name); ok {
+			family, found = m, true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
+		return nil
+	}
+	m, err := projectDramaModel(project)
+	if err != nil {
+		return err
+	}
+	if family.ID != m.ID {
+		return BadAuthRequest(fmt.Sprintf("这次选的视频模型属于 %s，项目的生成模型是 %s：请换成 %s 的视频模型，或在项目设置里改生成模型", family.Label, m.Label, m.Label))
+	}
+	return nil
+}
+
+func (s *Service) enforceDramaSegmentTaskDuration(userID string, input map[string]any) error {
+	projectID, shotID := dramaTaskTarget(input)
+	if projectID == "" || shotID == "" {
 		return nil
 	}
 	config, _ := input["config"].(map[string]any)

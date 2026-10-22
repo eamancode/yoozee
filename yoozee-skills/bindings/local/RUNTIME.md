@@ -27,6 +27,7 @@
 
 | 端口 | 本机做法 |
 | --- | --- |
+| `source.read` | 直接读项目里的剧本或小说文件（用户给的路径；没给就问） |
 | `progress.read` | `python3 {{TOOLS}}/segments.py status`（数分段表六格）；终态看 需求文档.md、连戏表的校验列、final/ |
 | `brief.read` / `brief.write` | 读写 `需求文档.md` |
 | `segments.read` / `segments.write` | 读写 `剧本/分段表.md`（每段 JSON 块照契约 segment）；`python3 {{TOOLS}}/segments.py list` 列段并标出超过模型上限的段 |

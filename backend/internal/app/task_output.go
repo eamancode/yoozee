@@ -165,7 +165,7 @@ func taskClientContext(raw string) *TaskClientContext {
 		context.BatchCount = metadata.BatchCount
 		return context
 	}
-	if metadata.ShotID != "" && metadata.WorkflowStepID != "" {
+	if metadata.ShotID != "" && (metadata.WorkflowStepID != "" || metadata.DomainProjectID != "") {
 		context.DomainProjectID = metadata.DomainProjectID
 		context.ShotID = metadata.ShotID
 		context.WorkflowStepID = metadata.WorkflowStepID

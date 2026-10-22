@@ -25,7 +25,7 @@ import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store"
 import { sourceTypeLabel } from "./detail/shared";
 import { Select } from "@/components/ui/base/select";
 import type { DramaAuthMode } from "@/services/api/drama";
-import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, dramaModelOptions, findDramaModel, useDramaModels } from "./drama-model";
+import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, dramaModelOptions, findDramaModel, preferredDramaModel, useDramaChannelFamilies, useDramaModels } from "./drama-model";
 
 type ProjectForm = { name: string; aspectRatio: string; sourceType: string; generationModel: string; authMode: DramaAuthMode };
 
@@ -54,7 +54,8 @@ export default function ProjectsPage() {
     const dramaModels = useDramaModels();
     const [launcherModel, setLauncherModel] = useState("");
     const [launcherAuth, setLauncherAuth] = useState<DramaAuthMode>("step");
-    const defaultDramaModel = dramaModels.data?.default || DEFAULT_DRAMA_MODEL;
+    const dramaFamilies = useDramaChannelFamilies(dramaModels.data);
+    const defaultDramaModel = preferredDramaModel(dramaModels.data, dramaFamilies);
     const createModelId = Form.useWatch("generationModel", createForm);
     const createModel = findDramaModel(dramaModels.data, createModelId);
     const createAuth = Form.useWatch("authMode", createForm);
@@ -243,7 +244,7 @@ export default function ProjectsPage() {
                 <details className="story-launcher-options">
                     <summary>故事设置 · {generateChapterCount} 章 · {generatePerspective} · {generateTone}</summary>
                 <div className="story-launcher-controls">
-                    <label><span>生成模型</span><Select size="small" className="min-w-52" value={launcherModel || defaultDramaModel} onChange={setLauncherModel} options={dramaModelOptions(dramaModels.data)} /></label>
+                    <label><span>生成模型</span><Select size="small" className="min-w-52" value={launcherModel || defaultDramaModel} onChange={setLauncherModel} options={dramaModelOptions(dramaModels.data, dramaFamilies)} /></label>
                     <label><span>授权档位</span><Select size="small" className="min-w-28" value={launcherAuth} onChange={setLauncherAuth} options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} /></label>
                     <label><span>章节数量</span><Select size="small" className="min-w-28" value={generateChapterCount} onChange={setGenerateChapterCount} options={[{ label: "3 章", value: "3" }, { label: "5 章", value: "5" }, { label: "8 章", value: "8" }, { label: "10 章", value: "10" }]} /></label>
                     <label><span>叙事结构</span><Select size="small" className="min-w-32" value={generateStructure} onChange={setGenerateStructure} options={[{ label: "单线推进", value: "单线推进" }, { label: "双线并行", value: "双线并行" }, { label: "群像多线", value: "群像多线" }, { label: "反转嵌套", value: "反转嵌套" }]} /></label>
@@ -293,7 +294,7 @@ export default function ProjectsPage() {
                         <Form.Item name="sourceType" label="内容来源"><Select options={[{ label: "空白开始", value: "blank" }, { label: "导入小说", value: "novel" }, { label: "粘贴文本", value: "text" }]} /></Form.Item>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                        <Form.Item name="generationModel" label="生成模型" rules={[{ required: true, message: "请选择生成模型" }]} extra={createModel ? `一段 = 一次生成，最长 ${createModel.duration.max} 秒；建项后可在设置里改，但已有超长的段需要先拆分。` : undefined}><Select loading={dramaModels.isLoading} options={dramaModelOptions(dramaModels.data)} /></Form.Item>
+                        <Form.Item name="generationModel" label="生成模型" rules={[{ required: true, message: "请选择生成模型" }]} extra={createModel ? (dramaFamilies && !dramaFamilies.has(createModel.id) ? `当前没有 ${createModel.label} 的视频渠道，建了项目也生成不了视频；先在设置里配置渠道，或换一个模型。` : `一段 = 一次生成，最长 ${createModel.duration.max} 秒；建项后可在设置里改，但已有超长的段需要先拆分。`) : undefined}><Select loading={dramaModels.isLoading} options={dramaModelOptions(dramaModels.data, dramaFamilies)} /></Form.Item>
                         <Form.Item name="authMode" label="授权档位" extra={DRAMA_AUTH_OPTIONS.find((item) => item.value === createAuth)?.hint}><Select options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} /></Form.Item>
                     </div>
                     <Form.Item label="项目画风"><button type="button" className="app-story-modal-style" onClick={() => setStylePickerOpen(true)}>{selectedStyle ? <><img src={selectedStyle.imageUrl} alt="" /><span>{selectedStyle.title}</span><em>更换</em></> : <><Palette className="size-4" /><span>选择项目画风（可选）</span></>}</button></Form.Item>

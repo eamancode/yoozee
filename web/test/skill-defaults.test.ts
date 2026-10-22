@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_CANVAS_AGENT_SKILL_ID, ensureDefaultCanvasAgentSkill } from "@/services/skill-defaults";
+import { DEFAULT_CANVAS_AGENT_SKILL_ID, DEFAULT_DRAMA_AGENT_SKILL_ID, defaultCanvasAgentSkillId, ensureDefaultCanvasAgentSkill } from "@/services/skill-defaults";
 
 function skill(skillId: string, isAdded = true) {
     return { skillId, skillName: skillId, isAdded } as never;
@@ -28,5 +28,25 @@ describe("ensureDefaultCanvasAgentSkill", () => {
         expect(result.skills[0].skillId).toBe(DEFAULT_CANVAS_AGENT_SKILL_ID);
         expect(added).toBe(1);
         expect(listCalls).toBe(2);
+    });
+
+    test("installs the requested skill instead of the canvas default", async () => {
+        const installed: string[] = [];
+        let listCalls = 0;
+        const result = await ensureDefaultCanvasAgentSkill({
+            listAdded: async () => ({ skills: listCalls++ === 0 ? [skill(DEFAULT_CANVAS_AGENT_SKILL_ID)] : [skill(DEFAULT_DRAMA_AGENT_SKILL_ID)] }),
+            get: async (skillId) => ({ skill: skill(skillId, false) }),
+            add: async (skillId) => { installed.push(skillId); return { skill: skill(skillId) }; },
+        }, DEFAULT_DRAMA_AGENT_SKILL_ID);
+        expect(installed).toEqual([DEFAULT_DRAMA_AGENT_SKILL_ID]);
+        expect(result.skills[0].skillId).toBe(DEFAULT_DRAMA_AGENT_SKILL_ID);
+    });
+});
+
+describe("defaultCanvasAgentSkillId", () => {
+    test("uses the producer skill only on drama project canvases", () => {
+        expect(defaultCanvasAgentSkillId("project-1")).toBe(DEFAULT_DRAMA_AGENT_SKILL_ID);
+        expect(defaultCanvasAgentSkillId("")).toBe(DEFAULT_CANVAS_AGENT_SKILL_ID);
+        expect(defaultCanvasAgentSkillId(undefined)).toBe(DEFAULT_CANVAS_AGENT_SKILL_ID);
     });
 });

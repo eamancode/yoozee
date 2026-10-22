@@ -1,15 +1,17 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Input } from "antd";
-import { CheckCircle2, Circle, CircleAlert, Download, ShieldCheck } from "lucide-react";
+import { App, Button, Checkbox, Input } from "antd";
+import { CheckCircle2, Circle, CircleAlert, Download, Pause, Play, ShieldCheck } from "lucide-react";
 
-import { createDramaEvidence, downloadDramaDelivery, framesShotArtifact, getDramaProgress, listDramaEvidence, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaProgress, type DramaSegmentProgress } from "@/services/api/drama";
-import type { ShotArtifact } from "@/services/api/projects";
+import { AppModal } from "@/components/ui/product/app-modal/app-modal";
+import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, getDramaBible, getDramaBrief, putDramaBible, putDramaBrief, framesShotArtifact, getDramaProgress, listDramaEvidence, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, type DramaBible, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaProgress, type DramaSegment, type DramaSegmentProgress } from "@/services/api/drama";
+import { listProjectAssets, type ShotArtifact } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
 import { waitForGenerationTask } from "@/services/api/task-center";
 import type { ReferenceImage } from "@/types/image";
 
 import { dramaAuthLabel } from "../drama-model";
+import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
 
 export const dramaProgressKey = (projectId: string) => ["project", projectId, "drama", "progress"] as const;
 export const dramaEvidenceKey = (projectId: string) => ["project", projectId, "drama", "evidence"] as const;
@@ -133,6 +135,7 @@ export function DramaDeliveryPanel({ projectId, projectName }: { projectId: stri
                 <Button icon={<ShieldCheck className="size-3.5" />} loading={gateMutation.isPending} onClick={() => gateMutation.mutate()}>{lastGate ? "重新检查成片" : "检查成片"}</Button>
                 <Button type="primary" icon={<Download className="size-3.5" />} loading={deliveryMutation.isPending} onClick={() => deliveryMutation.mutate()}>下载交付包</Button>
             </div>
+            <DramaFeedbackForm projectId={projectId} segments={progressQuery.data?.segments || []} />
             {lastGate ? (
                 <div className="mt-4">
                     <div className="flex items-center gap-1.5 text-xs font-medium">{lastGate.passed ? <CheckCircle2 className="size-3.5 text-[var(--workspace-accent)]" /> : <CircleAlert className="size-3.5 text-amber-500" />}<span>{lastGate.passed ? "最近一次门禁通过" : "最近一次门禁未通过"}</span><span className="font-normal text-foreground/40">{new Date(lastGate.createdAt).toLocaleString("zh-CN")}</span></div>
@@ -227,4 +230,276 @@ function EvidenceRow({ label, evidence, pending, detail, children }: { label: st
     const state = pending || (evidence?.passed === true ? "通过" : evidence?.passed === false ? "未通过" : "未做");
     const tone = evidence?.passed === true ? "text-[var(--workspace-accent)]" : evidence?.passed === false ? "text-amber-600 dark:text-amber-400" : "text-foreground/40";
     return <div className="flex flex-wrap items-center gap-1.5"><span className="w-8 shrink-0 font-medium text-foreground/60">{label}</span><span className={`w-12 shrink-0 ${tone}`}>{state}</span>{detail ? <span className="text-foreground/45">{detail}</span> : null}<span className="ml-auto flex flex-wrap gap-1">{children}</span></div>;
+}
+
+/**
+ * 分镜制作页的段卡：段内镜头时间轴，以及「生成前看一眼」——按项目生成模型编译出的提示词、参考清单和检查结果。
+ * 编译只读、不花钱；估价沿用工作台底部按渠道报出的积分。
+ */
+export function DramaSegmentCard({ projectId, shotId, revisionId, specJson, estimate }: { projectId: string; shotId: string; revisionId?: string; specJson: string; estimate?: string }) {
+    const [open, setOpen] = useState(false);
+    const spec = useMemo(() => {
+        try {
+            return JSON.parse(specJson) as DramaSegment;
+        } catch {
+            return undefined;
+        }
+    }, [specJson]);
+    const compileQuery = useQuery({
+        queryKey: ["project", projectId, "drama", "compile", shotId, revisionId || ""],
+        queryFn: async () => (await compileProjectShot(projectId, shotId)).compiled,
+        enabled: open,
+        staleTime: 30_000,
+    });
+    if (!spec) return null;
+    const result = compileQuery.data?.result;
+    return (
+        <div className="mb-3 rounded-lg border border-border/70 px-3 py-2.5 text-xs">
+            <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{spec.id} · {spec.dur} 秒 · 段内 {spec.shots.length} 个镜头</span>
+                <Button size="small" type="link" onClick={() => setOpen((value) => !value)}>{open ? "收起编译结果" : "生成前看提示词"}</Button>
+            </div>
+            <ol className="mt-2 space-y-1">
+                {spec.shots.map((shot, index) => {
+                    const end = spec.shots[index + 1]?.at ?? spec.dur;
+                    return (
+                        <li key={`${shot.at}-${index}`} className="flex gap-2 leading-5">
+                            <span className="w-16 shrink-0 tabular-nums text-foreground/45">{shot.at}–{end}s</span>
+                            <span className="min-w-0 flex-1 text-foreground/70">{[shot.size, shot.camera].filter(Boolean).join(" · ")}{shot.size || shot.camera ? "：" : ""}{shot.text}{shot.lines?.length ? <span className="block text-foreground/55">{shot.lines.map((line) => `${line.speaker}${line.vo ? "（画外）" : ""}：「${line.text}」`).join(" ")}</span> : null}</span>
+                        </li>
+                    );
+                })}
+            </ol>
+            {open ? (
+                <div className="mt-2 border-t border-border/60 pt-2">
+                    {compileQuery.isLoading ? <p className="text-foreground/45">正在编译…</p> : null}
+                    {compileQuery.isError ? <p className="text-amber-600 dark:text-amber-400">编译失败：{compileQuery.error instanceof Error ? compileQuery.error.message : "未知错误"}</p> : null}
+                    {result ? (
+                        <>
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-foreground/50"><span>{result.model}</span><span>提交 {result.duration} 秒</span><span>{result.chars} 字</span>{estimate ? <span>预估 {estimate}</span> : null}</div>
+                            {result.issues.length ? <ul className="mt-1 space-y-0.5">{result.issues.map((issue, index) => <li key={index} className={issue.level === "error" ? "text-red-500" : "text-amber-600 dark:text-amber-400"}>{issue.level === "error" ? "不能提交：" : "注意："}{issue.message}</li>)}</ul> : null}
+                            {result.files.length ? <p className="mt-1 text-foreground/50">参考：{result.files.map((file) => `${file.tag}=${file.role}`).join("，")}</p> : null}
+                            <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-surface-active p-2 text-[var(--fs-label)] leading-5 text-foreground/70">{result.prompt}</pre>
+                        </>
+                    ) : null}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+type BriefItem = { id: string; content: string; quote?: string; date?: string; segments?: string[]; status: string };
+
+/** 看片反馈：带时间码的一句意见记成需求文档里的 R- 条目，指向哪几段；不新开段，只等那段重做。 */
+function DramaFeedbackForm({ projectId, segments }: { projectId: string; segments: DramaSegmentProgress[] }) {
+    const { message } = App.useApp();
+    const invalidate = useInvalidateDrama(projectId);
+    const [timecode, setTimecode] = useState("");
+    const [segmentId, setSegmentId] = useState("");
+    const [content, setContent] = useState("");
+    const mutation = useMutation({
+        mutationFn: async () => {
+            const { document } = await getDramaBrief(projectId);
+            const items = Array.isArray(document.items) ? (document.items as BriefItem[]) : [];
+            const next = items.reduce((max, item) => Math.max(max, Number(/^R-(\d{3})$/.exec(item.id)?.[1] || 0)), 0) + 1;
+            const today = new Date().toISOString().slice(0, 10);
+            const text = content.trim();
+            const item: BriefItem = { id: `R-${String(next).padStart(3, "0")}`, content: timecode.trim() ? `[${timecode.trim()}] ${text}` : text, quote: text, date: today, status: "待处理", ...(segmentId ? { segments: [segmentId] } : {}) };
+            await putDramaBrief(projectId, { ...document, items: [...items, item] });
+            return item;
+        },
+        onSuccess: (item) => { setContent(""); setTimecode(""); void invalidate(); message.success(`已记为 ${item.id}`); },
+        onError: (error) => message.error(error instanceof Error ? error.message : "反馈没记上"),
+    });
+    return (
+        <div className="mt-4 border-t border-border/60 pt-3">
+            <div className="text-xs font-medium">看片反馈</div>
+            <p className="mt-0.5 text-[var(--fs-label)] text-foreground/45">一条意见记成需求文档里的一个 R- 条目，指到对应的段；Agent 和制作页都按它重做那一段。</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+                <Input size="small" className="!w-24" value={timecode} onChange={(event) => setTimecode(event.target.value)} placeholder="00:12" aria-label="时间码" />
+                <select className="h-6 rounded-md border border-border/70 bg-transparent px-1.5 text-xs" value={segmentId} onChange={(event) => setSegmentId(event.target.value)} aria-label="对应的段">
+                    <option value="">不指定段</option>
+                    {segments.map((segment) => <option key={segment.shotId} value={segment.segmentId}>{segment.segmentId} {segment.title}</option>)}
+                </select>
+                <Input size="small" className="min-w-48 flex-1" value={content} onChange={(event) => setContent(event.target.value)} placeholder="这一下哪里不对、要改成什么" maxLength={300} />
+                <Button size="small" disabled={!content.trim()} loading={mutation.isPending} onClick={() => mutation.mutate()}>记下</Button>
+            </div>
+        </div>
+    );
+}
+
+export const dramaBibleKey = (projectId: string) => ["project", projectId, "drama", "bible"] as const;
+export const dramaChecklistAssetsKey = (projectId: string) => ["project", projectId, "assets", "drama-checklist"] as const;
+
+const CHECKLIST_GROUPS: Array<{ kind: ChecklistKind; label: string }> = [
+    { kind: "character", label: "角色" },
+    { kind: "location", label: "场景" },
+    { kind: "prop", label: "道具" },
+];
+
+/**
+ * 角色与资产页的素材清单：连戏表里每个人物造型、场景、道具一行，机器能查的门禁（三视图、锁定卡、音色、空景、道具图）
+ * 全过以后才能人判「过门禁」；勾选写回连戏表，概览的「参考齐了」按它算。
+ */
+export function DramaAssetChecklist({ projectId }: { projectId: string }) {
+    const { message } = App.useApp();
+    const queryClient = useQueryClient();
+    const invalidate = useInvalidateDrama(projectId);
+    const [expanded, setExpanded] = useState(false);
+    const bibleQuery = useQuery({ queryKey: dramaBibleKey(projectId), queryFn: async () => (await getDramaBible(projectId)).document });
+    const assetsQuery = useQuery({ queryKey: dramaChecklistAssetsKey(projectId), queryFn: async () => (await listProjectAssets(projectId)).assets });
+    const items = useMemo(() => buildAssetChecklist(bibleQuery.data, assetsQuery.data || []), [bibleQuery.data, assetsQuery.data]);
+    const summary = checklistSummary(items);
+    const save = useMutation({
+        mutationFn: (document: DramaBible) => putDramaBible(projectId, document),
+        onSuccess: async ({ document }) => {
+            queryClient.setQueryData(dramaBibleKey(projectId), document);
+            await invalidate();
+        },
+        onError: (error) => message.error(error instanceof Error ? error.message : "连戏表没保存上"),
+    });
+    if (bibleQuery.isLoading || assetsQuery.isLoading) return <section className="mb-3 rounded-xl border border-border/70 bg-surface px-4 py-3 text-xs text-foreground/45">正在读取素材清单…</section>;
+    if (bibleQuery.isError) return <section className="mb-3 rounded-xl border border-border/70 bg-surface px-4 py-3 text-xs text-foreground/55">素材清单读取失败：{bibleQuery.error instanceof Error ? bibleQuery.error.message : "未知错误"} <Button size="small" type="link" onClick={() => void bibleQuery.refetch()}>重试</Button></section>;
+    const assets = assetsQuery.data || [];
+    const draftable = assets.some((asset) => asset.category === "character" || asset.category === "environment" || asset.category === "prop");
+    if (!items.length) {
+        return (
+            <section className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-surface px-4 py-3">
+                <div className="min-w-0">
+                    <div className="text-xs font-medium">素材清单（连戏表）</div>
+                    <p className="mt-0.5 text-[var(--fs-label)] leading-5 text-foreground/48">还没有清单。通常由 Agent 的 yz-cast / yz-world 写；也可以先按已确认的角色、场景、道具起草，再逐项过门禁。</p>
+                </div>
+                <Button size="small" disabled={!draftable} loading={save.isPending} onClick={() => save.mutate(draftBibleFromAssets(bibleQuery.data, assets))}>按已确认资产起草清单</Button>
+            </section>
+        );
+    }
+    const pending = items.filter((item) => !item.checked);
+    const visible = expanded ? items : pending.slice(0, 6);
+    return (
+        <section className="mb-3 rounded-xl border border-border/70 bg-surface px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-xs font-medium">素材清单（连戏表）<span className="rounded bg-foreground/[.06] px-1.5 py-0.5 text-[var(--fs-tiny)] tabular-nums text-foreground/55">过门禁 {summary.checked}/{summary.total}</span></div>
+                    <p className="mt-0.5 text-[var(--fs-label)] text-foreground/48">{pending.length ? `还有 ${pending.length} 项没过门禁，其中 ${pending.filter((item) => item.ready).length} 项文件已齐、等人判。` : "清单每项都过了门禁。"}</p>
+                </div>
+                <Button size="small" type="link" onClick={() => setExpanded((value) => !value)}>{expanded ? "只看没过的" : `展开全部 ${items.length} 项`}</Button>
+            </div>
+            {visible.length ? CHECKLIST_GROUPS.map((group) => {
+                const rows = visible.filter((item) => item.kind === group.kind);
+                if (!rows.length) return null;
+                return (
+                    <div key={group.kind} className="mt-2">
+                        <div className="text-[var(--fs-tiny)] font-medium text-foreground/40">{group.label}</div>
+                        <ul>{rows.map((item) => <DramaChecklistRow key={item.key} item={item} saving={save.isPending} onToggle={(checked) => bibleQuery.data && save.mutate(setChecklistChecked(bibleQuery.data, item.key, checked))} />)}</ul>
+                    </div>
+                );
+            }) : null}
+        </section>
+    );
+}
+
+function DramaChecklistRow({ item, saving, onToggle }: { item: ChecklistItem; saving: boolean; onToggle: (checked: boolean) => void }) {
+    const missing = item.checks.filter((check) => !check.ok);
+    return (
+        <li className="flex flex-wrap items-start gap-x-3 gap-y-1 border-t border-border/50 py-2 first:border-t-0">
+            <Checkbox className="mt-0.5" checked={item.checked} disabled={saving || (!item.checked && !item.ready)} onChange={(event) => onToggle(event.target.checked)} aria-label={`${item.name}${item.variant ? ` ${item.variant}` : ""} 过门禁`}>
+                <span className="text-xs">过门禁</span>
+            </Checkbox>
+            <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                    <span className="font-medium">{item.name}{item.variant ? ` · ${item.variant}` : ""}</span>
+                    <span className="text-[var(--fs-tiny)] text-foreground/40">{item.asset ? `资产：${item.asset.title}` : "资产库里没找到对应资产"}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                    {item.checks.map((check) => (
+                        <span key={check.label} title={check.detail} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[var(--fs-tiny)] ${check.ok ? "bg-foreground/[.06] text-foreground/60" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"}`}>
+                            {check.ok ? <CheckCircle2 className="size-3" /> : <CircleAlert className="size-3" />}{check.label}
+                        </span>
+                    ))}
+                </div>
+                {item.lockCard.length ? <p className="mt-1 line-clamp-2 text-[var(--fs-tiny)] leading-4 text-foreground/45">锁定卡：{item.lockCard.join(" · ")}</p> : null}
+                {item.kind === "character" && (item.voice || item.voiceShort) ? <p className="mt-0.5 text-[var(--fs-tiny)] text-foreground/45">音色：长版{item.voice ? "已有" : "缺"} · 短版{item.voiceShort ? "已有" : "缺"}</p> : null}
+                {item.checked && missing.length ? <p className="mt-0.5 text-[var(--fs-tiny)] text-amber-600 dark:text-amber-400">已勾过门禁，但{missing.map((check) => check.label).join("、")}没过：{missing[0].detail}</p> : !item.checked && missing.length ? <p className="mt-0.5 text-[var(--fs-tiny)] text-foreground/45">{missing[0].detail}</p> : null}
+            </div>
+        </li>
+    );
+}
+
+/** 一条候选的三项证据现状（抽帧、人脸，有台词时加台词转写）。 */
+export function takeEvidenceStatus(evidence: DramaEvidence[], artifactId: string, hasDialogue: boolean) {
+    const items = evidence.filter((item) => item.artifactId === artifactId);
+    const required: Array<{ kind: DramaEvidenceKind; label: string; passed: boolean | null }> = [
+        { kind: "frames", label: "抽帧", passed: latestOf(items, "frames")?.passed ?? null },
+        { kind: "faces", label: "人脸", passed: latestOf(items, "faces")?.passed ?? null },
+        ...(hasDialogue ? [{ kind: "transcript" as const, label: "台词", passed: latestOf(items, "transcript")?.passed ?? null }] : []),
+    ];
+    const transcript = latestOf(items, "transcript");
+    const metrics = transcript ? parseEvidenceMetrics(transcript) : {};
+    const cer = typeof metrics.cer === "number" ? metrics.cer : undefined;
+    return { required, passedAll: required.every((item) => item.passed === true), cer };
+}
+
+const COMPARE_LIMIT = 4;
+
+/**
+ * 候选并排：同一段的几条视频候选放在一起同步播放，每条标出三项证据和字错率；
+ * 选定仍走证据面板（三项都过 + 一句理由），这里只负责比较和跳过去。
+ */
+export function DramaTakeCompare({ projectId, shotId, artifacts, activeId, onOpen }: { projectId: string; shotId: string; artifacts: ShotArtifact[]; activeId?: string; onOpen: (artifactId: string) => void }) {
+    const [open, setOpen] = useState(false);
+    const takes = artifacts.filter((item) => item.type === "video" && item.status === "ready" && item.resourceId);
+    const [chosen, setChosen] = useState<string[]>([]);
+    const progressQuery = useDramaProgress(projectId);
+    const evidenceQuery = useQuery({ queryKey: dramaEvidenceKey(projectId), queryFn: async ({ signal }) => (await listDramaEvidence(projectId, signal)).evidence, enabled: open });
+    const videos = useRef(new Map<string, HTMLVideoElement>());
+    const hasDialogue = Boolean(progressQuery.data?.segments.find((item) => item.shotId === shotId)?.hasDialogue);
+    if (takes.length < 2) return null;
+    const defaults = [...takes.filter((item) => item.selected), ...takes.filter((item) => !item.selected)].slice(0, COMPARE_LIMIT).map((item) => item.id);
+    const shown = (chosen.length ? chosen : defaults).map((id) => takes.find((item) => item.id === id)).filter((item): item is ShotArtifact => Boolean(item));
+    const playAll = () => videos.current.forEach((video) => { video.currentTime = 0; void video.play().catch(() => undefined); });
+    const pauseAll = () => videos.current.forEach((video) => video.pause());
+    const toggle = (id: string) => setChosen((current) => {
+        const base = current.length ? current : defaults;
+        if (base.includes(id)) return base.length > 2 ? base.filter((item) => item !== id) : base;
+        return base.length >= COMPARE_LIMIT ? base : [...base, id];
+    });
+    return (
+        <>
+            <Button size="small" block onClick={() => setOpen(true)}>并排对比 {takes.length} 条候选</Button>
+            <AppModal open={open} title="候选并排对比" footer={null} centered width="min(1200px, calc(100vw - 32px))" onCancel={() => { pauseAll(); setOpen(false); }}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-foreground/50">同一段最多并排 {COMPARE_LIMIT} 条。看同一个人、台词、崩坏；选定要回到证据面板写理由。</p>
+                    <div className="flex gap-1.5"><Button size="small" icon={<Play className="size-3.5" />} onClick={playAll}>从头同步播放</Button><Button size="small" icon={<Pause className="size-3.5" />} onClick={pauseAll}>全部暂停</Button></div>
+                </div>
+                {takes.length > COMPARE_LIMIT ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[var(--fs-label)]">
+                        {takes.map((take) => <button key={take.id} type="button" aria-pressed={shown.some((item) => item.id === take.id)} className={`rounded px-2 py-0.5 ${shown.some((item) => item.id === take.id) ? "bg-surface-active font-medium" : "bg-foreground/[.05] text-foreground/55"}`} onClick={() => toggle(take.id)}>v{take.version}{take.selected ? " · 选定" : ""}</button>)}
+                    </div>
+                ) : null}
+                <div className={`mt-3 grid gap-3 ${shown.length > 2 ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2"}`}>
+                    {shown.map((take) => {
+                        const status = takeEvidenceStatus(evidenceQuery.data || [], take.id, hasDialogue);
+                        return (
+                            <div key={take.id} className={`rounded-lg border p-2 ${take.id === activeId ? "border-[var(--workspace-accent)]/60" : "border-border/70"}`}>
+                                <video
+                                    ref={(element) => { if (element) videos.current.set(take.id, element); else videos.current.delete(take.id); }}
+                                    className="aspect-[9/16] max-h-[52vh] w-full rounded bg-black object-contain"
+                                    src={resourceFileUrl(take.resourceId!)}
+                                    controls
+                                    playsInline
+                                    preload="metadata"
+                                    aria-label={`候选 v${take.version}`}
+                                />
+                                <div className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="font-medium">v{take.version}{take.selected ? " · 当前选定" : ""}</span>{status.cer !== undefined ? <span className="tabular-nums text-foreground/50">字错率 {(status.cer * 100).toFixed(1)}%</span> : null}</div>
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                    {status.required.map((item) => <span key={item.kind} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[var(--fs-tiny)] ${item.passed === true ? "bg-foreground/[.06] text-foreground/60" : item.passed === false ? "bg-red-500/10 text-red-600 dark:text-red-400" : "bg-foreground/[.04] text-foreground/40"}`}>{item.passed === true ? <CheckCircle2 className="size-3" /> : item.passed === false ? <CircleAlert className="size-3" /> : <Circle className="size-3" />}{item.label}{item.passed === null ? "未做" : item.passed ? "过" : "未过"}</span>)}
+                                </div>
+                                <Button className="mt-2" size="small" block type={status.passedAll && !take.selected ? "primary" : "default"} onClick={() => { pauseAll(); setOpen(false); onOpen(take.id); }}>{take.selected ? "看这条的证据" : "看证据并选这条"}</Button>
+                            </div>
+                        );
+                    })}
+                </div>
+            </AppModal>
+        </>
+    );
 }

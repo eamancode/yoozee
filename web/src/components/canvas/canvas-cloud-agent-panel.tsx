@@ -52,7 +52,7 @@ import { getActiveUserScope } from "@/lib/user-scope";
 import { applyAgentCanvasPatches, refreshCanvasAfterAgent, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { createAgentCanvasSync } from "@/services/agent-canvas-sync";
 import { buildSkillMentionReferences, resolveSkillMentions } from "@/services/skill-runtime";
-import { DEFAULT_CANVAS_AGENT_SKILL_ID, ensureDefaultCanvasAgentSkill } from "@/services/skill-defaults";
+import { DEFAULT_CANVAS_AGENT_SKILL_ID, DEFAULT_DRAMA_AGENT_SKILL_ID, defaultCanvasAgentSkillId, ensureDefaultCanvasAgentSkill } from "@/services/skill-defaults";
 import { AGENT_SCENE_DEFS, AgentChatComposer, parseCloudAgentFormAnswer, AgentPlanBar, AgentQuestionBar, AgentSceneCapsules, type AgentSceneBucket, type CloudAgentChatMessage } from "./canvas-cloud-agent-chat-ui";
 import { CanvasAgentSkillLibraryModal } from "./canvas-agent-skill-library-modal";
 import { useSkillCuration, curationQuery } from "@/components/skills/skill-curation-browser";
@@ -62,6 +62,7 @@ import "./canvas-cloud-agent.css";
 import { appendAgentError, appendUniqueMessage, applyAgentEvent, positiveNumber, type ApprovalState } from "./canvas-cloud-agent-events";
 import { AgentContextRing, AgentConversation, AgentHeader, AgentHistory, AgentLauncher, ComposerControls } from "./canvas-cloud-agent-panel-parts";
 import { AgentConnectorsBar } from "./canvas-cloud-agent-connectors";
+import { createClientId } from "@/lib/client-id";
 
 type CloudAgentPanelProps = {
     canvasId: string;
@@ -237,7 +238,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
             if (running || busy || presetApplyingRef.current || !historyHydrated || !pendingHydrated) return;
             const scope = conversationScope;
             const account = getActiveUserScope();
-            const token = crypto.randomUUID();
+            const token = createClientId();
             const isCurrent = () => presetApplyingRef.current === token && currentScope.current === scope && getActiveUserScope() === account;
             const missing = preset.skillIds.filter((id) => !installedSkillIds.has(id));
             presetApplyingRef.current = token;
@@ -281,7 +282,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
             if (running || busy || presetApplyingRef.current || !historyHydrated || !pendingHydrated) return;
             const scope = conversationScope;
             const account = getActiveUserScope();
-            const token = crypto.randomUUID();
+            const token = createClientId();
             const isCurrent = () => presetApplyingRef.current === token && currentScope.current === scope && getActiveUserScope() === account;
             presetApplyingRef.current = token;
             setPresetApplyingId(skill.skillId);
@@ -487,16 +488,28 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
                 if (!active) return;
                 const current = document.conversations.find((conversation) => conversation.id === document.activeId) || document.conversations[0];
                 let initialSkillIds = current?.skillIds || [];
-                if (!document.conversations.length) {
+                if (domainProjectId && initialSkillIds.includes(DEFAULT_CANVAS_AGENT_SKILL_ID)) {
+                    // 短剧项目画布改由制片总控统筹：旧会话里选着的旧六步技能换成 yz-producer。
+                    initialSkillIds = Array.from(new Set(initialSkillIds.map((id) => id === DEFAULT_CANVAS_AGENT_SKILL_ID ? DEFAULT_DRAMA_AGENT_SKILL_ID : id)));
                     try {
-                        const defaults = await ensureDefaultCanvasAgentSkill();
+                        const defaults = await ensureDefaultCanvasAgentSkill({}, DEFAULT_DRAMA_AGENT_SKILL_ID);
                         if (!active) return;
                         setSkills(defaults.skills);
-                        initialSkillIds = defaults.skills.some((skill) => skill.skillId === DEFAULT_CANVAS_AGENT_SKILL_ID && skill.isAdded)
-                            ? [DEFAULT_CANVAS_AGENT_SKILL_ID]
+                    } catch {
+                        initialSkillIds = initialSkillIds.filter((id) => id !== DEFAULT_DRAMA_AGENT_SKILL_ID);
+                    }
+                }
+                if (!document.conversations.length) {
+                    try {
+                        const defaultSkillId = defaultCanvasAgentSkillId(domainProjectId);
+                        const defaults = await ensureDefaultCanvasAgentSkill({}, defaultSkillId);
+                        if (!active) return;
+                        setSkills(defaults.skills);
+                        initialSkillIds = defaults.skills.some((skill) => skill.skillId === defaultSkillId && skill.isAdded)
+                            ? [defaultSkillId]
                             : [];
                     } catch (cause) {
-                        if (active) setMessages((currentMessages) => appendAgentError(currentMessages, "default-skill-error", cause, "默认短剧技能未能安装，已保留空技能选择"));
+                        if (active) setMessages((currentMessages) => appendAgentError(currentMessages, "default-skill-error", cause, domainProjectId ? "默认制片总控技能未能安装，短剧项目画布仍会自动带上 yoozee 技能" : "默认短剧技能未能安装，已保留空技能选择"));
                     }
                 }
                 setConversations(document.conversations);
@@ -545,7 +558,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
         return () => {
             active = false;
         };
-    }, [canvasId, userId]);
+    }, [canvasId, userId, domainProjectId]);
 
     useEffect(() => {
         if (!historyHydrated) return;
@@ -627,7 +640,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
         const activeRun = run;
         if (!value || !activeRun?.id || busy || connectionStatus !== "connected" || currentScope.current !== conversationScope || !historyHydrated) return;
         const scope = conversationScope;
-        const messageId = `user-${crypto.randomUUID()}`;
+        const messageId = `user-${createClientId()}`;
         setBusy(true);
         try {
             await sendAgentInterjection(activeRun.id, { text: value, messageId });
@@ -695,7 +708,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
                 };
                 const fingerprint = JSON.stringify({ scope, parent: run?.id, input });
                 if (pending && pending.fingerprint !== fingerprint) throw new Error("上一条请求尚未确认，请恢复原消息与设置后核对，不能覆盖原幂等记录");
-                const key = pending?.key || crypto.randomUUID();
+                const key = pending?.key || createClientId();
                 const next = { fingerprint, key, request: { ...input, idempotencyKey: key }, parentRunId: run?.id, messageId: `user-${key}`, displayText: options?.displayText, canvasReferenceNodeId: options?.canvasReferenceNodeId };
                 // Persist before sending. A failed local save must not submit a request
                 // whose recovery identity will disappear on reload.

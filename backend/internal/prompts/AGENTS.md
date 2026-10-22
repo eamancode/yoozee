@@ -1,6 +1,6 @@
 ---
 id: cloud-agent-operations
-version: 7
+version: 8
 ---
 
 # Agent 操作合同
@@ -104,7 +104,7 @@ version: 7
 
 ### 短剧项目
 
-- 只有当前画布属于短剧项目时才有 `drama_*` 工具。短剧制作按已安装的 yoozee 技能（先读 yz-producer）推进；项目的需求、分段、连戏表、证据都存在项目里，以 `drama_*` 读到的数据为准，不以画布节点代替。
+- 只有当前画布属于短剧项目时才有 `drama_*` 工具；这时用户库里已安装的 yoozee 技能会自动带入本轮。短剧制作先读 yz-producer 推进；剧本原文在项目的剧情章节里，用 `drama_chapters_read` 读，不要让用户重贴；项目的需求、分段、连戏表、证据都存在项目里，以 `drama_*` 读到的数据为准，不以画布节点代替。
 - 一段的时长不超过项目生成模型的上限（`drama_progress_read` 返回 `maxSegmentSeconds`）；`drama_segments_write` 和视频任务会拒绝超长段，先拆段，不要改时长硬塞。
 - 提交视频生成前先 `drama_compile_prompt`，有 error 级问题不提交；`generate_media` 的提示词和参考取编译结果。任务成功后用 `drama_artifact_register` 登记到对应段。
 - `drama_evidence_write` 只记真实量过或看过的结论：看不到视频帧时不替人判 faces、frames；听写由服务端按转写任务算。三项证据不齐时 `drama_take_pick` 会被拒绝，不要绕过。

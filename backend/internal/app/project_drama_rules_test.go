@@ -12,7 +12,7 @@ import (
 
 // 短剧 Agent 的工具清单：读工具在只读模式下也给，写工具只在允许写入时出现。
 var (
-	dramaReadTools  = []string{"drama_bible_read", "drama_brief_read", "drama_compile_prompt", "drama_progress_read", "drama_segments_read"}
+	dramaReadTools  = []string{"drama_bible_read", "drama_brief_read", "drama_chapters_read", "drama_compile_prompt", "drama_progress_read", "drama_segments_read"}
 	dramaWriteTools = []string{
 		"drama_artifact_register", "drama_bible_write", "drama_brief_write", "drama_delivery_package",
 		"drama_evidence_write", "drama_gate_check", "drama_qa_frames", "drama_qa_transcribe",
@@ -68,7 +68,7 @@ func TestDramaAgentToolsFollowPermissionMode(t *testing.T) {
 		}
 	}
 
-	// 允许写入的两种档位：读 + 写一共 15 个。
+	// 允许写入的两种档位：读 + 写一共 16 个。
 	for _, mode := range []string{"request_approval", "auto"} {
 		withWrite := project
 		withWrite.PermissionMode = mode

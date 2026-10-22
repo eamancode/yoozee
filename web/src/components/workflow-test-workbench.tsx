@@ -11,6 +11,7 @@ import { useConfigStore, type AiConfig, type RunningHubCapability, type Workflow
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { Select } from "@/components/ui/base/select";
+import { createClientId } from "@/lib/client-id";
 
 type WorkflowProvider = "runninghub";
 type MediaKind = "image" | "video" | "audio";
@@ -112,7 +113,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
         const limit = Math.max(1, slots[kind]);
         const next = Array.from(selected)
             .slice(0, limit)
-            .map((file) => ({ id: crypto.randomUUID(), file, url: URL.createObjectURL(file) }));
+            .map((file) => ({ id: createClientId(), file, url: URL.createObjectURL(file) }));
         setFiles((current) => {
             current[kind].forEach((item) => URL.revokeObjectURL(item.url));
             return { ...current, [kind]: next };

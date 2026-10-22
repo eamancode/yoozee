@@ -64,6 +64,9 @@ const (
 
 var segmentIDPattern = regexp.MustCompile(`^S[0-9]{2,3}[a-z]?$`)
 
+// SegmentShape 是写给 Agent 和人看的分段字段说明（契约 segment）。
+const SegmentShape = "每段字段：id（S01、S12b）；scene（场次）；title?；dur（秒）；mode（lock_identity / lock_first_frame / text_only）；first_frame?、last_frame?（lock_first_frame 用）；refs?:[{file, role(identity/location/plate/prop/frame), note?}]，file 填柚子资产 ID；voices?:[{character, file}]；shots:[{at（段内第几秒）, size?, camera?, text, lines?:[{speaker, text, vo?, delivery?}]}]；sound?、rules?、hook?、lang?。不认识的字段会被拒绝。"
+
 var refRoles = map[string]bool{"identity": true, "location": true, "plate": true, "prop": true, "frame": true, "motion": true}
 
 // ParseSegment 严格解析并校验一段中性分段（未知字段、缺字段、非法枚举都报错）。
@@ -79,7 +82,11 @@ func ParseSegment(raw []byte) (Segment, error) {
 	decoder.DisallowUnknownFields()
 	var seg Segment
 	if err := decoder.Decode(&seg); err != nil {
-		return Segment{}, fmt.Errorf("分段 JSON 格式错误: %w", err)
+		message := err.Error()
+		if strings.HasPrefix(message, "json: unknown field ") {
+			return Segment{}, fmt.Errorf("分段不符合契约 segment：不认识的字段 %s（字段写法见工具说明）", strings.TrimPrefix(message, "json: unknown field "))
+		}
+		return Segment{}, fmt.Errorf("分段不符合契约 segment：%s（字段写法见工具说明）", message)
 	}
 	if err := seg.Validate(); err != nil {
 		return Segment{}, err

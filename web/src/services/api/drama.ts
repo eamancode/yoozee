@@ -8,6 +8,8 @@ export type DramaModel = {
     label: string;
     vendor: string;
     kind: string;
+    /** 渠道模型名里出现这些片段就算这个模型族。 */
+    match: string[];
     duration: { min: number; max: number; step: number };
     refs: { images: number | null; videos: number | null; audios: number | null; total: number | null };
     frames_exclusive_with_refs: boolean | null;
@@ -115,6 +117,21 @@ export function getDramaBrief(projectId: string) {
 
 export function putDramaBrief(projectId: string, document: Record<string, unknown>) {
     return http.put<{ document: Record<string, unknown> }>(`/projects/${projectId}/drama/brief`, { document });
+}
+
+/** 连戏表（契约 bible）：也是素材清单。每项指向文件（柚子里是资产版本 ID），checked 为 true 才算齐。 */
+export type DramaBibleVariant = { label: string; age?: string; face_hair?: string; glasses?: string; marks?: string; costume?: string; lock_card?: string[]; sheet?: string; crops?: string[]; voice?: string; voice_short?: string; checked?: boolean };
+export type DramaBibleCharacter = { name: string; speaks?: boolean; variants: DramaBibleVariant[] };
+export type DramaBibleProp = { name: string; image?: string; states?: Array<{ when?: string; desc?: string; image?: string }>; checked?: boolean };
+export type DramaBibleLocation = { name: string; plate?: string; side_a?: string; side_b?: string; fixtures?: string; light?: string; checked?: boolean };
+export type DramaBible = { characters?: DramaBibleCharacter[]; props?: DramaBibleProp[]; locations?: DramaBibleLocation[]; [key: string]: unknown };
+
+export function getDramaBible(projectId: string) {
+    return http.get<{ document: DramaBible }>(`/projects/${projectId}/drama/bible`);
+}
+
+export function putDramaBible(projectId: string, document: DramaBible) {
+    return http.put<{ document: DramaBible }>(`/projects/${projectId}/drama/bible`, { document });
 }
 
 export function compileProjectShot(projectId: string, shotId: string, input: { model?: string } = {}) {

@@ -15,9 +15,11 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [x] 前端接口合同：`drama.ts` 的 16 个调用（路径、方法、请求体、blob 下载的文件名解析与错误还原）与 `parseEvidenceMetrics` 容错。`bun test test/drama-api.test.ts` 7 项通过。
 - [x] 前端模型选项与档位：`dramaModelOptions` 的「每段最长 N 秒」「未校准」标记、目录缺失时的兜底、`findDramaModel` 回退默认、两档授权标签。`bun test test/drama-model.test.ts` 7 项通过。
 - [x] 概览与交付面板渲染：一句进度、8 个终态、每段六格（剧本/参考/生成/过审/入片/验收）、超长与缺口标注、门禁逐项结果与指标损坏时不崩。`bun test test/drama-panels.test.tsx` 13 项通过。
-- [x] 前端 `bun run typecheck` 与 `bun run build` 已在本机执行通过（构建 3 分 14 秒，仅既有 chunk 体积告警）；此前云端环境装不上依赖，只做了转译语法检查。
+- [x] 前端 `bun run typecheck` 与 `bun run build` 已在本机执行通过（构建 3 分 14 秒，仅既有 chunk 体积告警）；此前云端环境装不上依赖，只做了转译语法检查。线上联调后的这一轮前端改动（章节生成分段、分镜制作页、交付反馈、剪辑导出后门禁、去掉 `crypto.randomUUID`）还需在本机重跑一次。
+- [x] 旧流程只读与素材清单：`TestLegacyWorkflowIsReadOnly`、`TestRegisterTaskOutputFromTaskPersistsMediaAssetAndArtifactIdempotently`（不带 `workflowStepId` 也登记产物、不建流程实例）、`TestDramaCanvasInstallsBuiltinSuiteAndDropsLegacySkill`；前端 `bun test test/drama-asset-checklist.test.ts` 7 项通过，`drama-panels.test.tsx` 新增素材清单与候选并排用例（需本机依赖运行）。
+- [x] 线上联调补的后端用例：`TestDramaGateWithoutFilmAsksForExport`、`TestDramaVideoTaskRejectsOtherModelFamily`、`TestDramaChaptersReadPagesSourceText`、`TestDramaCanvasGetsSkillReadersWithoutPickedSkills`、`TestBriefWriteFollowsContract`、`TestTextOnlySegmentNeedsReferencesWhenSomeoneSpeaks`、`TestNormalizeBriefKeepsLegacyContentInContractShape`，云端 `go test` 通过。
 - [x] 段格式编译的 Python / Go 对照：`TestCompileMatchesSkillPackageGoldens` 用 `yoozee-skills/tests` 的同一批样例与期望结果比对，两版逐字一致。
-- 后端 app 层新增 `internal/app/project_drama_rules_test.go`（默认视频模型同族校验、两档授权校验、Agent 工具按权限模式分组共 15 个、批量写段超长整批拒绝且不留部分写入、改小模型后概览标超长）。`go vet ./internal/app/` 通过；本机没有 CGO 工具链（go-sqlite3 需要），这些用例要等 CI 的 `go test ./...` 执行，本地未运行。
+- 后端 app 层新增 `internal/app/project_drama_rules_test.go`（默认视频模型同族校验、两档授权校验、Agent 工具按权限模式分组共 16 个（含 `drama_chapters_read`）、批量写段超长整批拒绝且不留部分写入、改小模型后概览标超长）。`go vet ./internal/app/` 通过；本机没有 CGO 工具链（go-sqlite3 需要），本机未运行；云端环境 `go test` 已通过。
 
 仍需人工/真实环境验收：
 
@@ -27,6 +29,16 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [ ] 交付页：剪辑导出成片后跑门禁；下载交付包，确认 zip 内容齐全且无密钥（zip 内容与「无 .env」已由 `TestDeliveryPackageContainsContractsAndRecordsDelivery` 覆盖，真实成片与浏览器下载未验）。
 - [ ] 云端 Agent：短剧项目画布出现 drama_* 工具，只读模式下只有读工具（工具分组已自动化）；每步确认 / 全权两档的提问行为要真实模型会话。
 - [ ] Seedance 2.0 / 2.5 方言档案需用真实样片校准（yz-calibrate），两份 `calibrated` 目前都是 `false`。
+- [ ] 明文 HTTP 访问（如 `http://IP/`）时云端 Agent 能正常发消息（已去掉对 `crypto.randomUUID` 的依赖）。
+- [ ] 短剧项目画布上不勾技能也能读 yz-producer；Agent 能用 `drama_chapters_read` 读章节原文、按契约写需求文档和分段表，写错时看到具体原因并自己改。
+- [ ] 剧情章节「生成分段」：段长不超过项目模型上限，台词覆盖率与超长段提示正确。
+- [ ] 分镜制作页：段时长以分段表为准、不被渠道档位改写；有分段表的段不再强制填视频提示词；「生成前看提示词」显示编译结果与估价；模型族不一致时拦下。
+- [ ] 剪辑导出成片后自动跑门禁；交付页的看片反馈写成需求文档里的 R- 条目。
+- [ ] 旧六步流程只读：新建项目不再生成流程实例；分镜制作页生成视频不再调用建流程接口，成功后产物直接出现在该段（任务只带 `domainProjectId` 与 `shotId`）；旧项目的流程记录仍能读到，但切换步骤返回「已只读」。
+- [ ] 短剧项目画布：新用户没往技能库加过 yz-* 也能用制片总控（服务端自动加入）；旧会话里选着的旧六步技能打开后换成 yz-producer。
+- [ ] 角色与资产页素材清单：连戏表为空时可按已确认资产起草；三视图、锁定卡、音色、空景、道具图缺项时不能勾「过门禁」；勾选后概览「参考齐了」相应变化。
+- [ ] 分镜制作页候选并排：同一段两条以上就绪视频时出现「并排对比」，可同步播放，证据与字错率标注正确，「看证据并选这条」跳到对应候选的证据面板。
+- 线上联调中 Seedance 渠道连续返回 503（已退款），视频候选、证据、选定、剪辑与门禁的真实链路仍待渠道恢复后验收。
 
 ## 灵感页路由与导航
 

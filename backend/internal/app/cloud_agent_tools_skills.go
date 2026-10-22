@@ -336,3 +336,55 @@ func (s *Service) cloudAgentSkills(userID string, ids []string) ([]cloudAgentSki
 	}
 	return snapshots, nil
 }
+
+// cloudAgentDramaSuite 是短剧项目画布上自动带入的 yoozee 1.0 skills（总控在前）。
+var cloudAgentDramaSuite = []string{
+	"yz-producer", "yz-brief", "yz-adapt", "yz-direct", "yz-cast", "yz-world", "yz-dialect", "yz-shoot", "yz-qc", "yz-cut", "yz-deliver", "yz-calibrate",
+	"kb-director", "kb-continuity", "kb-performance", "kb-character", "kb-dialects",
+}
+
+// legacyDramaSkillID 是旧六步短剧技能；短剧项目画布改由 yz-producer 统筹，旧技能不再进本轮快照。
+const legacyDramaSkillID = "yingce-short-drama-workflow"
+
+// builtinSkillOwner 是内置技能的所有者标识（SKILL.md metadata.owner）。
+const builtinSkillOwner = "yingce-system"
+
+// withCloudAgentDramaSuite 在短剧项目画布上把 yoozee 技能补进本轮快照，让 Agent 不必等用户在面板里逐个勾选。
+// 平台内置、已上架但用户还没加进技能库的，顺手加进去（与面板默认技能的做法一致）；停用或已删除的跳过，不报错。
+// 旧六步技能即使被选中也拿掉，免得两套流程打架。
+func (s *Service) withCloudAgentDramaSuite(userID string, snapshots []cloudAgentSkill) ([]cloudAgentSkill, error) {
+	have := map[string]bool{}
+	kept := snapshots[:0]
+	for _, skill := range snapshots {
+		if skill.ID == legacyDramaSkillID {
+			continue
+		}
+		kept = append(kept, skill)
+		have[skill.ID] = true
+	}
+	snapshots = kept
+	for _, id := range cloudAgentDramaSuite {
+		if have[id] {
+			continue
+		}
+		detail, err := s.SkillDetail(userID, id)
+		if err != nil || detail.Status != 1 {
+			continue
+		}
+		if !detail.IsAdded {
+			if detail.OwnerUID != builtinSkillOwner {
+				continue
+			}
+			if _, err := s.SetSkillAdded(userID, id, true); err != nil {
+				continue
+			}
+		}
+		added, err := s.cloudAgentSkills(userID, []string{id})
+		if err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, added...)
+		have[id] = true
+	}
+	return snapshots, nil
+}

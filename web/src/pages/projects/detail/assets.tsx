@@ -46,6 +46,7 @@ import { useAssetStore, type Asset, type AssetCategory, type AssetStatus, type E
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasFolderStyle, type CanvasFolderTheme, type CanvasNodeData } from "@/types/canvas";
 
+import { DramaAssetChecklist } from "./drama-panels";
 import { ProjectCharacterCard } from "./project-character-card";
 import { projectCharacterCover } from "./project-character-cover";
 import { linkSelectedProjectAssets } from "./project-asset-linking";
@@ -418,6 +419,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     <Button type="primary" className="!h-9 !px-3.5" icon={<Plus className="size-3.5" />} onClick={() => openCharacterEditor("new")}>新建角色</Button>
                 </div>
             </header>
+            <DramaAssetChecklist projectId={detail.project.id} />
             <div className="project-assets-layout mt-3 grid gap-3">
                 <nav className="space-y-0.5 pr-2" aria-label="素材目录与资产分类">
                     <div className="mb-1 flex h-8 items-center justify-between px-2 text-[var(--fs-tiny)] font-medium text-foreground/42"><span>素材目录</span><button type="button" className="rounded p-1 hover:bg-surface-hover" aria-label="新建根目录文件夹" onClick={() => openFolderEditor(undefined, "")}><FolderPlus className="size-3.5" /></button></div>

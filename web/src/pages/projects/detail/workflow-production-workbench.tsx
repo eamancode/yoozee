@@ -25,7 +25,6 @@ import { quoteModel, type LogicalModelQuote } from "@/services/api/logical-model
 import { type GenerationTask } from "@/services/api/task-center";
 import { downloadBrowserMedia } from "@/services/browser-download";
 import {
-    createUnitWorkflow,
     deleteProjectShot,
     linkShotAsset,
     listProjectAssetsPage,
@@ -37,7 +36,6 @@ import {
     type ShotAssetReference,
     type ShotArtifact,
     type ShotRevisionInput,
-    type WorkflowStep,
 } from "@/services/api/projects";
 import { resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey } from "@/services/api/resources";
 import { skillRuntime } from "@/services/skill-runtime";
@@ -56,8 +54,8 @@ import {
 } from "./workflow-shared";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
 import { compileProjectShot } from "@/services/api/drama";
-import { findDramaModel, useDramaModels } from "../drama-model";
-import { DramaTakeEvidencePanel, useInvalidateDrama } from "./drama-panels";
+import { dramaFamilyOf, findDramaModel, useDramaModels } from "../drama-model";
+import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useInvalidateDrama } from "./drama-panels";
 import { Select } from "@/components/ui/base/select";
 
 type ShotEditorValues = Omit<ShotRevisionInput, "durationMs"> & {
@@ -70,7 +68,6 @@ type Props = {
     detail: ProjectDetail;
     projectId: string;
     unitId: string;
-    workflowStep?: WorkflowStep;
     selectedShot?: ProjectShot;
     onSelectShot: (id: string) => void;
     onRefresh: () => Promise<void>;
@@ -92,7 +89,7 @@ const SKILL_CONTEXT_OVERHEAD_CHARS = 512;
 const MIN_SKILL_CONTEXT_CHARS = 1024;
 
 export default function WorkflowProductionWorkbench(props: Props) {
-    const { activeStage, detail, projectId, unitId, workflowStep, selectedShot, onSelectShot, onRefresh, onAddShot, addingShot } = props;
+    const { activeStage, detail, projectId, unitId, selectedShot, onSelectShot, onRefresh, onAddShot, addingShot } = props;
     const { message, modal } = App.useApp();
     const navigate = useNavigate();
     const effectiveConfig = useEffectiveConfig();
@@ -130,7 +127,12 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const modelOptions = useMemo(() => selectableModelsByCapability(effectiveConfig, generationCapability), [effectiveConfig, generationCapability]);
     const projectDefaultModel = generationCapability === "video" ? detail.project.defaultVideoModel : detail.project.defaultImageModel;
     const globalDefaultModel = generationCapability === "video" ? effectiveConfig.videoModel : effectiveConfig.imageModel;
-    const defaultModel = projectDefaultModel && configuredModelMatchesCapability(effectiveConfig, projectDefaultModel, generationCapability) ? projectDefaultModel : globalDefaultModel;
+    const dramaModels = useDramaModels();
+    const dramaModel = findDramaModel(dramaModels.data, detail.project.generationModel);
+    const familyOf = (value: string) => dramaFamilyOf(dramaModels.data, value, modelDisplayName(effectiveConfig, value));
+    // 视频优先用项目默认；没设时挑一个和项目生成模型同族的渠道模型，避免全局默认是别的模型族。
+    const familyDefaultModel = generationCapability === "video" && dramaModel ? modelOptions.find((value) => familyOf(value)?.id === dramaModel.id) : undefined;
+    const defaultModel = projectDefaultModel && configuredModelMatchesCapability(effectiveConfig, projectDefaultModel, generationCapability) ? projectDefaultModel : familyDefaultModel || globalDefaultModel;
     const initialModel = defaultModel || modelOptions[0] || "";
     const [selectedModel, setSelectedModel] = useState(initialModel);
     const selectedModelRef = useRef(initialModel);
@@ -147,8 +149,6 @@ export default function WorkflowProductionWorkbench(props: Props) {
             ...(reference.asset?.primaryVersionId ? [[reference.asset.primaryVersionId, reference] as const] : []),
         ]));
     }, [detail.shotReferences, selectedShot?.id]);
-    const dramaModels = useDramaModels();
-    const dramaModel = findDramaModel(dramaModels.data, detail.project.generationModel);
     const segmentMaxSeconds = dramaModel?.duration.max || 0;
     const segmentSpecJson = revision?.specJson || "";
     const segmentSpecShots = useMemo(() => segmentShotCount(segmentSpecJson), [segmentSpecJson]);
@@ -168,6 +168,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
             : { size: aspectRatio, quality: imageQuality },
     }), [aspectRatio, generationCapability, generationReferenceAudios.length, generationSeconds, imageQuality, resolution, shotAssetReferenceContext.referenceImages.length, videoEditOperation]);
     const routedModel = resolveCompatibleModel(effectiveConfig, selectedModel, modelRequirements) || selectedModel;
+    const routedFamily = generationCapability === "video" && routedModel ? familyOf(routedModel) : undefined;
+    const familyMismatch = Boolean(dramaModel && routedFamily && routedFamily.id !== dramaModel.id);
     const activeProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, routedModel), [effectiveConfig, routedModel]);
     const videoProfile = generationCapability === "video" ? activeProfile.video : undefined;
     const imageProfile = generationCapability === "image" ? activeProfile.image : undefined;
@@ -249,9 +251,11 @@ export default function WorkflowProductionWorkbench(props: Props) {
     useEffect(() => {
         const shotDurationSeconds = Math.max(0.5, (revision?.durationMs || selectedShot?.durationMs || 3000) / 1000);
         const currentModel = selectedModelRef.current || initialModel;
-        const normalizedDurationSeconds = generationCapability === "video" && currentModel
+        // 分段表维护的段以分段 JSON 的 dur 为准，不能被渠道的时长档位改写（否则保存时会把段改长）。
+        const specSeconds = segmentSpecSeconds(revision?.specJson || "");
+        const normalizedDurationSeconds = specSeconds || (generationCapability === "video" && currentModel
             ? Number(normalizeVideoValue(modelCapabilityConfigFor(effectiveConfig, currentModel).video!, { seconds: String(shotDurationSeconds) }).seconds)
-            : shotDurationSeconds;
+            : shotDurationSeconds);
         const videoPrompt = ensureShotAssetMentionPrompt(revision?.videoPrompt || "", shotAssetReferenceContext.mentionReferences);
         form.setFieldsValue({
             title: normalizeDefaultShotTitle(selectedShot?.title, Math.max(0, shotIndex)),
@@ -303,7 +307,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 title: values.title,
                 description: values.plotDescription,
                 position: selectedShot.position,
-                durationMs: Math.round(values.durationSeconds * 1000),
+                durationMs: Math.round((segmentSpecSeconds(segmentSpecJson) || values.durationSeconds) * 1000),
                 status: selectedShot.status,
                 revision: revisionInput(values, segmentSpecJson),
             });
@@ -339,14 +343,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
         setSubmittingShotIds((current) => new Set(current).add(submittingShot.id));
         try {
             const values = await form.validateFields();
-            let productionStep = workflowStep;
-            if (!productionStep) {
-                const initialized = await createUnitWorkflow(projectId, unitId);
-                productionStep = (initialized.workflow.steps || []).find((step) => step.stepKey === activeStage);
-            }
-            if (!productionStep) throw new Error("当前生成阶段不可用，请刷新页面后重试");
-            if (productionStep.status === "failed") throw new Error("当前生成阶段失败，请刷新后重试");
             if (!routedModel) throw new Error(activeStage === "video" ? "请先配置视频模型" : "请先配置图片模型");
+            if (familyMismatch) throw new Error(`当前视频模型属于 ${routedFamily?.label}，项目的生成模型是 ${dramaModel?.label}：请换成 ${dramaModel?.label} 的模型，或在项目设置里改生成模型`);
             const compatibilityError = modelCompatibilityError(effectiveConfig, routedModel, modelRequirements);
             if (compatibilityError) throw new Error(`当前模型配置不可用：${compatibilityError}`);
             const saved = await saveProjectShot(projectId, {
@@ -355,7 +353,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 title: values.title,
                 description: values.plotDescription,
                 position: submittingShot.position,
-                durationMs: Math.round(values.durationSeconds * 1000),
+                durationMs: Math.round((segmentSpecSeconds(segmentSpecJson) || values.durationSeconds) * 1000),
                 status: submittingShot.status,
                 revision: revisionInput(values, segmentSpecJson),
             });
@@ -409,7 +407,6 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 referenceAudios: dialect ? dialect.audios : generationReferenceAudios,
                 metadata: {
                     ...skillExecution.metadata,
-                    workflowStepId: productionStep.id,
                     domainProjectId: projectId,
                     unitId,
                     shotId: saved.shot.id,
@@ -426,7 +423,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
             await Promise.all([onRefresh(), invalidateDrama()]);
             message.success(`${productionStageCopy[activeStage as "storyboard" | "previz" | "video"].label}任务已提交`);
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "生成任务提交失败");
+            // 表单校验失败时 antd 抛的不是 Error，要把具体字段的提示说出来，不能只报「提交失败」。
+            const fieldError = (error as { errorFields?: Array<{ errors?: string[] }> } | undefined)?.errorFields?.[0]?.errors?.[0];
+            message.error(error instanceof Error ? error.message : fieldError ? `还不能生成：${fieldError}` : "生成任务提交失败");
         } finally {
             setSubmittingShotIds((current) => {
                 const next = new Set(current);
@@ -523,8 +522,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         <div className="workflow-shot-form-scroll thin-scrollbar">
                             <div className="workflow-form-section-heading"><span>分段脚本</span><small>一段 = 一次生成；先写清段里发生什么，再调整生成参数</small></div>
                             {segmentSpecShots ? <p className="mb-3 rounded-md bg-surface-active px-3 py-2 text-[var(--fs-label)] leading-5 text-foreground/55">这一段由分段表维护（段内 {segmentSpecShots} 个镜头）。生成视频时提示词按 {dramaModel?.label || "项目生成模型"} 方言从分段表编译，下面的视频提示词只作备注；改段内镜头、台词请让短剧 Agent 改分段表。</p> : null}
+                            {segmentSpecShots && activeStage === "video" ? <DramaSegmentCard projectId={projectId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} /> : null}
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
-                            <Form.Item name="videoPrompt" label="视频提示词" rules={[{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
+                            <Form.Item name="videoPrompt" label={segmentSpecShots ? "视频提示词（备注）" : "视频提示词"} rules={segmentSpecShots ? undefined : [{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
                             <BoundAssets detail={detail} shotId={selectedShot.id} changing={changeAssetBinding.isPending} onUnlink={(reference) => changeAssetBinding.mutate({ reference })} />
                             <div className="workflow-form-grid">
                                 <Form.Item name="action" label="表演与动作"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="按动作节拍描述人物表演、走位和物体运动" /></Form.Item>
@@ -551,12 +551,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                             showSelectedPrice
                                         />
                                     </Form.Item>
+                                    {familyMismatch ? <p className="-mt-2 mb-3 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">这个模型属于 {routedFamily?.label}，项目的生成模型是 {dramaModel?.label}。分段按 {dramaModel?.label} 的上限和提示词写，请换成同族模型。</p> : null}
                                     <Form.Item label="技能库"><SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} /></Form.Item>
                                     <div className="workflow-form-grid is-three">
-                                        <Form.Item name="durationSeconds" label="段时长（秒）" extra={dramaModel ? `${dramaModel.label} 一段最长 ${segmentMaxSeconds} 秒` : undefined} rules={segmentMaxSeconds ? [{ validator: (_rule, value) => Number(value) > segmentMaxSeconds ? Promise.reject(new Error(`超过 ${dramaModel?.label} 一段 ${segmentMaxSeconds} 秒的上限，请拆成两段`)) : Promise.resolve() }] : undefined}>
+                                        <Form.Item name="durationSeconds" label="段时长（秒）" extra={segmentSpecShots ? "由分段表决定" : dramaModel ? `${dramaModel.label} 一段最长 ${segmentMaxSeconds} 秒` : undefined} rules={segmentMaxSeconds ? [{ validator: (_rule, value) => Number(value) > segmentMaxSeconds ? Promise.reject(new Error(`超过 ${dramaModel?.label} 一段 ${segmentMaxSeconds} 秒的上限，请拆成两段`)) : Promise.resolve() }] : undefined}>
                                             {generationCapability === "video" && videoProfile?.duration.selection === "enum"
-                                                ? <Select options={videoDurationOptions(videoProfile).filter((value) => !segmentMaxSeconds || Number(value) <= segmentMaxSeconds).map((value) => ({ value, label: `${value} 秒` }))} />
-                                                : <InputNumber className="w-full" min={generationCapability === "video" ? videoProfile?.duration.min || 1 : 0.5} max={cappedSeconds(generationCapability === "video" ? videoProfile?.duration.max || 60 : 60, segmentMaxSeconds)} step={generationCapability === "video" ? videoProfile?.duration.step || 1 : 0.5} />}
+                                                ? <Select disabled={Boolean(segmentSpecShots)} options={videoDurationOptions(videoProfile).filter((value) => !segmentMaxSeconds || Number(value) <= segmentMaxSeconds).map((value) => ({ value, label: `${value} 秒` }))} />
+                                                : <InputNumber className="w-full" disabled={Boolean(segmentSpecShots)} min={generationCapability === "video" ? videoProfile?.duration.min || 1 : 0.5} max={cappedSeconds(generationCapability === "video" ? videoProfile?.duration.max || 60 : 60, segmentMaxSeconds)} step={generationCapability === "video" ? videoProfile?.duration.step || 1 : 0.5} />}
                                         </Form.Item>
                                         {generationCapability === "video" ? <Form.Item label="画幅"><Select value={aspectRatio} onChange={setAspectRatio} options={(videoProfile?.ratios || []).map((value) => ({value, label:value}))} /></Form.Item> : null}
                                         {generationCapability === "video" ? (
@@ -619,6 +620,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
                         <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? `${formatDuration(selectedShot.durationMs)} · ${resolution}p · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
                         <div className="workflow-preview-actions"><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
+                        {activeStage === "video" ? <DramaTakeCompare projectId={projectId} shotId={selectedShot.id} artifacts={artifacts} activeId={previewArtifact?.id} onOpen={(artifactId) => { setPreviewArtifactId(artifactId); setPreviewTab("latest"); }} /> : null}
                         {activeStage === "video" && previewArtifact?.status === "ready" ? <DramaTakeEvidencePanel projectId={projectId} shotId={selectedShot.id} artifact={previewArtifact} characterImages={shotAssetReferenceContext.referenceImages} onPicked={onRefresh} /> : null}
                         <ArtifactHistory artifacts={artifacts.slice(0, 4)} activeId={previewArtifact?.id} onSelect={(artifact) => setPreviewArtifactId(artifact.id)} compact />
                     </div>
@@ -806,18 +808,23 @@ function segmentShotCount(specJson: string) {
     return Array.isArray(shots) ? shots.length : 0;
 }
 
-/** 保存时带上分段 JSON（只同步段时长），否则新版本会丢掉分段表。 */
+function segmentSpecSeconds(specJson: string) {
+    const dur = parseSegmentSpec(specJson)?.dur;
+    return typeof dur === "number" && dur > 0 ? dur : 0;
+}
+
+/** 保存时原样带上分段 JSON，否则新版本会丢掉分段表；段时长以分段 JSON 为准。 */
 function revisionInput(values: ShotEditorValues, specJson = ""): ShotRevisionInput {
     const spec = parseSegmentSpec(specJson);
     return {
-        ...(spec ? { spec: { ...spec, dur: values.durationSeconds } } : {}),
+        ...(spec ? { spec } : {}),
         plotDescription: values.plotDescription,
         action: values.action,
         dialogue: values.dialogue,
         shotSize: values.shotSize,
         cameraAngle: values.cameraAngle,
         cameraMovement: values.cameraMovement,
-        durationMs: Math.round(values.durationSeconds * 1000),
+        durationMs: Math.round((segmentSpecSeconds(specJson) || values.durationSeconds) * 1000),
         imagePrompt: values.imagePrompt,
         videoPrompt: values.videoPrompt,
         negativePrompt: values.negativePrompt,
