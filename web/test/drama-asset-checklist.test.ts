@@ -30,7 +30,12 @@ describe("素材清单：机器能查的门禁", () => {
     });
 
     test("不说话的角色不要求音色；角色卡已绑定的形象和声音也算数", () => {
-        const bible: DramaBible = { characters: [{ name: "路人", speaks: false, variants: [{ label: "默认", lock_card: lockCard }] }, { name: "林小满", variants: [{ label: "默认", lock_card: lockCard }] }] };
+        const bible: DramaBible = {
+            characters: [
+                { name: "路人", speaks: false, variants: [{ label: "默认", lock_card: lockCard }] },
+                { name: "林小满", variants: [{ label: "默认", lock_card: lockCard }] },
+            ],
+        };
         const character = { versionId: "v", version: 1, definition: {}, representations: [], visualStatus: "ready", voiceStatus: "ready" };
         const items = buildAssetChecklist(bible, [asset({ id: "a1", title: "路人", category: "character", character }), asset({ id: "a2", title: "林小满", category: "character", character })]);
         expect(items[0].checks.map((check) => check.label)).toEqual(["三视图", "锁定卡"]);
@@ -40,7 +45,11 @@ describe("素材清单：机器能查的门禁", () => {
     test("场景要无人空景，道具要道具图", () => {
         const bible: DramaBible = { locations: [{ name: "护士站", plate: "v-station" }, { name: "七床病房" }], props: [{ name: "输液袋" }] };
         const items = buildAssetChecklist(bible, []);
-        expect(items.map((item) => [item.name, item.ready])).toEqual([["护士站", true], ["七床病房", false], ["输液袋", false]]);
+        expect(items.map((item) => [item.name, item.ready])).toEqual([
+            ["护士站", true],
+            ["七床病房", false],
+            ["输液袋", false],
+        ]);
     });
 });
 

@@ -54,11 +54,11 @@ export function segmentDurationRule(familyMaxSeconds: number, channel?: VideoCap
         return {
             maxSeconds: max,
             minSeconds: min,
-            submitSeconds: (seconds) => seconds > max ? undefined : Math.max(min, min + Math.ceil((seconds - min) / step) * step),
+            submitSeconds: (seconds) => (seconds > max ? undefined : Math.max(min, min + Math.ceil((seconds - min) / step) * step)),
             label: min === max ? `${min} 秒` : `${min}–${max} 秒`,
         };
     }
-    return { maxSeconds: familyMax, minSeconds: 1, submitSeconds: (seconds) => seconds > familyMax ? undefined : Math.max(1, Math.ceil(seconds)), label: `最长 ${familyMax} 秒` };
+    return { maxSeconds: familyMax, minSeconds: 1, submitSeconds: (seconds) => (seconds > familyMax ? undefined : Math.max(1, Math.ceil(seconds))), label: `最长 ${familyMax} 秒` };
 }
 
 export type SegmentPlanOptions = {
@@ -88,11 +88,11 @@ const NEUTRAL_CUT = 4;
 export function storyboardRowsToSegments(rows: StoryboardRow[], detail: ProjectDetail, options: SegmentPlanOptions): SegmentPlan {
     const shots = storyboardRowsToProjectShots(rows, detail);
     const { rule } = options;
-    const assetByVersionId = new Map(detail.assets.flatMap((asset) => asset.primaryVersionId ? [[asset.primaryVersionId, asset] as const] : []));
+    const assetByVersionId = new Map(detail.assets.flatMap((asset) => (asset.primaryVersionId ? [[asset.primaryVersionId, asset] as const] : [])));
     const targetMax = Math.min(options.target?.max ?? DEFAULT_SEGMENT_TARGET.max, rule.maxSeconds);
     const target = { min: Math.min(options.target?.min ?? DEFAULT_SEGMENT_TARGET.min, targetMax), max: targetMax };
     // 渠道规则和项目模型冲突时仍按内容时长装段（后端只认项目模型上限），但要明确告诉用户这个渠道交不了。
-    const submit = (seconds: number) => rule.problem ? (seconds <= rule.maxSeconds ? Math.max(1, Math.ceil(seconds)) : undefined) : rule.submitSeconds(seconds);
+    const submit = (seconds: number) => (rule.problem ? (seconds <= rule.maxSeconds ? Math.max(1, Math.ceil(seconds)) : undefined) : rule.submitSeconds(seconds));
     const notes: string[] = [];
     if (rule.problem) notes.push(`${rule.problem}：段按内容时长写入，这个渠道提交不了，先换视频渠道或改项目生成模型`);
 
@@ -146,7 +146,10 @@ export function storyboardRowsToSegments(rows: StoryboardRow[], detail: ProjectD
             ...(versionIds.length ? { refs: versionIds.map((versionId) => ({ file: versionId, role: segmentRefRole(assetByVersionId.get(versionId)?.category || ""), note: assetByVersionId.get(versionId)?.title || "" })) } : {}),
             shots: subShots,
         };
-        const description = joinClauses(subShots.map((shot) => shot.text), "；");
+        const description = joinClauses(
+            subShots.map((shot) => shot.text),
+            "；",
+        );
         return {
             title: `${id} ${segment.title}`,
             description,
@@ -154,9 +157,15 @@ export function storyboardRowsToSegments(rows: StoryboardRow[], detail: ProjectD
             assetVersionIds: versionIds.slice(0, 6),
             revision: {
                 plotDescription: description,
-                dialogue: subShots.flatMap((shot) => shot.lines || []).map((line) => `${line.speaker}：${line.text}`).join("\n"),
+                dialogue: subShots
+                    .flatMap((shot) => shot.lines || [])
+                    .map((line) => `${line.speaker}：${line.text}`)
+                    .join("\n"),
                 durationMs: dur * 1000,
-                videoPrompt: group.rows.map(({ shot }) => shot.revision.videoPrompt || "").filter(Boolean).join("\n"),
+                videoPrompt: group.rows
+                    .map(({ shot }) => shot.revision.videoPrompt || "")
+                    .filter(Boolean)
+                    .join("\n"),
                 imagePrompt: group.rows[0].shot.revision.imagePrompt || "",
                 negativePrompt: group.rows[0].shot.revision.negativePrompt || "",
                 spec: segment as unknown as Record<string, unknown>,
@@ -171,10 +180,13 @@ export function storyboardRowsToSegments(rows: StoryboardRow[], detail: ProjectD
 function groupRowsByScene(rows: StoryboardRow[], shots: ProjectShotReplacementInput[], assets: ProjectAsset[], chapterTitle: string, maxSeconds: number): PlannedScene[] {
     const assetById = new Map(assets.map((asset) => [asset.id, asset]));
     const own = rows.map((row) => {
-        const binding = row.assetBindings.slice().sort((left, right) => right.priority - left.priority).find((item) => {
-            const asset = assetById.get(item.nodeId);
-            return asset && (SCENE_CATEGORIES.has(asset.category) || (item.role === "environment" && asset.category !== "character"));
-        });
+        const binding = row.assetBindings
+            .slice()
+            .sort((left, right) => right.priority - left.priority)
+            .find((item) => {
+                const asset = assetById.get(item.nodeId);
+                return asset && (SCENE_CATEGORIES.has(asset.category) || (item.role === "environment" && asset.category !== "character"));
+            });
         const asset = binding ? assetById.get(binding.nodeId) : undefined;
         return asset ? { key: asset.id, name: asset.title } : undefined;
     });
@@ -241,7 +253,16 @@ function cutCost(before: StoryboardRow, after: StoryboardRow) {
     return NEUTRAL_CUT;
 }
 
-const SHOT_SIZE_RANKS: Array<[string, number]> = [["大远景", 1], ["远景", 1], ["全景", 2], ["中近景", 4], ["中景", 3], ["近景", 5], ["大特写", 7], ["特写", 6]];
+const SHOT_SIZE_RANKS: Array<[string, number]> = [
+    ["大远景", 1],
+    ["远景", 1],
+    ["全景", 2],
+    ["中近景", 4],
+    ["中景", 3],
+    ["近景", 5],
+    ["大特写", 7],
+    ["特写", 6],
+];
 
 function shotSizeRank(value: string) {
     const text = value.trim();
@@ -252,7 +273,10 @@ function shotSizeRank(value: string) {
 function orderedRefs(versionIds: string[], assetByVersionId: Map<string, ProjectAsset>) {
     const unique = Array.from(new Set(versionIds));
     const rank = (versionId: string) => ["identity", "location", "prop", "frame"].indexOf(segmentRefRole(assetByVersionId.get(versionId)?.category || ""));
-    return unique.map((versionId, index) => ({ versionId, index })).sort((left, right) => rank(left.versionId) - rank(right.versionId) || left.index - right.index).map((item) => item.versionId);
+    return unique
+        .map((versionId, index) => ({ versionId, index }))
+        .sort((left, right) => rank(left.versionId) - rank(right.versionId) || left.index - right.index)
+        .map((item) => item.versionId);
 }
 
 function segmentId(index: number) {
@@ -264,10 +288,12 @@ export function chapterDialogueCoverage(sourceText: string, shots: ProjectShot[]
     const quoted = Array.from(sourceText.matchAll(/[“「"]([^”」"]{2,})[”」"]/g), (match) => normalizeLine(match[1])).filter(Boolean);
     const expected = Array.from(new Set(quoted));
     const revisionById = new Map(revisions.map((revision) => [revision.id, revision]));
-    const spoken = shots.flatMap((shot) => {
-        const spec = parseSpec(revisionById.get(shot.currentRevisionId || "")?.specJson || "");
-        return (spec?.shots || []).flatMap((sub) => (sub.lines || []).map((line) => normalizeLine(line.text)));
-    }).join("\n");
+    const spoken = shots
+        .flatMap((shot) => {
+            const spec = parseSpec(revisionById.get(shot.currentRevisionId || "")?.specJson || "");
+            return (spec?.shots || []).flatMap((sub) => (sub.lines || []).map((line) => normalizeLine(line.text)));
+        })
+        .join("\n");
     const covered = expected.filter((line) => spoken.includes(line));
     return { expected: expected.length, covered: covered.length, missing: expected.filter((line) => !spoken.includes(line)) };
 }
@@ -277,13 +303,17 @@ const NO_DIALOGUE = /^[（(]?\s*(无|无台词|没有台词|none|n\/a|-+|—+)\s
 
 /** 一行一句：「说话人：台词」；说话人里带「画外 / 旁白」算画外音，没有说话人的算旁白。 */
 export function parseDialogue(value: string): DramaLine[] {
-    return value.split(/\n+/).map((line) => line.trim()).filter((line) => line && !NO_DIALOGUE.test(line)).map((line) => {
-        const match = /^([^：:]{1,12})[：:]\s*(.+)$/.exec(line);
-        if (!match) return { speaker: "旁白", text: stripQuotes(line), vo: true };
-        const speaker = match[1].replace(/[（(].*?[）)]/g, "").trim();
-        const vo = /画外|旁白|OS|VO/i.test(match[1]);
-        return { speaker: speaker || "旁白", text: stripQuotes(match[2]), ...(vo ? { vo: true } : {}) };
-    });
+    return value
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter((line) => line && !NO_DIALOGUE.test(line))
+        .map((line) => {
+            const match = /^([^：:]{1,12})[：:]\s*(.+)$/.exec(line);
+            if (!match) return { speaker: "旁白", text: stripQuotes(line), vo: true };
+            const speaker = match[1].replace(/[（(].*?[）)]/g, "").trim();
+            const vo = /画外|旁白|OS|VO/i.test(match[1]);
+            return { speaker: speaker || "旁白", text: stripQuotes(match[2]), ...(vo ? { vo: true } : {}) };
+        });
 }
 
 /** parseDialogue 的反向：编辑框里每行一句。 */
@@ -292,7 +322,10 @@ export function formatDialogue(lines: DramaLine[] = []) {
 }
 
 function stripQuotes(value: string) {
-    return value.trim().replace(/^[“「"]|[”」"]$/g, "").trim();
+    return value
+        .trim()
+        .replace(/^[“「"]|[”」"]$/g, "")
+        .trim();
 }
 
 function normalizeLine(value: string) {
@@ -308,11 +341,17 @@ function trimClause(value: string) {
 
 /** 把几格文字接成一句：每格去掉首尾标点再用 separator 接；上一格以「！？…」收尾时直接接，不再补分隔符。 */
 export function joinClauses(values: string[], separator: string) {
-    return values.map(trimClause).filter(Boolean).reduce((text, part) => !text ? part : `${text}${/[！？!?…]$/.test(text) ? "" : separator}${part}`, "");
+    return values
+        .map(trimClause)
+        .filter(Boolean)
+        .reduce((text, part) => (!text ? part : `${text}${/[！？!?…]$/.test(text) ? "" : separator}${part}`), "");
 }
 
 export function firstSentence(value: string) {
-    return value.trim().split(/[。！？\n]/)[0].slice(0, 16);
+    return value
+        .trim()
+        .split(/[。！？\n]/)[0]
+        .slice(0, 16);
 }
 
 /** 资产分类 → 段参考的用途（identity 人物、location 场景、prop 道具，其余只作构图参考）。 */

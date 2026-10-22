@@ -18,14 +18,16 @@ export const BRIEF_STATUSES = ["已确认", "默认，待确认", "默认，已�
 export type BriefFactDraft = { value: string; status: string };
 
 export function briefFactsFromDocument(document: Record<string, unknown>) {
-    return Object.fromEntries(BRIEF_FACTS.map(({ key }) => {
-        const fact = document[key];
-        if (fact && typeof fact === "object" && !Array.isArray(fact)) {
-            const record = fact as Record<string, unknown>;
-            return [key, { value: typeof record.value === "string" ? record.value : "", status: typeof record.status === "string" && record.status ? record.status : "默认，待确认" }];
-        }
-        return [key, { value: typeof fact === "string" ? fact : "", status: "默认，待确认" }];
-    })) as Record<BriefFactKey, BriefFactDraft>;
+    return Object.fromEntries(
+        BRIEF_FACTS.map(({ key }) => {
+            const fact = document[key];
+            if (fact && typeof fact === "object" && !Array.isArray(fact)) {
+                const record = fact as Record<string, unknown>;
+                return [key, { value: typeof record.value === "string" ? record.value : "", status: typeof record.status === "string" && record.status ? record.status : "默认，待确认" }];
+            }
+            return [key, { value: typeof fact === "string" ? fact : "", status: "默认，待确认" }];
+        }),
+    ) as Record<BriefFactKey, BriefFactDraft>;
 }
 
 /** 把表单里的六项写回文档：保留原有的 quote/date；值为空的事实整项去掉（契约不允许空 value）。 */
@@ -37,7 +39,7 @@ export function applyBriefFacts(document: Record<string, unknown>, facts: Record
             delete next[key];
             continue;
         }
-        const previous = document[key] && typeof document[key] === "object" && !Array.isArray(document[key]) ? document[key] as Record<string, unknown> : {};
+        const previous = document[key] && typeof document[key] === "object" && !Array.isArray(document[key]) ? (document[key] as Record<string, unknown>) : {};
         next[key] = { ...previous, value, status: facts[key].status };
     }
     return next;

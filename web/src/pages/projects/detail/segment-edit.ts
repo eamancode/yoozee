@@ -19,7 +19,10 @@ export function splitSegment(list: DramaSegmentView[], index: number, shotIndex:
     const segment = view.spec;
     if (shotIndex <= 0 || shotIndex >= segment.shots.length) throw new Error("只能在段内两个镜头之间拆开");
     const seconds = subShotSeconds(segment);
-    const id = nextSegmentId(segment.id, list.map((item) => item.spec.id));
+    const id = nextSegmentId(
+        segment.id,
+        list.map((item) => item.spec.id),
+    );
     const head = rebuild(withoutTail(segment), segment.shots.slice(0, shotIndex), seconds.slice(0, shotIndex), rule);
     const tail = rebuild({ ...withoutHead(segment), id, title: firstSentence(segment.shots[shotIndex].text) || id }, segment.shots.slice(shotIndex), seconds.slice(shotIndex), rule);
     const order = list.map((item) => item.spec.id);
@@ -80,7 +83,7 @@ export function editSubShot(list: DramaSegmentView[], index: number, shotIndex: 
         return kept?.delivery ? { ...line, delivery: kept.delivery } : line;
     });
     const shot: DramaSubShot = { ...original, text, lines: lines.length ? lines : undefined };
-    const shots = segment.shots.map((item, position) => position === shotIndex ? shot : item);
+    const shots = segment.shots.map((item, position) => (position === shotIndex ? shot : item));
     const seconds = subShotSeconds(segment);
     const nextSeconds = roundSeconds(patch.seconds);
     if (!(nextSeconds > 0)) throw new Error("镜头时长要大于 0 秒");

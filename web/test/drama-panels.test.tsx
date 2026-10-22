@@ -5,7 +5,21 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { segmentDurationRule } from "@/pages/projects/detail/chapter-segments";
-import { DramaAssetChecklist, DramaDeliveryPanel, DramaModelChips, DramaOverviewPanel, DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, dramaBibleKey, dramaChecklistAssetsKey, dramaEvidenceKey, dramaProgressKey, dramaSegmentsKey, takeEvidenceStatus } from "@/pages/projects/detail/drama-panels";
+import {
+    DramaAssetChecklist,
+    DramaDeliveryPanel,
+    DramaModelChips,
+    DramaOverviewPanel,
+    DramaSegmentCard,
+    DramaTakeCompare,
+    DramaTakeEvidencePanel,
+    dramaBibleKey,
+    dramaChecklistAssetsKey,
+    dramaEvidenceKey,
+    dramaProgressKey,
+    dramaSegmentsKey,
+    takeEvidenceStatus,
+} from "@/pages/projects/detail/drama-panels";
 import type { DramaBible, DramaEvidence, DramaProgress, DramaSegment, DramaSegmentProgress, DramaSegmentView } from "@/services/api/drama";
 import type { ProjectAsset, ShotArtifact } from "@/services/api/projects";
 
@@ -226,7 +240,10 @@ describe("角色与资产：素材清单", () => {
     const lockCard = ["齐耳短发", "左眉一颗痣", "护士服左胸别两支笔", "圆框眼镜", "工牌挂绳蓝色", "白色护士鞋", "右手腕黑色皮筋", "口罩挂在下巴"];
 
     test("连戏表为空时给起草入口", () => {
-        const html = render(<DramaAssetChecklist projectId="p1" />, { bible: {}, assets: [{ id: "a1", title: "林小满", category: "character", mediaType: "image", status: "ready", versionCount: 1, usages: [], position: 0, updatedAt: "" } as ProjectAsset] });
+        const html = render(<DramaAssetChecklist projectId="p1" />, {
+            bible: {},
+            assets: [{ id: "a1", title: "林小满", category: "character", mediaType: "image", status: "ready", versionCount: 1, usages: [], position: 0, updatedAt: "" } as ProjectAsset],
+        });
         expect(html).toContain("按已确认资产起草清单");
     });
 
@@ -258,13 +275,21 @@ describe("候选并排对比", () => {
     });
 
     test("证据现状：有台词要三项，取最新一条，带字错率", () => {
-        const status = takeEvidenceStatus([
-            evidence({ id: "f1", artifactId: "t1", kind: "frames", passed: false, createdAt: "2026-10-15T10:00:00Z" }),
-            evidence({ id: "f2", artifactId: "t1", kind: "frames", passed: true, createdAt: "2026-10-15T11:00:00Z" }),
-            evidence({ id: "tr", artifactId: "t1", kind: "transcript", passed: true, metricsJson: JSON.stringify({ cer: 0.02 }) }),
-            evidence({ id: "other", artifactId: "t2", kind: "faces", passed: true }),
-        ], "t1", true);
-        expect(status.required.map((item) => [item.kind, item.passed])).toEqual([["frames", true], ["faces", null], ["transcript", true]]);
+        const status = takeEvidenceStatus(
+            [
+                evidence({ id: "f1", artifactId: "t1", kind: "frames", passed: false, createdAt: "2026-10-15T10:00:00Z" }),
+                evidence({ id: "f2", artifactId: "t1", kind: "frames", passed: true, createdAt: "2026-10-15T11:00:00Z" }),
+                evidence({ id: "tr", artifactId: "t1", kind: "transcript", passed: true, metricsJson: JSON.stringify({ cer: 0.02 }) }),
+                evidence({ id: "other", artifactId: "t2", kind: "faces", passed: true }),
+            ],
+            "t1",
+            true,
+        );
+        expect(status.required.map((item) => [item.kind, item.passed])).toEqual([
+            ["frames", true],
+            ["faces", null],
+            ["transcript", true],
+        ]);
         expect(status.passedAll).toBe(false);
         expect(status.cer).toBe(0.02);
     });

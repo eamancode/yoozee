@@ -34,14 +34,19 @@ describe("需求文档与连戏表的前端入口", () => {
     });
 
     test("连戏表摘要数出人物、道具、场景和没过门禁的项", () => {
-        expect(bibleSummary({ characters: [{ name: "苏念", variants: [{ label: "默认", checked: true }, { label: "婚纱" }] }], props: [{ name: "戒指" }], locations: [{ name: "医院", checked: true }] })).toEqual({ characters: 1, props: 1, locations: 1, unchecked: 2 });
+        expect(bibleSummary({ characters: [{ name: "苏念", variants: [{ label: "默认", checked: true }, { label: "婚纱" }] }], props: [{ name: "戒指" }], locations: [{ name: "医院", checked: true }] })).toEqual({
+            characters: 1,
+            props: 1,
+            locations: 1,
+            unchecked: 2,
+        });
         expect(bibleSummary(undefined)).toEqual({ characters: 0, props: 0, locations: 0, unchecked: 0 });
     });
 
     test("概览终态卡给出打开需求文档、连戏表的入口", async () => {
         const source = await Bun.file(new URL("../src/pages/projects/detail/drama-panels.tsx", import.meta.url)).text();
         expect(source).toContain('const DOCUMENT_BY_END_STATE: Record<string, "brief" | "bible" | undefined> = { brief: "brief", script: "bible", refs: "bible" };');
-        expect(source).toContain("putDramaBrief(projectId, mode === \"json\" ? parseDocumentJson(jsonText) : formDocument())");
+        expect(source).toContain('putDramaBrief(projectId, mode === "json" ? parseDocumentJson(jsonText) : formDocument())');
         expect(source).toContain("<DramaBibleModal projectId={projectId}");
     });
 });

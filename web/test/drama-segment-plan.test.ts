@@ -15,20 +15,17 @@ const SEVEN_BED = [4, 5, 3, 4, 5, 4, 3, 3, 5, 5];
 
 describe("章节分镜行装段", () => {
     test("两场戏不跨段，同一场的多段共用整场参考", () => {
-        const rows = [
-            row(1, 6, { scene: "ward", bind: ["linxiaoman"] }),
-            row(2, 6, { scene: "ward" }),
-            row(3, 6, {}),
-            row(4, 6, { scene: "ward", bind: ["chart"] }),
-            row(5, 4, { scene: "corridor" }),
-            row(6, 4, {}),
-        ];
+        const rows = [row(1, 6, { scene: "ward", bind: ["linxiaoman"] }), row(2, 6, { scene: "ward" }), row(3, 6, {}), row(4, 6, { scene: "ward", bind: ["chart"] }), row(5, 4, { scene: "corridor" }), row(6, 4, {})];
         const plan = storyboardRowsToSegments(rows, detail(), { chapterTitle: "第一章", rule: segmentDurationRule(15) });
         const segments = specs(plan.shots);
 
         expect(segments.map((segment) => segment.scene)).toEqual(["七床病房", "七床病房", "医院走廊"]);
         // 走廊两镜只有 8 秒，也不并进病房的段。
-        expect(segments.map((segment) => segment.shots.map((shot) => shot.text))).toEqual([["镜头01", "镜头02"], ["镜头03", "镜头04"], ["镜头05", "镜头06"]]);
+        expect(segments.map((segment) => segment.shots.map((shot) => shot.text))).toEqual([
+            ["镜头01", "镜头02"],
+            ["镜头03", "镜头04"],
+            ["镜头05", "镜头06"],
+        ]);
         const wardRefs = ["version-linxiaoman", "version-ward", "version-chart"];
         expect(segments[0].refs?.map((ref) => ref.file)).toEqual(wardRefs);
         expect(segments[1].refs?.map((ref) => ref.file)).toEqual(wardRefs);
@@ -99,7 +96,10 @@ describe("章节分镜行装段", () => {
         const [segment] = specs(storyboardRowsToSegments(rows, detail(), { chapterTitle: "一", rule: segmentDurationRule(15) }).shots);
         expect(segment.sound).toBeUndefined();
         expect(segment.rules).toBeUndefined();
-        expect(segment.shots.map((shot) => [shot.sound, shot.end_state])).toEqual([["日光灯的嗡声", "林小满走到七床门口"], ["门轴轻响", "林小满停在病床侧面，背对镜头。"]]);
+        expect(segment.shots.map((shot) => [shot.sound, shot.end_state])).toEqual([
+            ["日光灯的嗡声", "林小满走到七床门口"],
+            ["门轴轻响", "林小满停在病床侧面，背对镜头。"],
+        ]);
         // 拆段后各段只带自己镜头的声音和结尾状态（编译时段级 sound / rules 从镜头取）。
         const split = splitSegment([{ shotId: "shot-S01", unitId: "unit-1", title: "S01", position: 0, durationMs: 10_000, spec: segment, derived: false }], 0, 1, segmentDurationRule(15));
         expect(split.segments.map((item) => item.shots.map((shot) => shot.sound))).toEqual([["日光灯的嗡声"], ["门轴轻响"]]);
@@ -107,7 +107,10 @@ describe("章节分镜行装段", () => {
     });
 
     test("拼接运镜和画面时去掉重复标点", () => {
-        const rows = [{ ...row(1, 5, {}), plotDescription: "林小满推门。", performanceBlocking: "，手停在门把上。", camera: "固定机位。", motion: "缓慢推近。", shotSize: "中景。" }, { ...row(2, 5, {}), plotDescription: "她愣住！", performanceBlocking: "眼神发紧" }];
+        const rows = [
+            { ...row(1, 5, {}), plotDescription: "林小满推门。", performanceBlocking: "，手停在门把上。", camera: "固定机位。", motion: "缓慢推近。", shotSize: "中景。" },
+            { ...row(2, 5, {}), plotDescription: "她愣住！", performanceBlocking: "眼神发紧" },
+        ];
         const [segment] = specs(storyboardRowsToSegments(rows, detail(), { chapterTitle: "一", rule: segmentDurationRule(15) }).shots);
         expect(segment.shots[0]).toMatchObject({ size: "中景", camera: "固定机位，缓慢推近", text: "林小满推门。手停在门把上" });
         expect(segment.shots[1].text).toBe("她愣住！眼神发紧");
@@ -177,7 +180,10 @@ describe("分镜制作页的段编辑", () => {
         list[0].spec.shots[0].lines = [{ speaker: "林小满", text: "七床的人呢？", delivery: "压低声音" }];
         const textOnly = editSubShot(list, 0, 0, { text: "护士推门", lines: parseDialogue("林小满：七床的人呢？\n护工：走了"), seconds: 4 }, rule);
         expect(textOnly.segments[0].dur).toBe(9);
-        expect(textOnly.segments[0].shots[0].lines).toEqual([{ speaker: "林小满", text: "七床的人呢？", delivery: "压低声音" }, { speaker: "护工", text: "走了" }]);
+        expect(textOnly.segments[0].shots[0].lines).toEqual([
+            { speaker: "林小满", text: "七床的人呢？", delivery: "压低声音" },
+            { speaker: "护工", text: "走了" },
+        ]);
         const longer = editSubShot(list, 0, 0, { text: "护士推门", lines: [], seconds: 12 }, rule);
         expect(longer.segments[0].shots.map((shot) => shot.at)).toEqual([0, 12]);
         expect(longer.segments[0].dur).toBe(30);
@@ -262,13 +268,31 @@ function view(id: string, seconds: number[], refs: string[] = []): DramaSegmentV
 function row(number: number, seconds: number, options: { scene?: string; bind?: string[]; dialogue?: string }): StoryboardRow {
     const bindings = [
         ...(options.scene ? [{ nodeId: options.scene, role: "environment" as const, priority: 90 }] : []),
-        ...(options.bind || []).map((nodeId) => ({ nodeId, role: nodeId === "chart" ? "prop" as const : "character" as const, priority: 80 })),
+        ...(options.bind || []).map((nodeId) => ({ nodeId, role: nodeId === "chart" ? ("prop" as const) : ("character" as const), priority: 80 })),
     ];
     return {
-        id: `row-${number}`, shotNumber: number, durationSeconds: seconds,
-        plotDescription: `镜头${String(number).padStart(2, "0")}`, dialogue: options.dialogue || "", characters: [],
-        narrativeIntent: "", viewerPOV: "", performanceBlocking: "", shotSize: "", emotion: "", lightingAndAtmosphere: "", audioEffects: "",
-        camera: "", motion: "", timeBeats: "", imageGenerationPrompt: "", videoMotionPrompt: "", mustHave: [], optionalDetails: [], continuityOut: "", negativePrompt: "",
+        id: `row-${number}`,
+        shotNumber: number,
+        durationSeconds: seconds,
+        plotDescription: `镜头${String(number).padStart(2, "0")}`,
+        dialogue: options.dialogue || "",
+        characters: [],
+        narrativeIntent: "",
+        viewerPOV: "",
+        performanceBlocking: "",
+        shotSize: "",
+        emotion: "",
+        lightingAndAtmosphere: "",
+        audioEffects: "",
+        camera: "",
+        motion: "",
+        timeBeats: "",
+        imageGenerationPrompt: "",
+        videoMotionPrompt: "",
+        mustHave: [],
+        optionalDetails: [],
+        continuityOut: "",
+        negativePrompt: "",
         assetBindings: bindings,
     };
 }

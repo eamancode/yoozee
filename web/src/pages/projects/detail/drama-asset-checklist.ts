@@ -27,8 +27,7 @@ const LOCK_CARD_MAX = 12;
 /** 连戏表里的文件在柚子里是资产版本 ID；也接受直接写资产名的旧写法。 */
 function findAsset(assets: ProjectAsset[], name: string, files: Array<string | undefined>) {
     const ids = new Set(files.filter((file): file is string => Boolean(file && file.trim())).map((file) => file.trim()));
-    return assets.find((asset) => asset.primaryVersionId && ids.has(asset.primaryVersionId))
-        || assets.find((asset) => asset.title.trim() === name.trim());
+    return assets.find((asset) => asset.primaryVersionId && ids.has(asset.primaryVersionId)) || assets.find((asset) => asset.title.trim() === name.trim());
 }
 
 function filled(value: unknown) {
@@ -58,7 +57,11 @@ export function buildAssetChecklist(bible: DramaBible | undefined, assets: Proje
     const items: ChecklistItem[] = [];
     (bible?.characters || []).forEach((character, characterIndex) => {
         (character.variants || []).forEach((variant, variantIndex) => {
-            const asset = findAsset(assets.filter((item) => item.category === "character"), character.name, [variant.sheet, ...(variant.crops || [])]);
+            const asset = findAsset(
+                assets.filter((item) => item.category === "character"),
+                character.name,
+                [variant.sheet, ...(variant.crops || [])],
+            );
             const checks = characterChecks(character, variant, asset);
             items.push({
                 key: `character:${characterIndex}:${variantIndex}`,
@@ -76,13 +79,21 @@ export function buildAssetChecklist(bible: DramaBible | undefined, assets: Proje
         });
     });
     (bible?.locations || []).forEach((location: DramaBibleLocation, index) => {
-        const asset = findAsset(assets.filter((item) => item.category === "environment"), location.name, [location.plate, location.side_a, location.side_b]);
+        const asset = findAsset(
+            assets.filter((item) => item.category === "environment"),
+            location.name,
+            [location.plate, location.side_a, location.side_b],
+        );
         const plateOk = filled(location.plate);
         const checks: ChecklistCheck[] = [{ label: "无人空景", ok: plateOk, detail: plateOk ? (filled(location.side_a) && filled(location.side_b) ? "空景与正反打背景都有" : "有空景；有对话的场景最好补正反打背景") : "还没有无人空景图" }];
         items.push({ key: `location:${index}`, kind: "location", name: location.name, asset, lockCard: [], checks, ready: plateOk, checked: Boolean(location.checked) });
     });
     (bible?.props || []).forEach((prop: DramaBibleProp, index) => {
-        const asset = findAsset(assets.filter((item) => item.category === "prop"), prop.name, [prop.image, ...(prop.states || []).map((state) => state.image)]);
+        const asset = findAsset(
+            assets.filter((item) => item.category === "prop"),
+            prop.name,
+            [prop.image, ...(prop.states || []).map((state) => state.image)],
+        );
         const imageOk = filled(prop.image);
         const checks: ChecklistCheck[] = [{ label: "道具图", ok: imageOk, detail: imageOk ? `有道具图${(prop.states || []).length ? `，${(prop.states || []).length} 个状态` : ""}` : "还没有道具图" }];
         items.push({ key: `prop:${index}`, kind: "prop", name: prop.name, asset, lockCard: [], checks, ready: imageOk, checked: Boolean(prop.checked) });
@@ -95,23 +106,29 @@ export function setChecklistChecked(bible: DramaBible, key: string, checked: boo
     const [kind, first, second] = key.split(":");
     const index = Number(first);
     if (kind === "character") {
-        const characters = (bible.characters || []).map((character, characterIndex) => characterIndex !== index ? character : {
-            ...character,
-            variants: character.variants.map((variant, variantIndex) => variantIndex === Number(second) ? { ...variant, checked } : variant),
-        });
+        const characters = (bible.characters || []).map((character, characterIndex) =>
+            characterIndex !== index
+                ? character
+                : {
+                      ...character,
+                      variants: character.variants.map((variant, variantIndex) => (variantIndex === Number(second) ? { ...variant, checked } : variant)),
+                  },
+        );
         return { ...bible, characters };
     }
-    if (kind === "location") return { ...bible, locations: (bible.locations || []).map((item, itemIndex) => itemIndex === index ? { ...item, checked } : item) };
-    if (kind === "prop") return { ...bible, props: (bible.props || []).map((item, itemIndex) => itemIndex === index ? { ...item, checked } : item) };
+    if (kind === "location") return { ...bible, locations: (bible.locations || []).map((item, itemIndex) => (itemIndex === index ? { ...item, checked } : item)) };
+    if (kind === "prop") return { ...bible, props: (bible.props || []).map((item, itemIndex) => (itemIndex === index ? { ...item, checked } : item)) };
     return bible;
 }
 
 /** 连戏表还空着时，按项目里已确认的角色、场景、道具起草清单；文件写资产版本 ID，checked 一律 false 等人判。 */
 export function draftBibleFromAssets(bible: DramaBible | undefined, assets: ProjectAsset[]): DramaBible {
-    const characters: DramaBibleCharacter[] = assets.filter((asset) => asset.category === "character").map((asset) => ({
-        name: asset.title,
-        variants: [{ label: "默认", ...(asset.character?.visualStatus === "ready" && asset.primaryVersionId ? { sheet: asset.primaryVersionId } : {}), checked: false }],
-    }));
+    const characters: DramaBibleCharacter[] = assets
+        .filter((asset) => asset.category === "character")
+        .map((asset) => ({
+            name: asset.title,
+            variants: [{ label: "默认", ...(asset.character?.visualStatus === "ready" && asset.primaryVersionId ? { sheet: asset.primaryVersionId } : {}), checked: false }],
+        }));
     const locations: DramaBibleLocation[] = assets.filter((asset) => asset.category === "environment").map((asset) => ({ name: asset.title, ...(asset.primaryVersionId ? { plate: asset.primaryVersionId } : {}), checked: false }));
     const props: DramaBibleProp[] = assets.filter((asset) => asset.category === "prop").map((asset) => ({ name: asset.title, ...(asset.primaryVersionId ? { image: asset.primaryVersionId } : {}), checked: false }));
     return { ...(bible || {}), characters, locations, props };
