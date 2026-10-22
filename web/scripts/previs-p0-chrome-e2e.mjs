@@ -394,6 +394,36 @@ async function openUnifiedWorkbench(cdp, label) {
     if (!ready) throw new Error(`${label}: unified previs workbench did not enter layout context`);
 }
 
+/**
+ * v1.6.8 起「添加」不再挂在视口 dock 上，改为场景面板里的「添加到场景」弹窗。
+ * 窄屏下面板默认收起，所以先确认面板可见，必要时用 dock 的「打开场景面板」展开。
+ */
+const sceneAddButtonVisible = `(() => {
+    const el = document.querySelector('[aria-label="添加到场景"]');
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0 || r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight) return false;
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && (hit === el || el.contains(hit));
+})()`;
+
+async function ensureScenePanel(cdp) {
+    if (await cdp.evaluate(sceneAddButtonVisible)) return true;
+    await cdp.click('[aria-label="打开场景面板"]');
+    return cdp.poll(sceneAddButtonVisible, "scene panel open", 10000);
+}
+
+/** 打开「添加到场景」弹窗 → 切到页签 → 确认加入（弹窗默认选中该页签的第一项）。 */
+async function addPrevisObject(cdp, tabLabel, itemName) {
+    if (!(await cdp.click('[aria-label="添加到场景"]'))) return false;
+    if (!(await cdp.poll(`!!document.querySelector('.previs-add-dialog__footer')`, "add dialog", 15000))) return false;
+    const tabIndex = { 角色: 1, 道具: 2, 灯光: 3, 机位: 4 }[tabLabel] ?? 1;
+    if (!(await cdp.click(`.previs-add-dialog__tabs button:nth-of-type(${tabIndex})`))) return false;
+    const confirmMatches = `[...document.querySelectorAll('.previs-add-dialog__footer .pv-btn--accent')].some((b) => (b.textContent || "").includes(${JSON.stringify(itemName)}))`;
+    if (!(await cdp.poll(confirmMatches, "confirm label", 15000))) return false;
+    return cdp.click('.previs-add-dialog__footer .pv-btn--accent');
+}
+
 async function smokeWorkbench(cdp, baseUrl) {
     console.log("\n=== A. workbench smoke ===");
     await cdp.navigateFresh(`${baseUrl}/dev/previs-repro`);
@@ -459,16 +489,17 @@ async function smokeWorkbench(cdp, baseUrl) {
     if (!(await cdp.click('button[data-mode="layout"]'))) throw new Error("A: 摆场模式按钮不可点击");
     assert(await cdp.poll(`document.querySelectorAll('.previs-sequencer').length === 0`, "layout hides sequencer", 10000), "A7b 回到摆场模式隐藏时间轴");
 
-    // 预演台改为视口 dock 直选：旧的「添加道具」菜单已拆成添加演员/立方体/灯光/摄影机按钮。
-    const addedCube = await cdp.click('[aria-label="添加立方体"]');
-    if (!addedCube) throw new Error("A: 添加立方体 button not clickable");
-    const cubeAppeared = await cdp.poll(`!!document.querySelector('[aria-label="删除 立方体"]')`, "cube row", 20000);
-    assert(cubeAppeared, "A10 added cube appears in object list");
+    // v1.6.8 起添加对象走场景面板的「添加到场景」弹窗（选项 + 预览，确认后才写入场景）。
+    if (!(await ensureScenePanel(cdp))) throw new Error("A: 场景面板打不开");
+    const addedProp = await addPrevisObject(cdp, "道具", "单人沙发");
+    if (!addedProp) throw new Error("A: 添加到场景按钮不可点击");
+    const propAppeared = await cdp.poll(`!!document.querySelector('[aria-label="删除 单人沙发"]')`, "prop row", 20000);
+    assert(propAppeared, "A10 added prop appears in object list");
 
     const undone = await cdp.click('[aria-label="撤销"]');
     if (!undone) throw new Error("A: 撤销 button not clickable");
-    const cubeGone = await cdp.poll(`!document.querySelector('[aria-label="删除 立方体"]')`, "cube removed by undo", 20000);
-    assert(cubeGone, "A11 Undo removes the added cube");
+    const propGone = await cdp.poll(`!document.querySelector('[aria-label="删除 单人沙发"]')`, "prop removed by undo", 20000);
+    assert(propGone, "A11 Undo removes the added prop");
 
     // 场景结束前必须真实关闭：下一个场景要重新导航，不能靠忽略 beforeunload 绕过未保存态。
     const closed = await cdp.click('[aria-label="关闭预演台"]');
@@ -722,9 +753,10 @@ async function saveFailureCloseGuard(cdp, baseUrl) {
     const hasCanvas = await cdp.poll(`(() => { const c = document.querySelector('.previs-viewport-shell canvas'); return !!c && c.clientWidth > 0; })()`, "canvas", 40000);
     assert(hasCanvas, "F2 workbench open with real canvas");
 
-    // canonical 改动：dock 新增立方体会走 commit → coordinator.edit → flush（被强制失败）。
-    const addedCube = await cdp.click('[aria-label="添加立方体"]');
-    if (!addedCube) throw new Error("F: 添加立方体 button not clickable");
+    // canonical 改动：经「添加到场景」弹窗加入对象会走 commit → coordinator.edit → flush（被强制失败）。
+    if (!(await ensureScenePanel(cdp))) throw new Error("F: 场景面板打不开");
+    const addedProp = await addPrevisObject(cdp, "道具", "单人沙发");
+    if (!addedProp) throw new Error("F: 添加到场景按钮不可点击");
 
     const errorState = await cdp.poll(`(document.body.innerText || "").includes('保存失败')`, "save failure header", 40000);
     assert(errorState, "F3 header surfaces 保存失败 after forced flush failure");
@@ -864,7 +896,7 @@ async function shotOutputs(cdp, baseUrl) {
     assert(recording.bytes > 0 && recording.width === 180 && recording.height === 320, "G6 recording is decodable at shot dimensions", JSON.stringify(recording));
     assert(recording.cancelled, "G7 recording cancellation rejects and releases session");
     await cdp.evaluate(`(() => { const open=window.open.bind(window);window.open=(...args)=>{const popup=open(...args);window.__previsPopup=popup;return popup;}; })()`);
-    await cdp.click('button[aria-label="投放到第二屏幕"]');
+    await cdp.click('button[title^="投放到第二屏幕"]');
     assert(await cdp.poll(`window.__previsPopup?.document.querySelector('canvas')?.width === 1080`, "monitor frame", 20000), "G8 monitor displays full portrait shot");
     const reused = await cdp.evaluate(`(async () => {
         const {openPrevisMonitorWindow}=await import('/src/components/canvas/previs/previs-monitor-window.ts');
@@ -876,7 +908,7 @@ async function shotOutputs(cdp, baseUrl) {
         return {count,live,firstClosed,secondClosed};
     })()`);
     assert(reused.count === 1 && reused.live && reused.firstClosed === 1 && reused.secondClosed === 1, "G9 named monitor reuse cleans old session without closing new window", JSON.stringify(reused));
-    assert(await cdp.poll(`document.querySelector('button[aria-label="投放到第二屏幕"]')?.getAttribute('aria-pressed') === 'false'`, "monitor closed"), "G10 monitor UI resets on close");
+    assert(await cdp.poll(`document.querySelector('button[title^="投放到第二屏幕"]')?.getAttribute('aria-pressed') === 'false'`, "monitor closed"), "G10 monitor UI resets on close");
     assert(cdp.problems.length === 0, "G11 no browser problems in output scenario", JSON.stringify(cdp.problems));
 }
 
