@@ -637,10 +637,17 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 			return DramaCompileResult{}, BadAuthRequest(err.Error())
 		}
 	}
+	// 没图的资产不能编译成「@图片N」：人物改写外貌声明，场景、道具只靠镜头文字（存量段、前端装段、Agent 写的段都兜住）。
+	lookup, err := s.dramaRefLookup(userID, projectID, seg)
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	seg, refIssues := dropImagelessRefs(seg, lookup)
 	result, err := drama.CompileWithProfile(seg, m, req.Style, req.Acting, profile)
 	if err != nil {
 		return DramaCompileResult{}, err
 	}
+	result.Issues = append(result.Issues, refIssues...)
 	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result}, nil
 }
 
