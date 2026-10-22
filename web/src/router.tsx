@@ -38,6 +38,7 @@ const WorkbenchToolsPage = lazy(() => import("@/pages/admin/workbench-tools/work
 const SystemUpdatePage = lazy(() => import("@/pages/admin/settings/system-update-page"));
 const SystemPerformancePage = lazy(() => import("@/pages/admin/settings/system-performance-page"));
 const StoryboardPromptsPage = lazy(() => import("@/pages/admin/storyboard-prompts/storyboard-prompts-page"));
+const BuiltinSkillsPage = lazy(() => import("@/pages/admin/builtin-skills/builtin-skills-page"));
 const UsersPage = lazy(() => import("@/pages/admin/users/users-page"));
 const AssetsPage = lazy(loadAssetsPage);
 const LoginPage = lazy(() => import("@/pages/auth/login"));
@@ -235,6 +236,7 @@ export const router = createBrowserRouter([
                     { path: "plugins", element: <AdminPluginsPage /> },
                     { path: "workbench-tools", element: <WorkbenchToolsPage /> },
                     { path: "skill-curation", element: <SkillCurationPage /> },
+                    { path: "builtin-skills", element: <BuiltinSkillsPage /> },
                     { path: "payments", element: <AdminPaymentsPage /> },
                     { path: "prompt-templates", element: <StoryboardPromptsPage /> },
                     { path: "storyboard-prompts", element: <Navigate to="/admin/prompt-templates" replace /> },

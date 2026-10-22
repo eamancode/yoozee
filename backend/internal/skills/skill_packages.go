@@ -60,6 +60,9 @@ type SkillPackageFileContent struct {
 	File    SkillPackageFileItem `json:"file"`
 	Content string               `json:"content"`
 	Binary  bool                 `json:"binary"`
+	// VersionID / Version 是这次读到的文件属于哪个技能版本，任务记录实际用的版本时取它。
+	VersionID string `json:"versionId"`
+	Version   string `json:"version"`
 }
 
 type SkillPackageBundleFile struct {

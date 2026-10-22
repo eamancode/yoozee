@@ -30,18 +30,20 @@ func (s *Service) SkillPackageFiles(userID string, skillID string) ([]SkillPacka
 }
 
 func (s *Service) SkillPackageFile(userID string, skillID string, filePath string) (*SkillPackageFileContent, error) {
-	_, file, content, err := s.readSkillPackageSnapshotFile(userID, skillID, filePath)
+	snapshot, file, content, err := s.readSkillPackageSnapshotFile(userID, skillID, filePath)
 	if err != nil {
 		return nil, err
 	}
-	binary := !isPreviewText(file.MimeType, file.Path)
-	if binary {
-		return &SkillPackageFileContent{File: skillFileItem(*file), Binary: true}, nil
+	out := &SkillPackageFileContent{File: skillFileItem(*file), VersionID: snapshot.version.ID, Version: snapshot.version.VersionLabel}
+	if !isPreviewText(file.MimeType, file.Path) {
+		out.Binary = true
+		return out, nil
 	}
 	if len(content) > maxSkillPreviewBytes {
 		return nil, kernel.BadAuthRequest("文件超过 512KB，请下载后查看")
 	}
-	return &SkillPackageFileContent{File: skillFileItem(*file), Content: string(content)}, nil
+	out.Content = string(content)
+	return out, nil
 }
 
 func (s *Service) SkillPackageRawFile(userID string, skillID string, filePath string) ([]byte, string, string, error) {

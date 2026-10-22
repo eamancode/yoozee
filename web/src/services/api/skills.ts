@@ -145,6 +145,9 @@ export type SkillPackageFileContent = {
     file: SkillPackageFile;
     content: string;
     binary: boolean;
+    /** 这次读到的文件属于哪个技能版本（内置技能在线覆盖时是在线版本，版本号带 +online.n）。 */
+    versionId?: string;
+    version?: string;
 };
 
 export type SkillPackageBundle = {

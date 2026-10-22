@@ -119,7 +119,8 @@ func (r *Repository) UpsertBuiltinSkills(skills []model.Skill) error {
 	return r.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"owner_id", "author_name", "author_avatar_url", "name", "description", "instruction", "status", "source", "tag", "sort_weight", "is_private",
+			// instruction 不在这里覆盖：它跟着生效版本走，在线版本生效时不能被内置包的 SKILL.md 盖掉。
+			"owner_id", "author_name", "author_avatar_url", "name", "description", "status", "source", "tag", "sort_weight", "is_private",
 			"markdown_url", "showcase_media_json", "extra_info", "initial_like_count", "initial_added_count", "created_at", "updated_at",
 		}),
 	}).Create(&skills).Error

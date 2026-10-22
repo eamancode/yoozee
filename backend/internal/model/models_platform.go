@@ -76,14 +76,16 @@ type UserDailyUploadUsage struct {
 }
 
 type Skill struct {
-	ID                string     `json:"id" gorm:"primaryKey;size:36"`
-	OwnerID           string     `json:"ownerId" gorm:"index;size:36"`
-	AuthorName        string     `json:"authorName" gorm:"size:120;index"`
-	AuthorAvatarURL   string     `json:"authorAvatarUrl" gorm:"size:1000"`
-	Name              string     `json:"name" gorm:"size:80;index"`
-	Description       string     `json:"description" gorm:"size:500"`
-	Instruction       string     `json:"instruction" gorm:"type:text"`
-	CurrentVersionID  string     `json:"currentVersionId" gorm:"size:36;index"`
+	ID               string `json:"id" gorm:"primaryKey;size:36"`
+	OwnerID          string `json:"ownerId" gorm:"index;size:36"`
+	AuthorName       string `json:"authorName" gorm:"size:120;index"`
+	AuthorAvatarURL  string `json:"authorAvatarUrl" gorm:"size:1000"`
+	Name             string `json:"name" gorm:"size:80;index"`
+	Description      string `json:"description" gorm:"size:500"`
+	Instruction      string `json:"instruction" gorm:"type:text"`
+	CurrentVersionID string `json:"currentVersionId" gorm:"size:36;index"`
+	// BuiltinVersionID 是最近一次从内置包同步出的版本；当前版本是在线版本时两者不同（只有内置技能有值）。
+	BuiltinVersionID  string     `json:"builtinVersionId" gorm:"size:36"`
 	VersionLabel      string     `json:"versionLabel" gorm:"size:64"`
 	ContentHash       string     `json:"contentHash" gorm:"size:64;index"`
 	FileCount         int        `json:"fileCount"`
@@ -113,16 +115,20 @@ type Skill struct {
 }
 
 type SkillVersion struct {
-	ID           string    `json:"id" gorm:"primaryKey;size:36"`
-	SkillID      string    `json:"skillId" gorm:"size:36;index"`
-	VersionLabel string    `json:"versionLabel" gorm:"size:64"`
-	ContentHash  string    `json:"contentHash" gorm:"size:64;index"`
-	EntryPath    string    `json:"entryPath" gorm:"size:1000"`
-	PackageKey   string    `json:"packageKey" gorm:"size:1000"`
-	FileCount    int       `json:"fileCount"`
-	TotalBytes   int64     `json:"totalBytes"`
-	SourceCommit string    `json:"sourceCommit" gorm:"size:64"`
-	CreatedAt    time.Time `json:"createdAt" gorm:"index"`
+	ID           string `json:"id" gorm:"primaryKey;size:36"`
+	SkillID      string `json:"skillId" gorm:"size:36;index"`
+	VersionLabel string `json:"versionLabel" gorm:"size:64"`
+	ContentHash  string `json:"contentHash" gorm:"size:64;index"`
+	EntryPath    string `json:"entryPath" gorm:"size:1000"`
+	PackageKey   string `json:"packageKey" gorm:"size:1000"`
+	FileCount    int    `json:"fileCount"`
+	TotalBytes   int64  `json:"totalBytes"`
+	SourceCommit string `json:"sourceCommit" gorm:"size:64"`
+	// Origin 是内置技能版本的来源：builtin 由内置包同步，online 由后台在线编辑；其他来源为空。
+	Origin    string    `json:"origin" gorm:"size:16;index"`
+	Note      string    `json:"note" gorm:"size:500"`
+	CreatedBy string    `json:"createdBy" gorm:"size:36"`
+	CreatedAt time.Time `json:"createdAt" gorm:"index"`
 }
 
 type SkillFile struct {

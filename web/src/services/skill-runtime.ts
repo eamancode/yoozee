@@ -182,7 +182,7 @@ async function prepareLinkedContext(input: PreparedSkillInput, dependencies: Ski
 
     const perSkillBudget = Math.max(1, Math.floor(input.config.maxContextChars / input.selectedSkills.length));
     const loaded = await Promise.all(input.selectedSkills.map((skill) => loadLinkedSkill(skill, input.prompt, perSkillBudget, input.config.maxLinkedFilesPerSkill, dependencies)));
-    const contexts = loaded.map((item) => renderLinkedSkillContext(item.skill, item.files));
+    const contexts = loaded.map((item) => renderLinkedSkillContext(item.skill, item.version.version, item.files));
     const provenance = provenanceFromLoaded(loaded);
     const outputFields = Array.from(new Map(loaded.flatMap((item) => item.outputFields).map((field) => [field.name, field])).values());
     const prompt = [
@@ -201,9 +201,11 @@ async function loadLinkedSkill(skill: Skill, prompt: string, budget: number, max
     const entryContent = boundedText(entryResult.file.content, remaining);
     remaining -= entryContent.length;
     const files = [{ path: "SKILL.md", content: entryContent, sha256: entryResult.file.file.sha256 }];
+    // 记实际读到的版本：技能列表可能是旧的，内置技能在线覆盖后以 SKILL.md 这次读取返回的版本为准。
+    const version = { versionId: entryResult.file.versionId || skill.versionId, version: entryResult.file.version || skill.version };
     // 额外输出字段从完整的 SKILL.md 读，不受上下文预算截断影响。
     const outputFields = skillOutputFields(entryResult.file.content);
-    if (remaining <= 0 || maxLinkedFiles <= 0) return { skill, files, outputFields };
+    if (remaining <= 0 || maxLinkedFiles <= 0) return { skill, version, files, outputFields };
 
     const candidates = linkedFileCandidates(entryResult.file.content, fileList.files, prompt).slice(0, maxLinkedFiles);
     const linkedFiles = await Promise.all(candidates.map((candidate) => dependencies.getFile(skill.skillId, candidate.path)));
@@ -217,7 +219,7 @@ async function loadLinkedSkill(skill: Skill, prompt: string, budget: number, max
         files.push({ path: candidate.path, content, sha256: result.file.file.sha256 });
         remaining -= content.length;
     }
-    return { skill, files, outputFields };
+    return { skill, version, files, outputFields };
 }
 
 /**
@@ -305,8 +307,8 @@ function boundedText(value: string, maxChars: number) {
     return `${value.slice(0, Math.max(0, maxChars - suffix.length))}${suffix}`;
 }
 
-function renderLinkedSkillContext(skill: Skill, files: Array<{ path: string; content: string }>) {
-    const attributes = `skill-id="${escapeAttribute(skill.skillId)}" name="${escapeAttribute(skill.skillName)}" version="${escapeAttribute(skill.version)}"`;
+function renderLinkedSkillContext(skill: Skill, version: string, files: Array<{ path: string; content: string }>) {
+    const attributes = `skill-id="${escapeAttribute(skill.skillId)}" name="${escapeAttribute(skill.skillName)}" version="${escapeAttribute(version)}"`;
     const body = files.map((file) => `<skill-file path="${escapeAttribute(file.path)}">\n${file.content}\n</skill-file>`).join("\n\n");
     return `<skill-context ${attributes}>\n${body}\n</skill-context>`;
 }
@@ -315,10 +317,10 @@ function linkedResult(prompt: string, selectedSkills: Skill[], provenance: Skill
     return { delivery: "linked-context", prompt, selectedSkills, provenance, metadata: skillRuntimeMetadata(provenance), outputFields };
 }
 
-function provenanceFromLoaded(loaded: Array<{ skill: Skill; files: Array<{ path: string; sha256?: string }> }>): SkillRuntimeProvenance {
+function provenanceFromLoaded(loaded: Array<{ skill: Skill; version: { versionId: string; version: string }; files: Array<{ path: string; sha256?: string }> }>): SkillRuntimeProvenance {
     return {
         skillIds: loaded.map((item) => item.skill.skillId),
-        skillVersions: loaded.map((item) => ({ skillId: item.skill.skillId, versionId: item.skill.versionId, version: item.skill.version })),
+        skillVersions: loaded.map((item) => ({ skillId: item.skill.skillId, versionId: item.version.versionId, version: item.version.version })),
         skillFiles: loaded.flatMap((item) => item.files.map((file) => ({ skillId: item.skill.skillId, path: file.path, sha256: file.sha256 }))),
     };
 }
