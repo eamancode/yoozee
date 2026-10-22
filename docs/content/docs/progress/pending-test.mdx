@@ -5,6 +5,33 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M4.1 第二期：镜头表落库，后端检查、装段与 2.1 编译
+
+`yz-chapter-shots` 写出的镜头表此前保存时只剩平铺字段：Go 的 `drama.Segment` 是 1.0 结构且拒绝未知字段，编译器也是 1.0，情绪弧、灯光七项、站位、衔接全部丢失。本期把镜头表原样存下来，后端做检查、装段与 2.1 编译。风格档案暂固定 `live-realism`（项目画风 → 档案的对照表在第三期），没有资产圣经，依赖空间图、锚点、伏笔的规则（R-SHOT-012、015、023）不触发。
+
+- 参考实现收进仓库：`yoozee-skills` 的 `script.py / check.py / pack.py`、2.1 `compile.py`、profiles / rules / 新契约、`check-bad-*` 与 `seg25-*` 夹具、`tests/sample` 七床样例（此前只在本机未提交）；内置包加 `kb-action`（不含 IP 包）、`kb-performance/vocab`、`yz-producer/profiles` 与 `rules`。`tests/expected/segment-*` 与 `kb-dialects/models.json` 未改。
+- Go（`backend/internal/drama`）：`vocab.go`、`profile.go`、`script.go`、`rows.go`、`check.go`（check_shots 全部 R-SHOT 规则，不只是任务列出的 warn 子集：坏样例 `check-bad-shots21` 要命中 026 / 028 / 029）、`pack.go`、`segment.go`（2.1，仍拒绝未知字段）、`compile.go`（2.1）。
+- 数据：`drama_shotlists`（v59），镜头表与段同一事务整章替换；删项目、删章节一并清理；SQLite → PostgreSQL 迁移工具已收这张表。
+- 接口：`GET|PUT /api/projects/:id/units/:unitId/drama/shotlist`，检查有 error 返回 400 `shotlist_check_failed` + `details.check`；Agent 工具 `drama_shotlist_read / drama_shotlist_write`（检查不过时返回 `saved: false` 与规则项）；编译 2.1 段取档案风格块，结果多 `paste`、`warnings`。
+- 前端：章节「生成分段」分镜行带 `spec` 时调新接口（段长规则取渠道档位，带本章现有镜头 ID），检查不过弹窗列出规则项与镜头，「重新生成」「仍按平铺字段保存」；不带 `spec` 的行照旧前端装段。分镜制作页段卡里每个镜头下只读列出表情链、站位、灯光、衔接。
+
+自动化覆盖：
+
+- [x] 黄金对照（`go test ./internal/drama/...`，本机通过）：词库条数 32 / 101 / 22 / 120 / 108（情绪弧 / 表情 / 动作模式 / 特效 / 武学；设计文档里特效与武学的数目写反了）；七床章节正文 → 3 场 16 句与 `script.py from-md` 一致；`tests/sample` 镜头表在 Seedance 2.5 上装段与 `tests/sample/剧本/分段.json` 一致（去掉空字段后逐项比），2.0 段更多且每段 4～15 秒；`check-sample` 0 条、`check-bad-shots`（duanju-shiga，17 error 6 warn）与 `check-bad-shots21`（9 error 7 warn）逐条消息与 Python 一致（不含 R-SCHEMA：那组消息来自 jsonschema）；`seg25-*` 四个编译期望逐字一致；1.0 的 `TestCompileMatchesSkillPackageGoldens` 不变；情绪弧展开 8 项规则与 `test_arc.py` 一致。Python 参考输出由 `yoozee-skills/tests/go_goldens.py` 生成到 `backend/internal/drama/testdata/golden/`。
+- [x] 线上实测端到端：`testdata/online-qichuang`（线上实测的模型输出 `model-output.txt`、柚子解析出的分镜行 `rows.json`、章节正文）→ 29 镜、16 句全部按原文对上（无模糊匹配、无未对上）、0 error 23 warn（R-SHOT-009 ×8、013 ×7、007 ×5、027 ×3，与 Python 逐条一致）；Seedance 2.0 装 9 段、2.5 装 5 段，与 `pack.py` 一致，每段能被严格解析、能编译。
+- [x] 服务层（CI `go test ./...`，cgo sqlite）：`TestWriteDramaShotlistChecksPacksAndStores` 覆盖整章写入（5 段、2.1 字段、参考落到绑定资产主版本、版本号递增、读回）、坏情绪弧被拒（`shotlist_check_failed`，`details.check` 指向 `E01S01-01`，不落库）、Agent 工具拿到规则项、别人的项目写不了；本机无 gcc，DB 用例只在 CI 跑过，本机 `CGO_ENABLED=0` 跑了不碰数据库的用例（HTML 正文还原、refs_hint 与绑定资产、段长规则只收紧）。
+- [x] CI Quality checks（workflow_dispatch 于本分支）：Backend checks、Web checks（格式、typecheck、lint、测试、Previs E2E）、Payment plugin artifacts 全过。
+- [x] 前端本机：`bun run build` 通过；`bun run lint` 通过；`bun test` drama / 章节相关 9 个文件 86 个用例通过（新增：镜头表读写路径与请求体、检查失败解析、段卡 2.1 只读区）。Python：`test_pack / test_check / test_compile25 / test_arc / test_compile` 在本分支（1.0 `models.json`）全过。
+- [ ] 未做浏览器验收（项目约定不自启 dev server）：检查失败弹窗与段卡只读区只做了 SSR 渲染测试与类型检查。
+
+仍需人工 / 真实环境验收（发版部署后，沿用「yoozee 实测·七床」项目新建一章）：
+
+- [ ] 同一章重新生成分段：段数与本机 `pack.py` 一致（七床 E01 在 Seedance 2.5 上 5 段）；任一段版本的 `specJson` 带 `shot_ids`、`profile`、`expression`、`light_full`、`positions`。
+- [ ] 分镜制作页点生成时提交的视频提示词与本机 `compile.py --paste`（同一段、同一档案）逐字一致；参考清单是这一段绑定的资产版本。
+- [ ] 故意改坏一镜（空情绪弧 id）：保存被拒，弹窗列出 R-SHOT-025 和镜头号；「仍按平铺字段保存」走旧装段并成功；「重新生成」直接重跑分镜任务，不再问一遍是否替换。
+- [ ] 渠道是档位制时长（只能 5 / 10 / 15 秒）：后端按秒装段，段长可能不在档位上，提交视频前确认渠道接受或改用按秒计的渠道（本期只把档位的最大 / 最小值传给后端）。
+- [ ] 模型把站位写成「身后是…」「机位在…」时，装段句里会出现「身后是身后是…」「机位在机位在…」（与 `pack.py` 一致，未在 Go 侧另行修正），看是否需要在技能提示里约束写法。
+
 ## M4.1 第一期：发版追平、章节分镜技能内置、截断可见
 
 线上 v1.6.6（`15d981a9`）部署的是 `origin/main`，缺 `fix/shot-skill-context-budget` 上的画风 / 角色外观 / 资产清单注入和按场装段，29 个镜头各成一段。第一期只追平与补可见性，镜头表字段落库、Go 装段 / 检查 / 编译属于第二期。
