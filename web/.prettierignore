@@ -12,3 +12,7 @@ bun.lock
 *.gif
 *.webp
 *.svg
+
+# 历史手写样式：3000 行未按 prettier 排版，且基线版本多一个 } 无法解析。
+# 已修掉多余的 }（浏览器行为不变），但整体重排会产生 4000+ 行无意义 diff，故豁免。
+src/styles/globals-5.css

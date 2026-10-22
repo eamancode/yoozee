@@ -1,3 +1,4 @@
+import { createClientUUID } from "@/lib/client-id";
 import { useRef, useState } from "react";
 import { App, Button, Form, Input, Select } from "antd";
 import { ArrowDown, ArrowUp, ImagePlus, Plus, Trash2, Upload, Video, Type } from "lucide-react";
@@ -6,7 +7,6 @@ import { UpdateAnnouncementContent } from "@/components/layout/update-announceme
 import { moveUpdateItem, type UpdateAnnouncement, type UpdateBlock, type UpdateRelease } from "@/lib/update-announcement";
 import { updateAnnouncementPreviewURL, uploadAppearanceAsset } from "@/services/api/appearance";
 import "./update-announcement-editor.css";
-import { createClientId } from "@/lib/client-id";
 
 export function UpdateAnnouncementEditor({ value, onChange, disabled, onUploading }: { value: UpdateAnnouncement; onChange: (value: UpdateAnnouncement) => void; disabled: boolean; onUploading: (value: boolean) => void }) {
     const { message } = App.useApp();
@@ -20,7 +20,7 @@ export function UpdateAnnouncementEditor({ value, onChange, disabled, onUploadin
         change({ releases: value.releases.map((release) => (release.id === id ? { ...release, ...patch } : release)), ...(patch.version !== undefined && before?.version === value.currentVersion ? { currentVersion: patch.version } : {}) });
     };
     const changeBlock = (release: UpdateRelease, id: string, patch: Partial<UpdateBlock>) => changeRelease(release.id, { blocks: release.blocks.map((block) => (block.id === id ? { ...block, ...patch } : block)) });
-    const addBlock = (release: UpdateRelease, type: UpdateBlock["type"]) => changeRelease(release.id, { blocks: [...release.blocks, { id: createClientId(), type, text: "", resourceId: "", caption: "", layout: "full" }] });
+    const addBlock = (release: UpdateRelease, type: UpdateBlock["type"]) => changeRelease(release.id, { blocks: [...release.blocks, { id: createClientUUID(), type, text: "", resourceId: "", caption: "", layout: "full" }] });
     async function upload(file?: File) {
         const selected = target.current;
         if (!file || !selected) return;
@@ -206,7 +206,7 @@ export function UpdateAnnouncementEditor({ value, onChange, disabled, onUploadin
                     <Button
                         disabled={locked || value.releases.length >= 30}
                         icon={<Plus className="size-4" />}
-                        onClick={() => change({ releases: [...value.releases, { id: createClientId(), version: "", title: "", date: "", blocks: [{ id: createClientId(), type: "text", text: "", resourceId: "", caption: "", layout: "full" }] }] })}
+                        onClick={() => change({ releases: [...value.releases, { id: createClientUUID(), version: "", title: "", date: "", blocks: [{ id: createClientUUID(), type: "text", text: "", resourceId: "", caption: "", layout: "full" }] }] })}
                     >
                         添加公告版本
                     </Button>

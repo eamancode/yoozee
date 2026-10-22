@@ -1,4 +1,6 @@
+import { createClientUUID } from "@/lib/client-id";
 import { normalizeAudioFormatForConfig, normalizeAudioVoiceForConfig } from "@/lib/audio-generation";
+import { imageParameterRequest } from "@/lib/image-parameters";
 import { getMediaBlob } from "@/services/file-storage";
 import { getImageBlob } from "@/services/image-storage";
 import { resourceIdFromStorageKey, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
@@ -13,13 +15,13 @@ import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { buildBackendToolRequests, type ResponseFunctionTool, type ResponseInputMessage, type ToolChoice, type ToolResponseResult } from "@/services/api/image";
 import { assertAgentExchangeBudget } from "@/lib/canvas/agent-context-budget";
-import { createClientId } from "@/lib/client-id";
 
 export { logicalModelIDForConfig };
 
 export type BackendGenerationMode = "text" | "image" | "video" | "audio";
 
 export type BackendGenerationResult = {
+    projectAssetImageStatus?: "bound" | "stale";
     mode?: BackendGenerationMode;
     images?: Array<{ dataUrl: string; storageKey?: string; width?: number; height?: number; bytes?: number; mimeType?: string }>;
     video?: { dataUrl: string; storageKey?: string; width?: number; height?: number; durationMs?: number; bytes?: number; mimeType?: string };
@@ -61,7 +63,7 @@ export type GenerationTaskDependencies = {
 const defaultDependencies: GenerationTaskDependencies = {
     createTask: createGenerationTask,
     waitTask: waitForGenerationTask,
-    createId: () => createClientId(),
+    createId: () => createClientUUID(),
 };
 
 type PreparedGenerationReferences = {
@@ -322,6 +324,10 @@ function generationMetadata(config: AiConfig, metadata?: Record<string, unknown>
     const channel = resolveModelChannel(config, config.model);
     const model = modelOptionName(config.model);
     const modelCost = channel.modelCosts?.find((item) => item.model === model);
+    if (modelCost?.capability === "image" && modelCost.capabilityConfig?.image?.parameters) {
+        const { providerOptions: _providerOptions, ...rest } = metadata || {};
+        return rest;
+    }
     const protocol = modelCost?.protocol || channel.interfaceType;
     if (!protocol) return metadata;
     const existing = metadata?.providerOptions && typeof metadata.providerOptions === "object" && !Array.isArray(metadata.providerOptions)
@@ -379,6 +385,8 @@ function backendImageReference(image: ReferenceImage, override: Partial<Referenc
         ...(image.bytes ? { bytes: image.bytes } : {}),
         ...(image.width ? { width: image.width } : {}),
         ...(image.height ? { height: image.height } : {}),
+        ...(image.role ? { role: image.role } : {}),
+        ...(image.slotKey ? { slotKey: image.slotKey } : {}),
     };
 }
 
@@ -389,10 +397,12 @@ function backendMediaReference<T extends ReferenceVideo | ReferenceAudio>(media:
         type: override.type || media.type,
         url: override.url || "",
         storageKey: override.storageKey,
-        ...("bytes" in media && media.bytes ? { bytes: media.bytes } : {}),
+        ...(media.bytes ? { bytes: media.bytes } : {}),
         ...("width" in media && media.width ? { width: media.width } : {}),
         ...("height" in media && media.height ? { height: media.height } : {}),
         ...(media.durationMs ? { durationMs: media.durationMs } : {}),
+        ...(media.role ? { role: media.role } : {}),
+        ...(media.slotKey ? { slotKey: media.slotKey } : {}),
     } as T;
 }
 
@@ -401,7 +411,9 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
     const workflow = resolveGenerationWorkflowExecution(config, mode);
     if (workflow) return workflowProviderConfig(config, requestConfig, workflow);
     const generationOptions = {
+        ...(mode === "image" ? { imageParameters: imageParameterRequest(modelCapabilityConfigFor(config, config.model).image!, config, true) } : {}),
         size: config.size,
+        imageResolution: omittedImageQuality(config.imageResolution),
         quality: omittedImageQuality(config.quality),
         transparentBackground: config.transparentBackground,
         count: config.count,
@@ -484,6 +496,10 @@ function workflowPublicExecution(workflow: GenerationWorkflowExecution) {
 }
 
 function logicalCapabilityOptions(config: AiConfig, mode: BackendGenerationMode) {
+    if (mode === "image") {
+        const values = imageParameterRequest(modelCapabilityConfigFor(config, config.model).image!, config, true);
+        if (values) return values;
+    }
     const channel = resolveModelChannel(config, config.model);
     const spec = channel.modelCosts?.find((item) => item.model === modelOptionName(config.model))?.logicalCapabilitySpec;
     const candidates: Record<string, unknown> = mode === "image"

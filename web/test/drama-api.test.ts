@@ -40,8 +40,11 @@ const nativeDocument = (globalThis as { document?: unknown }).document;
 const nativeWindow = (globalThis as { window?: unknown }).window;
 let clicked: Array<{ download: string; href: string }> = [];
 
-function setGlobal(name: "window", value: unknown) {
-    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
+// happy-dom（本次合并新增的 devDependency）会把 globalThis.window / document 定义成
+// 只读属性，直接赋值会抛 TypeError: Attempted to assign to readonly property。
+// 这里统一用 defineProperty 覆盖，并保持可配置，便于 afterAll 还原。
+function setGlobal(name: "window" | "document", value: unknown) {
+    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true, enumerable: true });
 }
 
 beforeEach(() => {
@@ -52,9 +55,8 @@ beforeEach(() => {
     URL.createObjectURL = (() => "blob:drama") as typeof URL.createObjectURL;
     URL.revokeObjectURL = (() => undefined) as typeof URL.revokeObjectURL;
     // 生产代码用 window.setTimeout 延迟释放 object URL；Bun 没有 window，这里补上。
-    // 别的测试文件可能用 defineProperty 把 window 定成只读，直接赋值会抛错，所以同样用 defineProperty。
     setGlobal("window", { setTimeout: (fn: () => void) => setTimeout(fn, 0) });
-    (globalThis as { document?: unknown }).document = {
+    setGlobal("document", {
         createElement: () => ({
             set href(value: string) {
                 clicked.push({ href: value, download: "" });
@@ -66,13 +68,13 @@ beforeEach(() => {
             remove: () => undefined,
         }),
         body: { appendChild: () => undefined },
-    };
+    });
 });
 
 afterAll(() => {
     URL.createObjectURL = nativeCreateObjectURL;
     URL.revokeObjectURL = nativeRevokeObjectURL;
-    (globalThis as { document?: unknown }).document = nativeDocument;
+    setGlobal("document", nativeDocument);
     setGlobal("window", nativeWindow);
     rmSync(dir, { recursive: true, force: true });
 });

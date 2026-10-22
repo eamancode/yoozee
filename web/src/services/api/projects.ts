@@ -74,6 +74,7 @@ export type ProjectAsset = {
     previewText?: string;
     updatedAt: string;
     character?: CharacterCardSummary;
+    visual?: { definition: Record<string, unknown>; status: "missing" | "ready" };
     source?: string;
 };
 
@@ -598,6 +599,10 @@ export function unbindProjectCharacterVoice(projectId: string, assetId: string) 
     return http.delete<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/voice`);
 }
 
+export function createUnitWorkflow(projectId: string, unitId: string) {
+    return http.post<{ workflow: ProjectWorkflow }>(`/projects/${encodeURIComponent(projectId)}/workflows`, { unitId });
+}
+
 export function saveProjectShot(projectId: string, input: { id?: string; unitId?: string; title: string; description?: string; position?: number; durationMs?: number; status?: string; revision?: Partial<ShotRevisionInput> }) {
     return http.post<{ shot: ProjectShot }>(`/projects/${encodeURIComponent(projectId)}/shots`, input);
 }
@@ -628,6 +633,14 @@ export function createProjectAssetCandidates(projectId: string, candidates: Arra
 
 export function confirmProjectAssetCandidate(projectId: string, candidateId: string, assetId?: string) {
     return http.post<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/confirm`, { assetId: assetId || "" });
+}
+
+export function bindProjectAssetImage(projectId: string, assetId: string, input: { resourceId: string; expectedVersionId: string }) {
+    return http.put<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/image`, input);
+}
+
+export function updateWorkflowStep(projectId: string, stepId: string, input: { status: string; outputJson?: string; error?: string }) {
+    return http.patch<{ step: WorkflowStep }>(`/projects/${encodeURIComponent(projectId)}/workflow-steps/${encodeURIComponent(stepId)}`, input);
 }
 
 export function registerProjectTaskOutput(projectId: string, stepId: string, input: { taskId: string; canvasId?: string; unitId?: string; shotId?: string; artifactType?: string; assetVersionId?: string; resourceId?: string; mediaType?: string; role?: string; metadataJson?: string; outputJson?: string }) {
