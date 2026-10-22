@@ -112,10 +112,10 @@ func TestWriteDramaShotlistChecksPacksAndStores(t *testing.T) {
 		category  model.AssetCategory
 	}{{"char-1", "林小满", model.AssetCategoryCharacter}, {"char-2", "周岸", model.AssetCategoryCharacter}, {"loc-1", "病房走廊", model.AssetCategoryEnvironment}} {
 		version := a.id + "-v1"
-		if err := db.Create(&model.Asset{ID: a.id, UserID: "user-1", Kind: "image", Category: a.category, Status: model.AssetVersionStatusConfirmed, PrimaryVersionID: version, Title: a.title, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		if err := db.Create(&model.Asset{ID: a.id, UserID: "user-1", Kind: "image", Category: a.category, Status: model.AssetVersionStatusConfirmed, PrimaryVersionID: version, Title: a.title, PayloadJSON: "{}", CreatedAt: now, UpdatedAt: now}).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := db.Create(&model.AssetVersion{ID: version, AssetID: a.id, Version: 1, Status: model.AssetVersionStatusConfirmed, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		if err := db.Create(&model.AssetVersion{ID: version, AssetID: a.id, Version: 1, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: "{}", CreatedAt: now, UpdatedAt: now}).Error; err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Create(&model.ProjectAssetLink{ID: newID(), ProjectID: project.ID, AssetID: a.id, CreatedAt: now}).Error; err != nil {
