@@ -1,0 +1,123 @@
+{
+ "kind": "shots",
+ "errors": 17,
+ "warnings": 6,
+ "items": [
+  {
+   "level": "error",
+   "rule": "R-SHOT-001",
+   "message": "台词 E01S01L01 落在 2 个镜头：['E01S01-01', 'E01S01-02']"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-001",
+   "message": "台词 E01S02L01 没有落在任何镜头：「小满。」"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-001",
+   "message": "台词 E01S02L02 没有落在任何镜头：「你是七床？」"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-001",
+   "message": "台词 E01S02L03 没有落在任何镜头：「我以为你早换科室了。」"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-001",
+   "message": "台词 E01S02L04 没有落在任何镜头：「回去躺着。你的输液还没拔。」"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-001",
+   "message": "台词 E01S02L05 没有落在任何镜头：「我不是来住院的。」"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-001",
+   "message": "台词 E01S03L01 没有落在任何镜头：「现在信了？」"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-001",
+   "message": "镜头 ['E01S01-01'] 引用了剧本里不存在的台词 id E01S01L99"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-003",
+   "message": "E01S01-01 运镜 ['push', 'pull', 'orbit', 'crane_up', 'one_take'] 涉及 3 轴，超过档案上限 2"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-004",
+   "message": "E01S01-01 近景（Z3）做大旋转 ['push', 'pull', 'orbit', 'crane_up', 'one_take']，容易崩脸"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-005",
+   "message": "E01S01-01 推进与拉远同时出现"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-016",
+   "message": "E01S01-01 档案禁一镜到底，改多镜切换或微运镜"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-017",
+   "message": "E01S01-01 出现配乐词 ['配乐', '弦乐', '紧张弦乐']"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-011",
+   "message": "E01S01-01 室内镜头没有光源锚点"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-021",
+   "message": "E01S01-01 对话场第一个人物镜景别「近景」不在档案允许的 ['中景', '中全景', '全景']（先交代谁在场）"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-026",
+   "message": "E01S01-01 含台词或表演但没有 emotion_arc，也没有手写 performance.beats"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-010",
+   "message": "E01S01-02 含台词、估时 5.0 秒却没有可见动作：加动作或切镜"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-011",
+   "message": "E01S01-02 室内镜头没有光源锚点"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-007",
+   "message": "E01S01-02 与上一镜同主体、景别只差 0 级且机位未变：跳切风险"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-026",
+   "message": "E01S01-02 含台词或表演但没有 emotion_arc，也没有手写 performance.beats"
+  },
+  {
+   "level": "error",
+   "rule": "R-SHOT-015",
+   "message": "伏笔 P1（周岸右手腕的留置针贴膏：他确实是七床，但不是来住院的）在 E01S02 没有镜头承担"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-006",
+   "message": "常规镜头占比 50% 超过档案上限 35%"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-006",
+   "message": "固定镜头占比 50% 超过档案上限 10%"
+  }
+ ],
+ "skipped": []
+}

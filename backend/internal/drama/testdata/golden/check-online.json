@@ -1,0 +1,123 @@
+{
+ "kind": "shots",
+ "errors": 0,
+ "warnings": 23,
+ "items": [
+  {
+   "level": "warn",
+   "rule": "R-SHOT-007",
+   "message": "E01S01-03 与上一镜同主体、景别只差 1 级且机位未变：跳切风险"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-027",
+   "message": "E01S01-03 衔接写了硬切，但与上一镜同主体、景别只差 1 级且机位未变，是跳切"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S02-01 A 档景别没写全在场人物位置：['林小满']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-007",
+   "message": "E01S02-03 与上一镜同主体、景别只差 1 级且机位未变：跳切风险"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-027",
+   "message": "E01S02-03 衔接写了硬切，但与上一镜同主体、景别只差 1 级且机位未变，是跳切"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-009",
+   "message": "E01S02-05 连续 3 镜同一景别 中近景"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-009",
+   "message": "E01S02-06 连续 4 镜同一景别 中近景"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-027",
+   "message": "E01S02-06 衔接写了动作匹配切，但上一镜 action 里没有动作动词可接"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-009",
+   "message": "E01S02-07 连续 5 镜同一景别 中近景"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-009",
+   "message": "E01S02-08 连续 6 镜同一景别 中近景"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S02-09 A 档景别没写全在场人物位置：['周岸']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S03-03 A 档景别没写全在场人物位置：['林小满']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-007",
+   "message": "E01S03-03 与上一镜同主体、景别只差 0 级且机位未变：跳切风险"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-009",
+   "message": "E01S03-03 连续 3 镜同一景别 中景"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S03-04 A 档景别没写全在场人物位置：['林小满']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-007",
+   "message": "E01S03-04 与上一镜同主体、景别只差 0 级且机位未变：跳切风险"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-009",
+   "message": "E01S03-04 连续 4 镜同一景别 中景"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S03-06 A 档景别没写全在场人物位置：['林小满']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S03-07 A 档景别没写全在场人物位置：['林小满']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S03-08 A 档景别没写全在场人物位置：['周岸']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-009",
+   "message": "E01S03-08 连续 3 镜同一景别 中景"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-009",
+   "message": "E01S03-09 连续 4 镜同一景别 中景"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-007",
+   "message": "E01S03-10 与上一镜同主体、景别只差 1 级且机位未变：跳切风险"
+  }
+ ],
+ "skipped": []
+}

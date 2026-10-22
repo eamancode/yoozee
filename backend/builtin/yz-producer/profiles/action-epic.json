@@ -1,0 +1,61 @@
+{
+  "id": "action-epic",
+  "label": "史诗打斗 / 割草（打斗割草技能）",
+  "source": "打斗割草技能 9.21 用户确认版 + 武学打斗库 + 特效提示词库",
+  "medium": "game_cg",
+  "style_block": {
+    "zh": "画质：UE5.4 Path Tracing、Lumen 全局光照、Nanite、PBR 物理材质、ACES、8K、HDR、60fps，高帧流畅无拖影；Chaos physics destruction，realistic rigid-body debris with gravity arcs，cloth simulation，volumetric lighting，godrays，contact shadows，physically-based rendering，ray-traced reflections；国风 CG，胶片颗粒，次表面散射，轻微枕形畸变与色散。技能发光必须染亮相应环境；碎片带重力抛物线与落地反弹；布料与发丝有惯性；一切接触有物理反馈。全身与武器覆盖流体、粒子及残影，面部清晰；能量归属明确。无背景音乐，无字幕。"
+  },
+  "acting_block": {
+    "zh": "打斗表演：每次命中写打击感五件套中至少三件（亮度骤增、镜头急推或震屏、冲击波环、受击方物理反馈、粒子火花迸发）；攻击后必须续招，禁空帧、回气、摆姿势；保持势均力敌，禁碾压段；面部清晰可辨，表情随战斗阶段变化。"
+  },
+  "performance_grain": "visible_action",
+  "camera_default": "X2",
+  "camera_follows_emotion": false,
+  "light_policy": "stylized",
+  "prompt_density": "dense",
+  "quotas": {
+    "consecutive_same_move_max": 3,
+    "consecutive_same_size_max": 2,
+    "heavy_moves": {"dolly_zoom": 1, "snorricam": 1}
+  },
+  "rules": {
+    "one_take_allowed": true,
+    "standing_talk_max_sec": 2,
+    "big_action_isolated": false,
+    "reaction_after_hammer": false,
+    "shot_time_code": true,
+    "max_move_axes": 2,
+    "no_rotation_at_z1_z3": true,
+    "one_line_one_shot": true,
+    "bgm_allowed": false,
+    "adjacent_size_min_gap": 1,
+    "indoor_light_anchor_required": false,
+    "expression_min_sec": 0.3,
+    "group_variation_required": true
+  },
+  "vfx_policy": {
+    "ratio": {"fluid": 0.6, "particle": 0.25, "water_dust": 0.15},
+    "slow_motion_max_per_film": 1,
+    "slow_motion_sec": [0.5, 1.0],
+    "slow_motion_positions": ["尾帧绝杀命中瞬间", "觉醒蜕变满屏光爆瞬间", "超光速对撞最大爆点"],
+    "ult_interval_sec_default": 5,
+    "one_contact_per_shot": true,
+    "hit_feel_min_items": 3,
+    "hit_feel_key_items": 5,
+    "teleport_per_sec_max": 2,
+    "shot_codes": {"size": ["FS", "MS", "MCU", "CU", "Wide"], "move": ["TRACK", "WHIP", "ORBIT", "PUSH", "PULL", "FPV"]},
+    "modes": {"A": "1vN 满屏割草（魔物来回穿梭反击）", "B": "1v1 对决（零魔物、零对撞僵持、双方各 3～5 小技能）", "C": "变身觉醒（可叠加 A/B）"}
+  },
+  "asset_tier_policy": {
+    "lead": ["crops>=3", "lock_card>=8", "anchors>=3", "weapon_sheet"],
+    "support": ["crops>=3", "lock_card>=8"],
+    "extra": ["crops>=1", "group_variation"]
+  },
+  "notes": [
+    "镜头保留景别代码（FS / MS / MCU / CU）与运镜代码（TRACK / WHIP / ORBIT / PUSH / PULL / FPV），代码之后写中文规格、目标和方向。",
+    "运镜 / 画面内容密度 / 动作密度随节奏三联动；呼吸点靠密度错峰、不靠减速。",
+    "原作者的本机图片路径与人物（3D 女主、寒烬等）不可用：人物与兵器一律换成本项目 bible 的资产，缺图标「资产待补」。",
+    "打斗阶段模板（对峙 → 试探 → 升级 → 绝招 → 分胜负 → 余波）来自武学库第五部分，剧本 fight.phase_plan 按它分配。"
+  ]
+}

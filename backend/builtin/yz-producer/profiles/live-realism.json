@@ -1,0 +1,64 @@
+{
+  "id": "live-realism",
+  "label": "真人剧（默认）",
+  "source": "分镜师 4.0 realism / acting 块 + Higgsfield 实景光规则 + 即梦写实约束",
+  "medium": "live_action",
+  "style_block": {
+    "zh": "真人剧质感，写实，电影机定焦镜头拍摄，光线来自场景里真实存在的光源；皮肤哑光、有毛孔，像上了一层薄粉，鼻头、额头、脸颊不反光、不油亮，无美颜，纹理不过度锐化；细腻的胶片颗粒。灯光只用场景内实际存在的光源（窗、灯具、屏幕、火），不加任何画面外补光、反光板或霓虹；摄影机从人物的阴影侧取景，脸由实景光勾出轮廓和眼神光；禁 3D 渲染感、禁游戏引擎质感、禁过饱和与 HDR 感。",
+    "en": "Live-action realism shot on a cinema camera with prime lenses; light comes only from practical sources in the scene (windows, lamps, screens, fire), no fill light, no reflectors, no neon; camera on the shadow side of the face; matte skin with visible pores, no beauty retouching, no over-sharpening; fine film grain; no 3D-render look, no game-engine look, no oversaturation or HDR look."
+  },
+  "acting_block": {
+    "zh": "表演具体、真实：人物的内心想法要从眼神、呼吸和脸上的细微变化里看得见，强度跟着戏走，从完全静止到爆发都可以；不要空洞的眼神，不要舞台腔，不要过度表演；脸部清晰。",
+    "en": "Specific, truthful acting: inner thought must be visible in the eyes, the breath and the small changes of the face; intensity follows the drama, from stillness to outburst; no empty stares, no stage voice, no overacting; the face stays clear."
+  },
+  "performance_grain": "micro",
+  "emotion_arc_required": true,
+  "camera_default": "X2",
+  "camera_follows_emotion": true,
+  "light_policy": "practicals_only",
+  "prompt_density": "standard",
+  "quotas": {
+    "closeup_max": 0.5,
+    "consecutive_same_move_max": 2,
+    "consecutive_same_size_max": 2,
+    "heavy_moves": {"dolly_zoom": 1, "orbit": 3, "snorricam": 1, "roll": 1}
+  },
+  "rules": {
+    "one_take_allowed": true,
+    "standing_talk_max_sec": 4,
+    "big_action_isolated": true,
+    "big_action_sec": [3, 4],
+    "reaction_after_hammer": true,
+    "dialogue_open_size": ["中景", "中全景", "全景", "中近景"],
+    "shot_time_code": true,
+    "max_move_axes": 2,
+    "no_rotation_at_z1_z3": true,
+    "one_line_one_shot": true,
+    "bgm_allowed": false,
+    "adjacent_size_min_gap": 2,
+    "indoor_light_anchor_required": true,
+    "expression_min_sec": 0.5,
+    "group_variation_required": true
+  },
+  "color": {
+    "ratio": "60:30:10",
+    "moods": {
+      "cold_conflict": "60% 冷蓝 + 30% 混凝土灰 + 10% 红色点缀",
+      "warm_intimacy": "60% 暖钨丝 + 30% 深棕 + 10% 琥珀",
+      "danger": "60% 深红 + 30% 黑 + 10% 钠灯橙",
+      "tech": "60% 黑 + 30% 冷灰 + 10% 紫 / 青点缀"
+    },
+    "picture_chain": "胶片链中档：去噪、柔化、压高光、抬黑位、降饱和、颗粒；夜戏亮度均值 ≥45/255、暗部占比 ≤50%"
+  },
+  "lens_policy": {"dialogue": 50, "tight_emotion": 85, "wide": 35, "insert_macro": 45, "aperture_shallow": "F1.4"},
+  "asset_tier_policy": {
+    "lead": ["crops>=3", "lock_card>=8", "anchors>=3", "voice_if_speaks"],
+    "support": ["crops>=3", "lock_card>=8", "anchors>=3", "voice_if_speaks"],
+    "extra": ["crops>=1", "lock_card>=4"]
+  },
+  "notes": [
+    "大动作（走路、起身、转身、哭、喊）单独成一个 3～4 秒的中景镜头，标记关键段多出候选。",
+    "摄影机是焦点人物的情绪替身：愤怒手持不安、冷静手持平稳、震惊静止后缓推。",
+    "泛情绪词必须拆成具体变体（惊讶四种），拆不出就问用户。"
+  ]
+}
