@@ -318,6 +318,32 @@ describe("分镜制作页的段卡：段内镜头可拆合、可编辑", () => {
         expect(referenced).not.toContain("人物一致性只靠文字");
     });
 
+    test("镜头表装出的段：镜头下只读列出表情链、站位、灯光、衔接；旧段不出这一块", () => {
+        const spec21 = {
+            ...spec("S02", 1),
+            shots: [
+                {
+                    at: 0,
+                    text: "林小满停在七床门前",
+                    expression: "0–2秒：瞳孔失焦；2–4秒：嘴角扯笑（台词落在这一段）",
+                    expression_terms: ["红眼眶"],
+                    positions: "林小满在七床门牌，朝七床门牌；机位在林小满左前方",
+                    light_full: "主光：顶部日光灯主光；色温：4300K冷白偏绿",
+                    transition: { in: "开场", out: "视线匹配", cut_point: "视线" },
+                },
+            ],
+        };
+        const html = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S02" specJson={JSON.stringify(spec21)} />, { segments: [view("S02", 1)] });
+        expect(html).toContain("镜头表字段（只读）");
+        expect(html).toContain("表情链");
+        expect(html).toContain("核心词：红眼眶");
+        expect(html).toContain("机位在林小满左前方");
+        expect(html).toContain("色温：4300K冷白偏绿");
+        expect(html).toContain("上一镜→本镜：开场；本镜→下一镜：视线匹配；切点：视线");
+        const legacy = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S02" specJson={JSON.stringify(spec("S02", 1))} />, { segments: [view("S02", 1)] });
+        expect(legacy).not.toContain("镜头表字段（只读）");
+    });
+
     test("相邻的是旧镜头时不给合并；没有段长规则时只能看", () => {
         const html = render(card(), { segments: [view("S01", 2, true), view("S02", 3)] });
         expect(html).not.toContain("并入 S01");

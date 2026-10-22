@@ -177,6 +177,11 @@ func TestWriteDramaShotlistChecksPacksAndStores(t *testing.T) {
 	if view, _ := service.DramaShotlist("user-1", project.ID, unit.ID); view == nil || view.Version != 2 {
 		t.Fatal("检查不过不落库")
 	}
+	state := &cloudAgentRuntime{Request: CloudAgentRequest{DramaProjectID: project.ID}}
+	toolResult, err := service.cloudAgentDramaTool("user-1", state, dramaToolCall("drama_shotlist_write", map[string]any{"unitId": unit.ID, "rows": badRows}))
+	if payload, ok := toolResult.(map[string]any); err != nil || !ok || payload["saved"] != false || payload["check"] == nil {
+		t.Fatalf("Agent 写镜头表检查不过时拿到规则项而不是一句报错：%v %+v", err, toolResult)
+	}
 	if _, err := service.WriteDramaShotlist("user-2", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows}); err == nil {
 		t.Fatal("别人的项目不能写")
 	}

@@ -522,7 +522,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
                     return (
                         <li key={`${shot.at}-${shotIndex}`} className="flex gap-2 leading-5">
                             <span className="w-16 shrink-0 tabular-nums text-foreground/45">{shot.at}–{end}s</span>
-                            <span className="min-w-0 flex-1 text-foreground/70">{[shot.size, shot.camera].filter(Boolean).join(" · ")}{shot.size || shot.camera ? "：" : ""}{shot.text}{shot.lines?.length ? <span className="block text-foreground/55">{shot.lines.map((line) => `${line.speaker}${line.vo ? "（画外）" : ""}：「${line.text}」`).join(" ")}</span> : null}</span>
+                            <span className="min-w-0 flex-1 text-foreground/70">{[shot.size, shot.camera].filter(Boolean).join(" · ")}{shot.size || shot.camera ? "：" : ""}{shot.text}{shot.lines?.length ? <span className="block text-foreground/55">{shot.lines.map((line) => `${line.speaker}${line.vo ? "（画外）" : ""}：「${line.text}」`).join(" ")}</span> : null}<SubShotDetails shot={shot} /></span>
                             {editable ? (
                                 <span className="flex shrink-0 items-start">
                                     <Button type="text" size="small" disabled={save.isPending} icon={<Pencil className="size-3.5" />} aria-label={`编辑第 ${shotIndex + 1} 个镜头的画面、台词和时长`} title="改画面、台词和时长" onClick={() => setEditingShot(shotIndex)} />
@@ -556,6 +556,29 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
 }
 
 const NO_REFERENCE_HINT = "此段没有人物/场景参考，人物一致性只靠文字。";
+
+/** 由镜头表装出的镜头（2.1）带的表情链、站位、灯光七项和衔接：只读，跟着镜头表重新生成。 */
+function SubShotDetails({ shot }: { shot: DramaSubShot }) {
+    const transition = shot.transition ? [shot.transition.in && `上一镜→本镜：${shot.transition.in}`, shot.transition.out && `本镜→下一镜：${shot.transition.out}`, shot.transition.cut_point && `切点：${shot.transition.cut_point}`].filter(Boolean).join("；") : "";
+    const rows: Array<[string, string]> = [
+        ["表情链", [shot.expression, shot.expression_terms?.length ? `核心词：${shot.expression_terms.join("、")}` : ""].filter(Boolean).join("；")],
+        ["站位", shot.positions || ""],
+        ["灯光", shot.light_full || ""],
+        ["衔接", transition],
+    ];
+    const visible = rows.filter(([, value]) => value);
+    if (!visible.length) return null;
+    return (
+        <dl className="mt-1 grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 rounded-md bg-surface-active px-2 py-1 text-foreground/55" aria-label="镜头表字段（只读）">
+            {visible.map(([label, value]) => (
+                <div key={label} className="contents">
+                    <dt className="text-foreground/40">{label}</dt>
+                    <dd className="m-0 min-w-0 break-words">{value}</dd>
+                </div>
+            ))}
+        </dl>
+    );
+}
 
 /** 段内一个镜头的编辑：画面、台词（每行一句「说话人：台词」）、时长。 */
 function SubShotEditor({ shot, seconds, saving, onSave, onCancel }: { shot: DramaSubShot; seconds: number; saving: boolean; onSave: (patch: { text: string; lines: DramaLine[]; seconds: number }) => void; onCancel: () => void }) {

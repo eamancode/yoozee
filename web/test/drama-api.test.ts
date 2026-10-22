@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // 只把传输层换成 stub，drama.ts 本身是生产代码（仓库既有做法：临时模块，不用 mock.module）。
 const dir = mkdtempSync(join(tmpdir(), "drama-api-"));
@@ -10,7 +11,7 @@ writeFileSync(
     requestPath,
     [
         "export class ApiError extends Error {",
-        "    constructor(message, options = {}) { super(message); this.name = 'ApiError'; this.status = options.status; this.code = options.code; this.reason = options.reason; this.cause = options.cause; }",
+        "    constructor(message, options = {}) { super(message); this.name = 'ApiError'; this.status = options.status; this.code = options.code; this.reason = options.reason; this.details = options.details; this.cause = options.cause; }",
         "}",
         "export const calls = [];",
         "export const responses = {};",
@@ -27,7 +28,8 @@ writeFileSync(
 );
 const source = readFileSync(new URL("../src/services/api/drama.ts", import.meta.url), "utf8");
 const dramaPath = join(dir, "drama.ts");
-writeFileSync(dramaPath, source.replace('"@/services/api/request"', JSON.stringify(requestPath)));
+const errorCodesPath = fileURLToPath(new URL("../src/services/api/error-codes.ts", import.meta.url));
+writeFileSync(dramaPath, source.replace('"@/services/api/request"', JSON.stringify(requestPath)).replace('"@/services/api/error-codes"', JSON.stringify(errorCodesPath)));
 const drama: typeof import("../src/services/api/drama") = await import(dramaPath);
 const transport = await import(requestPath);
 
@@ -120,6 +122,26 @@ describe("短剧接口请求合同", () => {
 
         await drama.runDramaGate("p1", { targetLufs: -16 });
         expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/drama/gate", body: { targetLufs: -16 } });
+    });
+});
+
+describe("镜头表接口", () => {
+    test("读写都打章节下的 drama/shotlist，写入把分镜行、段长规则和现有镜头 ID 原样交给后端", async () => {
+        await drama.getDramaShotlist("p1", "u 1");
+        expect(lastCall()).toMatchObject({ method: "get", url: "/projects/p1/units/u%201/drama/shotlist" });
+
+        const rows = [{ shotNumber: 1, spec: { id: "E01S01-01" } }];
+        await drama.putDramaShotlist("p1", "u1", { rows, rule: { maxSeconds: 15, minSeconds: 4 }, expectedShotIds: ["s1"] });
+        expect(lastCall()).toMatchObject({ method: "put", url: "/projects/p1/units/u1/drama/shotlist", body: { rows, rule: { maxSeconds: 15, minSeconds: 4 }, expectedShotIds: ["s1"] } });
+    });
+
+    test("检查不过时从错误里取出规则项；别的错误不当成检查结果", () => {
+        const check = { kind: "shots", errors: 1, warnings: 0, items: [{ level: "error", rule: "R-SHOT-025", message: "情绪弧不在词库里", shotId: "E01S01-01" }], skipped: [] };
+        const failed = new transport.ApiError("镜头表检查有 1 个 error", { status: 400, reason: "shotlist_check_failed", details: { check } });
+        expect(drama.shotlistCheckFailure(failed)).toEqual(check);
+        expect(drama.shotlistCheckFailure(new transport.ApiError("x", { status: 400, reason: "segment_too_long", details: { check } }))).toBeUndefined();
+        expect(drama.shotlistCheckFailure(new transport.ApiError("x", { status: 400, reason: "shotlist_check_failed" }))).toBeUndefined();
+        expect(drama.shotlistCheckFailure(new Error("network"))).toBeUndefined();
     });
 });
 

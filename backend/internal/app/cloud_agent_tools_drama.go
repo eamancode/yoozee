@@ -124,7 +124,13 @@ func (s *Service) cloudAgentDramaTool(userID string, state *cloudAgentRuntime, c
 		if err := decode(&args); err != nil {
 			return nil, err
 		}
-		return s.WriteDramaShotlist(userID, projectID, args.UnitID, args.DramaShotlistWriteRequest)
+		result, err := s.WriteDramaShotlist(userID, projectID, args.UnitID, args.DramaShotlistWriteRequest)
+		// 检查不过时把规则项原样交给 Agent（比一句报错有用）：它按镜头改 spec 再写。
+		var appErr *AppError
+		if errors.As(err, &appErr) && appErr.Reason == ReasonShotlistCheckFailed {
+			return map[string]any{"saved": false, "reason": string(appErr.Reason), "message": appErr.Message, "check": appErr.Details["check"], "stats": appErr.Details["stats"], "next": "按 check.items 里 level=error 的规则项改对应镜头（shotId）的 spec，再整章重写；warn 不挡保存"}, nil
+		}
+		return result, err
 	case "drama_artifact_register":
 		var args struct {
 			ShotID       string `json:"shotId"`
