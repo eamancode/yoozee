@@ -138,6 +138,9 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 		if err := tx.Where("project_id = ?", id).Delete(&model.ShotEvidence{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("project_id = ?", id).Delete(&model.DramaShotlist{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotRevision{}).Error; err != nil {
 			return err
 		}
@@ -290,6 +293,9 @@ func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
 			return err
 		}
 		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProjectAssetCandidate{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.DramaShotlist{}).Error; err != nil {
 			return err
 		}
 		result := tx.Delete(&model.ProjectUnit{}, "id = ? AND project_id = ?", id, projectID)

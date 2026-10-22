@@ -19,6 +19,10 @@ const dramaSegmentsWriteDescription = "按段号写一章的分段：已有段�
 	"拆段：S02 拆成两段时，S02 写成前半，后半用 S02b（原段号加小写字母，已占用就用 S02c），order 写 [\"S01\",\"S02\",\"S02b\",\"S03\"]，新段紧跟在原段后面而不是排到章末。" +
 	"合段：S03 并进 S02 时，写合并后的 S02，order 里不写 S03。没出现在 order 里的已有段会连同它的候选视频、分镜图和证据一起删除，无法恢复，所以只在合段时省略，其余段一个不落。"
 
+// dramaShotlistWriteDescription 是 drama_shotlist_write 给 Agent 的用法说明；校验与装段规则在 internal/drama。
+const dramaShotlistWriteDescription = "写一章的镜头表并整章重装段：服务端把章节正文转成台词表，分镜行的 spec 转成镜头表（台词按原文对回台词 id），按 R-SHOT 规则检查，有 error 就整批拒绝并返回规则项与镜头（reason=shotlist_check_failed），没有 error 才按场装段、替换本章全部段（旧段连同候选、证据一起删除）。" +
+	"每行一镜，spec 写 id（E01S01-01）、scene（E01S01）、purpose、subject、size、cam{z,y,x,f?}、move、action、start_state、end_state、lines[{text 原文一字不改, speaker, delivery?, pace?, tone?, emotion?}]，可选 emotion_arc、performance、light（灯光七项）、blocking、transition、refs_hint 等；绑定资产写在 assetBindings。warn 不挡保存，随结果返回。"
+
 func cloudAgentDramaTool(name string) bool {
 	return strings.HasPrefix(name, "drama_")
 }
@@ -97,6 +101,30 @@ func (s *Service) cloudAgentDramaTool(userID string, state *cloudAgentRuntime, c
 			return nil, err
 		}
 		return s.WriteDramaSegments(userID, projectID, args)
+	case "drama_shotlist_read":
+		var args struct {
+			UnitID string `json:"unitId"`
+		}
+		if err := decode(&args); err != nil {
+			return nil, err
+		}
+		view, err := s.DramaShotlist(userID, projectID, args.UnitID)
+		if err != nil {
+			return nil, err
+		}
+		if view == nil {
+			return map[string]any{"unitId": args.UnitID, "shotlist": nil, "note": "这一章还没有镜头表：用 drama_shotlist_write 写入分镜行，或用户在章节页生成分镜"}, nil
+		}
+		return view, nil
+	case "drama_shotlist_write":
+		var args struct {
+			UnitID string `json:"unitId"`
+			DramaShotlistWriteRequest
+		}
+		if err := decode(&args); err != nil {
+			return nil, err
+		}
+		return s.WriteDramaShotlist(userID, projectID, args.UnitID, args.DramaShotlistWriteRequest)
 	case "drama_artifact_register":
 		var args struct {
 			ShotID       string `json:"shotId"`

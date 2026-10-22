@@ -107,7 +107,18 @@ func (r *Repository) SaveShotWithRevisionSelective(shot *model.Shot, revision *m
 }
 
 func (r *Repository) ReplaceProjectUnitShots(projectID string, unitID string, shots []model.Shot, revisions []model.ShotRevision, references []model.ShotAssetReference, expectedShotIDs []string) error {
+	return r.ReplaceProjectUnitShotsWithShotlist(projectID, unitID, shots, revisions, references, expectedShotIDs, nil)
+}
+
+// ReplaceProjectUnitShotsWithShotlist 同 ReplaceProjectUnitShots；shotlist 不为空时在同一事务里写入本章镜头表
+// （已有就版本号加一并覆盖），段和它的来源一起成功或一起失败。
+func (r *Repository) ReplaceProjectUnitShotsWithShotlist(projectID string, unitID string, shots []model.Shot, revisions []model.ShotRevision, references []model.ShotAssetReference, expectedShotIDs []string, shotlist *model.DramaShotlist) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if shotlist != nil {
+			if err := upsertDramaShotlist(tx, shotlist); err != nil {
+				return err
+			}
+		}
 		if expectedShotIDs != nil {
 			var currentShotIDs []string
 			if err := tx.Model(&model.Shot{}).Where("project_id = ? AND unit_id = ?", projectID, unitID).Order("id asc").Pluck("id", &currentShotIDs).Error; err != nil {
@@ -153,6 +164,34 @@ func (r *Repository) ReplaceProjectUnitShots(projectID string, unitID string, sh
 		}
 		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error
 	})
+}
+
+func upsertDramaShotlist(tx *gorm.DB, shotlist *model.DramaShotlist) error {
+	var existing model.DramaShotlist
+	err := tx.Where("project_id = ? AND unit_id = ?", shotlist.ProjectID, shotlist.UnitID).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		shotlist.Version = 1
+		return tx.Create(shotlist).Error
+	}
+	if err != nil {
+		return err
+	}
+	shotlist.ID = existing.ID
+	shotlist.Version = existing.Version + 1
+	shotlist.CreatedAt = existing.CreatedAt
+	return tx.Model(&model.DramaShotlist{}).Where("id = ?", existing.ID).Updates(map[string]any{
+		"version": shotlist.Version, "shotlist_json": shotlist.ShotlistJSON, "script_json": shotlist.ScriptJSON,
+		"check_json": shotlist.CheckJSON, "created_by": shotlist.CreatedBy, "updated_at": shotlist.UpdatedAt,
+	}).Error
+}
+
+// DramaShotlistForUnit 读一章的镜头表；没有返回 gorm.ErrRecordNotFound。
+func (r *Repository) DramaShotlistForUnit(projectID string, unitID string) (*model.DramaShotlist, error) {
+	var shotlist model.DramaShotlist
+	if err := r.db.First(&shotlist, "project_id = ? AND unit_id = ?", projectID, unitID).Error; err != nil {
+		return nil, err
+	}
+	return &shotlist, nil
 }
 
 func (r *Repository) ShotForProject(projectID string, shotID string) (*model.Shot, error) {

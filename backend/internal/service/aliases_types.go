@@ -143,6 +143,7 @@ type (
 	CreateProjectShotRequest               = app.CreateProjectShotRequest
 	UpdateProjectDramaDocumentRequest      = app.UpdateProjectDramaDocumentRequest
 	DramaSegmentsWriteRequest              = app.DramaSegmentsWriteRequest
+	DramaShotlistWriteRequest              = app.DramaShotlistWriteRequest
 	CompileProjectShotRequest              = app.CompileProjectShotRequest
 	CreateShotEvidenceRequest              = app.CreateShotEvidenceRequest
 	PickShotArtifactRequest                = app.PickShotArtifactRequest
