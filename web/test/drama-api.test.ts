@@ -40,6 +40,10 @@ const nativeDocument = (globalThis as { document?: unknown }).document;
 const nativeWindow = (globalThis as { window?: unknown }).window;
 let clicked: Array<{ download: string; href: string }> = [];
 
+function setGlobal(name: "window", value: unknown) {
+    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
+}
+
 beforeEach(() => {
     transport.calls.length = 0;
     for (const key of Object.keys(transport.responses)) delete transport.responses[key];
@@ -48,7 +52,8 @@ beforeEach(() => {
     URL.createObjectURL = (() => "blob:drama") as typeof URL.createObjectURL;
     URL.revokeObjectURL = (() => undefined) as typeof URL.revokeObjectURL;
     // 生产代码用 window.setTimeout 延迟释放 object URL；Bun 没有 window，这里补上。
-    (globalThis as { window?: unknown }).window = { setTimeout: (fn: () => void) => setTimeout(fn, 0) };
+    // 别的测试文件可能用 defineProperty 把 window 定成只读，直接赋值会抛错，所以同样用 defineProperty。
+    setGlobal("window", { setTimeout: (fn: () => void) => setTimeout(fn, 0) });
     (globalThis as { document?: unknown }).document = {
         createElement: () => ({
             set href(value: string) {
@@ -68,7 +73,7 @@ afterAll(() => {
     URL.createObjectURL = nativeCreateObjectURL;
     URL.revokeObjectURL = nativeRevokeObjectURL;
     (globalThis as { document?: unknown }).document = nativeDocument;
-    (globalThis as { window?: unknown }).window = nativeWindow;
+    setGlobal("window", nativeWindow);
     rmSync(dir, { recursive: true, force: true });
 });
 
