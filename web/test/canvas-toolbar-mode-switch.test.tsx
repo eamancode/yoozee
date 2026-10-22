@@ -32,12 +32,14 @@ describe("canvas toolbar mode switch", () => {
         const modeSwitch = entries.find((entry) => entry.kind === "switch");
         if (!modeSwitch) throw new Error("Missing canvas mode switch");
         const html = renderToStaticMarkup(<FloatingDock size={size} items={[modeSwitch]} />);
-        const diameter = size === "compact" ? 24 : 26;
 
-        expect(html).toContain(`width:${diameter}px;height:${diameter}px`);
+        // Dock 重写后尺寸走 --dock-item-size 变量，不再写死 px。
+        expect(html).toContain("aceternity-dock-switch-option");
+        expect(html).toContain("h-[calc(var(--dock-item-size)-4px)]");
         expect(html.match(/aceternity-dock-switch-thumb/g)).toHaveLength(1);
-        expect(html).toContain("absolute top-1/2 rounded-full");
-        expect(html).toContain("grid size-4 shrink-0 place-items-center");
+        expect(html).toContain("pointer-events-none absolute inset-0");
+        expect(html).toContain("grid shrink-0 place-items-center");
+        expect(html).toContain(size === "compact" ? "size-[15px]" : "size-4");
         expect(html).not.toContain("is-labeled");
         expect(html).not.toContain("选择</span>");
         expect(html).not.toContain("移动</span>");
@@ -134,7 +136,7 @@ describe("canvas toolbar mode switch", () => {
         );
 
         expect(html).toContain('role="radiogroup"');
-        expect(html).toContain("aceternity-dock-switch-track");
+        expect(html).toContain("aceternity-dock-switch");
         expect(html).toContain("aceternity-dock-switch-thumb");
         expect(html).toContain('aria-label="区域选择"');
         expect(html).toContain('aria-label="抓手工具"');

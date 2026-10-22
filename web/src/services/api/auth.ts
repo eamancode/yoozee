@@ -23,6 +23,8 @@ export type LocalUser = {
     phoneVerifiedAt?: string;
     displayName: string;
     avatarUrl?: string;
+    avatarMode?: "custom" | "default" | "";
+    avatarPreset?: string;
     identityProvider?: string;
     identityId?: string;
     identityUsername?: string;
@@ -441,7 +443,7 @@ export function getAdminFeatureAvailability() {
 }
 
 export function updateAdminFeatureAvailability(
-    features: Partial<Pick<FeatureAvailability, "welcomeEnabled" | "shortDramaEnabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "systemPluginsVisibleToUsers" | "inspirationSourcesVisible">>,
+    features: Partial<Pick<FeatureAvailability, "welcomeEnabled" | "shortDramaEnabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "systemPluginsVisibleToUsers" | "inspirationSourcesVisible" | "imageWorkbenchEnabled" | "videoWorkbenchEnabled">>,
 ) {
     return http.patch<{ features: FeatureAvailability }>("/admin/settings/features", features);
 }
@@ -529,6 +531,18 @@ export function createAdminChannel(input: Partial<ModelChannel> & { useGlobalCon
 
 export function duplicateAdminChannel(id: string) {
     return http.post<{ channel: ModelChannel }>(`/admin/channels/${encodeURIComponent(id)}/duplicate`);
+}
+
+/** 系统渠道导出文件：不含 API Key、Secret Key、自定义请求头和代理地址。 */
+export type SystemChannelExport = { format: string; version: number; exportedAt: string; channels: Array<{ name: string; models: unknown[] } & Record<string, unknown>> };
+export type SystemChannelImportResult = { createdChannels: string[]; updatedChannels: string[]; savedModels: number; errors: string[] };
+
+export function exportAdminChannels(ids?: string[]) {
+    return http.post<SystemChannelExport>("/admin/channels/export", { ids: ids || [] });
+}
+
+export function importAdminChannels(payload: SystemChannelExport) {
+    return http.post<SystemChannelImportResult>("/admin/channels/import", payload);
 }
 
 export function updateAdminChannel(id: string, input: Partial<ModelChannel> & { useGlobalConcurrency?: boolean }) {

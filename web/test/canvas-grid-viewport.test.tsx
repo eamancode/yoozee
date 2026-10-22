@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { CanvasViewport } from "../src/components/canvas/canvas-viewport";
 import { canvasAppearanceForTheme } from "../src/lib/canvas/canvas-appearance";
-import { applyCanvasLiveViewport, CANVAS_GRAPHICS_VIEWPORT_PREVIEW_EVENT, CANVAS_VIEWPORT_PREVIEW_EVENT } from "../src/lib/canvas/canvas-live-viewport";
+import { applyCanvasLiveViewport, CANVAS_GRAPHICS_VIEWPORT_PREVIEW_EVENT, CANVAS_VIEWPORT_PREVIEW_EVENT, canvasGridMetrics } from "../src/lib/canvas/canvas-live-viewport";
 import type { CanvasBackgroundMode } from "../src/lib/canvas-theme";
 import type { ViewportTransform } from "../src/types/canvas";
 
@@ -18,6 +18,9 @@ const viewports: ViewportTransform[] = [
     { x: -1800.5, y: 3100.75, k: 2 },
 ];
 
+// 与 canvas-viewport 的 CANVAS_GRID_BASE 一致：网格随视口平移缩放，间距按 k 在 [base*2/3, base*4/3) 内折叠。
+const gridBase: Record<"lines" | "dots", number> = { dots: 24, lines: 32 };
+
 function renderGrid(mode: CanvasBackgroundMode, viewport: ViewportTransform, theme: "light" | "dark" = "dark") {
     const markup = renderToStaticMarkup(
         <CanvasViewport containerRef={createRef<HTMLDivElement>()} viewport={viewport} onViewportChange={() => {}} backgroundMode={mode} appearance={canvasAppearanceForTheme(theme)}>
@@ -29,16 +32,17 @@ function renderGrid(mode: CanvasBackgroundMode, viewport: ViewportTransform, the
 
 describe("canvas screen-space background", () => {
     for (const mode of ["lines", "dots"] as const) {
-        test(`${mode} keeps fixed geometry across zoom, pan and committed renders`, () => {
+        test(`${mode} derives grid geometry from the viewport`, () => {
             for (const theme of ["light", "dark"] as const) {
-                const initial = renderGrid(mode, viewports[0], theme);
-                expect(initial).not.toBeNull();
-                expect(initial).toContain("background-size:48px 48px");
-                expect(initial).toContain("inset:0");
-                expect(initial).not.toContain("transform:");
-                expect(initial).not.toContain("var(--canvas-");
-                if (mode === "dots") expect(initial).toContain("0.8px, transparent 1px");
-                for (const viewport of viewports) expect(renderGrid(mode, viewport, theme)).toBe(initial);
+                for (const viewport of viewports) {
+                    const markup = renderGrid(mode, viewport, theme);
+                    expect(markup).not.toBeNull();
+                    const { spacing, offsetX, offsetY } = canvasGridMetrics(viewport, gridBase[mode]);
+                    expect(markup).toContain(`background-size:${spacing}px ${spacing}px`);
+                    expect(markup).toContain(`transform:translate3d(${offsetX}px, ${offsetY}px, 0)`);
+                    expect(markup).not.toContain("var(--canvas-");
+                    if (mode === "dots") expect(markup).toContain("1px, transparent 1.4px");
+                }
             }
         });
     }
@@ -49,9 +53,8 @@ describe("canvas screen-space background", () => {
 
     test("live updates transform the world and emit events without mutating the background", () => {
         const properties = new Map<string, string>([["--canvas-committed-scale", "0.5"]]);
-        const gridWrites: string[] = [];
         const world = { style: { transform: "", transformOrigin: "", willChange: "" } };
-        const grid = { style: { setProperty: (name: string) => gridWrites.push(name) } };
+        const grid = { dataset: { canvasGridBase: String(gridBase.dots) }, style: { backgroundSize: "", transform: "" } };
         const container = Object.assign(new EventTarget(), {
             style: {
                 getPropertyValue: (name: string) => properties.get(name) ?? "",
@@ -73,7 +76,10 @@ describe("canvas screen-space background", () => {
             // 交互期不改继承变量，避免整棵节点子树在每一帧强制重算样式。
             expect(properties.has("--canvas-live-scale")).toBe(false);
             expect(properties.has("--canvas-live-inverse-scale")).toBe(false);
-            expect(gridWrites).toEqual([]);
+            // 网格层直接改合成属性：间距随缩放、偏移随平移取模。
+            const { spacing, offsetX, offsetY } = canvasGridMetrics(viewport, gridBase.dots);
+            expect(grid.style.backgroundSize).toBe(`${spacing}px ${spacing}px`);
+            expect(grid.style.transform).toBe(`translate3d(${offsetX}px, ${offsetY}px, 0)`);
         }
         expect(graphics).toEqual(viewports);
         expect(previews).toEqual([]);
@@ -87,6 +93,5 @@ describe("canvas screen-space background", () => {
         expect(world.style.willChange).toBe("");
         expect(previews).toEqual([viewports[0]]);
         expect(scrolls).toBe(1);
-        expect(gridWrites).toEqual([]);
     });
 });
