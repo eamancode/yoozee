@@ -98,6 +98,7 @@ func Models() []any {
 		&model.ShotEvidence{},
 		&model.DramaShotlist{},
 		&model.DramaCompileProfile{},
+		&model.DramaEvalRun{},
 		&model.ShotAssetReference{},
 		&model.WorkflowTemplateVersion{},
 		&model.WorkflowInstance{},

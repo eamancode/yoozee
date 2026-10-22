@@ -229,6 +229,11 @@ export function shotlistCheckFailure(error: unknown): DramaCheckReport | undefin
     return check && Array.isArray(check.items) ? check : undefined;
 }
 
+/** 用这一章已存的分镜行原文按当前生效的编译档案重新装段（不调模型）；与写镜头表一样整章替换段，旧段的候选视频与证据一并删除。 */
+export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: { maxSeconds: number; minSeconds: number } } = {}) {
+    return http.post<DramaShotlistWriteResult>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist/repack`, input);
+}
+
 export function compileProjectShot(projectId: string, shotId: string, input: { model?: string } = {}) {
     return http.post<{ compiled: DramaCompileResult }>(`/projects/${projectId}/shots/${shotId}/compile`, input);
 }
