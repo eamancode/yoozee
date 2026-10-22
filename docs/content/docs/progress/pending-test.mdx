@@ -5,6 +5,31 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M4.1 第一期：发版追平、章节分镜技能内置、截断可见
+
+线上 v1.6.6（`15d981a9`）部署的是 `origin/main`，缺 `fix/shot-skill-context-budget` 上的画风 / 角色外观 / 资产清单注入和按场装段，29 个镜头各成一段。第一期只追平与补可见性，镜头表字段落库、Go 装段 / 检查 / 编译属于第二期。
+
+- 追平：main 上的 1.0 压缩版（`1929d1a5`、`640cb6c1`、`640dc9aa`、`bb6125b7`，10-15）比分支的 `6b2eb6b0`、`311dbf2a`（10-18）旧，缺 `chapter-segments.ts`、`drama-asset-checklist.ts`、`drama/brief.go`、`drama_chapters_read` 等；`036599e4` 也不在 main。先把分支 1.0 以 squash 合进来（冲突取分支版本），再按顺序 cherry-pick `036599e4` 与 `9493e246` 到 `4d4e7f02` 的 10 个提交，均无冲突。合并后的树与分支 `4d4e7f02` 相比只多 main 独有的 `.archify`、vipprompt 视频协议与插件包。
+- 内置技能：`backend/builtin/yz-chapter-shots/`（SKILL.md 与三张卡，从分支工作区复制，换成 LF）；`presets.json` 的 `short-drama-starter`、`short-drama-pilot` 加上 `yz-chapter-shots`。
+- 默认选中：短剧项目章节「生成分段」的技能选择器，用户在这个入口没选过（`localStorage` 没有该入口记录）时默认选 `yz-chapter-shots`，没加进技能库的先自动加入（与画布 Agent 默认技能同一做法）；用户改过一次（包括清空）之后只认用户的。
+- 截断可见：文本任务取 Chat Completions `finish_reason`、Claude `stop_reason`、Responses `incomplete_details.reason`（流式与非流式、内置与声明式协议），等于 `length` / `max_tokens` / `max_output_tokens` 时任务失败，`reason` 与任务 `errorCode` 为 `text_output_truncated`；前端提示「输出超过模型上限被截断，结果不完整：请换输出上限更大的模型，或按场分开生成」。
+
+自动化覆盖：
+
+- [x] 后端截断：`internal/app/provider_text_truncation_test.go` 覆盖三种协议非流式停笔原因（含 `data` 包裹、Gemini `candidates`）、流式解析器记录 `finish_reason` / `message_delta.stop_reason` / `response.incomplete`、推理用完额度没有正文时报截断、`requestTextProvider` 流式与非流式都返回 `text_output_truncated`、声明式插件形状（Claude、Bedrock `stopReason`、OpenAI 兼容）。本机 `CGO_ENABLED=0 go test ./internal/app -run 'Truncat|FinishReason|TestStreamingAgentParser|TestPostStreamingText'` 通过。
+- [x] `CGO_ENABLED=0 go test ./internal/drama/... ./internal/handler/... ./internal/skills/...`：96 个用例通过（含 `TestCompileMatchesSkillPackageGoldens`、`TestSkillPresetsCatalogIsValid`、`TestBuiltinPackagesShipReferencedCards`），22 个失败全部是 go-sqlite3 需要 cgo 的桩错误（本机没有 gcc），未在本机运行，需 CI 或云端补跑。`./internal/app` 同样只跑了非 sqlite 用例；除 cgo 桩外另有 7 处 Windows 临时目录 `sync ... Access is denied`（密钥文件落盘相关，与本期改动无关）。
+- [x] 前端 `bun run build`（`tsc --noEmit` + `vite build`）本机通过；`bun run lint` 通过。
+- [x] `bun test`：`skill-runtime-picker.test.ts`（没选过的入口用默认技能、选过包括清空只认用户的；章节页按短剧项目传默认技能）、`generation-error-details.test.ts`（`text_output_truncated` 的提示文案）、drama / 章节 / 技能相关 15 个文件 106 个用例 105 过；没过的 `project-chapter-skill-runtime.test.ts` 在源分支上就已过期（`44dc2348` 把按钮改成「生成分段」、跳转改到 `/video`），按现状改断言后单独重跑通过。
+
+仍需人工/真实环境验收（发版部署后，沿用「yoozee 实测·七床」项目新建一章）：
+
+- [ ] 「生成分段」后在任务中心看分镜任务的提示词：有【项目画风：…】【已确认角色外观】【项目已确认资产】三段。
+- [ ] 分镜制作页按场装段：同一章是 5～6 段而不是 29 段；段时长取镜头时长之和，不超过项目生成模型上限。
+- [ ] 新账号（或清掉 `yingce:skill-runtime-selection:chapter-storyboard` 记录）打开「生成分段」：技能选择器里默认出现并选中「yoozee · 章节分镜（镜头表）」，技能库里自动加入该技能；清空后再打开不再自动选中。
+- [ ] 场景预设「短剧爆款起步」「短剧立项与大纲」一键挂载后包含章节分镜（镜头表）。
+- [ ] 人为把文本模型的 `maxOutputTokens` 调小再生成分段：任务失败，任务中心与对话框提示截断与「换长输出模型或按场生成」，不再表现为「分镜任务没有返回镜头行」；计费按现有失败规则退还或标待核。
+- [ ] 线上账号里的私有技能「yoozee · 章节分镜（镜头表）」在内置版上线后删除，避免选择器里出现两个同名技能。
+
 ## 短剧段级制作线（yoozee 1.0 skills）
 
 自动化覆盖（本次补齐，可重复执行）：
