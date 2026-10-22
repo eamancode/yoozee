@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/script.schema.json",
+  "title": "剧本",
+  "description": "台词是事实：每句台词有全局唯一 id，下游（镜头表、段、编译稿）只引用 id，覆盖率按 id 算。场有地点、时间、人物、功能、情绪；动作场另有打斗阶段分配。",
+  "type": "object",
+  "required": ["title", "scenes"],
+  "additionalProperties": false,
+  "$defs": {
+    "tag": {"type": "string", "enum": ["原文事实", "逻辑修复", "视觉扩写", "导演设计", "待确认"]},
+    "beat": {
+      "type": "object",
+      "required": ["id", "kind", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^E[0-9]{2}S[0-9]{2}[a-z]?[LB][0-9]{2,3}$", "description": "节拍 id：E01S03L07（台词）/ E01S03B02（动作等）"},
+        "kind": {"type": "string", "enum": ["action", "line", "vo", "screen_text", "sound", "time_jump"]},
+        "speaker": {"type": "string"},
+        "text": {"type": "string", "minLength": 1, "description": "台词原文，一字不改"},
+        "tag": {"$ref": "#/$defs/tag"},
+        "plant_id": {"type": "string"},
+        "state_change": {"type": "string", "description": "这一拍之后人物的演出状态变化：湿、血、破损、持物"},
+        "contact": {"type": "boolean", "description": "动作场：这一拍是否含一次接触判定"}
+      }
+    }
+  },
+  "properties": {
+    "title": {"type": "string", "minLength": 1},
+    "episodes": {
+      "type": "array",
+      "items": {"type": "object", "required": ["no"], "additionalProperties": false, "properties": {"no": {"type": "integer"}, "title": {"type": "string"}, "hook_in": {"type": "string"}, "hook_out": {"type": "string"}}}
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "heading", "beats"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^E[0-9]{2}S[0-9]{2}[a-z]?$"},
+          "heading": {"type": "string", "description": "内 / 外、地点、时间，如「内·病房走廊·夜」"},
+          "location_ref": {"type": "string", "description": "指向 bible.locations[].name"},
+          "characters": {"type": "array", "items": {"type": "string"}},
+          "props": {"type": "array", "items": {"type": "string"}},
+          "story_time": {"type": "string"},
+          "time_jump": {"type": "string", "description": "场内有故事时间跳跃时写清跨度与压缩方式"},
+          "function": {"type": "string", "description": "这场改变了什么"},
+          "emotion": {"type": "string", "description": "起点 → 转折 → 终点"},
+          "kind": {"type": "string", "enum": ["dialogue", "action", "montage", "insert"]},
+          "fight": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "phase_plan": {"type": "array", "items": {"type": "object", "required": ["phase"], "additionalProperties": false, "properties": {"phase": {"type": "string", "enum": ["standoff", "probe", "escalate", "signature", "resolve", "aftermath", "interrupt"]}, "beats": {"type": "array", "items": {"type": "string"}}}}},
+              "sides": {"type": "array", "items": {"type": "object", "required": ["name"], "additionalProperties": false, "properties": {"name": {"type": "string"}, "style": {"type": "string", "description": "武学库 id 或流派名"}, "weapon": {"type": "string"}, "formation": {"type": "string"}}}},
+              "arena": {"type": "string", "description": "场地与阻隔物"}
+            }
+          },
+          "beats": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/beat"}}
+        }
+      }
+    },
+    "screen_text": {"type": "array", "items": {"type": "object", "required": ["text"], "additionalProperties": false, "properties": {"who": {"type": "string"}, "text": {"type": "string"}, "when": {"type": "string"}}}},
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cold_read": {"type": "array", "items": {"type": "string"}},
+        "doctor": {"type": "array", "items": {"type": "object", "required": ["issue"], "additionalProperties": false, "properties": {"issue": {"type": "string"}, "where": {"type": "string"}, "fix": {"type": "string"}, "done": {"type": "boolean"}}}}
+      }
+    }
+  }
+}

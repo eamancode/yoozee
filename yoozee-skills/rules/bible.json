@@ -1,0 +1,13 @@
+[
+  {"id": "R-BIBLE-001", "level": "error", "desc": "角色层级与硬产物匹配：按档案 asset_tier_policy，lead/support 每个变体 crops ≥3、lock_card ≥8、anchors ≥3；extra crops ≥1；说话角色有 voice。只在「资产齐了」终态检查（--stage assets）", "source": "S 级 C11-Strict 双轨判定 / 角色资产提示词生成器", "impl": "bible_tier_assets"},
+  {"id": "R-BIBLE-002", "level": "warn", "desc": "每个人物 / 道具 / 场景条目有 evidence（原文依据）或 derived / proposal 标记", "source": "小墨资产提取 原文优先推导补充 / S 级【推断】标注", "impl": "bible_evidence"},
+  {"id": "R-BIBLE-003", "level": "error", "desc": "kind=costume 的服装变体必须有 trigger_beat（剧本节拍 id 证据）；湿透 / 战损 / 血污 / 脏污不是变体", "source": "S 级 D2 / D5", "impl": "bible_variant_trigger"},
+  {"id": "R-BIBLE-004", "level": "error", "desc": "场景有 space_type（S1～X）", "source": "小墨 第 9 条", "impl": "bible_space_type"},
+  {"id": "R-BIBLE-005", "level": "error", "desc": "场景 plain_view / fixtures / versions 描述里不得出现人词（人物、角色、书生、女子、老者、侠客、路人、百姓、人影、人形、身影、背影、剪影、有人、一人、一群人、NPC、群演、站着、坐着、走过）", "source": "S 级 D12 场景禁人物", "impl": "bible_no_people"},
+  {"id": "R-BIBLE-006", "level": "warn", "desc": "场景有 light_source 与 anchors（至少 2 个锚点），镜头 blocking 才有东西可绑", "source": "小墨 第 1 / 11 条 / Higgsfield", "impl": "bible_location_anchors"},
+  {"id": "R-BIBLE-007", "level": "error", "desc": "剧本里两人以上同场的场必须有 spatial_maps 条目，且 positions 每人有 at，至少一处写 meters 与 facing", "source": "Higgsfield SPATIAL_BLOCKING / 即梦 16.1 / 分镜师 4.0 空间图", "impl": "bible_spatial_maps"},
+  {"id": "R-BIBLE-008", "level": "error", "desc": "auth_mode=step 时 spatial_maps.approved 必须为 true 才能进镜头表（--stage shots）", "source": "Higgsfield 阶段 3 等确认", "impl": "bible_spatial_approved"},
+  {"id": "R-BIBLE-009", "level": "warn", "desc": "本机：条目指向的文件存在；checked=true 的条目文件必须存在", "source": "分镜师 4.0 参考齐了", "impl": "bible_files"},
+  {"id": "R-BIBLE-010", "level": "warn", "desc": "档案 group_variation_required 时群体角色（name 含 群/们/众 或 tier=extra 且 nn 为空）有 group_variation", "source": "即梦 17-38 群像差异化", "impl": "bible_group_variation"},
+  {"id": "R-BIBLE-011", "level": "warn", "desc": "说话角色（speaks=true）应有文字音色设定 voice_profile（至少 timbre），台词四元的音色从这里取", "source": "即梦 角色音色设定", "impl": "bible_voice_profile"}
+]

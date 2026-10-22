@@ -1,0 +1,14 @@
+[
+  {"id": "R-SEG-001", "level": "error", "desc": "段长在模型 [duration.min, duration.max] 内（渠道档位另算）", "source": "models.json", "impl": "seg_duration"},
+  {"id": "R-SEG-002", "level": "error", "desc": "一段不跨场：shot_ids 全部属于同一场", "source": "分镜师 4.0 / Higgsfield 密度规则", "impl": "seg_single_scene"},
+  {"id": "R-SEG-003", "level": "error", "desc": "shot_ids 在镜头表里连续、不重复、不遗漏；全部镜头都被某一段覆盖", "source": "yoozee 2.0 装段", "impl": "seg_shot_ids"},
+  {"id": "R-SEG-004", "level": "warn", "desc": "接话不拆：相邻两段切点两侧的镜头都含台词且无动作完成点时提示", "source": "柚子 chapter-segments 接话不拆", "impl": "seg_dialogue_split"},
+  {"id": "R-SEG-005", "level": "error", "desc": "参考数不超模型上限：图 ≤ refs.images、视频 ≤ refs.videos、音频 ≤ refs.audios、合计 ≤ files_total / refs.total", "source": "models.json / Seedance 平台参数", "impl": "seg_refs"},
+  {"id": "R-SEG-006", "level": "error", "desc": "lock_first_frame 模式不挂参考（互斥模型）；互斥未校准的模型 warn", "source": "Seedance 2.0 文档", "impl": "seg_first_frame"},
+  {"id": "R-SEG-007", "level": "warn", "desc": "所属场有 time_jump 时段必须写 story_span", "source": "即梦 17-5.1", "impl": "seg_story_span"},
+  {"id": "R-SEG-008", "level": "warn", "desc": "分段合计与单集目标片长比（brief.episodes[].target_seconds，没有就读 duration.value）：超过 10% 余量提醒并镜 / 删镜，不足 60% 提醒戏不够；不再按 75% 算", "source": "四类短剧测试：75% 与「每集约 90 秒」打架，改按目标±", "impl": "seg_total_duration"},
+  {"id": "R-SEG-009", "level": "error", "desc": "handles 编号连续（@图片1…N、@视频、@音频各自从 1 起）", "source": "Higgsfield 句柄按段重编", "impl": "seg_handles"},
+  {"id": "R-SEG-010", "level": "error", "desc": "同一场拆成多段时，后段必带 continuity_bridge（prev_segment、handoff_state、shared_refs）", "source": "用户决定 6 / 设计 5.15", "impl": "seg_bridge_required"},
+  {"id": "R-SEG-011", "level": "warn", "desc": "一场总时长 ≤ 模型上限却被拆成多段（2.5 项目同场应一段）", "source": "用户决定 6", "impl": "seg_unnecessary_split"},
+  {"id": "R-SEG-012", "level": "error", "desc": "continuity_bridge.shared_refs 必须与前段 refs 的文件完全相同且顺序一致；handoff_state 等于前段末镜 end_state", "source": "设计 5.15", "impl": "seg_bridge_consistency"}
+]

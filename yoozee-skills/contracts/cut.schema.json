@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/cut.schema.json",
+  "title": "剪辑表",
+  "description": "yz-cut 的产物：画幅与响度目标、节奏公式、每个片段的入出点（按听写时间戳）、首尾裁切、声床、音效、配乐落点、字幕。本机运行时由 assemble.py 读它（或读 1.0 的剪辑表.py）。",
+  "type": "object",
+  "required": ["format", "clips"],
+  "additionalProperties": false,
+  "properties": {
+    "format": {"type": "object", "required": ["ratio"], "additionalProperties": false, "properties": {"ratio": {"type": "string"}, "resolution": {"type": "string"}, "fps": {"type": "number"}, "lufs": {"type": "number"}, "true_peak": {"type": "number"}}},
+    "rhythm_formula": {"type": "string", "enum": ["breath", "heartbeat", "wave", "bullet_time", "pulse", "silent_hammer"], "description": "六套剪辑节奏公式之一"},
+    "clips": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["segment", "take", "in", "out"],
+        "additionalProperties": false,
+        "properties": {
+          "segment": {"type": "string"},
+          "take": {"type": "string"},
+          "file": {"type": "string"},
+          "in": {"type": "number"},
+          "out": {"type": "number"},
+          "trim_head": {"type": "number", "description": "AI 素材首部裁切（默认 0.5～1 秒）"},
+          "trim_tail": {"type": "number"},
+          "transition": {"type": "string"},
+          "picture_chain": {"type": "string", "description": "画面处理链"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    "beds": {"type": "array", "items": {"type": "object", "required": ["scene", "elements"], "additionalProperties": false, "properties": {"scene": {"type": "string"}, "elements": {"type": "array", "items": {"type": "string"}}, "level_db": {"type": "number"}, "file": {"type": "string"}}}},
+    "sfx": {"type": "array", "items": {"type": "object", "required": ["at", "what"], "additionalProperties": false, "properties": {"at": {"type": "number"}, "what": {"type": "string"}, "level_db": {"type": "number"}, "file": {"type": "string"}}}},
+    "music": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {"from": {"type": "number"}, "to": {"type": "number"}, "motif": {"type": "string"}, "peak_at": {"type": "number"}, "level_db": {"type": "number"}, "duck_db": {"type": "number"}, "file": {"type": "string"}}}},
+    "subtitles": {"type": "object", "additionalProperties": false, "properties": {"srt": {"type": "string"}, "burn_in": {"type": "boolean"}}}
+  }
+}

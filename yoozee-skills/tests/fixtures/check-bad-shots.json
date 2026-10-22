@@ -1,0 +1,83 @@
+{
+  "kind": "shots",
+  "args": [
+    "--profile",
+    "duanju-shiga"
+  ],
+  "expect": [
+    "R-SHOT-003",
+    "R-SHOT-004",
+    "R-SHOT-005",
+    "R-SHOT-010",
+    "R-SHOT-011",
+    "R-SHOT-016",
+    "R-SHOT-017",
+    "R-SHOT-001"
+  ],
+  "profile": "duanju-shiga",
+  "shots": [
+    {
+      "id": "E01S01-01",
+      "scene": "E01S01",
+      "purpose": "坏样例：三轴、推拉同列、一镜到底",
+      "subject": "person",
+      "focus": "林小满",
+      "size": "近景",
+      "cam": {
+        "z": "Z3",
+        "y": "Y4",
+        "x": "X1"
+      },
+      "move": [
+        "push",
+        "pull",
+        "orbit",
+        "crane_up",
+        "one_take"
+      ],
+      "action": "林小满站着说话，背景配乐响起。",
+      "lines": [
+        {
+          "line_id": "E01S01L01"
+        },
+        {
+          "line_id": "E01S01L02"
+        },
+        {
+          "line_id": "E01S01L99"
+        }
+      ],
+      "sfx": "紧张弦乐",
+      "est": 6,
+      "start_state": "站着",
+      "end_state": "站着",
+      "tag": "导演设计"
+    },
+    {
+      "id": "E01S01-02",
+      "scene": "E01S01",
+      "purpose": "坏样例：缺光源",
+      "subject": "person",
+      "focus": "林小满",
+      "size": "近景",
+      "cam": {
+        "z": "Z3",
+        "y": "Y4",
+        "x": "X1"
+      },
+      "move": [
+        "fixed"
+      ],
+      "action": "她看着门。",
+      "est": 5,
+      "lines": [
+        {
+          "line_id": "E01S01L01"
+        }
+      ],
+      "start_state": "站着",
+      "end_state": "站着",
+      "tag": "导演设计"
+    }
+  ]
+}

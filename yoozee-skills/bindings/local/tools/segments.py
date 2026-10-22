@@ -15,7 +15,15 @@ ADAPTERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adapters")
 
 
 def load(path):
-    text = open(C.abspath(path), encoding="utf-8").read()
+    """读分段：2.0 的 剧本/分段.json（数组）或 1.0 的 剧本/分段表.md（每段一个 json 块）。给的是 .md 但同目录有 分段.json 时优先读 json。"""
+    ap = C.abspath(path)
+    if ap.endswith(".md") and os.path.exists(os.path.join(os.path.dirname(ap), "分段.json")):
+        ap = os.path.join(os.path.dirname(ap), "分段.json")
+    if ap.endswith(".json"):
+        data = C.read_json(ap)
+        segs = data if isinstance(data, list) else data.get("segments", [])
+        return [s for s in segs if not str(s.get("id", "")).startswith("示例")]
+    text = open(ap, encoding="utf-8").read()
     segs = []
     for block in re.findall(r"```json\s*(\{.*?\})\s*```", text, re.S):
         try:
