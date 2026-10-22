@@ -164,9 +164,10 @@ export function repairPendingCanvasMutationRequest(request: CanvasOperationsRequ
                 }
                 // 兜底：patch 里有字段但 before 缺基线，用 journal 里已确认的基线补回这些字段的原始值；
                 // 基线已被他人改写时会如实返回冲突，不再空转。
+                // 完全没有基线时不猜测旧值（补 null 反而会造出假的基线），原样返回。
                 const missing = paths.filter((path) => !Object.prototype.hasOwnProperty.call(before, path) || before[path] === undefined);
-                if (!missing.length) return operation;
-                const node = ((baseline?.nodes || []) as unknown as Record<string, unknown>[]).find((item) => item.id === operation.id);
+                if (!missing.length || !baseline) return operation;
+                const node = ((baseline.nodes || []) as unknown as Record<string, unknown>[]).find((item) => item.id === operation.id);
                 const repaired = { ...before };
                 for (const path of missing) repaired[path] = canvasOperationValue(node ? readCanvasOperationPath(node, path) : undefined);
                 changed = true;

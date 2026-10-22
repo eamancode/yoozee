@@ -11,6 +11,9 @@ const UPSTREAM_NETWORK_OPERATION_PATTERN = /\b(?:dial|read|write|proxyconnect)\s
 const UPSTREAM_IPV4_PATTERN = /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g;
 const USER_VISIBLE_TASK_ID_PATTERN = /\btask[_-][a-z0-9][a-z0-9_-]{2,}\b/gi;
 
+// 渠道侧没有可用上游/模型：这是用户可操作的失败原因，需要原样展示，不要压成「网络异常」。
+const UPSTREAM_ROUTE_UNAVAILABLE_PATTERN = /no available (?:channel|model|upstream)|no upstream available/i;
+
 const DEFAULT_GENERATION_ERROR_MESSAGE = "生成失败，请稍后重试。";
 const NETWORK_ERROR_MESSAGE = "网络异常。";
 const MODEL_CAPABILITY_ERROR_MESSAGE = "所选模型不支持当前生成方式或输入，请切换模型或调整输入后重试。";
@@ -72,7 +75,11 @@ export function generationErrorMessage(error: unknown) {
     if (upstreamIndex >= 0) {
         const prefix = original.slice(0, upstreamIndex).trim();
         if (isContentModerationError(prefix)) return CONTENT_MODERATION_MESSAGE;
-        const hint = actionableUpstreamReason(original.slice(upstreamIndex + "；上游：".length));
+        const detail = original.slice(upstreamIndex + "；上游：".length);
+        // 短剧分镜制作页要看到真实原因：渠道「没有可用模型/上游」是可操作信息，
+        // 不属于敏感内容，原样透传（仍然过地址脱敏）。
+        if (UPSTREAM_ROUTE_UNAVAILABLE_PATTERN.test(detail)) return redactUpstreamAddress(original);
+        const hint = actionableUpstreamReason(detail);
         if (hint) return sanitizeUserVisibleError(prefix ? `${prefix}；${hint}` : hint);
     }
     const raw = sanitizeUserVisibleError(original);
