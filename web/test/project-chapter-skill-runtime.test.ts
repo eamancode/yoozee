@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 
-test("章节页直接生成到分镜制作，并通过共享选择器执行技能", async () => {
+test("章节页直接生成分段到分镜制作，并通过共享选择器执行技能", async () => {
     const source = await Bun.file(new URL("../src/pages/projects/detail/chapters.tsx", import.meta.url)).text();
     expect(source).not.toContain("导入分镜");
     expect(source).not.toContain("importStoryboardToCanvas");
     expect(source).not.toContain("在画布中分镜");
-    expect(source).toContain("生成到分镜制作");
+    expect(source).toContain("生成分段");
     expect(source).toContain("replaceProjectUnitShots");
-    expect(source).toContain("/storyboard`");
+    expect(source).toContain("/video`");
     expect(source).toContain('<SkillRuntimePicker profile="shortDrama"');
     expect(source.match(/<ModelPicker config=\{effectiveConfig\} capability="text"/g)).toHaveLength(2);
     expect(source).toContain("chapterAnalysisInput(selectedTextModel)");

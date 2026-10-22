@@ -51,7 +51,8 @@ import {
 
 import { useNavigate, useParams } from "react-router";
 
-import { SkillRuntimePicker, useRememberedSkillSelection, useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
+import { hasRememberedSkillIds, SkillRuntimePicker, useRememberedSkillSelection, useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
+import { DEFAULT_CHAPTER_STORYBOARD_SKILL_ID } from "@/services/skill-defaults";
 import { ModelPicker } from "@/components/model-picker";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
@@ -115,8 +116,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const [completedChapterOperations, setCompletedChapterOperations] = useState<Record<string, true>>({});
     const [operationNow, setOperationNow] = useState(() => Date.now());
     const [selectedTextModel, setSelectedTextModel] = useState("");
-    const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
-    const [selectedSkillIds, setSelectedSkillIds] = useRememberedSkillSelection("chapter-storyboard", availableSkills, skillsLoading);
+    // 短剧项目的「生成分镜」默认用 yoozee 章节分镜（镜头表）；用户在这个入口选过（包括清空）就只认用户的。
+    const [defaultStoryboardSkillIds] = useState(() => (detail.project.type === "short-drama" && !hasRememberedSkillIds("chapter-storyboard") ? [DEFAULT_CHAPTER_STORYBOARD_SKILL_ID] : []));
+    const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog(defaultStoryboardSkillIds);
+    const [selectedSkillIds, setSelectedSkillIds] = useRememberedSkillSelection("chapter-storyboard", availableSkills, skillsLoading, defaultStoryboardSkillIds);
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const listRef = useRef<HTMLDivElement>(null);

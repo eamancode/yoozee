@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { readRememberedSkillIds } from "../src/components/skills/skill-runtime-picker";
+import { hasRememberedSkillIds, readRememberedSkillIds } from "../src/components/skills/skill-runtime-picker";
 
 const originalWindow = (globalThis as { window?: unknown }).window;
 
@@ -28,11 +28,23 @@ describe("技能选择", () => {
         expect(readRememberedSkillIds("other")).toEqual([]);
     });
 
+    test("没选过的入口用默认技能，选过（包括清空）就只认用户的", () => {
+        withLocalStorage({
+            "yingce:active-user-scope": "user-1",
+            "yingce:skill-runtime-selection:cleared:user:user-1": "[]",
+        });
+        expect(hasRememberedSkillIds("chapter-storyboard")).toBe(false);
+        expect(readRememberedSkillIds("chapter-storyboard", ["yz-chapter-shots"])).toEqual(["yz-chapter-shots"]);
+        expect(hasRememberedSkillIds("cleared")).toBe(true);
+        expect(readRememberedSkillIds("cleared", ["yz-chapter-shots"])).toEqual([]);
+    });
+
     test("多选下拉选中一项就收起，章节分镜对话框记住技能", async () => {
         const picker = await Bun.file(new URL("../src/components/skills/skill-runtime-picker.tsx", import.meta.url)).text();
         expect(picker).toContain("onSelect={() => setOpen(false)}");
         expect(picker).toContain("onOpenChange={setOpen}");
         const chapters = await Bun.file(new URL("../src/pages/projects/detail/chapters.tsx", import.meta.url)).text();
-        expect(chapters).toContain('useRememberedSkillSelection("chapter-storyboard", availableSkills, skillsLoading)');
+        expect(chapters).toContain('useRememberedSkillSelection("chapter-storyboard", availableSkills, skillsLoading, defaultStoryboardSkillIds)');
+        expect(chapters).toContain('detail.project.type === "short-drama" && !hasRememberedSkillIds("chapter-storyboard") ? [DEFAULT_CHAPTER_STORYBOARD_SKILL_ID]');
     });
 });
