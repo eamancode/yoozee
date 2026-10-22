@@ -46,8 +46,6 @@ export function projectSummaryStage(summary: ProjectSummary) {
 
 export function projectDetailStage(detail: ProjectDetail) {
     if (detail.project.status === "archived") return { label: "已归档", detail: "恢复项目后可继续制作" };
-    const failedSteps = detail.workflows.flatMap((workflow) => workflow.steps).filter((step) => step.status === "failed").length;
-    if (failedSteps) return { label: "需要处理", detail: `${failedSteps} 个流程步骤失败` };
     const pendingCandidates = detail.assetCandidates.filter((candidate) => candidate.status === "pending_confirmation").length;
     if (pendingCandidates) return { label: "资产确认", detail: `${pendingCandidates} 个候选待确认` };
     if (!detail.units.length) return { label: "准备故事", detail: "添加或导入剧情章节" };
@@ -61,8 +59,7 @@ export function projectDetailStage(detail: ProjectDetail) {
 
 export function projectAttentionCount(detail: ProjectDetail) {
     const pendingCandidates = detail.assetCandidates.filter((candidate) => candidate.status === "pending_confirmation").length;
-    const failedSteps = detail.workflows.flatMap((workflow) => workflow.steps).filter((step) => step.status === "failed").length;
-    return pendingCandidates + failedSteps;
+    return pendingCandidates;
 }
 
 export function projectContinueTarget(detail: ProjectDetail): ProjectContinueTarget {
@@ -105,18 +102,6 @@ export function projectNextActions(detail: ProjectDetail, limit = 4): ProjectWor
             actionLabel: "前往恢复",
             tone: "attention",
         }];
-    }
-
-    const failedSteps = detail.workflows.flatMap((workflow) => workflow.steps).filter((step) => step.status === "failed");
-    if (failedSteps.length) {
-        actions.push({
-            id: "failed-steps",
-            title: `处理 ${failedSteps.length} 个失败步骤`,
-            description: failedSteps[0].error?.trim() || "查看失败原因和输入后，仅重试受影响的任务。",
-            href: "/tasks?status=failed",
-            actionLabel: "查看失败任务",
-            tone: "danger",
-        });
     }
 
     const pendingCandidates = detail.assetCandidates.filter((candidate) => candidate.status === "pending_confirmation");

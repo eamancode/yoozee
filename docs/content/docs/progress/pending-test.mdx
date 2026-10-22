@@ -5,6 +5,32 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M4.1 第一期：发版追平、章节分镜技能内置、截断可见
+
+线上 v1.6.6（`15d981a9`）部署的是 `origin/main`，缺 `fix/shot-skill-context-budget` 上的画风 / 角色外观 / 资产清单注入和按场装段，29 个镜头各成一段。第一期只追平与补可见性，镜头表字段落库、Go 装段 / 检查 / 编译属于第二期。
+
+- 追平：main 上的 1.0 压缩版（`1929d1a5`、`640cb6c1`、`640dc9aa`、`bb6125b7`，10-15）比分支的 `6b2eb6b0`、`311dbf2a`（10-18）旧，缺 `chapter-segments.ts`、`drama-asset-checklist.ts`、`drama/brief.go`、`drama_chapters_read` 等；`036599e4` 也不在 main。先把分支 1.0 以 squash 合进来（冲突取分支版本），再按顺序 cherry-pick `036599e4` 与 `9493e246` 到 `4d4e7f02` 的 10 个提交，均无冲突。合并后的树与分支 `4d4e7f02` 相比只多 main 独有的 `.archify`、vipprompt 视频协议与插件包。
+- 补回画布修复：main 的 1.0 压缩版 `640dc9aa` 回退了 `5ee1e06a`、`f43963ae`（`user-data-sync.ts` 的 patch_node 基线与 journal 重放、`canvas-operations-build.test.ts`），本期按原提交 cherry-pick 回来；`bun test` 画布同步相关 5 个文件 29 个用例通过。
+- 内置技能：`backend/builtin/yz-chapter-shots/`（SKILL.md 与三张卡，从分支工作区复制，换成 LF）；`presets.json` 的 `short-drama-starter`、`short-drama-pilot` 加上 `yz-chapter-shots`。
+- 默认选中：短剧项目章节「生成分段」的技能选择器，用户在这个入口没选过（`localStorage` 没有该入口记录）时默认选 `yz-chapter-shots`，没加进技能库的先自动加入（与画布 Agent 默认技能同一做法）；用户改过一次（包括清空）之后只认用户的。
+- 截断可见：文本任务取 Chat Completions `finish_reason`、Claude `stop_reason`、Responses `incomplete_details.reason`（流式与非流式、内置与声明式协议），等于 `length` / `max_tokens` / `max_output_tokens` 时任务失败，`reason` 与任务 `errorCode` 为 `text_output_truncated`；前端提示「输出超过模型上限被截断，结果不完整：请换输出上限更大的模型，或按场分开生成」。
+
+自动化覆盖：
+
+- [x] 后端截断：`internal/app/provider_text_truncation_test.go` 覆盖三种协议非流式停笔原因（含 `data` 包裹、Gemini `candidates`）、流式解析器记录 `finish_reason` / `message_delta.stop_reason` / `response.incomplete`、推理用完额度没有正文时报截断、`requestTextProvider` 流式与非流式都返回 `text_output_truncated`、声明式插件形状（Claude、Bedrock `stopReason`、OpenAI 兼容）。本机 `CGO_ENABLED=0 go test ./internal/app -run 'Truncat|FinishReason|TestStreamingAgentParser|TestPostStreamingText'` 通过。
+- [x] `CGO_ENABLED=0 go test ./internal/drama/... ./internal/handler/... ./internal/skills/...`：96 个用例通过（含 `TestCompileMatchesSkillPackageGoldens`、`TestSkillPresetsCatalogIsValid`、`TestBuiltinPackagesShipReferencedCards`），22 个失败全部是 go-sqlite3 需要 cgo 的桩错误（本机没有 gcc），未在本机运行，需 CI 或云端补跑。`./internal/app` 同样只跑了非 sqlite 用例；除 cgo 桩外另有 7 处 Windows 临时目录 `sync ... Access is denied`（密钥文件落盘相关，与本期改动无关）。
+- [x] 前端 `bun run build`（`tsc --noEmit` + `vite build`）本机通过；`bun run lint` 通过。
+- [x] `bun test`：`skill-runtime-picker.test.ts`（没选过的入口用默认技能、选过包括清空只认用户的；章节页按短剧项目传默认技能）、`generation-error-details.test.ts`（`text_output_truncated` 的提示文案）、drama / 章节 / 技能相关 15 个文件 106 个用例 105 过；没过的 `project-chapter-skill-runtime.test.ts` 在源分支上就已过期（`44dc2348` 把按钮改成「生成分段」、跳转改到 `/video`），按现状改断言后单独重跑通过。
+
+仍需人工/真实环境验收（发版部署后，沿用「yoozee 实测·七床」项目新建一章）：
+
+- [ ] 「生成分段」后在任务中心看分镜任务的提示词：有【项目画风：…】【已确认角色外观】【项目已确认资产】三段。
+- [ ] 分镜制作页按场装段：同一章是 5～6 段而不是 29 段；段时长取镜头时长之和，不超过项目生成模型上限。
+- [ ] 新账号（或清掉 `yingce:skill-runtime-selection:chapter-storyboard` 记录）打开「生成分段」：技能选择器里默认出现并选中「yoozee · 章节分镜（镜头表）」，技能库里自动加入该技能；清空后再打开不再自动选中。
+- [ ] 场景预设「短剧爆款起步」「短剧立项与大纲」一键挂载后包含章节分镜（镜头表）。
+- [ ] 人为把文本模型的 `maxOutputTokens` 调小再生成分段：任务失败，任务中心与对话框提示截断与「换长输出模型或按场生成」，不再表现为「分镜任务没有返回镜头行」；计费按现有失败规则退还或标待核。
+- [ ] 线上账号里的私有技能「yoozee · 章节分镜（镜头表）」在内置版上线后删除，避免选择器里出现两个同名技能。
+
 ## 短剧段级制作线（yoozee 1.0 skills）
 
 自动化覆盖（本次补齐，可重复执行）：
@@ -15,9 +41,12 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [x] 前端接口合同：`drama.ts` 的 16 个调用（路径、方法、请求体、blob 下载的文件名解析与错误还原）与 `parseEvidenceMetrics` 容错。`bun test test/drama-api.test.ts` 7 项通过。
 - [x] 前端模型选项与档位：`dramaModelOptions` 的「每段最长 N 秒」「未校准」标记、目录缺失时的兜底、`findDramaModel` 回退默认、两档授权标签。`bun test test/drama-model.test.ts` 7 项通过。
 - [x] 概览与交付面板渲染：一句进度、8 个终态、每段六格（剧本/参考/生成/过审/入片/验收）、超长与缺口标注、门禁逐项结果与指标损坏时不崩。`bun test test/drama-panels.test.tsx` 13 项通过。
-- [x] 前端 `bun run typecheck` 与 `bun run build` 已在本机执行通过（构建 3 分 14 秒，仅既有 chunk 体积告警）；此前云端环境装不上依赖，只做了转译语法检查。
+- [x] 前端 `bun run typecheck` 与 `bun run build` 已在本机执行通过（构建 3 分 14 秒，仅既有 chunk 体积告警）；此前云端环境装不上依赖，只做了转译语法检查。线上联调后的这一轮前端改动（章节生成分段、分镜制作页、交付反馈、剪辑导出后门禁、去掉 `crypto.randomUUID`）还需在本机重跑一次。
+- [x] 旧流程只读与素材清单：`TestLegacyWorkflowIsReadOnly`、`TestRegisterTaskOutputFromTaskPersistsMediaAssetAndArtifactIdempotently`（不带 `workflowStepId` 也登记产物、不建流程实例）、`TestDramaCanvasInstallsBuiltinSuiteAndDropsLegacySkill`；前端 `bun test test/drama-asset-checklist.test.ts` 7 项通过，`drama-panels.test.tsx` 新增素材清单与候选并排用例（需本机依赖运行）。
+- [x] 线上联调补的后端用例：`TestDramaGateWithoutFilmAsksForExport`、`TestDramaVideoTaskRejectsOtherModelFamily`、`TestDramaChaptersReadPagesSourceText`、`TestDramaCanvasGetsSkillReadersWithoutPickedSkills`、`TestBriefWriteFollowsContract`、`TestTextOnlySegmentNeedsReferencesWhenSomeoneSpeaks`、`TestNormalizeBriefKeepsLegacyContentInContractShape`，云端 `go test` 通过。
 - [x] 段格式编译的 Python / Go 对照：`TestCompileMatchesSkillPackageGoldens` 用 `yoozee-skills/tests` 的同一批样例与期望结果比对，两版逐字一致。
-- 后端 app 层新增 `internal/app/project_drama_rules_test.go`（默认视频模型同族校验、两档授权校验、Agent 工具按权限模式分组共 15 个、批量写段超长整批拒绝且不留部分写入、改小模型后概览标超长）。`go vet ./internal/app/` 通过；本机没有 CGO 工具链（go-sqlite3 需要），这些用例要等 CI 的 `go test ./...` 执行，本地未运行。
+- [x] 本机 `segments.py jobs` 的画幅与模型族：画幅取需求文档「平台与画幅」里的比例（竖屏 9:16 的空跑项目出的 jobs.json 是 9:16），没写比例或比例适配不支持时拒绝；适配的 `CAPABILITIES["model"]` 与需求文档生成模型不一致时 `jobs` / `run` 非零退出并列出可用的适配。本机空跑项目复现通过，未提交生成。
+- 后端 app 层新增 `internal/app/project_drama_rules_test.go`（默认视频模型同族校验、两档授权校验、Agent 工具按权限模式分组共 16 个（含 `drama_chapters_read`）、批量写段超长整批拒绝且不留部分写入、改小模型后概览标超长）。`go vet ./internal/app/` 通过；本机没有 CGO 工具链（go-sqlite3 需要），本机未运行；云端环境 `go test` 已通过。
 
 仍需人工/真实环境验收：
 
@@ -26,7 +55,138 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [ ] 候选证据：出抽帧拼图、人判画面与人脸、有台词时转写（需本地 ffmpeg 与转写模型），三项通过并写理由后能选定；证据不齐时选定被拒（面板门槛已由静态渲染覆盖，抽帧与转写要真实 ffmpeg 与转写模型）。
 - [ ] 交付页：剪辑导出成片后跑门禁；下载交付包，确认 zip 内容齐全且无密钥（zip 内容与「无 .env」已由 `TestDeliveryPackageContainsContractsAndRecordsDelivery` 覆盖，真实成片与浏览器下载未验）。
 - [ ] 云端 Agent：短剧项目画布出现 drama_* 工具，只读模式下只有读工具（工具分组已自动化）；每步确认 / 全权两档的提问行为要真实模型会话。
+- [ ] MiniMax-H3 竖屏 9:16 参考模式真实出片：像素与构图（档案只有 2K 1440×2560 的官方数据，768P 未见样片）。
 - [ ] Seedance 2.0 / 2.5 方言档案需用真实样片校准（yz-calibrate），两份 `calibrated` 目前都是 `false`。
+- [ ] 明文 HTTP 访问（如 `http://IP/`）时云端 Agent 能正常发消息（已去掉对 `crypto.randomUUID` 的依赖）。
+- [ ] 短剧项目画布上不勾技能也能读 yz-producer；Agent 能用 `drama_chapters_read` 读章节原文、按契约写需求文档和分段表，写错时看到具体原因并自己改。
+- [ ] 剧情章节「生成分段」：段长不超过项目模型上限，台词覆盖率与超长段提示正确。
+- [ ] 分镜制作页：段时长以分段表为准、不被渠道档位改写；有分段表的段不再强制填视频提示词；「生成前看提示词」显示编译结果与估价；模型族不一致时拦下。
+- [ ] 剪辑导出成片后自动跑门禁；交付页的看片反馈写成需求文档里的 R- 条目。
+- [ ] 旧六步流程只读：新建项目不再生成流程实例；分镜制作页生成视频不再调用建流程接口，成功后产物直接出现在该段（任务只带 `domainProjectId` 与 `shotId`）；旧项目的流程记录仍能读到，但切换步骤返回「已只读」。
+- [ ] 短剧项目画布：新用户没往技能库加过 yz-* 也能用制片总控（服务端自动加入）；旧会话里选着的旧六步技能打开后换成 yz-producer。
+- [ ] 角色与资产页素材清单：连戏表为空时可按已确认资产起草；三视图、锁定卡、音色、空景、道具图缺项时不能勾「过门禁」；勾选后概览「参考齐了」相应变化。
+- [ ] 分镜制作页候选并排：同一段两条以上就绪视频时出现「并排对比」，可同步播放，证据与字错率标注正确，「看证据并选这条」跳到对应候选的证据面板。
+- 线上联调中 Seedance 渠道连续返回 503（已退款），视频候选、证据、选定、剪辑与门禁的真实链路仍待渠道恢复后验收。
+
+## 一场戏一组镜头（装段与段编辑）
+
+一场戏放进一个镜头组、一次生成（Seedance 2.5 单次最长 30 秒、可在一次生成里组织多个镜头）。章节「生成分段」按场景装段，分镜制作页可以直接拆合段、改段内镜头。
+
+- 装段（`chapter-segments.ts` 的 `storyboardRowsToSegments`）：分镜行绑定的场景资产（分类 `environment` / `scene` / `location`）变了就开新段；没绑场景的行沿用上一场，整章都没有就按章节一场、场景名用章节标题。每场内按段长目标 15–25 秒（`DEFAULT_SEGMENT_TARGET`，上限仍是项目生成模型的 `duration.max`）挑切点：优先景别跳切和台词开头，前后两个镜头都有台词（接话）时不切，除非这段对话一段放不下（会给提示）。「无」「（无）」「-」不算台词。
+- 渠道时长：取分镜制作页默认会用的视频模型（项目默认视频模型 → 与生成模型同族的渠道模型 → 全局默认）的 `capabilityConfig.video.duration`。档位制（如只能 15/30 秒）向上取到合法档位，按秒的（如最少 5 秒）不足最短秒数时取最短秒数；切点代价里算上取档多出的秒数，过短的尾段会并进相邻镜头。渠道档位全部超过项目模型上限时，生成分段对话框直接说明并禁止生成。补齐的秒数在生成后提示（「S01 内容 12 秒按 15 秒生成，剪辑时裁掉多出的部分」）。
+- 参考：同一场的各段共用这一场所有镜头绑定资产的并集（按角色、场景、道具排序），超过项目生成模型 `refs.images` 时截断并提示；镜头资产引用取同一组的前 6 个。
+- 章节页把项目全部已确认资产交给分镜模型和装段（本章工作区只带本章镜头已引用的资产，新章节原先拿不到任何资产，段没有参考）。生成分段对话框在项目还有待确认候选、或没有已确认资产时提示「先确认资产，段才会自动带上参考」，给「去确认资产」入口，不硬拦。
+- 段编辑（分镜制作页视频阶段的段卡）：每个镜头有铅笔（改画面、台词、时长）和菜单（从这个镜头起拆成新段、首镜头移到上一段、尾镜头移到下一段）；段头有「并入上一段」「合并下一段」。拆出的新段号是 S02b、S02c，紧跟原段；合并会删除被并入的段，它有生成结果时先确认；改动已有生成结果的段会提示需要重新生成；正在生成的段不能拆合；旧镜头（没有分段 JSON）不能参与拆合。拆合、改时长后按当前视频渠道取合法段长，保存走 `PUT /projects/:id/drama/segments`（新增 `order`），后端按项目生成模型校验，失败时在段卡里显示后端原因。
+- Agent 拆段、合段：云端 Agent 的 `drama_segments_write` 也有可选的 `order` 参数（`cloud_agent_tools_drama.go` 的 `dramaSegmentsWriteDescription`），说明里写了何时传、S02 → S02b 的编号、不在 `order` 里的段连同候选视频和证据一起删除；参数由通用解码原样带进 `WriteDramaSegments`，`PlanSegmentOrder` 的报错原样回给 Agent（无效段号截短并去掉引号、换行后回显）。yz-producer 的 `RUNTIME.md` 端口表同步写了拆段、合段怎么传（`python yoozee-skills/build.py` 已重打 `backend/builtin/yz-producer/RUNTIME.md`）。
+
+自动化覆盖：
+
+- [x] `bun test test/drama-segment-plan.test.ts`（14 项）：两场戏不跨段且同场多段共用整场参考；无场景绑定按章节一场；41 秒「七床」10 镜头（4,5,3,4,5,4,3,3,5,5 秒，07→08 接话）在无渠道限制时装成 25 + 16 秒、不在 07/08 之间切；MD 型 15/30 秒与 HAYA 型 5–15 秒渠道下每段都是合法时长、接话不拆；过短尾段并入相邻镜头；渠道档位全超上限时给提示；参考超上限截断；拆段、合并、移首尾镜头、改镜头文字与时长、旧镜头不能拆合、段号取字母。
+- [x] `bun test test/drama-panels.test.tsx`：段卡有相邻段时给合并入口、每个镜头有编辑和拆合菜单；相邻是旧镜头时不给合并；没有段长规则时只读。
+- [x] `CGO_ENABLED=0 go test ./internal/drama/...`：`PlanSegmentOrder` 的拆段、合段、顺序与写入不一致、重复段号、旧镜头不能靠省略删除。
+- [x] `CGO_ENABLED=0 go test ./internal/app -run 'TestDramaSegmentsWriteToolAdvertisesOrder|TestDramaSegmentsWriteToolDecodesOrderStraightThrough|TestSegmentOrderErrorsReachAgentVerbatim'`：工具 schema 里 `order` 是可选字符串数组、说明不再写「不删除段」；带 `order` 的参数能解码、写成字符串时给类型提示；`PlanSegmentOrder` 的每类报错（含把镜头 ID 或带引号换行的串当段号）经 `cloudAgentSafeToolError` 后与原文一致。`TestPlanSegmentOrderEchoesInvalidIDsSafely` 在 `internal/drama` 里覆盖回显截短。
+- 后端 `TestWriteDramaSegmentsOrderSplitsAndMergesInPlace`（拆出的段插在原段后面、合段后位置连续、被并入段的生成结果一起删除、顺序和写入对不上整批拒绝）、`TestDramaSegmentsWriteToolSplitsAndMergesWithOrder`（经 Agent 工具入口：不传 `order` 追加章末、传 `order` 摆回原段后面、写错的 `order` 报错可读且章节不变、合段删候选）和 `TestDramaSegmentsWriteToolOrderMustListLegacySegments`（旧镜头漏列被拒、列出后原样保留）需要 CGO 的 sqlite，本机未运行。
+
+仍需人工/真实环境验收：
+
+- [ ] 章节生成分段：绑了两个场景资产的章节装成两组段，段卡标题显示场景名；同一场的各段参考相同；接话不被拆开。
+- [ ] SLL 的 MD 渠道（只能 15/30 秒）设为项目默认视频模型时，生成的段时长都是 15 或 30，分镜制作页能直接提交；HAYA 渠道（最少 5 秒）下没有短于 5 秒的段。
+- [ ] 项目还有待确认候选时，生成分段对话框出现「先确认资产」提示与入口；确认资产后再生成，新章节的段带上参考。
+- [ ] Agent 拆段、合段：在短剧项目画布里让 Agent 把某场戏拆成两段，应写 S02 加 S02b 并带 `order`，S02b 紧跟 S02 而不是排到章末；让它把两段并成一段，应只写保留的那段、`order` 里不含被并掉的段，分镜制作页里被并掉的段及其候选消失；故意给错段号时，Agent 的工具结果里能看到「段顺序里……」的原因并改正。
+- [ ] 分镜制作页段卡：拆段后 S02b 紧跟 S02 出现在镜头列表里；并入上一段后自动选中上一段；合并有生成结果的段时先确认，确认后被并入的段消失；改台词后编译结果里出现新台词；后端拒绝（如合并后超过项目模型上限）时段卡显示原因。
+
+## 生成分段实测修复（资产绑定、拆段后的声音与约束、标点、无参考提示）
+
+本地前端接线上旧后端实测「生成分段 / 拆段」时发现的问题。
+
+**前后端需同时部署。** 拆段、合段依赖后端 `PUT /drama/segments` 的 `order`（dc2ec388、d4a97d66）：线上后端没部署时，拆出的新段会排到本章末尾，合段会留下重复段。本次段内镜头又新增了 `sound`、`end_state` 两个字段，旧后端严格解析分段（不认识的字段一律拒绝），新前端「生成分段」会在保存这一步失败（「不认识的字段 "sound"」）。所以线上要先部署后端，再用新前端。
+
+- 资产绑定：后端不读分镜任务 input 里的 `canvasAssets`，分镜模型原先根本看不到项目资产，输出契约也没要镜头写资产，分镜行 `assetBindings` 一直是空的，按场景装段退回「整章一场」。现在 `chapterStoryboardAssetPrompt` 把已确认资产清单写进提示词，并要求每个镜头在 `assets` 里写出场的资产名；`bindStoryboardRowAssets` 按资产 ID 或名称（忽略标点，「病房走廊（夜）」认作「病房走廊」，有歧义不绑）落到 `assetBindings`，`characters` 里的角色名补上角色资产 ID；模型某一类（角色、场景、道具）一个都没给时，按镜头文字（首帧画面、剧情、表演调度、运镜、结尾状态、台词说话人）里出现的资产名补这一类，场景只补最先出现的那个，长名先匹配。整章一个场景都没认出来、项目里又有场景资产时，生成后提示「分镜行没有认出场景」。
+- 声音与结尾约束跟着镜头走：装段时每个镜头的声音写进 `shots[].sound`、结尾状态（分镜行 `continuityOut`）写进 `shots[].end_state`，不再写段级 `sound` / `rules`。编译（`compile.go`、`compile.py`、本机 H3 适配）在段没写 `sound` 时按镜头顺序接各镜头声音（去句尾标点、去重），没写 `rules` 时取最后一镜的 `end_state`；所以拆段、合段、移镜头后，S01 不会再带着原来最后一镜「停在病床侧面」的结尾和病房里的门轴声。段级 `sound` / `rules` 写了仍以段为准。本次之前生成的段（段级字段已写死）拆段后还是沿用整段的声音和约束，重新生成分段后才按镜头走。
+- 标点：拼景别、运镜、画面时每格先去掉首尾的「。，；、」等再接，上一格以「！？…」结尾时不再补分隔符，不再出现「。，」「。。」。
+- 无参考提示：段是纯文本、或锁人物却没挂参考时，段卡显示「此段没有人物/场景参考，人物一致性只靠文字。」并给「选择资产」；「生成前看提示词」的参考一行写「参考：无」和同样的提示。分段表维护的段在「镜头资产」里绑定或取消资产时，同时写进或去掉段的 `refs`（纯文本段改锁人物，去掉最后一个参考改回纯文本），否则视频生成只认段的参考、绑了也不生效。
+
+自动化覆盖：
+
+- [x] `bun test test/project-chapter-storyboard.test.ts`：资产清单进提示词；分镜任务结果里的 `assets` 经 `storyboardRowsFromTask` 保留、按名称落绑定，走廊 4 镜 + 病房 2 镜装成「病房走廊」「七床病房」两段且各带本场参考；模型没给的类别按文字补、场景只补第一个、长名不被短名截走；名称有歧义、画外音说话人不乱绑。
+- [x] `bun test test/drama-segment-plan.test.ts`：镜头带 `sound` / `end_state`、段级不写，拆段后各段只带自己镜头的；拼接去重复标点；没认出场景时提示；无参考判定；镜头资产绑定与段参考同步（加、去、无变化不写）。
+- [x] `bun test test/drama-panels.test.tsx`：无参考的段卡显示提示与「选择资产」，有参考时不显示。
+- [x] `python -I -X utf8 yoozee-skills/tests/test_compile.py` 与 `CGO_ENABLED=0 go test ./internal/drama/...`：原有 8 个对照用例逐字不变；新增 `segment-shots`（段级不写 `sound` / `rules`、镜头带声音和结尾状态）× Seedance 2.0 / 2.5 / MiniMax-H3 两边一致；`TestSegmentSoundAndRulesFollowShots`、`TestVisualHashIgnoresMissingEndState`（旧段指纹不变，镜头结尾状态变了分镜图过期，只改声音时只有视频过期）。
+
+仍需人工/真实环境验收（部署后端后）：
+
+- [ ] 项目已确认林小满、病房走廊、七床病房、蓝色七床病历夹，新章节写两场（病房走廊、七床病房）后「生成分段」：段卡里「镜头资产」不再是未绑定，走廊和病房分成不同的段，段标题是场景名，参考各自带本场的场景图。
+- [ ] 把走廊段从进病房的镜头前拆开后「生成前看提示词」：前一段开头是走廊最后一镜的结尾状态，声音里没有病房的声音；后一段带着病房镜头的声音和结尾状态。
+- [ ] 段卡里的镜头文字没有「。，」「。。」。
+- [ ] 纯文本段的段卡出现提示和「选择资产」，在弹窗里绑一个角色后提示消失、编译结果出现「@图片1为人物参考」，生成视频时带上这张图；取消绑定后变回纯文本段。
+
+## 生成分段带上项目画风与角色外观
+
+章节「生成分段」的分镜任务把项目画风（`projectStyle`）、角色设定（`characters`）和 `requirements` 放在任务 input 里，后端 `canvasGenerationInput` 只解析 mode / prompt / config / 参考 / textHistory / metadata / agentRequests / textOptions，这几个字段被静默丢弃；任务又没有 `promptTemplateOperation`，不走服务端模板，技能上下文也不带画风。分镜模型原先既不知道项目画风，也不知道角色长相，首帧画面提示词按模型自己的习惯写。
+
+- 现在由前端 `chapterStoryboardTaskPrompt` 拼出实际发给模型的提示词：技能上下文与本章正文 →【项目画风：标题】→【已确认角色外观】→ 输出契约 →【项目已确认资产】。只改前端，后端不读这些 input 字段的现状不变（字段仍留在 input 里作任务记录）。
+- 画风（`storyboardStylePrompt`）：按小节重要性取到 1200 字为止、按原顺序输出（风格组合、视觉媒介、角色设计系统、色彩光影、服饰材质场景、全局禁用优先；项目定位、资产一致性最先舍弃），放不下的那一节截断；没有【】小节的自定义画风按行截取。内置画风约 1.1–1.25k 字，基本整段带上。要求画面描述按画风写、不要整段抄进每个镜头（成片生成时画风规范另有执行块）。
+- 角色外观（`storyboardCharacterAppearancePrompt`）：只写已确认角色（有角色资产与版本），取外貌、服装、体型、随身道具、一致性五项，每项 80 字、每个角色 220 字、合计 1600 字封顶；本章正文里（含别名）先出现的角色排前面，超预算的角色不写外观（资产清单里仍有名字）。待确认角色的设定未定稿，不写外观。
+- 画布节点拆镜同样丢字段，已在下一节「画布节点拆镜带上画风节点与角色外观」复用这两个函数修好。
+
+自动化覆盖：
+
+- [x] `bun test test/project-chapter-storyboard.test.ts`：`chapterStoryboardTaskPrompt` 的结果含【项目画风：…】与画风的【视觉媒介】原文、已确认角色「林默」的外貌 / 服装 / 一致性，待确认角色不写外观，四段顺序为画风 → 角色 → 输出契约 → 资产清单。
+- [x] `bun test test/canvas-storyboard-context.test.ts`：画风超预算时高优先级小节完整、最低一节截断且保持原顺序；自由书写画风按 1200 字截断；空画风不输出；角色按正文首次出现（含别名）排序、只取外观字段、画布角色卡的 `{ prompt }` 兜底、无外观字段的角色不写；20 个角色时每行不超过 220 字、合计不超过 1600 字。
+
+仍需人工/真实环境验收：
+
+- [ ] 项目选一个非真人画风（如国漫 2D 或水墨），已确认角色填了外貌和服装，「生成分段」后在任务中心看该分镜任务的提示词：有【项目画风：…】和【已确认角色外观】两段；生成的分镜行首帧画面按该画风描述（不出现「真人实拍」「照片级」之类），角色出镜时写出设定里的发型、服装和标志物。
+- [ ] 角色较多（十个以上）、章节较长时，分镜任务仍能正常返回、没有因提示词变长而超时或截断输出。
+
+## 画布节点拆镜带上画风节点与角色外观
+
+画布分镜节点「生成分镜」（`use-canvas-storyboard.ts` 的 `generateScriptRows`）把 `canvasAssets`、`characters`、`requirements` 放在任务 input 里，后端 `canvasGenerationInput` 不解析，全部丢弃。提示词里原先只有剧情（`stripProjectStyleExecutionBlocks` 有意去掉旧版追加的【项目画风执行规范】）、被 @ 的文本节点展开内容、技能上下文和输出契约，模型看不到画风节点和角色卡外观。
+
+- 现在由 `lib/canvas/canvas-storyboard-context.ts` 的 `canvasStoryboardTaskPrompt` 拼出实际发出的 prompt：技能上下文与剧情 →【项目画风：标题】→【已确认角色外观】→ 输出契约（含镜头数、每镜时长）。画风和角色两段沿用章节路径的 `storyboardStylePrompt`（1200 字）和 `storyboardCharacterAppearancePrompt`（1600 字），角色按剧情里首次出现的位置排序。
+- 画风取 `workflowKind === "styleboard"` 且有 `stylePresetId` 的节点（`canvasStoryboardStyle`），标题去掉「项目画风 · 」前缀，正文取 `content`，没有再取 `prompt`。节点正文是画风规范原文（`profile.prompt`），不是图片 / 视频执行时 `applyStyleExecutionPlan` 追加的执行块；执行块里的全局负面 Prompt 和 LoRA / 模板片段不进分镜提示词。画风占位节点（无正文或无预设）不输出。
+- 用户已 @ 画风节点时，剧情展开后已有画风原文，不再追加【项目画风：…】，避免同一段画风出现两次。
+- 角色只来自已同步版本的角色卡（`resolveStoryboardGenerationContext`，缺版本时仍然拦下），即已确认角色。
+- 资产清单不写进画布提示词。章节路径写清单，是因为 `bindStoryboardRowAssets` 会按模型返回的 `assets` 名称落 `assetBindings`，装段要靠场景绑定切场。画布行的 `assetBindings` 只由用户把节点连到分镜行（`attachNodeToStoryboardRow`）或模型直接返回节点 ID 落成，画布路径没有按名称绑定的步骤，也不装段；写清单只会多占预算，没有消费方。角色名和外观已在【已确认角色外观】里。
+- `requirements`（「输出可直接编辑并用于批量生成图片和视频的分镜表」）与输出契约里的「每个镜头必须能独立用于生成首帧图片和镜头视频」同义，不再单独写。input 里的这几个字段保留作任务记录。
+
+自动化覆盖：
+
+- [x] `bun test test/canvas-storyboard-context.test.ts`：`canvasStoryboardTaskPrompt` 含【项目画风：仙侠水墨】与画风原文、两种角色卡（外观字段和 `{ prompt }`）的外观，不含性格字段，按剧情首次出现排序，段落顺序为剧情 → 画风 → 角色 → 输出契约；剧情带旧执行块时去掉后不含【项目画风执行规范】和负面 Prompt；@ 了画风节点时画风原文只出现一次、不再加【项目画风：…】；画风占位节点和无预设节点不输出；12 节长画风加 30 个角色时，新增部分不超过 1200 + 1600 + 400 字，靠后的角色不写。
+- [x] `bun test test/canvas-storyboard-panel.test.ts`：画布拆镜调用 `canvasStoryboardTaskPrompt`，`sourceText` 传去掉旧画风块后的剧情。
+
+仍需人工/真实环境验收：
+
+- [ ] 短剧项目画布上已应用非真人画风（如水墨），画布有已同步的角色卡，分镜节点「生成分镜」后在任务中心看该任务的 prompt：有【项目画风：…】和【已确认角色外观】；首帧画面按画风描述，角色出镜时写出设定的发型、服装和标志物。
+- [ ] 分镜剧情里 @ 了画风节点时，任务 prompt 里画风只出现一次。
+- [ ] 没有画风节点、或画风节点还是「选择画风」占位时，拆镜照常，prompt 里没有画风段。
+
+## 短剧前端走查修复
+
+线上纯前端走完一遍短剧流程后记下的问题，本地逐条核对后修复。自动化覆盖：
+
+- [x] 角色三视图：后端在任务完成时绑定新角色版本（`finalizeCharacterTurnaroundTask`），项目读取时补救历史断点（本地已有）；资产页按任务 `nodeId` 找回仍在排队或生成的三视图，刷新后仍显示生成中、完成后自动刷新，避免重复提交扣费；三视图优先用项目默认图片模型。`bun test test/project-character-turnaround.test.ts`。
+- [x] 分镜制作页：「镜头资产」框加「选择资产」，弹出与左栏同一份资产列表，窄窗口（左栏隐藏）也能绑定；视频失败时读任务详情，在产物区显示上游原因；段时长默认取分段 JSON 的 dur 或镜头时长，按模型时长档位取不短于镜头的一档，不再退回渠道默认的 15 秒；排队中的任务显示「排队中」。`bun test test/workflow-shot-duration.test.ts`。
+- [x] 上游错误：new-api 正文里的「(request id: …)」只剥掉编号，原因照常保留（原先整条原因被当成诊断隐藏，只剩 HTTP 503，前端再归成「网络异常。」）。`go test ./internal/app -run 'TestProviderErrorDetail|TestProviderHTTPErrorKeepsNoChannelReason'`。
+- [x] 技能选择：多选下拉选中一项即收起，不再盖住「生成分段」按钮；章节分段与镜头生成分别记住上次选的技能（按用户 scope 存 localStorage），打开对话框不再清空。`bun test test/skill-runtime-picker.test.ts`。
+- [x] 列表即时刷新：新建 / 导入章节先写进章节索引缓存再跳转（避免路由守卫把新章节重定向回第一章），确认候选立刻从待确认列表拿掉，镜头绑定 / 取消资产立刻改本章工作区缓存。`bun test test/project-cache-updates.test.ts`。
+- [x] 项目画风：生成章节分段对话框在缺画风时直接提示并给「去选画风」，不能提交；建项目对话框改写为「生成分镜前必选」；项目设置有未保存修改时拦截路由跳转和关闭标签页，选了画风未保存时就地提示并可保存。`bun test test/project-style-guidance.test.ts`。
+- [x] 成片门禁：完全无声的音轨真峰值读成 -inf，报「无声，没有峰值」，不再报 0.0 dBTP；量不到真峰值时报「没量到真峰值」；-inf 以 null 写进指标 JSON。剪辑导出后自动跑门禁（本地已有），门禁结束后刷新项目缓存，概览立刻看到记录；静帧时间线的渲染计划不再显示「没有可渲染的视频片段」。`go test ./internal/drama/...`。
+- [x] 需求文档与连戏表：概览终态卡「需求问透了」给「打开需求文档」（六项事实逐项填写、改状态，另有完整 JSON），「剧本定了」「参考齐了」给「打开连戏表」（数量与未过门禁项、按已确认资产起草、JSON 编辑、去资产页逐项过门禁）。`bun test test/drama-documents.test.ts`。
+- [x] 剪辑时间线片段名优先显示标题，不再显示 `asset:ID`。`bun test test/timeline-clip-label.test.ts`。
+- [x] `bun run typecheck` 与上述相关 bun 用例在本机通过；`CGO_ENABLED=0 go test ./internal/drama/...` 通过。
+
+仍需人工/真实环境验收：
+
+- [ ] 三视图生成中刷新页面：卡片仍显示生成中、按钮不可重复点；完成后自动出现新版本，积分只扣一次。
+- [ ] 1050px 以下窗口：分镜制作页点「镜头资产」框弹出资产选择器，绑定 / 取消后框里立刻变化。
+- [ ] 视频渠道返回 503「No available channel」时，产物区与任务中心显示「模型服务暂时不可用（HTTP 503）；上游：No available channel …」。
+- [ ] 5 秒镜头在 Seedance 按秒模型下默认段时长 5 秒，费用按 5 秒报。
+- [ ] 生成分段对话框：选技能后下拉收起、点按钮不再误取消技能；关掉再开仍记得上次的技能。
+- [ ] 新建章节、确认候选、首次绑定镜头资产后无需刷新页面。
+- [ ] 未设画风的项目打开生成分段对话框看到提示与入口；项目设置改了画风不保存就离开时被拦下。
+- [ ] 静音成片跑门禁：真峰值一项显示「无声」，导出后回概览即见门禁记录。
+- [ ] 概览终态卡打开需求文档，六项标成已确认后终态 1 成立；打开连戏表按资产起草后终态 2 的「连戏表还没有人物」消失。
 
 ## 灵感页路由与导航
 

@@ -34,7 +34,13 @@ func postStreamingAgent(ctx context.Context, config providerConfig, path string,
 		if err := json.Unmarshal(data, &payload); err != nil {
 			return nil, fmt.Errorf("Agent 接口返回格式无效：%w", err)
 		}
-		return parseAgentToolPayload(payload, protocol)
+		result, err := parseAgentToolPayload(payload, protocol)
+		if err == nil {
+			if reason := textPayloadFinishReason(payload, protocol); reason != "" {
+				result["finishReason"] = reason
+			}
+		}
+		return result, err
 	}
 	parser.flush()
 	return parser.result()
@@ -55,6 +61,7 @@ type streamingAgentParser struct {
 	toolCalls     map[int]*streamingAgentToolCall
 	toolCallByID  map[string]int
 	completed     map[string]interface{}
+	finishReason  string
 	err           error
 	emit          func(string)
 	emitReasoning func(string)
@@ -137,6 +144,10 @@ func (p *streamingAgentParser) consumeResponsesEvent(eventName string, payload m
 		p.appendReasoning(stringField(payload, "delta"))
 	case "response.completed":
 		p.completed, _ = payload["response"].(map[string]interface{})
+	case "response.incomplete":
+		// 输出上限截断时 Responses 发 response.incomplete，原因在 response.incomplete_details。
+		p.completed, _ = payload["response"].(map[string]interface{})
+		p.finishReason = firstNonEmptyString(textPayloadFinishReason(p.completed, "responses"), "incomplete")
 	case "response.output_item.added":
 		item, _ := payload["item"].(map[string]interface{})
 		if stringField(item, "type") == "function_call" {
@@ -166,6 +177,9 @@ func (p *streamingAgentParser) consumeChatCompletionEvent(payload map[string]int
 	choices, _ := payload["choices"].([]interface{})
 	for _, value := range choices {
 		choice, _ := value.(map[string]interface{})
+		if reason := stringField(choice, "finish_reason"); reason != "" && !textFinishTruncated(p.finishReason) {
+			p.finishReason = reason
+		}
 		delta, _ := choice["delta"].(map[string]interface{})
 		p.appendText(streamContentText(delta["content"]))
 		p.appendReasoning(firstRawString(stringField(delta, "reasoning_content"), stringField(delta, "reasoning"), stringField(delta, "reasoning_text")))
@@ -216,6 +230,11 @@ func (p *streamingAgentParser) consumeClaudeEvent(payload map[string]interface{}
 		}
 		if stringField(delta, "type") == "input_json_delta" {
 			p.toolCall(index).arguments += stringField(delta, "partial_json")
+		}
+	case "message_delta":
+		delta, _ := payload["delta"].(map[string]interface{})
+		if reason := stringField(delta, "stop_reason"); reason != "" {
+			p.finishReason = reason
 		}
 	case "error":
 		errValue, _ := payload["error"].(map[string]interface{})
@@ -283,11 +302,17 @@ func (p *streamingAgentParser) result() (map[string]interface{}, error) {
 		if p.reasoning.Len() > 0 {
 			result["reasoning"] = p.reasoning.String()
 		}
+		if p.finishReason != "" {
+			result["finishReason"] = p.finishReason
+		}
 		return result, nil
 	}
 	result := map[string]interface{}{"mode": "text", "text": p.text.String(), "toolCalls": []interface{}{}}
 	if p.reasoning.Len() > 0 {
 		result["reasoning"] = p.reasoning.String()
+	}
+	if p.finishReason != "" {
+		result["finishReason"] = p.finishReason
 	}
 	indices := make([]int, 0, len(p.toolCalls))
 	for index := range p.toolCalls {
@@ -316,6 +341,9 @@ func (p *streamingAgentParser) result() (map[string]interface{}, error) {
 	}
 	result["toolCalls"] = calls
 	if p.text.Len() == 0 && len(calls) == 0 {
+		if textFinishTruncated(p.finishReason) {
+			return nil, textOutputTruncatedError(p.finishReason)
+		}
 		return nil, errors.New("画布 Agent 接口没有返回内容")
 	}
 	return result, nil

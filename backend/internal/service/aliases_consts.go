@@ -68,6 +68,7 @@ const (
 	PluginScopeUser                    = app.PluginScopeUser
 	ReasonBadGateway                   = app.ReasonBadGateway
 	ReasonUpstreamDNSFailed            = app.ReasonUpstreamDNSFailed
+	ReasonTextOutputTruncated          = app.ReasonTextOutputTruncated
 	ReasonConflict                     = app.ReasonConflict
 	ReasonProjectNameConflict          = app.ReasonProjectNameConflict
 	ReasonFailedPrecondition           = app.ReasonFailedPrecondition

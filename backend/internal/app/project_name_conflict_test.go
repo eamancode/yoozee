@@ -28,7 +28,7 @@ func TestCreateProjectReturnsStructuredConflictForDuplicateName(t *testing.T) {
 	})
 }
 
-// testStructuredProjectNameConflict 验证重名的结构化错误，以及原项目和工作流不会被重复创建请求覆盖。
+// testStructuredProjectNameConflict 验证重名的结构化错误，原项目不会被重复创建请求覆盖，也不再建旧六步流程实例。
 func testStructuredProjectNameConflict(t *testing.T, service *Service, db *gorm.DB) {
 	t.Helper()
 	sqlDB, err := db.DB()
@@ -67,7 +67,7 @@ func testStructuredProjectNameConflict(t *testing.T, service *Service, db *gorm.
 		t.Fatal("duplicate creation changed the existing project")
 	}
 	var workflowCount int64
-	if err := db.Model(&model.WorkflowInstance{}).Where("project_id = ?", first.ID).Count(&workflowCount).Error; err != nil || workflowCount != 1 {
+	if err := db.Model(&model.WorkflowInstance{}).Where("project_id = ?", first.ID).Count(&workflowCount).Error; err != nil || workflowCount != 0 {
 		t.Fatalf("workflow count = %d, error = %v", workflowCount, err)
 	}
 	if _, err := service.CreateProject("user-2", request); err != nil {

@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { openWorkspaceWallet, WORKSPACE_WALLET_OPEN_EVENT, type WorkspaceWalletOpenDetail } from "@/lib/workspace-wallet";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { createClientId } from "@/lib/client-id";
 
 type WalletModalTab = "topup" | "redeem" | "history";
 
@@ -192,7 +193,7 @@ export function WorkspaceWalletModal({ open, onClose, pendingPaymentOrderId, pay
         }
         setPaymentCreating(true);
         try {
-            if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
+            if (!idempotencyKey.current) idempotencyKey.current = createClientId();
             const result = await createPaymentOrder({ productId: selectedProduct.id, providerId: selectedProvider.id, idempotencyKey: idempotencyKey.current });
             idempotencyKey.current = "";
             setPaymentOrder(result.order);

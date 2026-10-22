@@ -1,7 +1,7 @@
 package app
 
 import (
-	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,19 +33,6 @@ func newProjectWorkflowV2TestService(t *testing.T) (*Service, *gorm.DB) {
 func TestRegisterTaskOutputFromTaskPersistsMediaAssetAndArtifactIdempotently(t *testing.T) {
 	service, db := newProjectWorkflowV2TestService(t)
 	project, unit := seedWorkflowProject(t, db)
-	if err := service.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
-		t.Fatal(err)
-	}
-	workflow, err := service.CreateUnitWorkflow("user-1", project.ID, unit.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var videoStep model.WorkflowStepInstance
-	for _, step := range workflow.Steps {
-		if step.StepKey == "video" {
-			videoStep = step
-		}
-	}
 	shot, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "SC.01", Description: "人物抬头", DurationMs: 3000})
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +47,7 @@ func TestRegisterTaskOutputFromTaskPersistsMediaAssetAndArtifactIdempotently(t *
 		t.Fatal(err)
 	}
 	task := model.Task{ID: "ac745990450a86d3365eb92ec26f378e", UserID: "user-1", ProjectID: project.ID, Type: "canvas_video", Status: model.TaskStatusSucceeded,
-		InputJSON:  `{"metadata":{"workflowStepId":"` + videoStep.ID + `","domainProjectId":"` + project.ID + `","unitId":"` + unit.ID + `","shotId":"` + shot.ID + `","shotRevisionId":"` + submittedRevisionID + `","artifactType":"video","role":"output","artifactMetadata":{"model":"MiniMax-H3"}}}`,
+		InputJSON:  `{"metadata":{"domainProjectId":"` + project.ID + `","unitId":"` + unit.ID + `","shotId":"` + shot.ID + `","shotRevisionId":"` + submittedRevisionID + `","artifactType":"video","role":"output","artifactMetadata":{"model":"MiniMax-H3"}}}`,
 		ResultJSON: `{"mode":"video","video":{"resourceId":"resource-video-1","storageKey":"resource:resource-video-1","mimeType":"video/mp4"}}`, CreatedAt: now, UpdatedAt: now}
 	if err := db.Create(&task).Error; err != nil {
 		t.Fatal(err)
@@ -113,6 +100,10 @@ func TestRegisterTaskOutputFromTaskPersistsMediaAssetAndArtifactIdempotently(t *
 	if artifact.MetadataJSON != `{"model":"MiniMax-H3"}` {
 		t.Fatalf("artifact metadata = %q", artifact.MetadataJSON)
 	}
+	var workflowCount int64
+	if err := db.Model(&model.WorkflowInstance{}).Count(&workflowCount).Error; err != nil || workflowCount != 0 {
+		t.Fatalf("按段登记产物不该建旧流程实例：count=%d err=%v", workflowCount, err)
+	}
 }
 
 func seedWorkflowProject(t *testing.T, db *gorm.DB) (model.Project, model.ProjectUnit) {
@@ -129,26 +120,54 @@ func seedWorkflowProject(t *testing.T, db *gorm.DB) (model.Project, model.Projec
 	return project, unit
 }
 
-func TestShortDramaWorkflowV2UsesProductionOrder(t *testing.T) {
+// seedLegacyWorkflow 直接写一份旧六步流程实例，模拟改造前已有的项目数据。
+func seedLegacyWorkflow(t *testing.T, db *gorm.DB, projectID string, unitID string) ProjectWorkflowDetail {
+	t.Helper()
+	now := time.Now()
+	instance := model.WorkflowInstance{ID: "legacy-instance", ProjectID: projectID, UnitID: unitID, TemplateVersionID: "legacy-template", Scope: "unit", Status: model.WorkflowStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	if err := db.Create(&instance).Error; err != nil {
+		t.Fatal(err)
+	}
+	steps := make([]model.WorkflowStepInstance, 0, len(builtinShortDramaSteps))
+	for index, definition := range builtinShortDramaSteps {
+		status := model.WorkflowStepStatusPending
+		if index == 0 {
+			status = model.WorkflowStepStatusReady
+		}
+		step := model.WorkflowStepInstance{ID: "legacy-step-" + definition.Key, WorkflowInstanceID: instance.ID, StepKey: definition.Key, Name: definition.Name, Position: index, Status: status, InputJSON: "{}", OutputJSON: "{}", CreatedAt: now, UpdatedAt: now}
+		if err := db.Create(&step).Error; err != nil {
+			t.Fatal(err)
+		}
+		steps = append(steps, step)
+	}
+	return ProjectWorkflowDetail{Instance: instance, Steps: steps}
+}
+
+func TestLegacyWorkflowIsReadOnly(t *testing.T) {
 	service, db := newProjectWorkflowV2TestService(t)
 	project, unit := seedWorkflowProject(t, db)
-	if err := service.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
+	if _, err := service.CreateUnitWorkflow("user-1", project.ID, unit.ID); err == nil || !strings.Contains(err.Error(), "只读") {
+		t.Fatalf("新建旧流程应被拒绝并说明已只读，得到 %v", err)
+	}
+	var count int64
+	if err := db.Model(&model.WorkflowInstance{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("不该留下流程实例：count=%d err=%v", count, err)
+	}
+	legacy := seedLegacyWorkflow(t, db, project.ID, unit.ID)
+	step := legacy.Steps[0]
+	if _, err := service.UpdateWorkflowStep("user-1", project.ID, step.ID, UpdateWorkflowStepRequest{Status: "running"}); err == nil || !strings.Contains(err.Error(), "只读") {
+		t.Fatalf("切换旧步骤应被拒绝并说明已只读，得到 %v", err)
+	}
+	var stored model.WorkflowStepInstance
+	if err := db.First(&stored, "id = ?", step.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	workflow, err := service.CreateUnitWorkflow("user-1", project.ID, unit.ID)
-	if err != nil {
-		t.Fatal(err)
+	if stored.Status != model.WorkflowStepStatusReady {
+		t.Fatalf("旧步骤状态被改成 %s", stored.Status)
 	}
-	keys := make([]string, 0, len(workflow.Steps))
-	for _, step := range workflow.Steps {
-		keys = append(keys, step.StepKey)
-	}
-	want := []string{"story", "assets", "storyboard", "previz", "video", "delivery"}
-	if !reflect.DeepEqual(keys, want) {
-		t.Fatalf("step keys = %v, want %v", keys, want)
-	}
-	if workflow.Steps[0].Status != model.WorkflowStepStatusReady {
-		t.Fatalf("first step status = %s, want ready", workflow.Steps[0].Status)
+	workflows, err := service.ProjectWorkflows(project.ID)
+	if err != nil || len(workflows) != 1 || len(workflows[0].Steps) != 6 {
+		t.Fatalf("旧流程仍应可读：%d 个，err=%v", len(workflows), err)
 	}
 }
 
@@ -225,48 +244,11 @@ func firstProjectCandidateID(t *testing.T, db *gorm.DB) string {
 	return candidate.ID
 }
 
-func TestWorkflowCompletionRequiresStageGate(t *testing.T) {
-	service, db := newProjectWorkflowV2TestService(t)
-	project, unit := seedWorkflowProject(t, db)
-	if err := service.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
-		t.Fatal(err)
-	}
-	workflow, err := service.CreateUnitWorkflow("user-1", project.ID, unit.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step := workflow.Steps[0]
-	if _, err := service.UpdateWorkflowStep("user-1", project.ID, step.ID, UpdateWorkflowStepRequest{Status: "running"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.UpdateWorkflowStep("user-1", project.ID, step.ID, UpdateWorkflowStepRequest{Status: "completed"}); err == nil {
-		t.Fatal("empty chapter completed story gate")
-	}
-	unit.SourceText = "第一章正文"
-	unit.UpdatedAt = time.Now()
-	if err := db.Save(&unit).Error; err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.UpdateWorkflowStep("user-1", project.ID, step.ID, UpdateWorkflowStepRequest{Status: "completed"}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestCreateShotRevisionInvalidatesExistingArtifacts(t *testing.T) {
 	service, db := newProjectWorkflowV2TestService(t)
 	project, unit := seedWorkflowProject(t, db)
-	if err := service.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
-		t.Fatal(err)
-	}
-	workflow, err := service.CreateUnitWorkflow("user-1", project.ID, unit.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	shot, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "SC.01", Description: "人物推门进入", DurationMs: 3000})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Model(&model.WorkflowStepInstance{}).Where("workflow_instance_id = ? AND step_key IN ?", workflow.Instance.ID, []string{"storyboard", "previz", "video", "delivery"}).Updates(map[string]any{"status": model.WorkflowStepStatusCompleted}).Error; err != nil {
 		t.Fatal(err)
 	}
 	artifact := model.ShotArtifact{ID: "artifact-1", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Type: "action_board", Version: 1, Status: "ready", Selected: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}
@@ -286,20 +268,6 @@ func TestCreateShotRevisionInvalidatesExistingArtifacts(t *testing.T) {
 	}
 	if storedArtifact.Status != "stale" || storedArtifact.Selected {
 		t.Fatalf("artifact status=%s selected=%v, want stale false", storedArtifact.Status, storedArtifact.Selected)
-	}
-	var storyboardStep model.WorkflowStepInstance
-	if err := db.First(&storyboardStep, "workflow_instance_id = ? AND step_key = ?", workflow.Instance.ID, "storyboard").Error; err != nil {
-		t.Fatal(err)
-	}
-	if storyboardStep.Status != model.WorkflowStepStatusRunning {
-		t.Fatalf("storyboard step status = %s, want running", storyboardStep.Status)
-	}
-	var videoStep model.WorkflowStepInstance
-	if err := db.First(&videoStep, "workflow_instance_id = ? AND step_key = ?", workflow.Instance.ID, "video").Error; err != nil {
-		t.Fatal(err)
-	}
-	if videoStep.Status != model.WorkflowStepStatusPending {
-		t.Fatalf("video step status = %s, want pending", videoStep.Status)
 	}
 }
 
@@ -359,18 +327,8 @@ func TestReplaceProjectUnitShotsCreatesGeneratedAssetReferencesAtomically(t *tes
 func TestUnlinkShotAssetDeletesReferenceAndInvalidatesProduction(t *testing.T) {
 	service, db := newProjectWorkflowV2TestService(t)
 	project, unit := seedWorkflowProject(t, db)
-	if err := service.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
-		t.Fatal(err)
-	}
-	workflow, err := service.CreateUnitWorkflow("user-1", project.ID, unit.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	shot, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "SC.01", Description: "人物走入画面", DurationMs: 3000})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Model(&model.WorkflowStepInstance{}).Where("workflow_instance_id = ? AND step_key IN ?", workflow.Instance.ID, []string{"storyboard", "previz", "video", "delivery"}).Updates(map[string]any{"status": model.WorkflowStepStatusCompleted}).Error; err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
@@ -402,13 +360,6 @@ func TestUnlinkShotAssetDeletesReferenceAndInvalidatesProduction(t *testing.T) {
 	if storedArtifact.Status != "stale" || storedArtifact.Selected {
 		t.Fatalf("artifact status=%s selected=%v, want stale false", storedArtifact.Status, storedArtifact.Selected)
 	}
-	var storyboardStep model.WorkflowStepInstance
-	if err := db.First(&storyboardStep, "workflow_instance_id = ? AND step_key = ?", workflow.Instance.ID, "storyboard").Error; err != nil {
-		t.Fatal(err)
-	}
-	if storyboardStep.Status != model.WorkflowStepStatusRunning {
-		t.Fatalf("storyboard step status = %s, want running", storyboardStep.Status)
-	}
 	if err := service.UnlinkShotAsset("user-1", project.ID, shot.ID, reference.ID); err == nil {
 		t.Fatal("second unlink should report missing reference")
 	}
@@ -417,13 +368,6 @@ func TestUnlinkShotAssetDeletesReferenceAndInvalidatesProduction(t *testing.T) {
 func TestDeleteProjectShotCleansRelationsAndCompactsPositions(t *testing.T) {
 	service, db := newProjectWorkflowV2TestService(t)
 	project, unit := seedWorkflowProject(t, db)
-	if err := service.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
-		t.Fatal(err)
-	}
-	workflow, err := service.CreateUnitWorkflow("user-1", project.ID, unit.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	shots := make([]model.Shot, 0, 3)
 	for index, title := range []string{"SC.01", "SC.02", "SC.03"} {
 		shot, createErr := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{
@@ -433,9 +377,6 @@ func TestDeleteProjectShotCleansRelationsAndCompactsPositions(t *testing.T) {
 			t.Fatal(createErr)
 		}
 		shots = append(shots, shot)
-	}
-	if err := db.Model(&model.WorkflowStepInstance{}).Where("workflow_instance_id = ? AND step_key IN ?", workflow.Instance.ID, []string{"storyboard", "previz", "video", "delivery"}).Updates(map[string]any{"status": model.WorkflowStepStatusCompleted}).Error; err != nil {
-		t.Fatal(err)
 	}
 	target := shots[1]
 	now := time.Now()
@@ -479,25 +420,11 @@ func TestDeleteProjectShotCleansRelationsAndCompactsPositions(t *testing.T) {
 			t.Fatalf("%s count = %d, want 0", name, count)
 		}
 	}
-	var storyboardStep model.WorkflowStepInstance
-	if err := db.First(&storyboardStep, "workflow_instance_id = ? AND step_key = ?", workflow.Instance.ID, "storyboard").Error; err != nil {
-		t.Fatal(err)
-	}
-	if storyboardStep.Status != model.WorkflowStepStatusRunning {
-		t.Fatalf("storyboard step status = %s, want running", storyboardStep.Status)
-	}
 }
 
 func TestUpdateChapterSourceInvalidatesAllUnitArtifacts(t *testing.T) {
 	service, db := newProjectWorkflowV2TestService(t)
 	project, unit := seedWorkflowProject(t, db)
-	if err := service.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
-		t.Fatal(err)
-	}
-	workflow, err := service.CreateUnitWorkflow("user-1", project.ID, unit.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	shot, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "SC.01", Description: "旧剧情镜头", DurationMs: 3000})
 	if err != nil {
 		t.Fatal(err)
@@ -516,25 +443,12 @@ func TestUpdateChapterSourceInvalidatesAllUnitArtifacts(t *testing.T) {
 	if storedArtifact.Status != "stale" || storedArtifact.Selected {
 		t.Fatalf("artifact status=%s selected=%v, want stale false", storedArtifact.Status, storedArtifact.Selected)
 	}
-	var storyStep model.WorkflowStepInstance
-	if err := db.First(&storyStep, "workflow_instance_id = ? AND step_key = ?", workflow.Instance.ID, "story").Error; err != nil {
-		t.Fatal(err)
-	}
-	if storyStep.Status != model.WorkflowStepStatusRunning {
-		t.Fatalf("story step status = %s, want running", storyStep.Status)
-	}
 }
 
 func TestRegisterTaskOutputAcceptsLinkedCanvasAndCreatesShotArtifact(t *testing.T) {
 	service, db := newProjectWorkflowV2TestService(t)
 	project, unit := seedWorkflowProject(t, db)
-	if err := service.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
-		t.Fatal(err)
-	}
-	workflow, err := service.CreateUnitWorkflow("user-1", project.ID, unit.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	workflow := seedLegacyWorkflow(t, db, project.ID, unit.ID)
 	shot, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "SC.01", Description: "人物走入画面", DurationMs: 3000})
 	if err != nil {
 		t.Fatal(err)
@@ -552,8 +466,9 @@ func TestRegisterTaskOutputAcceptsLinkedCanvasAndCreatesShotArtifact(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updatedStep.Status != model.WorkflowStepStatusRunning {
-		t.Fatalf("step status = %s, want running until the unit gate is complete", updatedStep.Status)
+	// 旧流程只读：登记产物只用步骤做归属校验，状态不推进。
+	if updatedStep.Status != model.WorkflowStepStatusReady {
+		t.Fatalf("step status = %s, want ready (legacy workflow is read-only)", updatedStep.Status)
 	}
 	var nextStep model.WorkflowStepInstance
 	if err := db.First(&nextStep, "workflow_instance_id = ? AND position = ?", workflow.Instance.ID, 1).Error; err != nil {

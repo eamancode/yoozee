@@ -24,6 +24,9 @@ func requestTextProvider(ctx context.Context, config providerConfig, path string
 	if err != nil {
 		return providerTextResult{}, err
 	}
+	if err := checkTextFinish(textPayloadFinishReason(payload, protocol)); err != nil {
+		return providerTextResult{}, err
+	}
 	result := providerTextResult{Text: stringField(parsed, "text"), Reasoning: stringField(parsed, "reasoning")}
 	if result.Text == "" {
 		return providerTextResult{}, errors.New("文本接口没有返回内容")
@@ -40,6 +43,9 @@ func postStreamingTextResult(ctx context.Context, config providerConfig, path st
 	// 文本创作与 Agent 共用同一套 SSE 解析，确保正文、推理摘要和供应商错误语义一致。
 	parsed, err := postStreamingAgent(ctx, config, path, body, protocol, onDelta)
 	if err != nil {
+		return providerTextResult{}, err
+	}
+	if err := checkTextFinish(stringField(parsed, "finishReason")); err != nil {
 		return providerTextResult{}, err
 	}
 	result := providerTextResult{Text: stringField(parsed, "text"), Reasoning: stringField(parsed, "reasoning")}

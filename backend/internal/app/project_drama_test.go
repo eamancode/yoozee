@@ -292,10 +292,143 @@ func TestCloudAgentExposesDramaToolsOnlyForProjectCanvases(t *testing.T) {
 	}
 }
 
+func TestDramaVideoTaskRejectsOtherModelFamily(t *testing.T) {
+	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
+	input := map[string]any{"mode": "video", "config": map[string]any{"videoSeconds": "10"}, "metadata": map[string]any{"domainProjectId": project.ID, "shotId": "shot-x"}}
+	if err := service.enforceDramaModelFamily("user-1", input, "doubao-seedance-2-5-pro"); err == nil || !strings.Contains(err.Error(), "Seedance 2.5") {
+		t.Fatalf("Seedance 2.0 项目用 2.5 模型应被拒绝，得到 %v", err)
+	}
+	if err := service.enforceDramaModelFamily("user-1", input, "doubao-seedance-2-0-260128"); err != nil {
+		t.Fatalf("同族模型应放行: %v", err)
+	}
+	if err := service.enforceDramaModelFamily("user-1", input, "some-unknown-video"); err != nil {
+		t.Fatalf("认不出模型族时放行: %v", err)
+	}
+	canvasTask := map[string]any{"mode": "video", "config": map[string]any{"videoSeconds": "10"}}
+	if err := service.enforceDramaModelFamily("user-1", canvasTask, "doubao-seedance-2-5-pro"); err != nil {
+		t.Fatalf("画布任务不受项目模型族限制: %v", err)
+	}
+}
+
+func TestDramaChaptersReadPagesSourceText(t *testing.T) {
+	service, db, project, unit := newDramaTestService(t, "seedance-2.0")
+	text := strings.Repeat("七床", dramaChapterPageRunes)
+	if err := db.Model(&model.ProjectUnit{}).Where("id = ?", unit.ID).Updates(map[string]any{"source_text": text, "word_count": len([]rune(text))}).Error; err != nil {
+		t.Fatal(err)
+	}
+	list, err := service.dramaChaptersRead("user-1", project.ID, "", 0)
+	if err != nil || len(list.(map[string]any)["chapters"].([]map[string]any)) != 1 {
+		t.Fatalf("章节列表 %v %v", list, err)
+	}
+	page, err := service.dramaChaptersRead("user-1", project.ID, unit.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := page.(map[string]any)
+	if len([]rune(first["text"].(string))) != dramaChapterPageRunes || first["nextOffset"] != dramaChapterPageRunes {
+		t.Fatalf("第一页应截 %d 字并给 nextOffset: %v", dramaChapterPageRunes, first["nextOffset"])
+	}
+	rest, err := service.dramaChaptersRead("user-1", project.ID, unit.ID, dramaChapterPageRunes)
+	if err != nil || rest.(map[string]any)["nextOffset"] != nil {
+		t.Fatalf("第二页应读完: %v %v", rest, err)
+	}
+	if _, err := service.dramaChaptersRead("user-2", project.ID, unit.ID, 0); err == nil {
+		t.Fatal("别人的项目不能读")
+	}
+}
+
+func TestDramaCanvasGetsSkillReadersWithoutPickedSkills(t *testing.T) {
+	req := CloudAgentRequest{PermissionMode: "auto", ContextScope: []string{"canvas"}, DramaProjectID: "project-1"}
+	if !cloudAgentToolAllowed(req, "skill_read_file") || !cloudAgentToolAllowed(req, "drama_chapters_read") {
+		t.Fatal("短剧项目画布自动带入 yoozee 技能，应能读技能和章节")
+	}
+	plain := CloudAgentRequest{PermissionMode: "auto", ContextScope: []string{"canvas"}}
+	if cloudAgentToolAllowed(plain, "skill_read_file") {
+		t.Fatal("没选技能的普通画布不给读技能工具")
+	}
+}
+
+func TestBriefWriteFollowsContract(t *testing.T) {
+	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
+	// 线上 Agent 写过的形状：事实写成字符串、自造字段名。必须拒绝并说清楚怎么写。
+	bad := json.RawMessage(`{"purpose":"第一集验收","duration_seconds":40,"aspect_ratio":"9:16"}`)
+	_, err := service.UpdateProjectBrief("user-1", project.ID, bad)
+	if err == nil || !strings.Contains(err.Error(), "需求文档不符合契约") {
+		t.Fatalf("不合契约的需求文档应被拒绝，得到 %v", err)
+	}
+	// Agent 要能看到原因自己改，不能被净化成笼统的「工具执行失败」。
+	if message := cloudAgentSafeToolError(err); message != err.Error() {
+		t.Fatalf("契约错误应原样给 Agent，得到 %q", message)
+	}
+	if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: "EP-01", Segments: []json.RawMessage{dramaSpec("S01", 8, "")}}); err == nil || cloudAgentSafeToolError(err) != err.Error() || !strings.Contains(err.Error(), "drama_chapters_read") {
+		t.Fatalf("章节 ID 写错要给出可读原因，得到 %v", err)
+	}
+	if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: "unit-1", Segments: []json.RawMessage{json.RawMessage(`{"shotId":"SH-001","durationSeconds":13,"prompt":"x"}`)}}); err == nil || cloudAgentSafeToolError(err) != err.Error() {
+		t.Fatalf("分段形状不对要给出可读原因，得到 %v", err)
+	}
+	good := json.RawMessage(`{"purpose":{"value":"第一集验收","status":"已确认","quote":"先按第一集正文写需求文档"},"duration":{"value":"约 40 秒","status":"已确认"},"questions":[{"id":"Q-001","question":"真人还是动画？","blocking":true,"status":"待答"}]}`)
+	doc, err := service.UpdateProjectBrief("user-1", project.ID, good)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc["title"] != project.Name || doc["video_model"] != "seedance-2.0" {
+		t.Fatalf("标题和模型应由项目补齐: %v", doc)
+	}
+}
+
+func TestTextOnlySegmentNeedsReferencesWhenSomeoneSpeaks(t *testing.T) {
+	service, _, project, unit := newDramaTestService(t, "seedance-2.0")
+	if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: unit.ID, Segments: []json.RawMessage{dramaSpec("S01", 6, ""), dramaSpec("S02", 8, "七床的人呢？")}}); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := service.DramaProgress("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := map[string]bool{}
+	for _, row := range progress.Segments {
+		refs[row.SegmentID] = row.Refs
+	}
+	if !refs["S01"] || refs["S02"] {
+		t.Fatalf("空镜不需要参考、有人说话的段要人物参考，得到 %v", refs)
+	}
+}
+
 func TestDramaGateWithoutFilmAsksForExport(t *testing.T) {
 	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
 	_, err := service.DramaGate("user-1", project.ID, DramaGateRequest{})
 	if err == nil || !strings.Contains(err.Error(), "还没有导出的成片") {
 		t.Fatalf("gate without film err = %v", err)
+	}
+}
+
+func TestDramaCanvasInstallsBuiltinSuiteAndDropsLegacySkill(t *testing.T) {
+	s, _, _, _ := creationTestService(t)
+	if err := s.EnsureBuiltinSkills(); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := s.cloudAgentSkills("user", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy = append(legacy, cloudAgentSkill{ID: legacyDramaSkillID})
+	// 新用户没往技能库加过 yoozee 技能：短剧项目画布也要带上，并把旧六步技能拿掉。
+	snapshots, err := s.withCloudAgentDramaSuite("user", legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, skill := range snapshots {
+		ids[skill.ID] = true
+	}
+	if !ids["yz-producer"] || !ids["kb-dialects"] {
+		t.Fatalf("应自动带上内置 yoozee 技能，得到 %v", ids)
+	}
+	if ids[legacyDramaSkillID] {
+		t.Fatal("旧六步技能不该进短剧项目画布的快照")
+	}
+	detail, err := s.SkillDetail("user", "yz-producer")
+	if err != nil || !detail.IsAdded {
+		t.Fatalf("内置技能应已加入用户技能库：%v %+v", err, detail)
 	}
 }

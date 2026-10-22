@@ -32,6 +32,7 @@ import {
 
 import { useEditorStoreContext } from "@/components/editor/editor-context";
 import { formatTimelineTime } from "@/lib/timeline/timeline-view";
+import { timelineClipLabel } from "@/lib/timeline/clip-label";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { playbackVariantUrl, refreshResource, resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import type { TimelineClip, TimelineProject } from "@/types/timeline";
@@ -100,7 +101,7 @@ function clipKindLabel(kind: TimelineClip["kind"]): string {
 }
 
 function clipDisplayTitle(clip: TimelineClip): string {
-    return clip.directMedia?.title || clip.title || clip.text || clip.nodeId || clip.id;
+    return clip.directMedia?.title || timelineClipLabel(clip);
 }
 
 function ClipKindIcon({ kind, className }: { kind: TimelineClip["kind"]; className?: string }) {

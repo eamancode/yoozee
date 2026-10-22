@@ -68,12 +68,14 @@
                 "delivery": {"type": "string", "description": "这一句怎么说：音量、情绪、节奏"}
               }
             }
-          }
+          },
+          "sound": {"type": "string", "description": "这一镜的环境声和动作音效；段没写 sound 时，编译按镜头顺序接各镜头的 sound"},
+          "end_state": {"type": "string", "description": "这一镜结束时的状态（位置、朝向、手里的东西）；段没写 rules 时，编译取最后一镜的 end_state"}
         }
       }
     },
-    "sound": {"type": "string", "description": "环境声和动作音效；不写配乐"},
-    "rules": {"type": "string", "description": "这段要写死的约束：空间、视线、身后、可读文字"},
+    "sound": {"type": "string", "description": "整段通用的环境声和动作音效；不写配乐。写了就不再从镜头取"},
+    "rules": {"type": "string", "description": "这段要写死的约束：空间、视线、身后、可读文字。写了就不再取最后一镜的 end_state"},
     "hook": {"type": "string", "description": "段尾钩子：观众带着什么问题进下一段"},
     "lang": {"type": "string", "description": "台词语言，默认 Chinese"}
   }

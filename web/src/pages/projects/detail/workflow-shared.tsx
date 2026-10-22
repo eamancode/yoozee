@@ -1,10 +1,8 @@
 import type { ReactNode } from "react";
-import { Check, CircleAlert } from "lucide-react";
-import { Link } from "react-router";
 
 import { StatusBadge } from "@/components/ui/base/badges";
 import { assetCategoryLabel as sharedAssetCategoryLabel } from "@/lib/asset-category";
-import type { ProjectDetail, ProjectShot, ShotArtifact, ShotRevision, WorkflowStep } from "@/services/api/projects";
+import type { ProjectDetail, ProjectShot, ShotArtifact, ShotRevision } from "@/services/api/projects";
 import type { TaskStatus } from "@/services/api/task-center";
 
 export type ShortDramaWorkflowStage = "story" | "assets" | "storyboard" | "previz" | "video" | "delivery";
@@ -17,20 +15,6 @@ export const workflowStages: Array<{ key: ShortDramaWorkflowStage; label: string
     { key: "video", label: "视频生成", shortLabel: "视频" },
     { key: "delivery", label: "交付与打包", shortLabel: "交付" },
 ];
-
-export function WorkflowStageLink({ href, active, step, index, label, shortLabel }: { href: string; active: boolean; step?: WorkflowStep; index: number; label: string; shortLabel: string }) {
-    const completed = step?.status === "completed" || step?.status === "skipped";
-    const failed = step?.status === "failed";
-    return (
-        <Link to={href} className={`workflow-stage-link ${active ? "is-active" : ""}`} aria-current={active ? "step" : undefined}>
-            <span className={`workflow-stage-index ${completed ? "is-completed" : failed ? "is-failed" : ""}`}>
-                {completed ? <Check className="size-3" /> : failed ? <CircleAlert className="size-3" /> : index + 1}
-            </span>
-            <span className="sm:hidden">{shortLabel}</span>
-            <span className="hidden sm:inline">{label}</span>
-        </Link>
-    );
-}
 
 export function StageHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
     return <div><div className="text-[var(--fs-micro)] font-medium uppercase tracking-[.18em] text-[var(--workspace-accent)]">{eyebrow}</div><h2 className="mt-2 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">{title}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-foreground/50">{description}</p></div>;
@@ -78,12 +62,4 @@ export function formatDuration(durationMs: number) {
     const minutes = Math.floor(durationMs / 60_000);
     const seconds = Math.round((durationMs % 60_000) / 1000);
     return `${minutes}m ${seconds}s`;
-}
-
-export function stageActionLabel(step?: WorkflowStep) {
-    if (!step || step.status === "pending") return "等待上一步";
-    if (step.status === "running" || step.status === "review") return "完成阶段";
-    if (step.status === "completed") return "重新打开";
-    if (step.status === "failed") return "重新开始";
-    return "开始阶段";
 }

@@ -17,6 +17,7 @@ var compileCases = [][2]string{
 	{"segment-dialogue", "seedance-2.0"}, {"segment-dialogue", "seedance-2.5"}, {"segment-dialogue", "minimax-h3"},
 	{"segment-long", "seedance-2.5"}, {"segment-long", "seedance-2.0"}, {"segment-long", "minimax-h3"},
 	{"segment-firstframe", "seedance-2.0"}, {"segment-firstframe", "minimax-h3"},
+	{"segment-shots", "seedance-2.0"}, {"segment-shots", "seedance-2.5"}, {"segment-shots", "minimax-h3"},
 }
 
 const skillsTestDir = "../../../yoozee-skills/tests"
@@ -121,5 +122,53 @@ func TestParseSegmentRejectsUnknownFieldsAndBadIDs(t *testing.T) {
 	var seg Segment
 	if err := json.Unmarshal([]byte(`{"id":"S01","scene":"一","dur":5,"mode":"text_only","shots":[{"at":0,"text":"x","lines":[{"speaker":"A","text":"你好"}]}]}`), &seg); err != nil || seg.Dialogue() != "你好" {
 		t.Errorf("台词拼接错误: %v %q", err, seg.Dialogue())
+	}
+}
+
+func TestSegmentSoundAndRulesFollowShots(t *testing.T) {
+	seg, err := ParseSegment([]byte(`{"id":"S01","scene":"走廊","dur":8,"mode":"text_only","shots":[{"at":0,"text":"a","sound":"门轴轻响。","end_state":"停在门口"},{"at":4,"text":"b","sound":"门轴轻响","end_state":"背对镜头"},{"at":6,"text":"c","sound":"低鸣；"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := seg.SoundText("；"); got != "门轴轻响；低鸣" {
+		t.Errorf("段没写 sound 时按镜头接、去重：%q", got)
+	}
+	if got := seg.RulesText(); got != "" {
+		t.Errorf("最后一镜没写 end_state 时不该拿中间镜头的：%q", got)
+	}
+	seg.Shots = seg.Shots[:2]
+	if got := seg.RulesText(); got != "背对镜头" {
+		t.Errorf("rules 取最后一镜的 end_state：%q", got)
+	}
+	seg.Sound, seg.Rules = " 走廊的低鸣 ", "走廊方向固定"
+	if seg.SoundText("；") != "走廊的低鸣" || seg.RulesText() != "走廊方向固定" {
+		t.Errorf("段级 sound / rules 写了就以段为准：%q %q", seg.SoundText("；"), seg.RulesText())
+	}
+}
+
+func TestVisualHashIgnoresMissingEndState(t *testing.T) {
+	old := RevisionInputs{SpecJSON: `{"id":"S01","scene":"一","dur":4,"mode":"text_only","shots":[{"at":0,"text":"a"}]}`}
+	withEnd := RevisionInputs{SpecJSON: `{"id":"S01","scene":"一","dur":4,"mode":"text_only","shots":[{"at":0,"text":"a","end_state":"停在门口"}]}`}
+	withSound := RevisionInputs{SpecJSON: `{"id":"S01","scene":"一","dur":4,"mode":"text_only","shots":[{"at":0,"text":"a","sound":"门响"}]}`}
+	if InputHash(ArtifactStoryboard, old, nil) == InputHash(ArtifactStoryboard, withEnd, nil) {
+		t.Error("镜头结尾状态变了，分镜图应过期")
+	}
+	if InputHash(ArtifactStoryboard, old, nil) != InputHash(ArtifactStoryboard, withSound, nil) {
+		t.Error("只改镜头声音，分镜图不该过期")
+	}
+	if InputHash(ArtifactVideo, old, nil) == InputHash(ArtifactVideo, withSound, nil) {
+		t.Error("镜头声音变了，视频应过期")
+	}
+}
+
+func TestNormalizeBriefKeepsLegacyContentInContractShape(t *testing.T) {
+	doc := map[string]any{"title": "夜班", "video_model": "seedance-2.0", "auth_mode": "step", "purpose": "第一集验收", "duration_seconds": 40, "aspect_ratio": "9:16", "questions": []any{"真人还是动画？"}}
+	normalized := NormalizeBrief(doc)
+	raw, _ := json.Marshal(normalized)
+	if _, err := ParseBrief(raw); err != nil {
+		t.Fatalf("整理后应符合契约: %v\n%s", err, raw)
+	}
+	if !strings.Contains(string(raw), "aspect_ratio") || !strings.Contains(string(raw), "duration_seconds") {
+		t.Fatalf("不认识的字段应挪进 constraints 而不是丢掉: %s", raw)
 	}
 }

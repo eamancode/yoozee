@@ -4,6 +4,7 @@
 
 | 端口 | 做什么 | 读 / 写 | 花钱 |
 | --- | --- | --- | --- |
+| `source.read` | 读剧本、小说等原文（分章节，可分页） | 读 | 否 |
 | `progress.read` | 读进度表：每段六格（剧本、参考、生成、过审、入片、验收）和八个终态 | 读 | 否 |
 | `brief.read` / `brief.write` | 读写需求文档（契约 brief） | 读 / 写 | 否 |
 | `segments.read` / `segments.write` | 读写分段表（契约 segment）；写时按所选模型校验段长 | 读 / 写 | 否 |

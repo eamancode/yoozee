@@ -12,7 +12,7 @@ import (
 
 // 短剧 Agent 的工具清单：读工具在只读模式下也给，写工具只在允许写入时出现。
 var (
-	dramaReadTools  = []string{"drama_bible_read", "drama_brief_read", "drama_compile_prompt", "drama_progress_read", "drama_segments_read"}
+	dramaReadTools  = []string{"drama_bible_read", "drama_brief_read", "drama_chapters_read", "drama_compile_prompt", "drama_progress_read", "drama_segments_read"}
 	dramaWriteTools = []string{
 		"drama_artifact_register", "drama_bible_write", "drama_brief_write", "drama_delivery_package",
 		"drama_evidence_write", "drama_gate_check", "drama_qa_frames", "drama_qa_transcribe",
@@ -68,7 +68,7 @@ func TestDramaAgentToolsFollowPermissionMode(t *testing.T) {
 		}
 	}
 
-	// 允许写入的两种档位：读 + 写一共 15 个。
+	// 允许写入的两种档位：读 + 写一共 16 个。
 	for _, mode := range []string{"request_approval", "auto"} {
 		withWrite := project
 		withWrite.PermissionMode = mode
@@ -267,5 +267,261 @@ func TestDramaProgressMarksOverLimitAfterShrinkingModel(t *testing.T) {
 	}
 	if !strings.Contains(after.Line, "超过 Seedance 2.0 的 15 秒上限") {
 		t.Fatalf("概览的一句话要点明超长：%q", after.Line)
+	}
+}
+
+// 拆段、合段走同一个写入接口：给出本章段顺序，新段插在原段后面，被合并掉的段连同生成结果删除。
+func TestWriteDramaSegmentsOrderSplitsAndMergesInPlace(t *testing.T) {
+	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	views, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S01", 8, "第一句"), dramaSpec("S02", 12, "第二句"), dramaSpec("S03", 6, "第三句")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s02, s03 := views[1].ShotID, views[2].ShotID
+	if err := db.Create(&model.ShotArtifact{ID: "artifact-s03", ProjectID: project.ID, UnitID: unit.ID, ShotID: s03, Type: "video", Version: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 拆 S02：S02b 要排在 S02 后面、S03 前面，而不是追加到章末。
+	views, err = service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S02", 5, "第二句"), dramaSpec("S02b", 7, "")},
+		Order:    []string{"S01", "S02", "S02b", "S03"},
+	})
+	if err != nil {
+		t.Fatalf("拆段应成功：%v", err)
+	}
+	if got := segmentIDs(views); got != "S01,S02,S02b,S03" {
+		t.Fatalf("拆出的段应插在原段后面，得到 %s", got)
+	}
+	if views[1].ShotID != s02 || views[1].Spec.Dur != 5 {
+		t.Fatalf("原段应写新版本而不是新建：%+v", views[1])
+	}
+
+	// S02b 并回 S02：S02b 删除，其余段位置连续。
+	views, err = service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S02", 12, "第二句")},
+		Order:    []string{"S01", "S02", "S03"},
+	})
+	if err != nil {
+		t.Fatalf("合段应成功：%v", err)
+	}
+	if got := segmentIDs(views); got != "S01,S02,S03" {
+		t.Fatalf("合段后应剩三段，得到 %s", got)
+	}
+	for index, view := range views {
+		if view.Position != index {
+			t.Fatalf("合段后位置应连续：%+v", views)
+		}
+	}
+
+	// 顺序里漏掉的段会被删掉，连同它的生成结果。
+	if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S02", 18, "第二句")},
+		Order:    []string{"S01", "S02"},
+	}); err != nil {
+		t.Fatalf("把 S03 并进 S02 应成功：%v", err)
+	}
+	var artifacts int64
+	if err := db.Model(&model.ShotArtifact{}).Where("shot_id = ?", s03).Count(&artifacts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if artifacts != 0 {
+		t.Fatalf("被合并掉的段的生成结果应一起删除，还剩 %d 个", artifacts)
+	}
+
+	// 顺序和写入对不上时整批拒绝，不落库。
+	if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
+		UnitID:   unit.ID,
+		Segments: []json.RawMessage{dramaSpec("S04", 5, "")},
+		Order:    []string{"S01", "S02"},
+	}); err == nil {
+		t.Fatal("写入的段不在顺序里应被拒绝")
+	}
+}
+
+func segmentIDs(views []DramaSegmentView) string {
+	ids := make([]string, 0, len(views))
+	for _, view := range views {
+		ids = append(ids, view.Spec.ID)
+	}
+	return strings.Join(ids, ",")
+}
+
+func dramaToolCall(name string, args any) cloudAgentCall {
+	raw, _ := json.Marshal(args)
+	call := cloudAgentCall{}
+	call.Function.Name = name
+	call.Function.Arguments = string(raw)
+	return call
+}
+
+// 拆段、合段靠 order：工具要把它公开成可选的字符串数组，说明里讲清何时传、会删什么、拆段怎么编号。
+func TestDramaSegmentsWriteToolAdvertisesOrder(t *testing.T) {
+	req := CloudAgentRequest{PermissionMode: "auto", ContextScope: []string{"canvas"}, DramaProjectID: "project-1"}
+	var function map[string]any
+	for _, tool := range cloudAgentTools(req) {
+		if candidate := tool["function"].(map[string]any); candidate["name"] == "drama_segments_write" {
+			function = candidate
+		}
+	}
+	if function == nil {
+		t.Fatal("项目画布应有 drama_segments_write")
+	}
+	parameters := function["parameters"].(map[string]any)
+	order, ok := parameters["properties"].(map[string]any)["order"].(map[string]any)
+	if !ok || order["type"] != "array" || order["items"].(map[string]any)["type"] != "string" {
+		t.Fatalf("order 应是字符串数组：%v", parameters["properties"])
+	}
+	for _, name := range parameters["required"].([]string) {
+		if name == "order" {
+			t.Fatal("order 只在拆段、合段时给，不能是必填")
+		}
+	}
+	description := function["description"].(string)
+	for _, want := range []string{"不传 order", "S02b", "候选视频", "无法恢复"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("说明里缺「%s」：%s", want, description)
+		}
+	}
+	if strings.Contains(description, "不删除段") {
+		t.Fatalf("说明还是旧的「不删除段」：%s", description)
+	}
+}
+
+// order 由通用的参数解码原样带进 WriteDramaSegments；写成字符串时 Agent 看到的是类型提示，不是笼统的工具失败。
+func TestDramaSegmentsWriteToolDecodesOrderStraightThrough(t *testing.T) {
+	var args DramaSegmentsWriteRequest
+	if err := decodeCloudAgentJSONObject(`{"unitId":"unit-1","segments":[{"id":"S02"}],"order":["S01","S02","S02b"]}`, &args); err != nil {
+		t.Fatalf("带 order 的参数应能解码：%v", err)
+	}
+	if args.UnitID != "unit-1" || len(args.Segments) != 1 || strings.Join(args.Order, ",") != "S01,S02,S02b" {
+		t.Fatalf("order 没有原样带进来：%+v", args)
+	}
+	var bad DramaSegmentsWriteRequest
+	err := decodeCloudAgentJSONObject(`{"unitId":"unit-1","segments":[],"order":"S01,S02"}`, &bad)
+	if err == nil {
+		t.Fatal("order 写成字符串应被拒绝")
+	}
+	if message := cloudAgentSafeToolError(cloudAgentJSONArgumentError(err)); !strings.Contains(message, "类型不匹配") {
+		t.Fatalf("应给出类型提示，得到 %q", message)
+	}
+}
+
+// PlanSegmentOrder 的每一句报错都要原样回给 Agent，不被净化成「工具执行失败」。
+func TestSegmentOrderErrorsReachAgentVerbatim(t *testing.T) {
+	existing := []drama.ExistingSegment{{ID: "S01"}, {ID: "S02"}, {ID: "S03", Derived: true}}
+	cases := []struct {
+		name    string
+		order   []string
+		written []string
+	}{
+		{"写入的段不在顺序里", []string{"S01", "S03"}, []string{"S02"}},
+		{"段号重复", []string{"S01", "S02", "S02", "S03"}, []string{"S02"}},
+		{"顺序里有不存在的段", []string{"S01", "S02", "S03", "S09"}, []string{"S02"}},
+		{"合成段号的旧镜头不能靠省略删除", []string{"S01", "S02"}, []string{"S02"}},
+		{"段号格式无效", []string{"S01", "第二段", "S03"}, nil},
+		{"把镜头 ID 当段号", []string{"S01", strings.Repeat("0123456789abcdef", 4)}, nil},
+		{"段号带引号和换行", []string{"S01", "S02\n\"b\"\\"}, nil},
+	}
+	for _, c := range cases {
+		_, err := drama.PlanSegmentOrder(c.order, c.written, existing)
+		if err == nil {
+			t.Fatalf("%s：应被拒绝", c.name)
+		}
+		if got := cloudAgentSafeToolError(BadAuthRequest(err.Error())); got != err.Error() {
+			t.Fatalf("%s：报错被净化成了 %q，应原样给 Agent：%q", c.name, got, err.Error())
+		}
+	}
+}
+
+// Agent 从工具入口拆段、合段：新段插在原段后面，合掉的段连候选一起删，order 有错时整批不落库且报错可读。
+// 需要 CGO（SQLite），本机无 CGO 时不能运行。
+func TestDramaSegmentsWriteToolSplitsAndMergesWithOrder(t *testing.T) {
+	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	state := &cloudAgentRuntime{Request: CloudAgentRequest{DramaProjectID: project.ID}}
+	write := func(segments []json.RawMessage, order []string) ([]DramaSegmentView, error) {
+		args := map[string]any{"unitId": unit.ID, "segments": segments}
+		if order != nil {
+			args["order"] = order
+		}
+		result, err := service.cloudAgentDramaTool("user-1", state, dramaToolCall("drama_segments_write", args))
+		if err != nil {
+			return nil, err
+		}
+		return result.([]DramaSegmentView), nil
+	}
+	views, err := write([]json.RawMessage{dramaSpec("S01", 8, "第一句"), dramaSpec("S02", 12, "第二句"), dramaSpec("S03", 6, "第三句")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s03 := views[2].ShotID
+	if err := db.Create(&model.ShotArtifact{ID: "artifact-tool-s03", ProjectID: project.ID, UnitID: unit.ID, ShotID: s03, Type: "video", Version: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 不传 order：新段号追加到章末，不删段。
+	if views, err = write([]json.RawMessage{dramaSpec("S02b", 5, "")}, nil); err != nil || segmentIDs(views) != "S01,S02,S03,S02b" {
+		t.Fatalf("不传 order 应追加到章末：%s %v", segmentIDs(views), err)
+	}
+	// 传 order：S02b 摆回 S02 后面。
+	if views, err = write([]json.RawMessage{dramaSpec("S02", 7, "第二句")}, []string{"S01", "S02", "S02b", "S03"}); err != nil || segmentIDs(views) != "S01,S02,S02b,S03" {
+		t.Fatalf("拆出的段应在原段后面：%s %v", segmentIDs(views), err)
+	}
+
+	// 写错的 order 整批拒绝：报错可读，章里的段不变。
+	for name, order := range map[string][]string{
+		"顺序里有不存在的段": {"S01", "S02", "S02b", "S03", "S09"},
+		"写入的段不在顺序里": {"S01", "S02b", "S03"},
+		"段号格式无效":    {"S01", "第二段", "S03"},
+	} {
+		_, err := write([]json.RawMessage{dramaSpec("S02", 7, "第二句")}, order)
+		if err == nil || cloudAgentSafeToolError(err) != err.Error() || !strings.Contains(err.Error(), "段顺序") {
+			t.Fatalf("%s：应给出可读原因，得到 %v", name, err)
+		}
+		after, readErr := service.DramaSegments("user-1", project.ID, unit.ID)
+		if readErr != nil || segmentIDs(after) != "S01,S02,S02b,S03" {
+			t.Fatalf("%s：被拒绝的写入不该改动章节：%s %v", name, segmentIDs(after), readErr)
+		}
+	}
+
+	// 合段：S03 并进 S02，order 里不写 S03，它的候选一起删除。
+	if views, err = write([]json.RawMessage{dramaSpec("S02", 12, "第二句第三句")}, []string{"S01", "S02", "S02b"}); err != nil || segmentIDs(views) != "S01,S02,S02b" {
+		t.Fatalf("合段后应剩三段：%s %v", segmentIDs(views), err)
+	}
+	var artifacts int64
+	if err := db.Model(&model.ShotArtifact{}).Where("shot_id = ?", s03).Count(&artifacts).Error; err != nil || artifacts != 0 {
+		t.Fatalf("被合并掉的段的候选应一起删除：%d %v", artifacts, err)
+	}
+}
+
+// 旧镜头没有分段 JSON、段号按位置合成：order 里漏掉它不能当成删除，必须列出来。需要 CGO（SQLite）。
+func TestDramaSegmentsWriteToolOrderMustListLegacySegments(t *testing.T) {
+	service, _, project, unit := newDramaTestService(t, "seedance-2.5")
+	state := &cloudAgentRuntime{Request: CloudAgentRequest{DramaProjectID: project.ID}}
+	legacy, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "旧镜头", Description: "护士推开七床的门", DurationMs: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(order []string) (any, error) {
+		return service.cloudAgentDramaTool("user-1", state, dramaToolCall("drama_segments_write", map[string]any{
+			"unitId": unit.ID, "segments": []json.RawMessage{dramaSpec("S02", 6, "")}, "order": order,
+		}))
+	}
+	if _, err := write([]string{"S02"}); err == nil || cloudAgentSafeToolError(err) != err.Error() || !strings.Contains(err.Error(), "S01 还不是分段") {
+		t.Fatalf("漏掉合成段号的旧镜头应被拒绝并说清原因，得到 %v", err)
+	}
+	result, err := write([]string{"S01", "S02"})
+	if err != nil {
+		t.Fatalf("列出旧镜头后应通过：%v", err)
+	}
+	views := result.([]DramaSegmentView)
+	if len(views) != 2 || views[0].ShotID != legacy.ID || !views[0].Derived || views[1].Spec.ID != "S02" {
+		t.Fatalf("旧镜头应原样保留、新段排在后面：%+v", views)
 	}
 }

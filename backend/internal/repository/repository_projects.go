@@ -252,9 +252,6 @@ func (r *Repository) UpdateProjectUnit(unit *model.ProjectUnit, invalidateWorkfl
 			if err := tx.Model(&model.ShotArtifact{}).Where("project_id = ? AND unit_id = ? AND status NOT IN ?", unit.ProjectID, unit.ID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": unit.UpdatedAt}).Error; err != nil {
 				return err
 			}
-			if err := invalidateUnitWorkflowTx(tx, unit.ProjectID, unit.ID, "story", unit.UpdatedAt); err != nil {
-				return err
-			}
 		}
 		return tx.Model(&model.Project{}).Where("id = ?", unit.ProjectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": unit.UpdatedAt}).Error
 	})

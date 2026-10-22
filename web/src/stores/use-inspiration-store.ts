@@ -11,6 +11,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { catalogIdOf, type CreationInspiration, type InspirationSourceId } from "@/lib/inspirations/catalog";
 import { CUSTOM_ID_PREFIX, isCustomInspiration, type InspirationOverride } from "@/lib/inspirations/resolve";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
+import { createClientId } from "@/lib/client-id";
 
 export const INSPIRATION_STORE_KEY = "open_ai_canvas:inspirations";
 /** 导入导出文件的格式版本，字段变化时递增并在这里做迁移。 */
@@ -97,7 +98,7 @@ function normalizeImportedEntry(input: unknown): CreationInspiration | null {
     try {
         const draft = normalizeDraft(input);
         const raw = input as Record<string, unknown>;
-        const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `${CUSTOM_ID_PREFIX}${crypto.randomUUID()}`;
+        const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `${CUSTOM_ID_PREFIX}${createClientId()}`;
         return {
             ...draft,
             id: id.startsWith(CUSTOM_ID_PREFIX) ? id : `${CUSTOM_ID_PREFIX}${id}`,
@@ -120,7 +121,7 @@ export const useInspirationStore = create<InspirationStore>()(
             favorites: [],
 
             createEntry: (draft) => {
-                const id = `${CUSTOM_ID_PREFIX}${crypto.randomUUID()}`;
+                const id = `${CUSTOM_ID_PREFIX}${createClientId()}`;
                 const entry: CreationInspiration = { ...normalizeDraft(draft), id, sourceId: "original" };
                 set((state) => ({ custom: [entry, ...state.custom] }));
                 return id;

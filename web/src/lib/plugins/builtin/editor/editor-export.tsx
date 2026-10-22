@@ -2,6 +2,7 @@
 // 构建渲染计划时跳过已失去媒体来源的片段，避免悬空 nodeId 阻断其余有效片段导出。
 
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Download, Loader2, PackageOpen, Server } from "lucide-react";
 
 import { useEditorHostContext, useEditorStoreContext } from "@/components/editor/editor-context";
@@ -10,6 +11,7 @@ import { exportTimelineToMp4, type TimelineExportProgress } from "@/lib/timeline
 import { resourceFileUrl } from "@/services/api/resources";
 import { waitForGenerationTask } from "@/services/api/task-center";
 import { createTimelineRenderTask, type TimelineRenderResult } from "@/services/api/timeline-tasks";
+import { runDramaGate, type DramaGateResult } from "@/services/api/drama";
 import type { TimelineProject } from "@/types/timeline";
 
 type ExportState = {
@@ -45,9 +47,14 @@ export function EditorExport() {
     const { project } = useEditorStoreContext();
     const { projectId } = useEditorHostContext();
     const [state, setState] = useState<ExportState>({ phase: "idle", mode: null, percent: 0, detail: "", result: null });
+    // 短剧项目导出成片后自动跑一次成片门禁（同步、黑场 / 静音、响度、真峰值），结果记成证据。
+    const [gate, setGate] = useState<{ phase: "idle" | "running" | "done" | "error"; result?: DramaGateResult; error?: string }>({ phase: "idle" });
 
+    const queryClient = useQueryClient();
     const sources = useMemo(() => (project ? collectRenderSources(project) : []), [project]);
     const plan = useMemo(() => (project ? buildTimelineRenderPlan(project, sources) : null), [project, sources]);
+    // 浏览器里的渲染计划只展开视频片段；静帧片段由服务端渲染时合成，不能因此显示「没有可渲染片段」。
+    const stillCount = useMemo(() => (project ? project.clips.filter((clip) => clip.kind === "image" && clip.directMedia).length : 0), [project]);
 
     // 主路径：提交后端渲染任务并轮询（服务端任务上限 60 分钟，前端多留余量）。
     const renderRemote = async () => {
@@ -78,6 +85,12 @@ export function EditorExport() {
                 detail: `渲染完成：${parsed.fileName ?? "timeline.mp4"}`,
                 result: parsed,
             });
+            setGate({ phase: "running" });
+            runDramaGate(projectId, { resourceId: parsed.resourceId })
+                .then(({ gate: result }) => setGate({ phase: "done", result }))
+                .catch((error) => setGate({ phase: "error", error: error instanceof Error ? error.message : "门禁检查失败" }))
+                // 门禁记成证据后，项目概览的终态和交付面板要立刻看到，不能等缓存过期。
+                .finally(() => { if (projectId) void queryClient.invalidateQueries({ queryKey: ["project", projectId] }); });
         } catch (error) {
             setState({
                 phase: "error",
@@ -124,7 +137,7 @@ export function EditorExport() {
                 <div className="mb-3 rounded-md border border-[var(--director-sequencer-border)] bg-[var(--director-control-hover)] p-2.5">
                     <div className="flex items-center justify-between">
                         <span className="text-xs font-medium text-[var(--director-dock-fg-strong)]">渲染计划</span>
-                        <span className="text-[10px] text-[var(--director-dock-fg)]/60">{plan ? `${plan.steps.length} 步` : "—"}</span>
+                        <span className="text-[10px] text-[var(--director-dock-fg)]/60">{plan ? `${plan.steps.length} 步${stillCount ? ` · ${stillCount} 个静帧` : ""}` : "—"}</span>
                     </div>
                     {plan && plan.steps.length > 0 ? (
                         <ul className="mt-2 space-y-1">
@@ -140,6 +153,8 @@ export function EditorExport() {
                                 <li className="pt-0.5 text-[10px] text-[var(--director-dock-fg)]/50">…共 {plan.steps.length} 步</li>
                             )}
                         </ul>
+                    ) : stillCount > 0 ? (
+                        <p className="mt-2 text-[11px] text-[var(--director-dock-fg)]/55">{stillCount} 个静帧片段由服务端渲染时合成，这里只展开视频片段的步骤。</p>
                     ) : (
                         <p className="mt-2 text-[11px] text-[var(--director-dock-fg)]/55">时间线没有可渲染的视频片段。</p>
                     )}
@@ -216,6 +231,13 @@ export function EditorExport() {
                     <p className="mt-2 text-[11px] text-[var(--director-success)]">{state.detail}</p>
                 )}
                 {state.phase === "error" && <p className="mt-2 text-[11px] text-[var(--director-danger)]">{state.detail}</p>}
+                {gate.phase !== "idle" && state.mode === "remote" ? (
+                    <div className="mt-2 rounded-md border border-[var(--director-sequencer-border)] px-2.5 py-2 text-[11px] text-[var(--director-dock-fg)]/80">
+                        <div className="font-medium">成片门禁{gate.phase === "running" ? "：检查中…" : gate.phase === "error" ? "：没跑成" : gate.result?.report.passed ? "：通过" : "：未通过"}</div>
+                        {gate.phase === "error" ? <p className="mt-1 text-[var(--director-danger)]">{gate.error}</p> : null}
+                        {gate.result ? <ul className="mt-1 space-y-0.5">{gate.result.report.checks.map((check) => <li key={check.name} className={check.ok ? "" : "text-[var(--director-danger)]"}>{check.ok ? "✓" : "✗"} {check.name}：{check.detail}</li>)}</ul> : null}
+                    </div>
+                ) : null}
 
                 <p className="mt-3 text-[11px] leading-relaxed text-[var(--director-dock-fg)]/55">
                     默认提交服务端渲染任务（异步，产物可直接预览/下载）；本地 ffmpeg.wasm 导出保留为离线兜底。

@@ -18,11 +18,10 @@ import {
     storyboardRowsFromTask,
     storyboardPromptTemplateMetadata,
     stripProjectStyleExecutionBlocks,
-    withStoryboardOutputContract,
 } from "@/lib/canvas/canvas-project-domain";
 import { buildNodeMentionReferences } from "@/lib/canvas/canvas-resource-references";
 import { buildStoryboardAssetCatalog } from "@/lib/canvas/canvas-storyboard-assets";
-import { resolveStoryboardGenerationContext } from "@/lib/canvas/canvas-storyboard-context";
+import { canvasStoryboardTaskPrompt, resolveStoryboardGenerationContext } from "@/lib/canvas/canvas-storyboard-context";
 import { reconcileStoryboardTargetConnections, storyboardComposerContent, storyboardRowReferenceNodeIds } from "@/lib/canvas/canvas-storyboard-materializer";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { navigateToSettings } from "@/lib/settings-navigation";
@@ -174,8 +173,8 @@ export function useCanvasStoryboard({
             assertCurrent();
             setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, metadata: { ...node.metadata, composerContent: cleanedPrompt, status: NODE_STATUS_LOADING, taskStage: "正在创建任务", taskProgress: 0, errorDetails: undefined, ...skillExecution.metadata } } : node));
             assertCurrent();
-            // 输入框内容只是剧情，拆镜要求与镜头数、每镜时长都必须随契约一起发出去。
-            const storyboardPrompt = withStoryboardOutputContract(skillExecution.prompt, { shotCount: requestedShotCount, shotDurationSeconds });
+            // 输入框内容只是剧情，画风、角色外观、拆镜要求与镜头数、每镜时长都必须写进 prompt 发出去。
+            const storyboardPrompt = canvasStoryboardTaskPrompt(skillExecution.prompt, { sourceText: cleanedPrompt, nodes: nodesRef.current, characters: storyboardContext.characters, shotCount: requestedShotCount, shotDurationSeconds });
             const request = {
                 projectId,
                 type: "canvas_text",

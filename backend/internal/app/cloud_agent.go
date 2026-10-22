@@ -462,19 +462,25 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	if err != nil {
 		return nil, err
 	}
-	skillSnapshots, err := s.cloudAgentSkills(userID, req.SkillIDs)
-	if err != nil {
-		return nil, err
-	}
-	// 看图能力取决于本轮渠道模型自己的合同（text.references.maxImages），在建 run 时定格并
-	// 持久化：工具授权每步都从落库状态重建，运行期间不再变化，客户端传入值被忽略。
-	req.VisionEnabled = s.cloudAgentVisionEnabled(req)
 	req.DramaProjectID = ""
 	if canvas != nil && strings.TrimSpace(canvas.ProjectID) != "" {
 		if project, projectErr := s.repo.ProjectForUser(userID, canvas.ProjectID); projectErr == nil && project.Status != model.ProjectStatusArchived {
 			req.DramaProjectID = project.ID
 		}
 	}
+	skillSnapshots, err := s.cloudAgentSkills(userID, req.SkillIDs)
+	if err != nil {
+		return nil, err
+	}
+	if req.DramaProjectID != "" {
+		skillSnapshots, err = s.withCloudAgentDramaSuite(userID, skillSnapshots)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// 看图能力取决于本轮渠道模型自己的合同（text.references.maxImages），在建 run 时定格并
+	// 持久化：工具授权每步都从落库状态重建，运行期间不再变化，客户端传入值被忽略。
+	req.VisionEnabled = s.cloudAgentVisionEnabled(req)
 	canvasSummary := ""
 	if len(req.ContextScope) != 0 {
 		canvasSummary, err = cloudAgentCanvasSummary(canvas, req.FocusNodeIDs...)

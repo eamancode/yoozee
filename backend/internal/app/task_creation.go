@@ -90,6 +90,13 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 			return nil, err
 		}
 	}
+	var routedNames []string
+	if routed != nil {
+		routedNames = []string{routed.ChannelModel.ModelKey, routed.ChannelModel.ProviderModelKey, routed.ChannelModel.DisplayName, routed.LogicalModel.Code, routed.LogicalModel.Name}
+	}
+	if err := s.enforceDramaModelFamily(userID, normalizedInput, routedNames...); err != nil {
+		return nil, err
+	}
 
 	if strings.HasPrefix(taskType, "video_") && !hasExecutableProviderVideoConfig(normalizedInput) {
 		if mode, _ := normalizedInput["mode"].(string); mode != "video" {

@@ -29,9 +29,10 @@ describe("storyboard prompt panel boundaries", () => {
         expect(project).toContain("onGenerateScript={(prompt) => void generateScriptRows(contentNode.id, prompt)}");
     });
 
-    test("storyboard generation strips legacy style instructions without sending project style", () => {
+    test("storyboard generation strips legacy style blocks and writes project style through the budgeted prompt", () => {
         const storyboard = source("use-canvas-storyboard.ts");
         expect(storyboard).toContain("stripProjectStyleExecutionBlocks(prompt)");
         expect(storyboard).not.toContain("projectStyle: storyboardContext.projectStyle");
+        expect(storyboard).toContain("canvasStoryboardTaskPrompt(skillExecution.prompt, { sourceText: cleanedPrompt, nodes: nodesRef.current, characters: storyboardContext.characters");
     });
 });

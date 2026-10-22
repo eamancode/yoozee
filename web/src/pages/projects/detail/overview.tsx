@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpenText, CheckCircle2, CircleAlert, Clapperboard, Clock3, Film, PackageCheck, PlaySquare, Scissors, UsersRound } from "lucide-react";
+import { ArrowRight, CheckCircle2, CircleAlert, Clock3 } from "lucide-react";
 import { Link } from "react-router";
 
 import { WorkspaceState } from "@/components/layout/workspace-state";
@@ -27,20 +27,6 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
         storyboard: stageCell(item.shotCount > 0, item.shotCount ? `${item.shotCount} 镜` : "待生成"),
         canvas: stageCell(item.canvasCount > 0, item.canvasCount ? `${item.canvasCount} 张` : "未关联"),
     }));
-    const productionSteps = [
-        { id: "story", icon: BookOpenText, label: "剧情章节", description: "导入或编写正文，确认每章叙事目标", metric: `${metrics.unitCount} 章 · ${formatCompactCount(metrics.totalWordCount)} 字`, href: `/projects/${project.id}/chapters`, complete: metrics.unitCount > 0 },
-        { id: "assets", icon: UsersRound, label: "角色与资产", description: "确认角色、场景、道具和项目画风", metric: `${metrics.assetCount} 项资产`, href: `/projects/${project.id}/assets`, complete: metrics.assetCount > 0 },
-        { id: "storyboard", icon: Clapperboard, label: "分段脚本与画面", description: "按生成模型的单段上限拆段，段内写多镜头、对白和时长", metric: `${metrics.shotCount} 段 · ${metrics.readyStoryboardCount} 张图`, href: workflowHref("storyboard"), complete: metrics.shotCount > 0 },
-        { id: "previz", icon: PlaySquare, label: "动作预演", description: "检查表演节拍、运镜和连续性", metric: `${metrics.readyPrevizCount}/${metrics.shotCount || 0} 段`, href: workflowHref("previz"), complete: metrics.shotCount > 0 && metrics.readyPrevizCount === metrics.shotCount },
-        { id: "video", icon: Film, label: "分段视频", description: "逐段生成多条候选，留证据过审后选定一条", metric: `${metrics.readyVideoCount}/${metrics.shotCount || 0} 段`, href: workflowHref("video"), complete: metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount },
-        { id: "editor", icon: Scissors, label: "剪辑成片", description: "在时间线中编排镜头、添加字幕并输出成片", metric: metrics.renderSucceededCount > 0 ? `已输出 ${metrics.renderSucceededCount} 个成片` : metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount ? "可以开始剪辑" : `还差 ${Math.max(0, metrics.shotCount - metrics.readyVideoCount)} 段`, href: `/projects/${project.id}/editor`, complete: metrics.renderSucceededCount > 0 },
-        { id: "delivery", icon: PackageCheck, label: "交付与打包", description: "成片过门禁，下载交付包与甲方验收单", metric: metrics.readyVideoCount && metrics.readyVideoCount === metrics.shotCount ? "可以交付" : `还差 ${Math.max(0, metrics.shotCount - metrics.readyVideoCount)} 段`, href: workflowHref("delivery"), complete: metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount },
-    ];
-    const gaps = [
-        metrics.unitCount === 0 ? "还没有剧情章节" : metrics.unitsWithoutText ? `${metrics.unitsWithoutText} 章还没有正文` : "章节正文已就绪",
-        metrics.pendingCandidateCount ? `${metrics.pendingCandidateCount} 项资产等待确认` : metrics.assetCount ? "项目资产已建立" : "还没有角色与资产",
-        metrics.shotCount ? metrics.readyVideoCount === metrics.shotCount ? "所有镜头视频已生成" : `${metrics.shotCount - metrics.readyVideoCount} 个镜头尚未生成视频` : "还没有分镜镜头",
-    ];
 
     return (
         <div className="space-y-8">
@@ -92,13 +78,7 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
 
             <DramaOverviewPanel projectId={project.id} />
 
-            <section className="project-standard-flow">
-                <div className="project-standard-flow-head"><div><span>标准制作流程</span><h2>从章节到可交付镜头</h2><p>先确认故事与资产，再逐镜完成画面、动作和视频。每个步骤都可直接进入对应工作区。</p></div><Link to={primaryAction.href}>继续当前任务<ArrowRight /></Link></div>
-                <div className="project-standard-flow-track">
-                    {productionSteps.map((step, index) => { const Icon = step.icon; return <Link key={step.id} to={step.href} className={step.complete ? "is-complete" : ""}><span className="project-standard-flow-index">{step.complete ? <CheckCircle2 /> : index + 1}</span><span className="project-standard-flow-icon"><Icon /></span><strong>{step.label}</strong><p>{step.description}</p><em>{step.metric}</em><ArrowRight className="project-standard-flow-arrow" /></Link>; })}
-                </div>
-                <div className="project-standard-flow-footer"><div><strong>当前制作检查</strong>{gaps.map((gap, index) => <span key={gap}><i className={index === 2 && metrics.readyVideoCount !== metrics.shotCount ? "is-attention" : ""} />{gap}</span>)}</div><div><strong>快速入口</strong><Link to={`/projects/${project.id}/chapters`}>整理章节</Link><Link to={`/projects/${project.id}/assets`}>确认资产</Link><Link to={workflowHref("video")}>继续镜头制作</Link></div></div>
-            </section>
+            <div className="project-standard-flow-footer"><div><strong>快速入口</strong><Link to={`/projects/${project.id}/chapters`}>整理章节与分段</Link><Link to={`/projects/${project.id}/assets`}>确认角色与资产</Link><Link to={workflowHref("video")}>继续分段制作</Link><Link to={workflowHref("delivery")}>交付</Link></div></div>
 
             <section>
                 <div className="project-pipeline-head">

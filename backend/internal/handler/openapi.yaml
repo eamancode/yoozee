@@ -1548,6 +1548,7 @@ components:
                 - internal
                 - bad_gateway
                 - upstream_dns_failed
+                - text_output_truncated
                 - model_capability_not_supported
                 - model_price_not_configured
                 - model_route_unavailable

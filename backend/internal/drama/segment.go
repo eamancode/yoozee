@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -38,13 +39,16 @@ type Voice struct {
 	File      string `json:"file"`
 }
 
-// SubShot 是段内的一个镜头。
+// SubShot 是段内的一个镜头。Sound、EndState 记在镜头上：段没写 sound / rules 时编译从镜头取，
+// 拆段、合段、移镜头之后声音和结尾约束跟着镜头走，不会留在原来那一段。
 type SubShot struct {
-	At     float64 `json:"at"`
-	Size   string  `json:"size,omitempty"`
-	Camera string  `json:"camera,omitempty"`
-	Text   string  `json:"text"`
-	Lines  []Line  `json:"lines,omitempty"`
+	At       float64 `json:"at"`
+	Size     string  `json:"size,omitempty"`
+	Camera   string  `json:"camera,omitempty"`
+	Text     string  `json:"text"`
+	Lines    []Line  `json:"lines,omitempty"`
+	Sound    string  `json:"sound,omitempty"`
+	EndState string  `json:"end_state,omitempty"`
 }
 
 type Line struct {
@@ -64,6 +68,9 @@ const (
 
 var segmentIDPattern = regexp.MustCompile(`^S[0-9]{2,3}[a-z]?$`)
 
+// SegmentShape 是写给 Agent 和人看的分段字段说明（契约 segment）。
+const SegmentShape = "每段字段：id（S01、S12b）；scene（场次）；title?；dur（秒）；mode（lock_identity / lock_first_frame / text_only）；first_frame?、last_frame?（lock_first_frame 用）；refs?:[{file, role(identity/location/plate/prop/frame), note?}]，file 填柚子资产 ID；voices?:[{character, file}]；shots:[{at（段内第几秒）, size?, camera?, text, lines?:[{speaker, text, vo?, delivery?}], sound?（这一镜的声音）, end_state?（这一镜结束时的状态）}]；sound?（不写时按镜头顺序接各镜头的 sound）、rules?（不写时取最后一镜的 end_state）、hook?、lang?。拆段合段时把声音和结尾状态写在镜头上，段级 sound / rules 只写整段通用的。不认识的字段会被拒绝。"
+
 var refRoles = map[string]bool{"identity": true, "location": true, "plate": true, "prop": true, "frame": true, "motion": true}
 
 // ParseSegment 严格解析并校验一段中性分段（未知字段、缺字段、非法枚举都报错）。
@@ -79,7 +86,11 @@ func ParseSegment(raw []byte) (Segment, error) {
 	decoder.DisallowUnknownFields()
 	var seg Segment
 	if err := decoder.Decode(&seg); err != nil {
-		return Segment{}, fmt.Errorf("分段 JSON 格式错误: %w", err)
+		message := err.Error()
+		if strings.HasPrefix(message, "json: unknown field ") {
+			return Segment{}, fmt.Errorf("分段不符合契约 segment：不认识的字段 %s（字段写法见工具说明）", strings.TrimPrefix(message, "json: unknown field "))
+		}
+		return Segment{}, fmt.Errorf("分段不符合契约 segment：%s（字段写法见工具说明）", message)
 	}
 	if err := seg.Validate(); err != nil {
 		return Segment{}, err
@@ -142,6 +153,33 @@ func (s Segment) Dialogue() string {
 
 // HasDialogue 这一段有没有台词。
 func (s Segment) HasDialogue() bool { return utf8.RuneCountInString(s.Dialogue()) > 0 }
+
+// SoundText 是这一段的声音：段级 sound；没写时按镜头顺序接各镜头的 sound（去掉句尾标点、去重，用 sep 分隔）。
+// 与 compile.py 的 segment_sound 一致。
+func (s Segment) SoundText(sep string) string {
+	if sound := strings.TrimSpace(s.Sound); sound != "" {
+		return sound
+	}
+	var parts []string
+	for _, sh := range s.Shots {
+		if part := strings.TrimRight(strings.TrimSpace(sh.Sound), "。；;，,. "); part != "" && !slices.Contains(parts, part) {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, sep)
+}
+
+// RulesText 是这一段写死的约束：段级 rules；没写时取最后一镜的 end_state（这一段结束时的连戏状态）。
+// 与 compile.py 的 segment_rules 一致。
+func (s Segment) RulesText() string {
+	if rules := strings.TrimSpace(s.Rules); rules != "" {
+		return rules
+	}
+	if len(s.Shots) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(s.Shots[len(s.Shots)-1].EndState)
+}
 
 // Canonical 返回稳定的 JSON（用于哈希和存储）。
 func (s Segment) Canonical() string {

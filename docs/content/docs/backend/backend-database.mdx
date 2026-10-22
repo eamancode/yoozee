@@ -31,7 +31,7 @@ Schema 45 新增 `upload_reservations`：`id`、`user_id`、`size`、`day`、`ex
 
 ## 结构迁移与版本
 
-当前结构版本为 50。版本 50 新增 `canvas_mutation_receipts`，按 `(user_id, canvas_id, mutation_id)` 唯一记录画布 operations 请求摘要、确定性结果和提交 revision，供响应丢失后的幂等重放使用；receipt 与画布内容、revision 在同一事务提交。版本 49 `banner_sort_order` 为 `banner_announcements` 增加可配置的 `sort_order` 展示顺序；版本 48 `channel_proxy_url` 为 `model_channels` 增加渠道级出站代理地址 `proxy_url`，支持 `socks5://`、`http://`、`https://`；留空时沿用全局代理。代理地址只返回管理员视图，普通用户目录不暴露渠道代理或其中的认证信息。版本 42 `cloud_agent_pi_sessions` 新增 `cloud_agent_pi_sessions` 表，按运行 ID 保存 Pi 原生 JSONL 会话快照、用户 ID、乐观并发 revision 和更新时间；会话正文由 Agent runtime 管理，Go 只将其作为不透明快照读写，不替代有界控制检查点、事件日志或任务记录。版本 41 `resource_thumbnail` 为 `resources` 增加缩略图元数据。版本 40 `builtin_skill_tombstones` 新增内置技能删除记录，管理员删除平台技能后，后续启动同步不会重新创建该技能；版本 39 `skill_library_categories` 新增 `skill_library_categories` 表，并为 `user_skill_states` 增加 `library_category_id`，保存个人技能库分类及每个用户对技能的归类；分类不改变 `skills.tag` 的技能广场共享分类。版本 38 `prefixed_id_sequence_reconcile` 创建（若缺失）并校准 `id_sequences`：`CHANNEL`、`MODEL`、`PTIER`、`ATTEMPT`、`LMODEL`、`REVISION`、`ROUTE` 按对应业务表的最大有效 ID 前移，包含软删除记录，不回退已有序列、不重写业务 ID。分配新 ID 时再次校准并检查冲突；SQLite → PostgreSQL 迁移完成后也校准序列。 `cloud_agent_gemini_cache` 创建 `cloud_agent_gemini_caches`，保存用户范围内的官方 Gemini 缓存元数据；版本 37 `cloud_agent_gemini_cache_identity` 将缓存标识约束修正为 `(user_id, cache_key)`，移除旧的全局 cache_key 唯一索引。版本 35 `auth_notifications` 为认证通知与组合验证补齐 `auth_verifications`、`notification_quotas`、`sms_channels`、`sms_records` 四张表，并为 `users` 增加 `phone`、`email_verified_at`、`phone_verified_at`，为 `email_verification_codes` 增加 `attempts`；同时创建非空手机号唯一索引。版本 34 `task_media_recovery` 为 `tasks` 增加 `media_recovery_json`（text）和 `media_stage`（最长 24 字）。版本 33 `oauth_state_accepted_terms` 为 `o_auth_states` 增加非空布尔列 `accepted_terms`，默认 `false`，不替历史流程补造同意记录。
+当前结构版本为 51。版本 51 `drama_segments_evidence` 为短剧段级制作线新增 `shot_evidences` 表，并为 `projects` 增加 `generation_model`、`auth_mode`、`brief_json`、`bible_json`，为 `shot_revisions` 增加 `spec_json`，为 `shot_artifacts` 增加 `input_hash`；旧数据这些列为空，按旧镜头处理。版本 50 新增 `canvas_mutation_receipts`，按 `(user_id, canvas_id, mutation_id)` 唯一记录画布 operations 请求摘要、确定性结果和提交 revision，供响应丢失后的幂等重放使用；receipt 与画布内容、revision 在同一事务提交。版本 49 `banner_sort_order` 为 `banner_announcements` 增加可配置的 `sort_order` 展示顺序；版本 48 `channel_proxy_url` 为 `model_channels` 增加渠道级出站代理地址 `proxy_url`，支持 `socks5://`、`http://`、`https://`；留空时沿用全局代理。代理地址只返回管理员视图，普通用户目录不暴露渠道代理或其中的认证信息。版本 42 `cloud_agent_pi_sessions` 新增 `cloud_agent_pi_sessions` 表，按运行 ID 保存 Pi 原生 JSONL 会话快照、用户 ID、乐观并发 revision 和更新时间；会话正文由 Agent runtime 管理，Go 只将其作为不透明快照读写，不替代有界控制检查点、事件日志或任务记录。版本 41 `resource_thumbnail` 为 `resources` 增加缩略图元数据。版本 40 `builtin_skill_tombstones` 新增内置技能删除记录，管理员删除平台技能后，后续启动同步不会重新创建该技能；版本 39 `skill_library_categories` 新增 `skill_library_categories` 表，并为 `user_skill_states` 增加 `library_category_id`，保存个人技能库分类及每个用户对技能的归类；分类不改变 `skills.tag` 的技能广场共享分类。版本 38 `prefixed_id_sequence_reconcile` 创建（若缺失）并校准 `id_sequences`：`CHANNEL`、`MODEL`、`PTIER`、`ATTEMPT`、`LMODEL`、`REVISION`、`ROUTE` 按对应业务表的最大有效 ID 前移，包含软删除记录，不回退已有序列、不重写业务 ID。分配新 ID 时再次校准并检查冲突；SQLite → PostgreSQL 迁移完成后也校准序列。 `cloud_agent_gemini_cache` 创建 `cloud_agent_gemini_caches`，保存用户范围内的官方 Gemini 缓存元数据；版本 37 `cloud_agent_gemini_cache_identity` 将缓存标识约束修正为 `(user_id, cache_key)`，移除旧的全局 cache_key 唯一索引。版本 35 `auth_notifications` 为认证通知与组合验证补齐 `auth_verifications`、`notification_quotas`、`sms_channels`、`sms_records` 四张表，并为 `users` 增加 `phone`、`email_verified_at`、`phone_verified_at`，为 `email_verification_codes` 增加 `attempts`；同时创建非空手机号唯一索引。版本 34 `task_media_recovery` 为 `tasks` 增加 `media_recovery_json`（text）和 `media_stage`（最长 24 字）。版本 33 `oauth_state_accepted_terms` 为 `o_auth_states` 增加非空布尔列 `accepted_terms`，默认 `false`，不替历史流程补造同意记录。
 
 升级前备份，按既有流程执行 `migrate-schema up` 和 `verify` 后再启动新后端。旧版本二进制不支持版本 42，回退需恢复匹配的数据库备份，并评估备份之后的新写入；不能只切回旧镜像。关闭自动迁移的生产环境必须运行正式迁移；手工改表不能更新 `schema_migrations` 的版本与校验和记录。
 
@@ -168,19 +168,20 @@ docker compose -f docker-compose.deploy.yml up -d backend web
 
 | 表 | 用途 | 关键边界 |
 | --- | --- | --- |
-| `projects` | 保存短剧项目基础设置、画幅、画风快照、项目主图和默认图片/视频模型 | `default_image_model` / `default_video_model` 保存前端模型选择器的渠道限定引用；模型下架或渠道停用时前端回退当前全局默认。`cover_resource_id` 只能引用当前用户已就绪的图片资源；资源删除检查会阻止仍被项目主图使用的图片被回收 |
+| `projects` | 保存短剧项目基础设置、画幅、画风快照、项目主图和默认图片/视频模型 | `default_image_model` / `default_video_model` 保存前端模型选择器的渠道限定引用；模型下架或渠道停用时前端回退当前全局默认。`cover_resource_id` 只能引用当前用户已就绪的图片资源；资源删除检查会阻止仍被项目主图使用的图片被回收。`generation_model` 是建项目时选定的视频模型族（`kb-dialects/models.json` 的 id），决定一段最长几秒，视频任务按它校验模型族；`auth_mode` 为 `step`（每步确认）或 `full`（全权）；`brief_json` / `bible_json` 保存契约格式的需求文档与连戏表 |
 | `project_units` | 保存项目章节或集数的正文、排序和状态 | `word_count` 在正文创建、导入和更新时同步维护，项目详情只返回摘要和字数，不批量返回长篇正文；升级时会为旧正文回填字数 |
 | `assets` / `asset_folders` / `asset_versions` / `project_asset_links` | 保存用户资产、自定义分类、不可变版本及项目引用 | 业务分类统一为 `character`、`environment`、`prop`、`material`、`other`；自定义分类通过用户级 `asset_folders` 与 `assets.folder_id` 表达，不改变业务分类语义 |
 | `project_asset_candidates` | 保存章节或 Agent 提取后等待用户确认的资产候选 | `name_key` 保存规范化名称，`source` 记录提取入口；角色候选只允许来自 `chapter_character_extract` 且必须关联章节，同一项目、分类和规范化名称的待确认候选保持唯一 |
 | `shots` | 保存章节内稳定的镜头身份、排序和当前版本指针 | 不保存完整生成历史；`current_revision_id` 指向当前采用的分镜脚本版本 |
-| `shot_revisions` | 保存画面、动作、台词、景别、机位、运镜、提示词和动作节拍 | 每次编辑创建新版本；历史版本不可被静默覆盖 |
+| `shot_revisions` | 保存画面、动作、台词、景别、机位、运镜、提示词和动作节拍 | 每次编辑创建新版本；历史版本不可被静默覆盖。`spec_json` 保存这一段的契约分段（段内多镜头、台词、参考、声音），非空即按「段」处理，段时长以它为准；旧镜头为空 |
 | `shot_asset_references` | 将镜头绑定到具体资产版本 | 修改引用时只使该镜头的下游产物过期，不影响其他镜头 |
-| `shot_artifacts` | 保存分镜图、动作预演、首尾帧、视频等版本化产物 | `selected` 表示当前采用版本；上游变化后状态转为 `stale`，历史资源继续保留 |
+| `shot_artifacts` | 保存分镜图、动作预演、首尾帧、视频等版本化产物 | `selected` 表示当前采用版本；上游变化后状态转为 `stale`，历史资源继续保留。`input_hash` 是生成时依赖输入的指纹，保存新版本时只有指纹变了的产物才过期；为空的旧产物一律按过期处理 |
+| `shot_evidences` | 保存候选与成片的证据：抽帧、人脸、台词转写、选定理由、成片门禁 | `passed` 可空：人判项未判定时为空，算作缺；选定一个候选前，抽帧、人脸（有台词时加转写）都必须通过。按 `(project_id, artifact_id)` 建索引，删除项目时一并清理 |
 | `production_task_links` | 显式记录生成任务所属的领域项目、画布、章节、镜头和工作流步骤 | `Task.project_id` 仍兼容画布任务身份，不再用它单独推断短剧领域归属 |
 | `creation_runs` | 保存创作 Agent 的服务端权威状态、执行租约、已批准提案和画布快照 | `(user_id, client_key)` 唯一；客户端会话只作为输入，修订号、执行 epoch 和租约由 service 强校验，不能据前端状态跳过审批或重复执行 |
 | `creation_submissions` | 保存创作提案中每个生成项的请求、报价签名、审批和任务绑定 | `(run_id, item_key)` 与 `task_id` 分别唯一；相同提交只允许创建一个任务，过期、撤销或提案哈希不一致时拒绝执行 |
 | `tasks.creation_submission_id` | 将生成任务反向绑定到已批准的创作提交 | 字段可空以兼容普通任务和旧数据；非空值唯一，阻止同一提交产生多个任务 |
-| `workflow_template_versions` / `workflow_instances` / `workflow_step_instances` | 保存短剧生产模板和项目、章节实例 | 短剧分镜工作流 v2 顺序为剧情、资产、分镜、动作预演、视频、交付 |
+| `workflow_template_versions` / `workflow_instances` / `workflow_step_instances` | 旧六步流程的模板和项目、章节实例（只读） | 顺序为剧情、资产、分镜、动作预演、视频、交付。已改为只读：不再新建实例、不再切换或回退步骤状态，进度由段、产物和证据推导；旧记录保留供查看，删除项目或章节时一并清理 |
 
 短剧项目状态以这些领域表为准。自由画布可以承载探索节点，但画布 metadata 不作为生产完成度、镜头版本或交付可用性的真相源。
 

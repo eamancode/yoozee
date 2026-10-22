@@ -5,10 +5,13 @@
   python3 {{TOOLS}}/segments.py run --adapter video_minimax_h3 --jobs 生成/jobs.json
   python3 {{TOOLS}}/segments.py status [--file 剧本/分段表.md]        从表里数"现在到哪了"
 段长上限按需求文档里的生成模型（kb-dialects/models.json）核：list 标出超长段，jobs 遇到超长段直接拒绝。
+jobs、run 只认需求文档生成模型的适配（适配 CAPABILITIES["model"]），别家的直接拒绝；画幅取需求文档「平台与画幅」里的比例。
 """
 import argparse, importlib, json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C
+
+ADAPTERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adapters")
 
 
 def load(path):
@@ -23,8 +26,29 @@ def load(path):
 
 
 def adapter(name):
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "adapters"))
+    if ADAPTERS not in sys.path:
+        sys.path.insert(0, ADAPTERS)
     return importlib.import_module(name)
+
+
+def check_adapter(name, A, m):
+    """适配的模型必须是需求文档的生成模型：分段按它的段长上限和方言写，换一家生成会超长或读错提示词。"""
+    have = A.CAPABILITIES.get("model")
+    if have == m["id"]:
+        return
+    fits = []
+    for f in sorted(os.listdir(ADAPTERS)):
+        if f.startswith("video_") and f.endswith(".py"):
+            try:
+                if adapter(f[:-3]).CAPABILITIES.get("model") == m["id"]:
+                    fits.append(f[:-3])
+            except Exception:  # 导入不了的适配本来也用不了
+                continue
+    labels = {x["id"]: x["label"] for x in C.models_json()["models"]}
+    what = f"是 {labels.get(have, have)} 的适配" if have else "没在 CAPABILITIES 里声明 model（models.json 的 id）"
+    hint = (f"可用的适配：{'、'.join(fits)}" if fits else
+            f"本机还没有 {m['label']} 的视频适配：先用 yz-calibrate 照 adapters/适配规格.md 写一个，或用 compile.py 出粘贴版交给用户手动生成")
+    sys.exit(f"{name} {what}，需求文档的生成模型是 {m['label']}：{hint}")
 
 
 def main():
@@ -51,11 +75,16 @@ def main():
         A = adapter(a.adapter); want = set(a.ids.split(",")) if a.ids else None
         import compile as P
         m = C.model(C.project_model())
+        check_adapter(a.adapter, A, m)
         picked = [s for s in load(a.file) if not want or s["id"] in want]
         errors = [i["message"] for s in picked for i in P.compile_segment(s, m)["issues"] if i["level"] == "error"]
         if errors:
             sys.exit("编译检查没过，先改分段表：\n" + "\n".join(errors))
-        jobs = [A.build_job(s, a.res, n=a.n) for s in picked]
+        ratio = C.project_ratio()
+        try:
+            jobs = [A.build_job(s, a.res, n=a.n, ratio=ratio) for s in picked]
+        except ValueError as e:
+            sys.exit(f"出不了任务：{e}")
         missing = sorted({p for j in jobs for p in A.job_inputs(j) if not os.path.exists(C.abspath(p))})
         if missing:
             sys.exit(f"缺素材：{missing}")
@@ -63,9 +92,11 @@ def main():
         secs = sum(j["duration"] * j.get("n", 1) for j in jobs); price = A.CAPABILITIES["price_per_sec"].get(a.res, 0)
         fee = A.CAPABILITIES.get("ref_image_fee", {"free": 99, "per_image": 0})
         extra = sum(max(0, len(j.get("ref_images", [])) - fee["free"]) * fee["per_image"] * j.get("n", 1) for j in jobs)
-        print(f"{len(jobs)} 段，{secs} 秒，约 {secs * price + extra:.1f} 美元（含参考图附加 {extra:.2f}）→ {a.out}")
+        ratios = "、".join(sorted({j["ratio"] for j in jobs if j.get("ratio")}))
+        print(f"{len(jobs)} 段，{secs} 秒，{'画幅 ' + ratios + '，' if ratios else ''}约 {secs * price + extra:.1f} 美元（含参考图附加 {extra:.2f}）→ {a.out}")
     else:
-        A = adapter(a.adapter); res = A.run_jobs(C.read_json(C.abspath(a.jobs)), a.poll)
+        A = adapter(a.adapter); check_adapter(a.adapter, A, C.model(C.project_model()))
+        res = A.run_jobs(C.read_json(C.abspath(a.jobs)), a.poll)
         print(json.dumps(res, ensure_ascii=False, indent=1))
 
 

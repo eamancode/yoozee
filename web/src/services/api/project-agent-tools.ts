@@ -7,7 +7,6 @@ import {
     linkShotAsset,
     registerProjectTaskOutput,
     saveProjectShot,
-    updateWorkflowStep,
     type ProjectDetail,
     type ShotAssetReference,
 } from "./projects";
@@ -20,7 +19,6 @@ export const projectAgentToolNames = [
     "project_confirm_asset_candidate",
     "project_create_or_update_shots",
     "project_link_shot_asset",
-    "project_start_workflow_step",
     "project_link_asset",
     "project_upsert_asset_version",
     "project_register_task_output",
@@ -64,9 +62,6 @@ export async function runProjectAgentTool(name: ProjectAgentToolName, rawInput: 
     }
     if (name === "project_link_shot_asset") {
         return linkShotAsset(projectId, String(rawInput.shotId || ""), { assetVersionId: String(rawInput.assetVersionId || ""), role: String(rawInput.role || "reference") as ShotAssetReference["role"] });
-    }
-    if (name === "project_start_workflow_step") {
-        return updateWorkflowStep(projectId, String(rawInput.stepId || ""), { status: "running" });
     }
     if (name === "project_link_asset") {
         return linkProjectAsset(projectId, { assetId: String(rawInput.assetId || ""), category: normalizeAssetCategory(rawInput.category) });

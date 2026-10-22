@@ -705,7 +705,7 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 	var dramaErr error
 	if allowed {
 		switch call.Function.Name {
-		case "drama_progress_read", "drama_brief_read", "drama_bible_read", "drama_segments_read", "drama_compile_prompt", "drama_brief_write", "drama_bible_write", "drama_segments_write", "drama_artifact_register", "drama_qa_transcribe", "drama_qa_frames", "drama_evidence_write", "drama_take_pick", "drama_gate_check", "drama_delivery_package":
+		case "drama_progress_read", "drama_chapters_read", "drama_brief_read", "drama_bible_read", "drama_segments_read", "drama_compile_prompt", "drama_brief_write", "drama_bible_write", "drama_segments_write", "drama_artifact_register", "drama_qa_transcribe", "drama_qa_frames", "drama_evidence_write", "drama_take_pick", "drama_gate_check", "drama_delivery_package":
 			dramaResult, dramaErr = s.cloudAgentDramaTool(run.UserID, state, call)
 		}
 	}

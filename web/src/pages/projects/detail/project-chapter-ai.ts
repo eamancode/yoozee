@@ -1,6 +1,6 @@
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
 import { PromptTemplateOperation, promptTemplateTaskPlaceholder } from "@/lib/prompts";
-import { storyboardRowsFromTask, withStoryboardOutputContract } from "@/lib/canvas/canvas-project-domain";
+import { storyboardRowsFromTask } from "@/lib/canvas/canvas-project-domain";
 import { parseChapterAssetBreakdown, type ChapterAssetBreakdown } from "@/lib/canvas/chapter-asset-breakdown";
 import { parseCharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
 import { backendProviderConfig, parseBackendGenerationResult } from "@/services/api/generation-task";
@@ -9,7 +9,7 @@ import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
 
-import type { ChapterStoryboardAsset, ChapterStoryboardCharacter } from "./chapter-storyboard-production";
+import { chapterStoryboardTaskPrompt, type ChapterStoryboardAsset, type ChapterStoryboardCharacter } from "./chapter-storyboard-production";
 
 type ChapterAnalysisInput = {
     projectId: string;
@@ -90,8 +90,9 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         skills: input.skills,
         selectedSkillIds: input.selectedSkillIds,
     });
-    // 技能上下文只描述工作流，不会约束输出结构；必须显式带上输出契约，否则模型返回 Markdown 表格。
-    const prompt = withStoryboardOutputContract(skillExecution.prompt);
+    // 技能上下文只描述工作流，不会约束输出结构；输出契约、项目画风、角色外观和资产清单都由 chapterStoryboardTaskPrompt 写进提示词。
+    // 下面 input 里的 projectStyle / characters / canvasAssets / requirements 后端不读，只留作任务记录。
+    const prompt = chapterStoryboardTaskPrompt(skillExecution.prompt, { sourceText: input.sourceText, projectStyle: input.projectStyle, characters: input.characters, assets: input.assets });
     const task = await createGenerationTask({
         projectId: input.projectId,
         type: "canvas_text",

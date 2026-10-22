@@ -8,6 +8,8 @@ export type DramaModel = {
     label: string;
     vendor: string;
     kind: string;
+    /** 渠道模型名里出现这些片段就算这个模型族。 */
+    match: string[];
     duration: { min: number; max: number; step: number };
     refs: { images: number | null; videos: number | null; audios: number | null; total: number | null };
     frames_exclusive_with_refs: boolean | null;
@@ -22,7 +24,8 @@ export type DramaRegistry = { version: string; default: string; models: DramaMod
 export type DramaAuthMode = "step" | "full";
 
 export type DramaLine = { speaker: string; text: string; vo?: boolean; delivery?: string };
-export type DramaSubShot = { at: number; size?: string; camera?: string; text: string; lines?: DramaLine[] };
+/** 段内一个镜头。sound、end_state 记在镜头上：段没写 sound / rules 时后端编译从镜头取，拆段合段后跟着镜头走。 */
+export type DramaSubShot = { at: number; size?: string; camera?: string; text: string; lines?: DramaLine[]; sound?: string; end_state?: string };
 /** 契约 segment：一段 = 一次生成，段内多镜头。 */
 export type DramaSegment = {
     id: string;
@@ -115,6 +118,36 @@ export function getDramaBrief(projectId: string) {
 
 export function putDramaBrief(projectId: string, document: Record<string, unknown>) {
     return http.put<{ document: Record<string, unknown> }>(`/projects/${projectId}/drama/brief`, { document });
+}
+
+/** 连戏表（契约 bible）：也是素材清单。每项指向文件（柚子里是资产版本 ID），checked 为 true 才算齐。 */
+export type DramaBibleVariant = { label: string; age?: string; face_hair?: string; glasses?: string; marks?: string; costume?: string; lock_card?: string[]; sheet?: string; crops?: string[]; voice?: string; voice_short?: string; checked?: boolean };
+export type DramaBibleCharacter = { name: string; speaks?: boolean; variants: DramaBibleVariant[] };
+export type DramaBibleProp = { name: string; image?: string; states?: Array<{ when?: string; desc?: string; image?: string }>; checked?: boolean };
+export type DramaBibleLocation = { name: string; plate?: string; side_a?: string; side_b?: string; fixtures?: string; light?: string; checked?: boolean };
+export type DramaBible = { characters?: DramaBibleCharacter[]; props?: DramaBibleProp[]; locations?: DramaBibleLocation[]; [key: string]: unknown };
+
+export function getDramaBible(projectId: string) {
+    return http.get<{ document: DramaBible }>(`/projects/${projectId}/drama/bible`);
+}
+
+export function putDramaBible(projectId: string, document: DramaBible) {
+    return http.put<{ document: DramaBible }>(`/projects/${projectId}/drama/bible`, { document });
+}
+
+/** 一章里的一段：derived 为 true 表示旧镜头没有分段 JSON，段号按位置合成，只能看不能拆合。 */
+export type DramaSegmentView = { shotId: string; unitId: string; title: string; position: number; durationMs: number; revisionId?: string; spec: DramaSegment; derived: boolean };
+
+export function listDramaSegments(projectId: string, unitId: string, signal?: AbortSignal) {
+    return http.get<{ segments: DramaSegmentView[] }>(`/projects/${projectId}/drama/segments`, { params: { unitId }, signal });
+}
+
+/**
+ * 按段号写入一章的段（后端按项目生成模型校验段长）。拆段、合段时给 order：本章全部段号的新顺序，
+ * 不在其中的段连同生成结果删除；只改段内容时不给。
+ */
+export function writeDramaSegments(projectId: string, input: { unitId: string; segments: DramaSegment[]; order?: string[] }) {
+    return http.put<{ segments: DramaSegmentView[] }>(`/projects/${projectId}/drama/segments`, input);
 }
 
 export function compileProjectShot(projectId: string, shotId: string, input: { model?: string } = {}) {

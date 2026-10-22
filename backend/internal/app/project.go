@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -280,14 +279,7 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 		}
 		return model.Project{}, err
 	}
-	if _, err := s.createProjectWorkflow(project.ID, "", "project"); err != nil {
-		if deleteErr := s.repo.DeleteProject(userID, project.ID, nil); deleteErr != nil {
-			return model.Project{}, errors.Join(err, fmt.Errorf("项目初始化失败，回滚项目记录失败：%w", deleteErr))
-		}
-		return model.Project{}, err
-	}
-	project.Revision++
-	project.UpdatedAt = time.Now()
+	// 新项目不再建旧六步流程实例：进度按段、产物和证据推导。
 	return project, nil
 }
 

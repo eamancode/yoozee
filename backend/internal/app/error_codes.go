@@ -39,6 +39,7 @@ const (
 	ReasonInternal            = kernel.ReasonInternal
 	ReasonBadGateway          = kernel.ReasonBadGateway
 	ReasonUpstreamDNSFailed   = kernel.ReasonUpstreamDNSFailed
+	ReasonTextOutputTruncated = kernel.ReasonTextOutputTruncated
 )
 
 func ReasonForStatus(status int) ErrorReason {

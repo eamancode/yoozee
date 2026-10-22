@@ -32,10 +32,12 @@ const (
 	ArtifactVideo       = "video"
 )
 
+// visualShot 的 End 只在镜头写了结尾状态时出现：没写的旧段指纹不变。
 type visualShot struct {
 	Size   string `json:"size,omitempty"`
 	Camera string `json:"camera,omitempty"`
 	Text   string `json:"text"`
+	End    string `json:"end,omitempty"`
 }
 
 type timedShot struct {
@@ -67,7 +69,7 @@ func InputHash(artifactType string, rev RevisionInputs, refIDs []string) string 
 		if seg != nil {
 			shots := make([]visualShot, 0, len(seg.Shots))
 			for _, sh := range seg.Shots {
-				shots = append(shots, visualShot{sh.Size, sh.Camera, sh.Text})
+				shots = append(shots, visualShot{sh.Size, sh.Camera, sh.Text, sh.EndState})
 			}
 			parts["spec"] = map[string]any{"scene": seg.Scene, "mode": seg.Mode, "first": seg.FirstFrame, "last": seg.LastFrame, "refs": seg.Refs, "rules": seg.Rules, "shots": shots}
 		}

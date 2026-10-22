@@ -2,7 +2,7 @@
 name: 柚子短剧制作工作流
 description: 将小说、故事素材或剧本整理为短剧剧本、分镜和可复用资产，并按实际能力与授权生成、核验视频。
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
   author: 柚子
   owner: yingce-system
   skillId: "yingce-short-drama-workflow"
@@ -10,10 +10,13 @@ metadata:
   sortWeight: 1000
   source: 3
   createdAt: 1791353705856
-  updatedAt: 1791353706185
+  updatedAt: 1792108800000
 ---
 
 # 柚子短剧制作工作流
+
+
+> **短剧项目画布改用 yoozee 1.0 skills。** 当前画布属于短剧项目（有 `drama_*` 工具）时，不按本技能的主线和旧 6 步状态机推进，改读 `yz-producer`：它按段推进（一段 = 一次视频生成，上限由项目生成模型决定），需求、分段、连戏表、证据都写进项目。本技能只用于不属于项目的自由画布。
 
 ## 系统执行合同
 

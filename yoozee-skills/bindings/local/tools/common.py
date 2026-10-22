@@ -113,3 +113,14 @@ def project_model():
                 if mid.replace("-", "") in line.replace("-", "") or mid in line:
                     return mid
     return models_json()["default"]
+
+
+def project_ratio():
+    """需求文档里定的画幅：读 需求文档.md 里「画幅：」一行（模板是「平台与画幅：」）写的比例，如 9:16；没写比例返回 None。"""
+    brief = ROOT / "需求文档.md"
+    if not brief.exists():
+        return None
+    import re
+    hit = re.search(r"画幅[：:]\s*([^\n]+)", brief.read_text(encoding="utf-8"))
+    ratio = hit and re.search(r"(\d+(?:\.\d+)?)\s*[:：]\s*(\d+(?:\.\d+)?)", hit.group(1))
+    return f"{ratio.group(1)}:{ratio.group(2)}" if ratio else None

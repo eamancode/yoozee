@@ -205,7 +205,7 @@ def copy_tree(src, dst, target, skip=()):
             leftover = TOKEN.findall(text)
             if leftover:
                 raise SystemExit(f"{p}: 占位符没替换完：{leftover}")
-            out.write_text(text, encoding="utf-8")
+            out.write_text(text, encoding="utf-8", newline="\n")
             if p.suffix in (".py", ".sh"):
                 out.chmod(0o755)
         else:
@@ -251,7 +251,7 @@ def build_skills(dst_skills, target):
             shutil.rmtree(out)
         copy_tree(d, out, target, skip=("SKILL.md",))
         out.mkdir(parents=True, exist_ok=True)
-        (out / "SKILL.md").write_text(skill_markdown(meta, body, target, d), encoding="utf-8")
+        (out / "SKILL.md").write_text(skill_markdown(meta, body, target, d), encoding="utf-8", newline="\n")
         if target == "codex":
             ag = out / "agents"
             ag.mkdir(exist_ok=True)
@@ -261,14 +261,14 @@ def build_skills(dst_skills, target):
                 f'  display_name: "{meta["title"]}"\n'
                 f'  short_description: "{short}"\n'
                 + (f'  default_prompt: "使用 ${name}，读进度表，做下一件能做的事。"\n' if name == "yz-producer" else ""),
-                encoding="utf-8")
+                encoding="utf-8", newline="\n")
 
 
 def runtime_dir(dst, target):
     copy_tree(SRC / "bindings" / "local" / "tools", dst / "tools", target)
     shutil.copytree(SRC / "contracts", dst / "contracts", dirs_exist_ok=True)
-    (dst / "RUNTIME.md").write_text(render(read(SRC / "bindings" / "local" / "RUNTIME.md"), target), encoding="utf-8")
-    (dst / "ports.md").write_text(read(SRC / "ports.md"), encoding="utf-8")
+    (dst / "RUNTIME.md").write_text(render(read(SRC / "bindings" / "local" / "RUNTIME.md"), target), encoding="utf-8", newline="\n")
+    (dst / "ports.md").write_text(read(SRC / "ports.md"), encoding="utf-8", newline="\n")
 
 
 def build_claude():
@@ -280,7 +280,7 @@ def build_claude():
     copy_tree(SRC / "bindings" / "local" / "agents", root / ".claude" / "agents", "claude-code")
     copy_tree(SRC / "bindings" / "local" / "hooks", root / ".claude" / "hooks", "claude-code")
     shutil.copy2(SRC / "bindings" / "local" / "settings.json", root / ".claude" / "settings.yoozee.json")
-    (root / "CLAUDE.yoozee.md").write_text(render(read(SRC / "bindings" / "local" / "PROJECT.md"), "claude-code"), encoding="utf-8")
+    (root / "CLAUDE.yoozee.md").write_text(render(read(SRC / "bindings" / "local" / "PROJECT.md"), "claude-code"), encoding="utf-8", newline="\n")
     return root
 
 
@@ -293,7 +293,7 @@ def build_codex():
     copy_tree(SRC / "bindings" / "local" / "agents", root / "yoozee" / "helpers", "codex")
     copy_tree(SRC / "bindings" / "local" / "hooks", root / "yoozee" / "hooks", "codex")
     (root / "AGENTS.yoozee.md").write_text(render(read(SRC / "bindings" / "local" / "PROJECT.md"), "codex")
-                                           + "\n- 审片员、探路员的做法写在 `yoozee/helpers/`，需要时按其中说明自己做或开子任务。\n", encoding="utf-8")
+                                           + "\n- 审片员、探路员的做法写在 `yoozee/helpers/`，需要时按其中说明自己做或开子任务。\n", encoding="utf-8", newline="\n")
     return root
 
 
@@ -343,8 +343,8 @@ def build_yozi():
             shutil.rmtree(BUILTIN / name)
     build_skills(BUILTIN, "yozi")
     producer = BUILTIN / "yz-producer"
-    (producer / "RUNTIME.md").write_text(read(SRC / "bindings" / "yozi" / "RUNTIME.md"), encoding="utf-8")
-    (producer / "ports.md").write_text(read(SRC / "ports.md"), encoding="utf-8")
+    (producer / "RUNTIME.md").write_text(read(SRC / "bindings" / "yozi" / "RUNTIME.md"), encoding="utf-8", newline="\n")
+    (producer / "ports.md").write_text(read(SRC / "ports.md"), encoding="utf-8", newline="\n")
     shutil.copytree(SRC / "contracts", producer / "contracts", dirs_exist_ok=True)
     blocks = BUILTIN / "kb-dialects" / "blocks"
     blocks.mkdir(parents=True, exist_ok=True)

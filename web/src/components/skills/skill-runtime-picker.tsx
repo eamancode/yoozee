@@ -1,17 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 
+import { scopedLocalStorage } from "@/lib/user-scope";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
+import { ensureDefaultCanvasAgentSkill } from "@/services/skill-defaults";
 import { SKILL_RUNTIME_PROFILES, type SkillRuntimeProfile } from "@/services/skill-runtime";
 import { Select } from "@/components/ui/base/select";
 
-export function useSkillRuntimeCatalog() {
+/**
+ * 读用户技能库里已加入的技能。ensureSkillIds 是入口的默认技能：平台内置但用户还没加进技能库的，
+ * 先加进去再列出（与画布 Agent 默认技能的做法一致）；加不上（已下架、停用）就照常列出，不选它。
+ */
+export function useSkillRuntimeCatalog(ensureSkillIds: readonly string[] = []) {
     const [skills, setSkills] = useState<Skill[]>([]);
     const [loading, setLoading] = useState(true);
+    const ensureKey = ensureSkillIds.join(",");
 
     useEffect(() => {
         let cancelled = false;
-        listAddedSkills()
+        const ensureIds = ensureKey ? ensureKey.split(",") : [];
+        const load = async () => {
+            let result = await listAddedSkills();
+            for (const skillId of ensureIds) {
+                if (result.skills.some((skill) => skill.skillId === skillId && skill.isAdded)) continue;
+                result = await ensureDefaultCanvasAgentSkill({}, skillId).catch(() => result);
+            }
+            return result;
+        };
+        load()
             .then((result) => {
                 if (!cancelled) setSkills(result.skills.filter((skill) => skill.isAdded));
             })
@@ -24,9 +40,44 @@ export function useSkillRuntimeCatalog() {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [ensureKey]);
 
     return { skills, loading };
+}
+
+const REMEMBERED_SKILLS_KEY = "yingce:skill-runtime-selection";
+
+/** 这个入口是否记过用户的选择（包括选空）；没记过时入口可以用自己的默认技能。 */
+export function hasRememberedSkillIds(slot: string) {
+    return scopedLocalStorage.getItem(`${REMEMBERED_SKILLS_KEY}:${slot}`) !== null;
+}
+
+/** 读出上次在同一入口选的技能；只是 UI 偏好，按用户 scope 存在 localStorage。没记过时返回 fallback。 */
+export function readRememberedSkillIds(slot: string, fallback: readonly string[] = []) {
+    const stored = scopedLocalStorage.getItem(`${REMEMBERED_SKILLS_KEY}:${slot}`);
+    if (stored === null) return [...fallback];
+    try {
+        const parsed: unknown = JSON.parse(stored || "[]");
+        return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string" && Boolean(id)) : [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * 记住每个入口（章节分镜、镜头生成……）上次选的技能。技能库加载完成后丢掉已经移除的技能；
+ * 加载前不过滤，避免技能列表还没回来就把记忆清空。用户没在这个入口选过时用 defaultSkillIds，
+ * 改过一次（包括清空）之后就只认用户的。
+ */
+export function useRememberedSkillSelection(slot: string, skills: Skill[], loading: boolean, defaultSkillIds: readonly string[] = []) {
+    const [selected, setSelected] = useState(() => readRememberedSkillIds(slot, defaultSkillIds));
+    const available = useMemo(() => new Set(skills.map((skill) => skill.skillId)), [skills]);
+    const value = loading ? selected : selected.filter((id) => available.has(id));
+    const change = useCallback((skillIds: string[]) => {
+        setSelected(skillIds);
+        scopedLocalStorage.setItem(`${REMEMBERED_SKILLS_KEY}:${slot}`, JSON.stringify(skillIds));
+    }, [slot]);
+    return [value, change] as const;
 }
 
 export function SkillRuntimePicker({ skills, loading, value, onChange, placeholder = "选择本次生成使用的技能", profile = "canvas" }: { skills: Skill[]; loading?: boolean; value: string[]; onChange: (skillIds: string[]) => void; placeholder?: string; profile?: SkillRuntimeProfile }) {
@@ -35,6 +86,8 @@ export function SkillRuntimePicker({ skills, loading, value, onChange, placehold
         [skills],
     );
     const maxSkills = SKILL_RUNTIME_PROFILES[profile].maxSkills;
+    // 多选下拉默认选完不收起，浮层会盖住弹窗底部的主按钮，误点就取消了技能；每选一项就收起。
+    const [open, setOpen] = useState(false);
 
     return (
         <Select
@@ -51,6 +104,9 @@ export function SkillRuntimePicker({ skills, loading, value, onChange, placehold
             optionFilterProp="label"
             options={options}
             onChange={onChange}
+            open={open}
+            onOpenChange={setOpen}
+            onSelect={() => setOpen(false)}
             notFoundContent={loading ? "正在读取技能库" : "暂无已加入的技能"}
             aria-label="本次生成使用的技能"
         />
