@@ -62,8 +62,10 @@ export function segmentDurationRule(familyMaxSeconds: number, channel?: VideoCap
 }
 
 export type SegmentPlanOptions = {
-    /** 分镜行都没绑场景时，整章按一场处理，场景名用章节标题。 */
+    /** 分镜行都没绑场景、正文里也认不出场景标题时，整章按一场处理，场景名用章节标题。 */
     chapterTitle: string;
+    /** 章节正文：分镜行都没绑场景时，按正文的场景标题（「内·病房走廊·夜」）切场。 */
+    sourceText?: string;
     rule: SegmentDurationRule;
     /** 段长目标区间（秒），默认 15–25；上限仍是 rule.maxSeconds。 */
     target?: { min: number; max: number };
@@ -96,7 +98,7 @@ export function storyboardRowsToSegments(rows: StoryboardRow[], detail: ProjectD
     const notes: string[] = [];
     if (rule.problem) notes.push(`${rule.problem}：段按内容时长写入，这个渠道提交不了，先换视频渠道或改项目生成模型`);
 
-    const scenes = groupRowsByScene(rows, shots, detail.assets, options.chapterTitle, rule.maxSeconds);
+    const scenes = groupRowsByScene(rows, shots, detail.assets, options, rule.maxSeconds);
     const sceneAssets = detail.assets.filter((asset) => SCENE_CATEGORIES.has(asset.category)).map((asset) => asset.title);
     if (scenes.every((scene) => !scene.key) && sceneAssets.length) notes.push(`分镜行没有认出场景（项目里有「${sceneAssets.slice(0, 3).join("」「")}」），整章按一场装段：可以在分镜制作页拆段，或给镜头绑定场景后重新生成分段`);
     const groups: Array<{ scene: PlannedScene; rows: PlannedRow[]; refs: string[]; lockedCutBefore: boolean }> = [];
@@ -176,8 +178,11 @@ export function storyboardRowsToSegments(rows: StoryboardRow[], detail: ProjectD
     return { shots: result, notes };
 }
 
-/** 一行镜头属于哪一场：绑定里优先级最高的场景资产；没有就沿用上一场，开头没有就取后面第一场。 */
-function groupRowsByScene(rows: StoryboardRow[], shots: ProjectShotReplacementInput[], assets: ProjectAsset[], chapterTitle: string, maxSeconds: number): PlannedScene[] {
+/**
+ * 一行镜头属于哪一场：绑定里优先级最高的场景资产；没有就沿用上一场，开头没有就取后面第一场。
+ * 所有行都没绑场景时按正文的场景标题切场（sourceSceneOfRows），正文也没有场景标题才整章算一场。
+ */
+function groupRowsByScene(rows: StoryboardRow[], shots: ProjectShotReplacementInput[], assets: ProjectAsset[], options: Pick<SegmentPlanOptions, "chapterTitle" | "sourceText">, maxSeconds: number): PlannedScene[] {
     const assetById = new Map(assets.map((asset) => [asset.id, asset]));
     const own = rows.map((row) => {
         const binding = row.assetBindings
@@ -190,12 +195,14 @@ function groupRowsByScene(rows: StoryboardRow[], shots: ProjectShotReplacementIn
         const asset = binding ? assetById.get(binding.nodeId) : undefined;
         return asset ? { key: asset.id, name: asset.title } : undefined;
     });
-    const fallback = { key: "", name: chapterTitle.trim() || "一" };
-    let current = own.find(Boolean) || fallback;
+    const sourceScenes = own.some(Boolean) ? [] : chapterSourceScenes(options.sourceText || "");
+    const bySource = sourceScenes.length >= 2 ? sourceSceneOfRows(rows, sourceScenes).map((index) => ({ key: `source-scene-${index + 1}`, name: sourceScenes[index].heading })) : own;
+    const fallback = { key: "", name: sourceScenes.length === 1 ? sourceScenes[0].heading : options.chapterTitle.trim() || "一" };
+    let current = bySource.find(Boolean) || fallback;
     const scenes: PlannedScene[] = [];
     let lastKey: string | undefined;
     rows.forEach((row, index) => {
-        current = own[index] || current;
+        current = bySource[index] || current;
         const planned = { row, shot: shots[index], seconds: Math.min(maxSeconds, Math.max(1, Math.round(Number(row.durationSeconds) || 1))) };
         if (lastKey === current.key) {
             const scene = scenes[scenes.length - 1];
@@ -207,6 +214,101 @@ function groupRowsByScene(rows: StoryboardRow[], shots: ProjectShotReplacementIn
         lastKey = current.key;
     });
     return scenes;
+}
+
+export type ChapterSourceScene = { heading: string; dialogue: Array<{ speaker: string; text: string }>; grams: Set<string> };
+
+// 场景标题：「内·病房走廊·夜」「外 码头 日」「第3场」「场景二」「INT. 病房」，可带 Markdown 的 #。
+const SCENE_HEADING = /^(?:(?:内外|外内|内|外)\s*[·・.．\-—–:：\s]\s*\S|第[0-9一二三四五六七八九十百零〇两]+场(?:\s|$|[·・.．:：])|场景?\s*[0-9一二三四五六七八九十百零〇两]+(?:\s|$|[·・.．:：])|(?:INT|EXT)\b)/i;
+const SOURCE_DIALOGUE = /^([^：:（(]{1,12})[：:]\s*(.+)$/;
+// 对上一句台词的分量远高于文字相似度（0–1），台词能对上时以台词定场；换场带一点代价，信号相同时留在上一场。
+const DIALOGUE_MATCH = 3;
+const DIALOGUE_PARTIAL = 2;
+const SCENE_CHANGE = 0.05;
+
+/** 按场景标题把章节正文切成场；标题前的引子算进第一场。认不出标题时返回空数组。 */
+export function chapterSourceScenes(sourceText: string): ChapterSourceScene[] {
+    const scenes: Array<{ heading: string; lines: string[] }> = [];
+    const preface: string[] = [];
+    for (const raw of sourceText.split(/\r?\n/)) {
+        const line = raw.trim();
+        if (!line) continue;
+        const title = line.replace(/^#{1,6}\s*/, "").trim();
+        if (title.length <= 40 && SCENE_HEADING.test(title)) {
+            scenes.push({ heading: title, lines: scenes.length ? [] : [...preface] });
+            continue;
+        }
+        (scenes.length ? scenes[scenes.length - 1].lines : preface).push(line);
+    }
+    return scenes.map((scene) => ({
+        heading: scene.heading,
+        dialogue: scene.lines.flatMap((line) => {
+            const match = SOURCE_DIALOGUE.exec(line);
+            return match ? [{ speaker: match[1].replace(/[（(].*?[）)]/g, "").trim(), text: normalizeLine(stripQuotes(match[2])) }] : [];
+        }),
+        grams: textGrams([scene.heading, ...scene.lines].join("\n")),
+    }));
+}
+
+/**
+ * 分镜行按先后顺序归到正文的场（返回每行的场序号，单调不减）：台词与正文某场的台词对上最有分量，
+ * 其次是剧情描述和首帧画面的字面重合度；没台词的过场镜头靠文字落到前一场或后一场。
+ */
+export function sourceSceneOfRows(rows: StoryboardRow[], scenes: ChapterSourceScene[]): number[] {
+    if (!rows.length || !scenes.length) return rows.map(() => 0);
+    const score = rows.map((row) => scenes.map((scene) => rowSceneScore(row, scene)));
+    const best = score.map(() => new Array<number>(scenes.length).fill(Number.NEGATIVE_INFINITY));
+    const from = score.map(() => new Array<number>(scenes.length).fill(0));
+    best[0] = score[0].map((value, index) => value - index * SCENE_CHANGE);
+    for (let row = 1; row < rows.length; row += 1) {
+        for (let scene = 0; scene < scenes.length; scene += 1) {
+            for (let previous = 0; previous <= scene; previous += 1) {
+                const value = best[row - 1][previous] - (previous === scene ? 0 : SCENE_CHANGE);
+                if (value > best[row][scene]) {
+                    best[row][scene] = value;
+                    from[row][scene] = previous;
+                }
+            }
+            best[row][scene] += score[row][scene];
+        }
+    }
+    const last = best[rows.length - 1];
+    let scene = last.indexOf(Math.max(...last));
+    const result = new Array<number>(rows.length);
+    for (let row = rows.length - 1; row >= 0; row -= 1) {
+        result[row] = scene;
+        scene = from[row][scene];
+    }
+    return result;
+}
+
+function rowSceneScore(row: StoryboardRow, scene: ChapterSourceScene) {
+    const dialogue = parseDialogue(row.dialogue).reduce((total, line) => {
+        const text = normalizeLine(line.text);
+        if (!text) return total;
+        if (scene.dialogue.some((item) => item.text === text && (line.vo || item.speaker === line.speaker))) return total + DIALOGUE_MATCH;
+        const partial = text.length >= 4 && scene.dialogue.some((item) => item.text.length >= 4 && (item.text.includes(text) || text.includes(item.text)));
+        return total + (partial ? DIALOGUE_PARTIAL : 0);
+    }, 0);
+    const grams = textGrams([row.plotDescription, row.imageGenerationPrompt].join("\n"));
+    let shared = 0;
+    grams.forEach((gram) => {
+        if (scene.grams.has(gram)) shared += 1;
+    });
+    return dialogue + (grams.size ? shared / grams.size : 0);
+}
+
+/** 汉字和字母数字的相邻二元组，比较剧情描述与正文的字面重合。 */
+function textGrams(value: string) {
+    const chars = Array.from(
+        value
+            .normalize("NFKC")
+            .toLocaleLowerCase()
+            .replace(/[^\p{Script=Han}a-z0-9]/gu, ""),
+    );
+    const grams = new Set<string>();
+    for (let index = 0; index < chars.length - 1; index += 1) grams.add(`${chars[index]}${chars[index + 1]}`);
+    return grams;
 }
 
 /**

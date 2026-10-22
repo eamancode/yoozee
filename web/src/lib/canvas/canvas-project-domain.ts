@@ -14,6 +14,7 @@ import { batchReferenceHandleY } from "@/lib/canvas/canvas-batch-table";
 import { reconcileImageBatchRoot } from "@/lib/canvas/canvas-image-batch-retry";
 import { scopedLocalStorage } from "@/lib/user-scope";
 import type { GenerationTask } from "@/services/api/task-center";
+import type { SkillOutputField } from "@/services/skill-runtime";
 import { synchronizeGenerationSpec } from "@/lib/canvas/generation-contract";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type ConnectionHandle, type Position, type StoryboardColumn, type StoryboardRow } from "@/types/canvas";
 
@@ -105,7 +106,11 @@ export function cinematicStoryboardColumns(columns?: StoryboardColumn[]): Storyb
 // 分镜文本任务的模型侧输出契约，字段与 storyboardRowsFromTask 的解析结构一一对应。
 // 后端只有带 metadata.promptTemplateOperation 的任务才会编译服务端分镜模板（含 JSON 契约），
 // 章节分镜走的是自定义 prompt，缺这段约束时模型会按自然语言习惯返回 Markdown 表格，解析阶段拿不到 rows。
-export function storyboardRowsOutputContract(requirement: string) {
+// 所选技能在 frontmatter 声明的额外字段（如 yz-chapter-shots 的 spec）必须写进契约：契约在技能上下文之后、
+// 字段又写死，模型会把这里当成完整字段表，技能正文里要求的字段整列不写。
+export function storyboardRowsOutputContract(requirement: string, extraFields: SkillOutputField[] = []) {
+    const reserved = new Set<string>(STORYBOARD_CONTRACT_FIELDS);
+    const extras = extraFields.filter((field) => !reserved.has(field.name));
     return [
         "【受保护输出契约】",
         "- 只返回一个 JSON 对象，不要 Markdown、表格、代码块、注释或任何解释文字。",
@@ -117,9 +122,13 @@ export function storyboardRowsOutputContract(requirement: string) {
         "  audioEffects、camera、motion、timeBeats、imageGenerationPrompt（首帧画面提示词）、",
         "  videoMotionPrompt（运镜与结尾状态）、continuityOut、negativePrompt、",
         "  mustHave（数组，最多 3 项）、optionalDetails（数组）。",
+        ...extras.map((field) => `- rows 每项再加 ${field.name}（${OUTPUT_FIELD_TYPE_LABELS[field.type]}，形状见技能说明，每个镜头都要写，不能省略）${field.description ? `：${field.description}` : ""}`),
         "- 镜头数量以完整覆盖剧情因果、人物关系和关键台词为准，不要为压缩数量删减关键情节。",
     ].join("\n");
 }
+
+const STORYBOARD_CONTRACT_FIELDS = ["shotNumber", "durationSeconds", "plotDescription", "dialogue", "characters", "narrativeIntent", "viewerPOV", "performanceBlocking", "shotSize", "emotion", "lightingAndAtmosphere", "audioEffects", "camera", "motion", "timeBeats", "imageGenerationPrompt", "videoMotionPrompt", "continuityOut", "negativePrompt", "mustHave", "optionalDetails", "assets"] as const;
+const OUTPUT_FIELD_TYPE_LABELS: Record<SkillOutputField["type"], string> = { object: "对象", array: "数组", string: "字符串", number: "数字", boolean: "布尔值" };
 
 // 旧版本会把项目画风执行规范追加到分镜剧情末尾；分镜规划只保留用户原始剧情。
 export function stripProjectStyleExecutionBlocks(prompt: string): string {
@@ -133,7 +142,7 @@ export function stripProjectStyleExecutionBlocks(prompt: string): string {
 // 否则模型按自然语言习惯返回 Markdown 表格或直接续写正文，解析阶段拿不到 rows。
 // 镜头数与每镜时长只能写进契约文本：后端 canvasGenerationInput 不读 input.shotCount / shotDurationSeconds，
 // 仅放进 input 时节点上的「N 镜」「每镜 N 秒」对模型不可见。
-export function withStoryboardOutputContract(prompt: string, options: { shotCount?: number; shotDurationSeconds?: number } = {}) {
+export function withStoryboardOutputContract(prompt: string, options: { shotCount?: number; shotDurationSeconds?: number; extraFields?: SkillOutputField[] } = {}) {
     const shotCount = Math.trunc(Number(options.shotCount) || 0);
     const shotDurationSeconds = Math.trunc(Number(options.shotDurationSeconds) || 0);
     const requirement = [
@@ -141,7 +150,7 @@ export function withStoryboardOutputContract(prompt: string, options: { shotCoun
         shotDurationSeconds > 0 ? `每镜约 ${shotDurationSeconds} 秒，durationSeconds 填写该值` : "",
         "每个镜头必须能独立用于生成首帧图片和镜头视频。",
     ].filter(Boolean).join("；");
-    return [prompt, storyboardRowsOutputContract(requirement)].join("\n\n");
+    return [prompt, storyboardRowsOutputContract(requirement, options.extraFields)].join("\n\n");
 }
 
 // 文本任务的 result_json 外层是 {mode, reasoning, text} 包装，分镜表在 text 字段的内层 JSON 字符串里；
