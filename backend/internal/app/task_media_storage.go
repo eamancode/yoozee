@@ -125,7 +125,9 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 	if _, err = ValidateOutboundURL(url); err != nil {
 		return "", "", err
 	}
-	if sameProviderOrigin(config.BaseURL, url) {
+	// 结果地址可能落在渠道的另一个域名（同一台网关，如 api.lecapi.net 与 api.paipu.net），
+	// 这类地址同样需要渠道鉴权，否则上游按未授权拒绝下载。
+	if providerHostRelated(config.BaseURL, url) {
 		applyProviderAuth(req, config)
 		ApplyOutboundHeaders(req, config.Headers)
 	}
