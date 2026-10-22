@@ -1,10 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://yoozee.dev/contracts/bible.schema.json",
-  "title": "连戏表",
-  "description": "生成照它写，审片照它核；也是素材库清单。每一项指向文件，checked 为 true 才算齐。",
+  "title": "资产圣经（连戏表）",
+  "description": "生成照它写，审片照它核；也是素材库清单。2.0 新增：角色层级与硬产物、原文依据 / 推导 / 设计建议标记、JSON 视觉锚点、服装变体（须剧本节拍证据）、场景空间类型与大白话、四方位、禁人物自检、空间图（米数、朝向、遮挡、机位侧）、伏笔物件、风格锚点。身份在这里，演出状态在镜头。",
   "type": "object",
   "additionalProperties": false,
+  "$defs": {
+    "evidence": {"type": "array", "items": {"type": "string"}, "description": "原文依据（引号原句）"},
+    "image": {"type": "string", "description": "素材路径或柚子资产 ID"}
+  },
   "properties": {
     "characters": {
       "type": "array",
@@ -14,7 +18,40 @@
         "additionalProperties": false,
         "properties": {
           "name": {"type": "string"},
+          "nn": {"type": ["integer", "null"], "description": "出场序号"},
+          "tier": {"type": "string", "enum": ["lead", "support", "extra"], "description": "主角 / 配角 / 龙套（自动判，用户可改）"},
           "speaks": {"type": "boolean"},
+          "evidence": {"$ref": "#/$defs/evidence"},
+          "derived": {"type": "array", "items": {"type": "string"}, "description": "推导项"},
+          "proposal": {"type": "array", "items": {"type": "string"}, "description": "设计建议项"},
+          "anchors": {"type": "array", "items": {"type": "string"}, "description": "3～5 个可见身份锚点，其中一个是认脸用的小特征"},
+          "group_variation": {"type": "string", "description": "群像差异化锚点（群体角色）"},
+          "voice_profile": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "角色音色设定（文字）；台词四元的「音色」从这里取",
+            "properties": {
+              "age_feel": {"type": "string"},
+              "timbre": {"type": "string", "description": "声线质感"},
+              "line_quality": {"type": "string", "description": "线路质感：画内近场 / 听筒窄频 / 免提外放 / 画外音低通…"},
+              "pace": {"type": "string"},
+              "breath": {"type": "string", "description": "气息状态"},
+              "mood": {"type": "string", "description": "情绪底色"}
+            }
+          },
+          "visual_anchor": {
+            "type": ["object", "string"],
+            "description": "JSON 参考锚点（S 级 V2），或一句话的外貌锚点",
+            "properties": {
+              "face": {"type": "object"},
+              "hair": {"type": "object"},
+              "body": {"type": "object"},
+              "costume": {"type": "object"},
+              "color_palette": {"type": "object"},
+              "silhouette": {"type": "object"},
+              "key_landmarks": {"type": "array"}
+            }
+          },
           "variants": {
             "type": "array",
             "minItems": 1,
@@ -23,17 +60,31 @@
               "required": ["label"],
               "additionalProperties": false,
               "properties": {
-                "label": {"type": "string", "description": "年龄或状态，如「29 岁」「受伤后」"},
+                "label": {"type": "string", "description": "年龄、状态或服装变体名"},
+                "kind": {"type": "string", "enum": ["base", "age", "costume"], "description": "base 本体；age 年龄版；costume 服装变体（D1：只换服装款式）"},
+                "trigger_beat": {"type": "string", "description": "触发该变体的剧本节拍 id（D5：无证据不建变体）"},
                 "age": {"type": "string"},
                 "face_hair": {"type": "string"},
                 "glasses": {"type": "string"},
-                "marks": {"type": "string", "description": "可识别的小特征（为了认脸）"},
+                "marks": {"type": "string"},
                 "costume": {"type": "string"},
-                "lock_card": {"type": "array", "items": {"type": "string"}, "description": "8～12 个具体视觉短语"},
-                "sheet": {"type": "string", "description": "三视图整张"},
-                "crops": {"type": "array", "items": {"type": "string"}, "description": "裁开的特写、全身正面、全身侧面"},
-                "voice": {"type": "string", "description": "固定音色参考音频"},
-                "voice_short": {"type": "string", "description": "多人对戏用的短版"},
+                "lock_card": {"type": "array", "items": {"type": "string"}, "description": "8～12 个具体视觉短语，从 visual_anchor 派生"},
+                "sheet": {"$ref": "#/$defs/image", "description": "三视图 / 四视图整张"},
+                "crops": {"type": "array", "items": {"$ref": "#/$defs/image"}, "description": "裁开的特写、全身正面、全身侧面（、背面）"},
+                "sheet_assets": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "S 级五大硬产物；视频线默认只强制 crops + lock_card",
+                  "properties": {
+                    "r1_views": {"type": "boolean"},
+                    "r2_exploded": {"$ref": "#/$defs/image"},
+                    "r3_palette": {"$ref": "#/$defs/image"},
+                    "r4_guides": {"type": "boolean"},
+                    "r5_height": {"type": "string"}
+                  }
+                },
+                "voice": {"$ref": "#/$defs/image"},
+                "voice_short": {"$ref": "#/$defs/image"},
                 "checked": {"type": "boolean"}
               }
             }
@@ -49,8 +100,15 @@
         "additionalProperties": false,
         "properties": {
           "name": {"type": "string"},
-          "image": {"type": "string"},
-          "states": {"type": "array", "items": {"type": "object", "additionalProperties": false, "properties": {"when": {"type": "string"}, "desc": {"type": "string"}, "image": {"type": "string"}}}},
+          "category": {"type": "string", "description": "武器 / 护甲 / 法器 / 容器 / 信物 / 场景道具 / 工具 / 其他"},
+          "holder": {"type": "string"},
+          "first_seen": {"type": "string"},
+          "evidence": {"$ref": "#/$defs/evidence"},
+          "priority": {"type": "integer", "minimum": 1, "maximum": 3},
+          "plant_id": {"type": "string"},
+          "image": {"$ref": "#/$defs/image"},
+          "states": {"type": "array", "items": {"type": "object", "additionalProperties": false, "properties": {"when": {"type": "string"}, "desc": {"type": "string"}, "image": {"$ref": "#/$defs/image"}}}},
+          "exploded_in": {"type": "string"},
           "checked": {"type": "boolean"}
         }
       }
@@ -63,17 +121,27 @@
         "additionalProperties": false,
         "properties": {
           "name": {"type": "string"},
-          "plate": {"type": "string", "description": "无人空景图"},
-          "side_a": {"type": "string"},
-          "side_b": {"type": "string"},
-          "fixtures": {"type": "string", "description": "固定项：墙上、家具、窗外"},
-          "light": {"type": "string", "description": "时段与光"},
+          "space_type": {"type": "string", "enum": ["S1", "S2", "S3", "S4", "O1", "O2", "X"], "description": "小墨空间类型：决定景别上限与鸟瞰 / 升降禁令"},
+          "plain_view": {"type": "string", "description": "正面全景微俯视大白话（一段）"},
+          "depth": {"type": "string", "description": "近 / 中 / 远三层各有什么"},
+          "light_source": {"type": "string", "description": "主光源锚点与方向、色温"},
+          "anchors": {"type": "array", "items": {"type": "string"}, "description": "中文锚点名，镜头 blocking 用它绑定方位"},
+          "evidence": {"$ref": "#/$defs/evidence"},
+          "fixtures": {"type": "string"},
+          "light": {"type": "string"},
+          "plate": {"$ref": "#/$defs/image", "description": "无人空景图"},
+          "side_a": {"$ref": "#/$defs/image"},
+          "side_b": {"$ref": "#/$defs/image"},
+          "views": {"type": "object", "additionalProperties": false, "properties": {"north": {"$ref": "#/$defs/image"}, "east": {"$ref": "#/$defs/image"}, "south": {"$ref": "#/$defs/image"}, "west": {"$ref": "#/$defs/image"}}},
+          "versions": {"type": "array", "items": {"type": "object", "additionalProperties": false, "properties": {"label": {"type": "string"}, "desc": {"type": "string"}, "plate": {"$ref": "#/$defs/image"}}}},
+          "no_people_checked": {"type": "boolean", "description": "D12 场景禁人物自检已过"},
           "checked": {"type": "boolean"}
         }
       }
     },
-    "screen_text": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["text"], "properties": {"who": {"type": "string"}, "text": {"type": "string", "description": "逐字"}, "when": {"type": "string"}}}},
+    "screen_text": {"type": "array", "items": {"type": "object", "required": ["text"], "additionalProperties": false, "properties": {"who": {"type": "string"}, "text": {"type": "string"}, "when": {"type": "string"}}}},
     "timeline": {"type": "array", "items": {"type": "string"}},
+    "plants": {"type": "array", "items": {"type": "object", "required": ["id", "what"], "additionalProperties": false, "properties": {"id": {"type": "string"}, "what": {"type": "string", "description": "伏笔物件 / 隐藏观察者 / 监控设备"}, "scene": {"type": "string"}, "shot_priority": {"type": "string", "enum": ["high", "normal"]}}}},
     "spatial_maps": {
       "type": "array",
       "items": {
@@ -82,12 +150,19 @@
         "additionalProperties": false,
         "properties": {
           "scene": {"type": "string"},
-          "map": {"type": "string", "description": "谁在哪、身后是什么、道具在哪（文字草图）"},
-          "gaze": {"type": "string", "description": "拍谁时朝画面哪边看"},
-          "plates": {"type": "string", "description": "正反打各机位身后用哪张图"},
-          "props": {"type": "string"}
+          "main_view": {"type": "string", "description": "主视角方向，如「从门口看向窗」"},
+          "map": {"type": "string", "description": "文字草图"},
+          "positions": {"type": "array", "items": {"type": "object", "required": ["who", "at"], "additionalProperties": false, "properties": {"who": {"type": "string"}, "at": {"type": "string", "description": "锚点"}, "meters": {"type": "string"}, "facing": {"type": "string"}, "occluded_by": {"type": "string"}}}},
+          "cameras": {"type": "array", "items": {"type": "object", "required": ["shot", "side"], "additionalProperties": false, "properties": {"shot": {"type": "string"}, "side": {"type": "string", "description": "在谁的哪一侧"}, "plate": {"$ref": "#/$defs/image"}}}},
+          "gaze": {"type": "string"},
+          "plates": {"type": "string"},
+          "props": {"type": "string"},
+          "svg": {"type": "string"},
+          "approved": {"type": "boolean"}
         }
       }
-    }
+    },
+    "style_anchor": {"type": "object", "additionalProperties": false, "properties": {"art_style": {"type": "string"}, "render_quality": {"type": "string"}, "era": {"type": "string"}, "genre": {"type": "string"}}},
+    "version": {"type": "string", "description": "归档版本（复用时）"}
   }
 }

@@ -1,0 +1,49 @@
+{
+  "id": "anime-3d",
+  "label": "3D 动漫（即梦叙事分镜）",
+  "source": "即梦叙事分镜 优化版 · 二、全局参数 / 16.3 3D 动漫表演 / 群像差异化规则",
+  "medium": "anime_3d",
+  "style_block": {
+    "zh": "电影级 3D 动画渲染，角色为统一风格的三维动漫人物，皮肤与布料为高质量 PBR 材质，边缘干净无噪点；场景写实布光、体积感雾气按场景介质出现；色彩饱和但有层次，高光滚降自然；同一场景的材质、颜色、光线方向在所有镜头里保持字面一致；无字幕、无水印、无可读文字（参考里已有的除外）。"
+  },
+  "acting_block": {
+    "zh": "3D 动画表演读秒：关键表情至少停 0.5 秒让观众读懂；快速动作前有预备动作、动作后有结果姿态；复杂情绪不与大幅走动、长台词、复杂手势同时发生；姿态轮廓一眼可读（清楚的剪影）。"
+  },
+  "performance_grain": "visible_action",
+  "camera_default": "X2",
+  "camera_follows_emotion": true,
+  "light_policy": "motivated",
+  "prompt_density": "standard",
+  "quotas": {
+    "closeup_max": 0.5,
+    "consecutive_same_move_max": 2,
+    "consecutive_same_size_max": 2,
+    "heavy_moves": {"dolly_zoom": 1, "orbit": 3, "roll": 1}
+  },
+  "rules": {
+    "one_take_allowed": true,
+    "standing_talk_max_sec": 4,
+    "big_action_isolated": true,
+    "big_action_sec": [3, 4],
+    "reaction_after_hammer": true,
+    "dialogue_open_size": ["中景", "中全景", "全景", "中近景"],
+    "shot_time_code": true,
+    "max_move_axes": 2,
+    "no_rotation_at_z1_z3": true,
+    "one_line_one_shot": true,
+    "bgm_allowed": false,
+    "adjacent_size_min_gap": 2,
+    "indoor_light_anchor_required": true,
+    "expression_min_sec": 0.5,
+    "group_variation_required": true
+  },
+  "asset_tier_policy": {
+    "lead": ["crops>=3", "lock_card>=8", "anchors>=3", "voice_if_speaks"],
+    "support": ["crops>=3", "lock_card>=8", "anchors>=3", "voice_if_speaks"],
+    "extra": ["crops>=1", "lock_card>=4", "group_variation"]
+  },
+  "notes": [
+    "群像人物禁止同脸：同一群体可统一服装与阵营风格，但必须写明年龄、脸型、发型、胡须、伤疤、饰品、体型、站姿或表情差异。",
+    "原文方位自相矛盾时以动作因果和物理空间为准，在空间坐标锁定里写清；统一空间坐标不等于改剧情。"
+  ]
+}

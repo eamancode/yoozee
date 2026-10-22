@@ -1,0 +1,11 @@
+[
+  {"id": "R-SCRIPT-001", "level": "error", "desc": "节拍 id 全局唯一，且前缀与所在场 id 一致（E01S03L07 必须在 E01S03 里）", "source": "yoozee 2.0 F5 台词是事实", "impl": "script_ids"},
+  {"id": "R-SCRIPT-002", "level": "error", "desc": "kind=line/vo 的节拍必须有 speaker 和非空 text；台词原文一字不改（下游只引用 id）", "source": "五份资料共同第一原则", "impl": "script_lines"},
+  {"id": "R-SCRIPT-003", "level": "warn", "desc": "写作红线启发式：动作节拍里出现「意识到 / 领会到 / 内心涌起 / 感到 / 心想」等心理描写，或括号暗示「（其实…）」，或台词里解释设定的「我是…的…」", "source": "山音 写作红线", "impl": "script_redlines"},
+  {"id": "R-SCRIPT-004", "level": "error", "desc": "每场有 heading（内/外·地点·时间）；有 characters", "source": "山音 剧本格式规范", "impl": "script_headings"},
+  {"id": "R-SCRIPT-005", "level": "warn", "desc": "场内有 kind=time_jump 的节拍时必须填 scene.time_jump（跨度与压缩方式）", "source": "即梦 17-5.1 叙事时间跨度", "impl": "script_time_jump"},
+  {"id": "R-SCRIPT-006", "level": "error", "desc": "kind=action 的场必须有 fight.phase_plan（至少一个阶段）与 fight.sides（至少一方）", "source": "武学库 打斗阶段 / 打斗割草", "impl": "script_fight"},
+  {"id": "R-SCRIPT-007", "level": "warn", "desc": "短剧速产：单句台词 ≤15 字（中文按字数），最长不超过 15", "source": "山音 短剧速产 通用铁律", "impl": "script_duanju_line_length"},
+  {"id": "R-SCRIPT-008", "level": "warn", "desc": "kind=screen_text 的节拍文字必须逐字出现在 script.screen_text 里", "source": "即梦 17-7 / 分镜师 4.0 画面里的字", "impl": "script_screen_text"},
+  {"id": "R-SCRIPT-009", "level": "warn", "desc": "有 plant_id 的节拍，其 id 应在 story.plants 或 bible.plants 里登记", "source": "即梦 19.1", "impl": "script_plants"}
+]

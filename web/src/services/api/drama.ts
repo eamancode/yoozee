@@ -1,4 +1,5 @@
 import { ApiError, http } from "@/services/api/request";
+import { API_ERROR_REASON } from "@/services/api/error-codes";
 import type { GenerationTask } from "@/services/api/task-center";
 import type { ShotArtifact } from "@/services/api/projects";
 
@@ -23,9 +24,35 @@ export type DramaRegistry = { version: string; default: string; models: DramaMod
 
 export type DramaAuthMode = "step" | "full";
 
-export type DramaLine = { speaker: string; text: string; vo?: boolean; delivery?: string };
-/** 段内一个镜头。sound、end_state 记在镜头上：段没写 sound / rules 时后端编译从镜头取，拆段合段后跟着镜头走。 */
-export type DramaSubShot = { at: number; size?: string; camera?: string; text: string; lines?: DramaLine[]; sound?: string; end_state?: string };
+/** 台词：2.1 起回指剧本 line_id，三元（pace / tone / emotion）齐全时编译成即梦四元。 */
+export type DramaLine = { speaker: string; text: string; vo?: boolean; delivery?: string; line_id?: string; timbre?: string; pace?: string; tone?: string; emotion?: string; placement?: string };
+export type DramaTransition = { in?: string; out?: string; cut_point?: string };
+/**
+ * 段内一个镜头。sound、end_state 记在镜头上：段没写 sound / rules 时后端编译从镜头取，拆段合段后跟着镜头走。
+ * 2.1 由镜头表装段时另写 expression（表情链）、positions（站位）、anchors、motion、light_full（灯光七项）、transition（衔接）。
+ */
+export type DramaSubShot = {
+    at: number;
+    size?: string;
+    camera?: string;
+    text: string;
+    lines?: DramaLine[];
+    sound?: string;
+    end_state?: string;
+    shot_id?: string;
+    risk_tags?: string[];
+    start_state?: string;
+    purpose?: string;
+    expression?: string;
+    expression_terms?: string[];
+    composition?: string;
+    transition?: DramaTransition;
+    vo?: string;
+    positions?: string;
+    anchors?: string;
+    motion?: string;
+    light_full?: string;
+};
 /** 契约 segment：一段 = 一次生成，段内多镜头。 */
 export type DramaSegment = {
     id: string;
@@ -35,13 +62,25 @@ export type DramaSegment = {
     mode: "lock_identity" | "lock_first_frame" | "text_only";
     first_frame?: string;
     last_frame?: string;
-    refs?: Array<{ file: string; role: string; note?: string }>;
+    refs?: Array<{ file: string; role: string; note?: string; state?: string }>;
     voices?: Array<{ character: string; file: string }>;
     shots: DramaSubShot[];
+    cast?: Array<{ name: string; lock: string[] }>;
+    screen_text?: string[];
+    jimeng?: { narrative_span?: string; function?: string; strategy?: string; atmosphere?: string; light_source?: string; sound_bed?: string; group_variation?: string };
     sound?: string;
     rules?: string;
     hook?: string;
     lang?: string;
+    /** 2.1：回指镜头表的镜头 id、风格档案、风险标签、同场后段的一致性桥。 */
+    shot_ids?: string[];
+    story_span?: string;
+    profile?: string;
+    reanchor?: string;
+    density?: "tight" | "standard" | "dense";
+    handles?: Array<{ tag: string; text: string }>;
+    warnings?: string[];
+    continuity_bridge?: { prev_segment: string; handoff_state: string; shared_refs: string[]; bridge_frame?: string; bridge_clip?: string; reanchor_text?: string; shared_bed?: string };
 };
 
 export type DramaIssue = { level: "error" | "warn"; message: string };
@@ -49,7 +88,7 @@ export type DramaCompileResult = {
     shotId: string;
     spec: DramaSegment;
     derived: boolean;
-    result: { segment: string; model: string; duration: number; prompt: string; files: Array<{ file: string; tag: string; role: string }>; chars: number; issues: DramaIssue[] };
+    result: { segment: string; model: string; duration: number; prompt: string; paste?: string; files: Array<{ file: string; tag: string; role: string }>; chars: number; warnings?: string[]; issues: DramaIssue[] };
 };
 
 export type DramaSegmentProgress = {
@@ -148,6 +187,33 @@ export function listDramaSegments(projectId: string, unitId: string, signal?: Ab
  */
 export function writeDramaSegments(projectId: string, input: { unitId: string; segments: DramaSegment[]; order?: string[] }) {
     return http.put<{ segments: DramaSegmentView[] }>(`/projects/${projectId}/drama/segments`, input);
+}
+
+/** 镜头表门禁的一条结果：shotId 是规则指向的镜头（整表级规则为空）。 */
+export type DramaCheckItem = { level: "error" | "warn"; rule: string; message: string; shotId?: string };
+export type DramaCheckReport = { kind: "shots"; errors: number; warnings: number; items: DramaCheckItem[]; skipped: Array<{ rule: string; why: string }> };
+export type DramaShotlistStats = { rows: number; shots: number; no_spec?: number; line_exact?: number; line_fuzzy?: number; line_unmatched?: number; scene_remap?: number; scene_unknown?: number; dup_id?: number };
+/** 一章的镜头表（契约 shotlist）、由章节正文转出的台词表与最近一次检查结果。 */
+export type DramaShotlistView = { unitId: string; version: number; shotlist: { profile: string; episode?: number; shots: Array<Record<string, unknown>> }; script?: Record<string, unknown>; check: DramaCheckReport; updatedAt: string };
+export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; notes: string[] };
+
+export function getDramaShotlist(projectId: string, unitId: string, signal?: AbortSignal) {
+    return http.get<{ shotlist: DramaShotlistView | null }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist`, { signal });
+}
+
+/**
+ * 写一章的镜头表并整章重装段：后端转台词、转镜头表、检查、装段。检查有 error 时抛 ApiError（reason=shotlist_check_failed，
+ * details.check 是检查结果），镜头表与段都不落库。rule 是渠道实际能提交的段长，只能收紧项目生成模型的上限。
+ */
+export function putDramaShotlist(projectId: string, unitId: string, input: { rows: unknown[]; rule?: { maxSeconds: number; minSeconds: number }; expectedShotIds?: string[] }) {
+    return http.put<DramaShotlistWriteResult>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist`, input);
+}
+
+/** 镜头表检查不过时，从错误里取出检查结果；不是这种错误返回 undefined。 */
+export function shotlistCheckFailure(error: unknown): DramaCheckReport | undefined {
+    if (!(error instanceof ApiError) || error.reason !== API_ERROR_REASON.ShotlistCheckFailed) return undefined;
+    const check = error.details?.check as DramaCheckReport | undefined;
+    return check && Array.isArray(check.items) ? check : undefined;
 }
 
 export function compileProjectShot(projectId: string, shotId: string, input: { model?: string } = {}) {

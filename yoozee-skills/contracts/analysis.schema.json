@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/analysis.schema.json",
+  "title": "参考视频拆解",
+  "description": "yz-analyze 的产物（来自动作模式分析模板）：只写看得见听得见的事实；命中至少两项证据，否则置信度不得为 high；时间范围连续无空洞；摄影机运动与人物位移分开。",
+  "type": "object",
+  "required": ["source", "actors", "chain", "phases"],
+  "additionalProperties": false,
+  "$defs": {
+    "confidence": {"type": "string", "enum": ["high", "mid", "low", "unknown"]}
+  },
+  "properties": {
+    "source": {
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"type": "string"},
+        "duration": {"type": "number"},
+        "fps": {"type": "number"},
+        "variable_fps": {"type": "boolean"},
+        "has_cuts": {"type": "boolean"},
+        "has_audio": {"type": "boolean"},
+        "precision": {"type": "string", "description": "分析时间精度，如 0.1 秒 / 单帧"},
+        "limits": {"type": "string", "description": "能力限制或素材问题，如实写"}
+      }
+    },
+    "actors": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["label", "desc"], "additionalProperties": false, "properties": {"label": {"type": "string", "description": "角色A / 角色B / 裁判C"}, "desc": {"type": "string", "description": "服装、拳套颜色、体型等固定身份标签"}}}},
+    "space": {"type": "object", "additionalProperties": false, "properties": {"initial_positions": {"type": "string"}, "distance": {"type": "string"}, "facing": {"type": "string"}, "landmarks": {"type": "string"}, "main_axis": {"type": "string"}}},
+    "chain": {"type": "string", "description": "一句话核心动作链：动作1 → 动作2 → …"},
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "initiator", "action", "contact", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "from": {"type": "number"},
+          "to": {"type": "number"},
+          "initiator": {"type": "string"},
+          "action": {"type": "string"},
+          "response": {"type": "string"},
+          "contact": {"type": "string", "enum": ["hit", "graze", "blocked", "miss", "occluded", "unknown", "none"]},
+          "result": {"type": "string", "description": "身体与空间结果"},
+          "link": {"type": "string", "description": "如何衔接下一动作"},
+          "confidence": {"$ref": "#/$defs/confidence"}
+        }
+      }
+    },
+    "key_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "start", "contact_at", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "start": {"type": "number"},
+          "start_pose": {"type": "string"},
+          "kinetic_chain": {"type": "string"},
+          "path": {"type": "string"},
+          "opponent_doing": {"type": "string"},
+          "contact_at": {"type": "number"},
+          "contact_part": {"type": "string"},
+          "contact_evidence": {"type": "array", "items": {"type": "string"}, "description": "至少两项才能判明确命中"},
+          "reaction": {"type": "string"},
+          "balance": {"type": "string"},
+          "fall": {"type": "string"},
+          "recovery": {"type": "string"},
+          "next_start": {"type": "number"},
+          "link": {"type": "string"},
+          "confidence": {"$ref": "#/$defs/confidence"}
+        }
+      }
+    },
+    "stats": {"type": "object", "additionalProperties": false, "properties": {"standing_total": {"type": "integer"}, "hits": {"type": "integer"}, "misses": {"type": "integer"}, "unknown": {"type": "integer"}, "ground_total": {"type": "integer"}, "ground_hits": {"type": "integer"}, "stopped_by_ref": {"type": "integer"}}},
+    "takedowns": {"type": "string"},
+    "audio_timeline": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {"from": {"type": "number"}, "to": {"type": "number"}, "speech": {"type": "string"}, "crowd": {"type": "string"}, "impact": {"type": "string"}, "ground": {"type": "string"}, "music": {"type": "string"}, "confidence": {"$ref": "#/$defs/confidence"}}}},
+    "camera": {"type": "array", "items": {"type": "object", "required": ["from", "to"], "additionalProperties": false, "properties": {"from": {"type": "number"}, "to": {"type": "number"}, "size_angle": {"type": "string"}, "move": {"type": "string"}, "cut": {"type": "boolean"}, "readability": {"type": "string"}, "occlusion": {"type": "string"}}}},
+    "narrative": {"type": "string", "description": "连续动作文字稿，可直接给动作导演 / 提示词"},
+    "uncertain": {"type": "array", "items": {"type": "string"}},
+    "verdict": {"type": "string"}
+  }
+}

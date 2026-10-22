@@ -1,0 +1,9 @@
+[
+  {"id": "R-STORY-001", "level": "error", "desc": "结构对照表没有 missing（❌）的功能位；five_stage 模式下 structure 必须存在", "source": "山音 阶段 3b 整形纪律", "impl": "story_structure"},
+  {"id": "R-STORY-002", "level": "warn", "desc": "weak（⚠️）的功能位必须写 reason（有意识声明保留理由）", "source": "山音 阶段 3b", "impl": "story_weak_reason"},
+  {"id": "R-STORY-003", "level": "error", "desc": "five_stage 模式 treatment.aftertaste（余味）非空：观众看完手里拿着什么", "source": "山音 地基 4 体验优先于意义", "impl": "story_aftertaste"},
+  {"id": "R-STORY-004", "level": "error", "desc": "duanju_fast 模式五项产出齐：hook、cast_cards、engines、sections、outline；paywall 时 paywalls 非空", "source": "山音 短剧速产 一键工作流", "impl": "story_duanju_outputs"},
+  {"id": "R-STORY-005", "level": "warn", "desc": "伏笔登记里每条 plants 有 payoff 或 status=open 的说明", "source": "山音 伏笔登记 / 即梦 19.1", "impl": "story_plants"},
+  {"id": "R-STORY-006", "level": "warn", "desc": "grid25 每格有 task；总秒数与 brief.duration 相近", "source": "Seedance 技能 25 格流水线", "impl": "story_grid25"},
+  {"id": "R-STORY-007", "level": "error", "desc": "adapt 模式 fact_ledger 存在，且 fixes 里每条都有来源标记（tag）；不得用新增对白修复", "source": "即梦 三步思考法第一步", "impl": "story_fact_ledger"}
+]

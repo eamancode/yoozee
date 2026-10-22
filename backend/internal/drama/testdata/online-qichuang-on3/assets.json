@@ -1,0 +1,80 @@
+[
+ {
+  "id": "char-1",
+  "title": "林小满",
+  "type": "character",
+  "category": "character",
+  "tags": [],
+  "prompt": "29 岁夜班护士，瓜子脸，黑色低马尾，右眉外端一道淡色小疤，眼下有淡淡黑眼圈，素颜",
+  "characterAssetId": "char-1",
+  "characterVersionId": "charv-1"
+ },
+ {
+  "id": "char-2",
+  "title": "周岸",
+  "type": "character",
+  "category": "character",
+  "tags": [],
+  "prompt": "33 岁，180 cm，精瘦，寸头，方下巴，两天胡茬，眼皮厚、眼神平",
+  "characterAssetId": "char-2",
+  "characterVersionId": "charv-2"
+ },
+ {
+  "id": "char-3",
+  "title": "阿坤",
+  "type": "character",
+  "category": "character",
+  "tags": [],
+  "prompt": "二十七八岁，175 cm，瘦长",
+  "characterAssetId": "char-3",
+  "characterVersionId": "charv-3"
+ },
+ {
+  "id": "loc-1",
+  "title": "病房走廊",
+  "type": "image",
+  "category": "environment",
+  "tags": [],
+  "prompt": "站在走廊一端往里看，眼前是一条约三十米长的医院走廊，地面是浅绿色塑胶地板，反着头顶一排日光灯的冷白光。左手边隔四五米一扇病房门，门牌是蓝底白字的数字，最近的那扇虚掩着；右手边是护士站的矮柜台，柜台上一盏小台灯亮着暖光，摞着几本文件夹。再往里走廊变暗，尽头是两扇电梯门和旁边的楼梯间防火门。两千年代建的公立医院，干净但旧。"
+ },
+ {
+  "id": "loc-2",
+  "title": "电梯口",
+  "type": "image",
+  "category": "environment",
+  "tags": [],
+  "prompt": "站在走廊尽头往回看，正对面是两扇不锈钢电梯门，门上方的楼层指示灯亮着红色数字；电梯门左侧是一扇灰色楼梯间防火门，门上一条竖长的夹丝玻璃小窗。头顶一盏日光灯坏了在闪，光忽明忽暗，不锈钢门面上映着走廊的倒影。地面还是浅绿塑胶地板，墙角地面一个红色灭火器箱。"
+ },
+ {
+  "id": "loc-3",
+  "title": "七床病房",
+  "type": "image",
+  "category": "environment",
+  "tags": [],
+  "prompt": "从门口往里看，单人病房。一张病床铺着白床单，床边一根空着的不锈钢输液架，床头柜上一盏小床头灯亮着，是屋里唯一的暖光；墙上一台关着的监护仪，床尾栏杆上挂着一块夹板，窗户拉着米色百叶，地面浅绿塑胶。两千年代的公立医院，干净。"
+ },
+ {
+  "id": "prop-1",
+  "title": "病历夹",
+  "type": "image",
+  "category": "prop",
+  "tags": [],
+  "prompt": ""
+ },
+ {
+  "id": "prop-2",
+  "title": "折叠刀",
+  "type": "image",
+  "category": "prop",
+  "tags": [],
+  "prompt": ""
+ },
+ {
+  "id": "prop-3",
+  "title": "留置针贴膏",
+  "type": "image",
+  "category": "prop",
+  "tags": [],
+  "prompt": ""
+ }
+]

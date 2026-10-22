@@ -74,6 +74,7 @@ import {
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { putDramaShotlist, shotlistCheckFailure, type DramaCheckReport } from "@/services/api/drama";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { bindStoryboardRowAssets, chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
@@ -87,6 +88,14 @@ const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
 type ChapterOperationKind = "characters" | "storyboard";
 // queued：任务还在排队（或刚提交、还没开始跑），按钮显示「排队中」而不是从 0 秒开始的「已运行」。
 type ChapterOperation = { startedAt: number; taskId?: string; queued?: boolean };
+type ShotlistCheckChoice = "regenerate" | "flat" | "cancel";
+
+/** 镜头表检查不过、用户选了「重新生成」：生成流程收到它就再跑一次，不当失败提示。 */
+class StoryboardRegenerateRequested extends Error {
+    constructor() {
+        super("镜头表检查未通过，重新生成分镜");
+    }
+}
 
 function formatChapterListCount(value: number) {
     if (value < 10_000) return formatCount(value);
@@ -408,16 +417,78 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         // 模型按名称给的资产（或镜头文字里出现的资产名）先落成分镜行绑定，装段才能按场景切场、带上参考；
         // 一个场景都没绑上时按正文的场景标题切场，所以正文要按行保留。
         const boundRows = bindStoryboardRowAssets(rows, chapterStoryboardAssets(assetDetail));
+        const expectedShotIds = detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id);
+        const refresh = async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
+                queryClient.invalidateQueries({ queryKey: ["projects"] }),
+            ]);
+            markChapterOperationCompleted(unitId, "storyboard");
+        };
+        // 带镜头表 spec 的分镜行（yz-chapter-shots 技能）交给后端：转台词、转镜头表、检查、装段、写 2.1 段；
+        // 不带 spec 的（别的分镜技能）继续走前端装段。
+        if (boundRows.some((row) => row.spec && typeof row.spec === "object")) {
+            try {
+                const stored = await putDramaShotlist(detail.project.id, unitId, { rows: boundRows, rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, expectedShotIds });
+                await refresh();
+                const notes = [...stored.notes];
+                if (stored.check.warnings) notes.push(`镜头表检查有 ${stored.check.warnings} 条提醒，可在分镜制作页按段查看`);
+                if (notes.length) message.warning(notes.join("；"), 10);
+                return { count: stored.segments.length, scenes: new Set(stored.segments.map((segment) => segment.spec.scene)).size };
+            } catch (error) {
+                const check = shotlistCheckFailure(error);
+                if (!check) throw error;
+                const choice = await askShotlistCheckChoice(check);
+                if (choice === "regenerate") throw new StoryboardRegenerateRequested();
+                if (choice === "cancel") throw new Error("镜头表检查未通过，分镜没有保存");
+            }
+        }
         const plan = storyboardRowsToSegments(boundRows, assetDetail, { chapterTitle: unit?.title || "", sourceText: sourceText ?? htmlToPlainLines(unit?.sourceText || ""), rule: segmentRule, target: DEFAULT_SEGMENT_TARGET, maxRefs: dramaModel?.refs.images ?? undefined });
-        await replaceProjectUnitShots(detail.project.id, unitId, plan.shots, detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));
-        await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
-            queryClient.invalidateQueries({ queryKey: ["projects"] }),
-        ]);
-        markChapterOperationCompleted(unitId, "storyboard");
+        await replaceProjectUnitShots(detail.project.id, unitId, plan.shots, expectedShotIds);
+        await refresh();
         if (plan.notes.length) message.warning(plan.notes.join("；"), 10);
         return { count: plan.shots.length, scenes: new Set(plan.shots.map((shot) => String(shot.revision.spec?.scene || ""))).size };
     };
+    /** 镜头表检查不过：列出 error 级规则项和对应镜头，让用户选重新生成、仍按平铺字段保存，或先不保存。 */
+    const askShotlistCheckChoice = (check: DramaCheckReport) => new Promise<ShotlistCheckChoice>((resolve) => {
+        const errors = check.items.filter((item) => item.level === "error");
+        let settled = false;
+        const settle = (choice: ShotlistCheckChoice) => {
+            if (settled) return;
+            settled = true;
+            instance.destroy();
+            resolve(choice);
+        };
+        const instance = modal.confirm({
+            title: `镜头表检查有 ${check.errors} 个问题，分镜还没有保存`,
+            width: 640,
+            centered: true,
+            closable: true,
+            content: (
+                <div className="space-y-3 text-sm leading-6 text-foreground/70">
+                    <p>这些问题会让生成的视频缺台词或违反画风规则。可以重新生成分镜，或者先按旧方式（只存剧情、台词、景别、机位等平铺字段）保存，镜头表里的情绪弧、灯光、站位、衔接不会保留。</p>
+                    <ul className="max-h-72 space-y-1.5 overflow-y-auto pl-0" aria-label="镜头表检查问题">
+                        {errors.map((item, index) => (
+                            <li key={`${item.rule}-${item.shotId || "all"}-${index}`} className="list-none rounded-md bg-surface-active px-3 py-2">
+                                <span className="font-medium text-foreground/85">{item.shotId || "整章"}</span>
+                                <span className="ml-2 font-mono text-xs text-foreground/50">{item.rule}</span>
+                                <div>{item.message}</div>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ),
+            footer: (
+                <div className="mt-4 flex justify-end gap-2">
+                    <Button onClick={() => settle("flat")}>仍按平铺字段保存</Button>
+                    <Button type="primary" onClick={() => settle("regenerate")}>
+                        重新生成
+                    </Button>
+                </div>
+            ),
+            onCancel: () => settle("cancel"),
+        });
+    });
     const extractCharacters = async () => {
         let operationUnitId = "";
         try {
@@ -440,7 +511,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             if (operationUnitId) finishChapterOperation(operationUnitId, "characters");
         }
     };
-    const createStoryboard = async () => {
+    const createStoryboard = async (options: { replaceConfirmed?: boolean } = {}) => {
         const unit = selectedUnit;
         if (!unit) return message.warning("章节正文尚未加载完成");
         if (dirty) return message.warning("请先保存当前章节，再生成分镜");
@@ -456,10 +527,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             navigateToSettings({ continueCreation: true });
             return;
         }
-        if (storyboardImpact.shotCount && !(await confirmStoryboardReplacement(storyboardImpact))) return;
+        if (storyboardImpact.shotCount && !options.replaceConfirmed && !(await confirmStoryboardReplacement(storyboardImpact))) return;
         setStoryboardOpen(false);
         beginChapterOperation(unit.id, "storyboard");
         message.info("分镜生成任务已开始，可继续编辑或切换章节");
+        let regenerate = false;
         try {
             const assetDetail = await storyboardDetail();
             const result = await generateChapterStoryboard({
@@ -484,10 +556,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             message.success(result.skillCount ? `${summary}，并应用 ${result.skillCount} 个技能` : summary);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/video`);
         } catch (error) {
+            if (error instanceof StoryboardRegenerateRequested) {
+                regenerate = true;
+                return;
+            }
             refreshProject();
             message.error(error instanceof Error ? `章节分镜生成失败：${error.message}` : "章节分镜生成失败");
         } finally {
             finishChapterOperation(unit.id, "storyboard");
+            if (regenerate) window.setTimeout(() => void createStoryboard({ replaceConfirmed: true }), 0);
         }
     };
     const confirmStoryboardReplacement = (impact: ReturnType<typeof chapterStoryboardReplaceImpact>) => new Promise<boolean>((resolve) => {
@@ -534,6 +611,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 }
                 recoveredTaskIdsRef.current.add(task.id);
             }).catch((error) => {
+                if (error instanceof StoryboardRegenerateRequested) {
+                    recoveredTaskIdsRef.current.add(task.id);
+                    message.info("请在章节页重新生成分镜");
+                    return;
+                }
                 message.error(error instanceof Error ? `任务结果恢复失败：${error.message}` : "任务结果恢复失败");
             }).finally(() => recoveringTaskIdsRef.current.delete(task.id));
         }

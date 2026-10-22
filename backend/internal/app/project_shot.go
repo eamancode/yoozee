@@ -129,6 +129,11 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 }
 
 func (s *Service) ReplaceProjectUnitShots(userID string, projectID string, unitID string, req ReplaceProjectUnitShotsRequest) ([]model.Shot, error) {
+	return s.replaceProjectUnitShots(userID, projectID, unitID, req, nil)
+}
+
+// replaceProjectUnitShots 整章替换镜头；shotlist 不为空时本章镜头表与新段在同一事务里写入。
+func (s *Service) replaceProjectUnitShots(userID string, projectID string, unitID string, req ReplaceProjectUnitShotsRequest, shotlist *model.DramaShotlist) ([]model.Shot, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return nil, err
@@ -177,8 +182,15 @@ func (s *Service) ReplaceProjectUnitShots(userID string, projectID string, unitI
 			references = append(references, model.ShotAssetReference{ID: newID(), ShotID: shotID, AssetVersionID: versionID, Role: "reference", Status: "linked", CreatedAt: now})
 		}
 	}
+	if shotlist != nil {
+		shotlist.ProjectID, shotlist.UnitID, shotlist.CreatedBy = projectID, unitID, userID
+		if shotlist.ID == "" {
+			shotlist.ID = newID()
+		}
+		shotlist.CreatedAt, shotlist.UpdatedAt = now, now
+	}
 	// 章节级重生成是一个整体写操作，旧镜头与引用必须和新镜头在同一事务中替换。
-	if err := s.repo.ReplaceProjectUnitShots(projectID, unitID, shots, revisions, references, req.ExpectedShotIDs); err != nil {
+	if err := s.repo.ReplaceProjectUnitShotsWithShotlist(projectID, unitID, shots, revisions, references, req.ExpectedShotIDs, shotlist); err != nil {
 		if errors.Is(err, repository.ErrProjectUnitShotsChanged) {
 			return nil, BadAuthRequest("本章分镜已发生变化，请刷新后重新确认")
 		}

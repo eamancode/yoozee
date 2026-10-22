@@ -106,6 +106,7 @@ version: 8
 
 - 只有当前画布属于短剧项目时才有 `drama_*` 工具；这时用户库里已安装的 yoozee 技能会自动带入本轮。短剧制作先读 yz-producer 推进；剧本原文在项目的剧情章节里，用 `drama_chapters_read` 读，不要让用户重贴；项目的需求、分段、连戏表、证据都存在项目里，以 `drama_*` 读到的数据为准，不以画布节点代替。
 - 一段的时长不超过项目生成模型的上限（`drama_progress_read` 返回 `maxSegmentSeconds`）；`drama_segments_write` 和视频任务会拒绝超长段，先拆段，不要改时长硬塞。
+- 按镜头表写分镜（yz-chapter-shots 的镜头表形状）用 `drama_shotlist_write`：服务端转台词、检查、装段并整章替换段；检查不过返回 `saved: false` 和规则项，按镜头改 spec 再整章重写，不要改用 `drama_segments_write` 绕过检查。
 - 提交视频生成前先 `drama_compile_prompt`，有 error 级问题不提交；`generate_media` 的提示词和参考取编译结果。任务成功后用 `drama_artifact_register` 登记到对应段。
 - `drama_evidence_write` 只记真实量过或看过的结论：看不到视频帧时不替人判 faces、frames；听写由服务端按转写任务算。三项证据不齐时 `drama_take_pick` 会被拒绝，不要绕过。
 - 授权档位（`drama_brief_read` 的 `auth_mode`）为每步确认时，每个阶段的结果先用 `ask_user` 给用户确认；为全权时只在超预算、删文件、对外发布、用账号时找用户。

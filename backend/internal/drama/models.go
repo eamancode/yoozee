@@ -34,22 +34,25 @@ type RefLimits struct {
 
 // Model 是一个可选的视频生成模型族（不是渠道里的具体模型名）。
 type Model struct {
-	ID                      string             `json:"id"`
-	Label                   string             `json:"label"`
-	Vendor                  string             `json:"vendor"`
-	Kind                    string             `json:"kind"`
-	Match                   []string           `json:"match"`
-	Duration                DurationLimit      `json:"duration"`
-	Refs                    RefLimits          `json:"refs"`
-	FramesExclusiveWithRefs *bool              `json:"frames_exclusive_with_refs"`
-	PromptMaxChars          *int               `json:"prompt_max_chars"`
-	Resolutions             []string           `json:"resolutions"`
-	FPS                     *int               `json:"fps"`
-	AudioInVideo            bool               `json:"audio_in_video"`
-	PricePerSecUSD          map[string]float64 `json:"price_per_sec_usd"`
-	Checked                 string             `json:"checked"`
-	Calibrated              bool               `json:"calibrated"`
-	Sources                 []string           `json:"sources"`
+	ID                      string        `json:"id"`
+	Label                   string        `json:"label"`
+	Vendor                  string        `json:"vendor"`
+	Kind                    string        `json:"kind"`
+	Match                   []string      `json:"match"`
+	Duration                DurationLimit `json:"duration"`
+	Refs                    RefLimits     `json:"refs"`
+	FramesExclusiveWithRefs *bool         `json:"frames_exclusive_with_refs"`
+	PromptMaxChars          *int          `json:"prompt_max_chars"`
+	// PromptMaxCharsMeasured 是本账户实测的字数上限，编译优先用它；FilesTotal 是参考文件的混合上限。
+	PromptMaxCharsMeasured *int               `json:"prompt_max_chars_measured"`
+	FilesTotal             *int               `json:"files_total"`
+	Resolutions            []string           `json:"resolutions"`
+	FPS                    *int               `json:"fps"`
+	AudioInVideo           bool               `json:"audio_in_video"`
+	PricePerSecUSD         map[string]float64 `json:"price_per_sec_usd"`
+	Checked                string             `json:"checked"`
+	Calibrated             bool               `json:"calibrated"`
+	Sources                []string           `json:"sources"`
 }
 
 // MaxDurationMs 是一段的最长时长（毫秒）。

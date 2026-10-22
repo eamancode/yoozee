@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 58
+const CurrentSchemaVersion int64 = 59
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -209,6 +209,10 @@ var schemaMigrations = []migration{
 	// yoozee 1.0 skills：项目生成模型、授权档位、需求文档与连戏表；段的中性分段；产物依赖指纹；证据表。
 	{version: dramaSegmentsEvidenceMigrationVersion, name: dramaSegmentsEvidenceMigrationName, checksum: dramaSegmentsEvidenceMigrationChecksum, apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.Project{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotEvidence{})
+	}},
+	// yoozee 2.1：每章一份镜头表，段由它装出。
+	{version: 59, name: "drama_shotlists", checksum: "sha256:drama-shotlists-v59-20261022", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaShotlist{})
 	}},
 }
 

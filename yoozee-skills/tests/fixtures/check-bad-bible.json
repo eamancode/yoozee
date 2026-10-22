@@ -1,0 +1,11 @@
+{
+  "kind": "bible",
+  "args": ["--stage", "skeleton"],
+  "expect": ["R-BIBLE-003", "R-BIBLE-004", "R-BIBLE-005", "R-BIBLE-006", "R-BIBLE-002"],
+  "characters": [
+    {"name": "无名", "variants": [{"label": "湿透", "kind": "costume"}]}
+  ],
+  "locations": [
+    {"name": "坏场景", "plain_view": "一个书生站着看风景，背影很孤独。"}
+  ]
+}

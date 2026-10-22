@@ -22,6 +22,8 @@ export const API_ERROR_REASON = {
     UpstreamDNSFailed: "upstream_dns_failed",
     /** 文本模型因输出上限停笔（finish_reason=length / stop_reason=max_tokens），任务失败、结果不完整。 */
     TextOutputTruncated: "text_output_truncated",
+    /** 镜头表门禁有 error，没有保存；`ApiError.details.check` 是检查结果（规则项与镜头）。 */
+    ShotlistCheckFailed: "shotlist_check_failed",
 } as const;
 
 export type ApiErrorReason = (typeof API_ERROR_REASON)[keyof typeof API_ERROR_REASON];

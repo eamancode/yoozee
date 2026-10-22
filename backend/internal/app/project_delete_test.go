@@ -34,7 +34,7 @@ func newProjectDeleteTestService(t *testing.T) (*Service, *gorm.DB) {
 		&model.Task{},
 		&model.Shot{},
 		&model.ShotRevision{},
-		&model.ShotArtifact{}, &model.ShotEvidence{},
+		&model.ShotArtifact{}, &model.ShotEvidence{}, &model.DramaShotlist{},
 		&model.ShotAssetReference{},
 		&model.WorkflowInstance{},
 		&model.WorkflowStepInstance{},

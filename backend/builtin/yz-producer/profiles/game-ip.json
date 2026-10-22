@@ -1,0 +1,50 @@
+{
+  "id": "game-ip",
+  "label": "游戏 IP 战斗（鸣潮为样板，内部自用）",
+  "extends": "action-epic",
+  "source": "鸣潮战斗动作库 + 打斗割草技能",
+  "medium": "game_cg",
+  "style_block": {
+    "zh": "鸣潮视觉三大底层语言：声骸——半透明发光的数据方块粒子生物，带声波同心纹路；协奏——切人即演出，入场变奏、离场延奏；频率——一切攻击以光波、声波、粒子流呈现，高饱和、强对比。武器只用官方五类：长刃、迅刀、佩枪、臂铠、音感仪。画质沿用 action-epic 的 UE5 块；属性色体系（衍射 / 湮灭 / 气动 / 导电 / 冷凝 / 热熔）贯穿技能光效与环境染色。无背景音乐，无字幕。"
+  },
+  "acting_block": {
+    "zh": "入场动作期间角色有白色描边无敌光；共鸣解放释放瞬间全场时停 0.5～1 秒，镜头急推面部或环绕一周，身后浮现属性意象；极限闪避触发 20%～30% 慢动作 0.8～1.2 秒后恢复常速。"
+  },
+  "performance_grain": "visible_action",
+  "camera_default": "X2",
+  "camera_follows_emotion": false,
+  "light_policy": "stylized",
+  "prompt_density": "dense",
+  "quotas": {
+    "consecutive_same_move_max": 3,
+    "consecutive_same_size_max": 2,
+    "heavy_moves": {"dolly_zoom": 1, "snorricam": 1}
+  },
+  "rules": {
+    "one_take_allowed": true,
+    "standing_talk_max_sec": 2,
+    "big_action_isolated": false,
+    "reaction_after_hammer": false,
+    "shot_time_code": true,
+    "max_move_axes": 2,
+    "no_rotation_at_z1_z3": true,
+    "one_line_one_shot": true,
+    "bgm_allowed": false,
+    "adjacent_size_min_gap": 1,
+    "indoor_light_anchor_required": false,
+    "expression_min_sec": 0.3,
+    "group_variation_required": true
+  },
+  "vfx_policy": {
+    "ratio": {"fluid": 0.6, "particle": 0.25, "water_dust": 0.15},
+    "slow_motion_max_per_film": 2,
+    "slow_motion_sec": [0.8, 1.2],
+    "slow_motion_positions": ["极限闪避触发", "共鸣解放释放瞬间"],
+    "ip_pack": "kb-action/vocab/packs/wuthering-waves/wuthering.jsonl",
+    "one_contact_per_shot": true
+  },
+  "notes": [
+    "IP 包不进对外发布包（build.py 剔除 kb-action/packs/）。",
+    "其他 IP 照鸣潮包的结构加：四段式条目 → JSONL + 索引，再派生一个 extends action-epic 的档案。"
+  ]
+}

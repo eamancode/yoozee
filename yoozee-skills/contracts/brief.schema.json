@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://yoozee.dev/contracts/brief.schema.json",
   "title": "需求文档",
-  "description": "只有 status 为「已确认」或「默认，已授权」的条目才能拿去花钱。用户原话原样记、带日期。",
+  "description": "只有 status 为「已确认」或「默认，已授权」的条目才能拿去花钱。用户原话原样记、带日期。2.0 新增：剧本来源、风格档案、入口类型、提示词密度、速产参数、分集目标。",
   "type": "object",
-  "required": ["title", "video_model", "auth_mode"],
+  "required": ["title", "video_model", "auth_mode", "style_profile", "script_mode"],
   "additionalProperties": false,
   "$defs": {
     "status": {"type": "string", "enum": ["已确认", "默认，待确认", "默认，已授权", "待答"]},
@@ -16,20 +16,50 @@
         "value": {"type": "string"},
         "status": {"$ref": "#/$defs/status"},
         "quote": {"type": "string", "description": "用户原话"},
-        "date": {"type": "string", "format": "date"}
+        "date": {"type": "string"}
       }
     }
   },
   "properties": {
     "title": {"type": "string", "minLength": 1},
-    "video_model": {"type": "string", "description": "生成模型 ID，取自 models.json，如 seedance-2.0 / seedance-2.5 / minimax-h3；决定单段时长上限"},
+    "video_model": {"type": "string", "description": "生成模型 ID，取自 models.json；默认 seedance-2.5（一段最长 30 秒）"},
     "auth_mode": {"type": "string", "enum": ["step", "full"], "description": "step 每步确认；full 全权（只在超预算、删文件、对外发布、用账号时找人）"},
-    "purpose": {"$ref": "#/$defs/fact", "description": "拿去干什么、给谁看"},
-    "platform": {"$ref": "#/$defs/fact", "description": "在哪发、画幅、交付格式、响度目标"},
-    "duration": {"$ref": "#/$defs/fact", "description": "目标片长；分段表按它的 75% 写"},
-    "taste": {"$ref": "#/$defs/fact", "description": "口味：像哪部片、画面质感、声音风格、不要什么"},
-    "budget": {"$ref": "#/$defs/fact", "description": "花钱上限"},
-    "acceptance": {"$ref": "#/$defs/fact", "description": "怎么算拍好；甲方会看哪几下"},
+    "style_profile": {"type": "string", "description": "风格档案 id，取自 profiles/：live-realism（默认）、duanju-shiga、anime-3d、action-epic、game-ip 或用户派生档案"},
+    "script_mode": {"type": "string", "enum": ["original", "adapt", "given"], "description": "original 原创（yz-story 五阶段或速产）；adapt 改编小说（先事实账本）；given 已有剧本"},
+    "entry": {"type": "string", "enum": ["script", "image", "storyboard_grid", "reference_video", "idea"], "description": "入口类型：剧本 / 一张图 / 分镜板 / 参考视频 / 一句话创意"},
+    "prompt_density": {"type": "string", "enum": ["tight", "standard", "dense"], "description": "提示词密度；不写则取档案默认"},
+    "purpose": {"$ref": "#/$defs/fact"},
+    "platform": {"$ref": "#/$defs/fact"},
+    "duration": {"$ref": "#/$defs/fact"},
+    "taste": {"$ref": "#/$defs/fact"},
+    "budget": {"$ref": "#/$defs/fact"},
+    "acceptance": {"$ref": "#/$defs/fact"},
+    "duanju_mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "短剧速产参数（script_mode=original 且走速产时）",
+      "properties": {
+        "market": {"type": "string", "enum": ["domestic", "overseas"]},
+        "channel": {"type": "string", "enum": ["male", "female"]},
+        "packs": {"type": "array", "items": {"type": "string"}, "description": "题材配方包，可复合"},
+        "episodes": {"type": "integer", "minimum": 1},
+        "episode_seconds": {"type": "integer", "minimum": 30},
+        "paywall": {"type": "boolean", "description": "是否付费卡点模式"}
+      }
+    },
+    "episodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["no"],
+        "additionalProperties": false,
+        "properties": {
+          "no": {"type": "integer", "minimum": 1},
+          "target_seconds": {"type": "number"},
+          "hook_requirement": {"type": "string"}
+        }
+      }
+    },
     "items": {
       "type": "array",
       "description": "要求与反馈（R-）",
@@ -42,7 +72,7 @@
           "content": {"type": "string"},
           "quote": {"type": "string"},
           "date": {"type": "string"},
-          "segments": {"type": "array", "items": {"type": "string"}, "description": "指向哪几段；反馈不新开段，只划掉那段的过审或验收"},
+          "segments": {"type": "array", "items": {"type": "string"}},
           "status": {"type": "string"}
         }
       }
@@ -51,7 +81,6 @@
     "constraints": {"type": "array", "items": {"type": "string"}},
     "questions": {
       "type": "array",
-      "description": "待确认（Q-）",
       "items": {
         "type": "object",
         "required": ["id", "question", "blocking", "status"],
@@ -64,6 +93,6 @@
         }
       }
     },
-    "decided_for_you": {"type": "array", "items": {"type": "string"}, "description": "替他定了什么（交付时列出）"}
+    "decided_for_you": {"type": "array", "items": {"type": "string"}}
   }
 }

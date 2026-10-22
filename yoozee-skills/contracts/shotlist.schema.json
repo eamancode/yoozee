@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/shotlist.schema.json",
+  "title": "镜头表",
+  "description": "一个镜头一条，不含段边界、不含绝对时间码；段由 yz-pack 装出。只写下游（装段、编译、审片）会读的字段，推理理由不进产物。机位用坐标：Z 距离 / Y 高度 / X 方位 / F 镜头属性。",
+  "type": "object",
+  "required": ["profile", "shots"],
+  "additionalProperties": false,
+  "$defs": {
+    "tag": {"type": "string", "enum": ["原文事实", "逻辑修复", "视觉扩写", "导演设计", "待确认"]},
+    "shot": {
+      "type": "object",
+      "required": ["id", "scene", "purpose", "subject", "size", "cam", "move", "action", "start_state", "end_state"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^E[0-9]{2}S[0-9]{2}[a-z]?-[0-9]{2}[a-z]?$", "description": "场内连续编号，如 E01S03-07；补拍加字母"},
+        "scene": {"type": "string", "pattern": "^E[0-9]{2}S[0-9]{2}[a-z]?$"},
+        "purpose": {"type": "string", "minLength": 1, "description": "这一镜给观众什么新信息"},
+        "subject": {"type": "string", "enum": ["person", "non_person"]},
+        "focus": {"type": "string", "description": "多人时的视觉中心"},
+        "size": {"type": "string", "enum": ["大远景", "远景", "全景", "中全景", "中景", "中近景", "近景", "特写", "大特写"]},
+        "cam": {
+          "type": "object",
+          "required": ["z", "y", "x"],
+          "additionalProperties": false,
+          "properties": {
+            "z": {"type": "string", "pattern": "^Z[1-9]$", "description": "Z1 大特写 … Z9 大远景"},
+            "y": {"type": "string", "pattern": "^Y[1-7]$", "description": "Y1 虫视 / Y2 仰 / Y3 微仰 / Y4 平视 / Y5 微俯 / Y6 俯 / Y7 顶视"},
+            "x": {"type": "string", "pattern": "^X[1-4]$", "description": "X1 正面 / X2 四分之三侧（侧 45）/ X3 侧面 / X4 背面"},
+            "f": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "lens_mm": {"type": "number"},
+                "dof": {"type": "string", "enum": ["shallow", "deep", "rack"]},
+                "distortion": {"type": "string", "enum": ["fisheye", "wide_stretch", "anamorphic", "macro"]},
+                "identity": {"type": "string", "enum": ["pov", "ots", "voyeur", "mirror"]},
+                "geometry": {"type": "string", "enum": ["dutch", "symmetry", "leading", "frame", "negspace"]},
+                "dutch_deg": {"type": "number"}
+              }
+            }
+          }
+        },
+        "move": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {"type": "string", "enum": ["fixed", "push", "pull", "crane_up", "crane_down", "truck", "pan", "tilt", "roll", "zoom", "rack_focus", "track", "orbit", "spiral", "handheld_micro", "handheld", "handheld_violent", "dolly_zoom", "snorricam", "jib", "fpv", "one_take"]},
+          "description": "运镜；复合运镜写多项；验证器按档案限制轴数（默认最多两轴）"
+        },
+        "camera_emotion": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "focal": {"type": "string", "description": "焦点人物"},
+            "type": {"type": "string", "enum": ["handheld_jittery", "handheld_smooth", "handheld_low_slow", "static_then_push", "static_then_pull", "action_60fps", "topshot_freeze"]},
+            "phases": {"type": "array", "items": {"type": "object", "required": ["beats", "type"], "additionalProperties": false, "properties": {"beats": {"type": "string"}, "type": {"type": "string"}}}}
+          }
+        },
+        "dof": {"type": "string", "enum": ["shallow", "deep", "rack"]},
+        "blocking": {
+          "type": "array",
+          "items": {"type": "object", "required": ["who", "at"], "additionalProperties": false, "properties": {"who": {"type": "string"}, "at": {"type": "string", "description": "空间图锚点"}, "facing": {"type": "string"}, "behind": {"type": "string"}, "occluded_by": {"type": "string"}}}
+        },
+        "camera_side": {"type": "string", "description": "机位在谁的哪一侧（轴线）"},
+        "action": {"type": "string", "minLength": 1, "description": "看图说话 3～6 句：进行中的瞬间、表演三通道、光线落点"},
+        "fight": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "动作场的因果动作单元",
+          "properties": {
+            "initiator": {"type": "string"},
+            "path": {"type": "string"},
+            "target": {"type": "string"},
+            "response": {"type": "string"},
+            "contact": {"type": "string", "enum": ["hit", "graze", "blocked", "miss", "none"]},
+            "force_transfer": {"type": "string"},
+            "end_pose": {"type": "string"},
+            "martial_ids": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "performance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "beats": {"type": "array", "items": {"type": "string"}, "description": "①②③ 编号的微表演节拍"},
+            "restraint": {"type": "string", "enum": ["hidden7", "normal", "open"]},
+            "subtext": {"type": "string"}
+          }
+        },
+        "state": {"type": "string", "description": "本镜人物演出状态：湿、血、破损、持物"},
+        "light": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_anchor": {"type": "string"},
+            "direction": {"type": "string"},
+            "policy": {"type": "string", "enum": ["practicals_only", "motivated", "stylized"]},
+            "note": {"type": "string"},
+            "key": {"type": "string", "description": "主光：来源 + 方向（即梦七项之一）"},
+            "fill": {"type": "string", "description": "辅光；真人剧写实景来源（墙面 / 地面反射）或「无补光」"},
+            "rim": {"type": "string", "description": "轮廓光；真人剧写实景灯具"},
+            "ratio": {"type": "string", "description": "光比，如 4:1"},
+            "kelvin": {"type": "string", "description": "色温，如 4000K 冷白 / 2700K 暖"},
+            "shadow": {"type": "string", "description": "阴影落在哪、硬还是软"},
+            "exposure": {"type": "string", "description": "曝光：脸曝光正常 / 背景欠一档…"},
+            "change": {"type": "string", "description": "镜内光线变化：闪烁、门开光进、无"}
+          }
+        },
+        "color": {"type": "string", "description": "60:30:10 比例覆盖；默认取档案"},
+        "vfx": {"type": "array", "items": {"type": "object", "required": ["id"], "additionalProperties": false, "properties": {"id": {"type": "string", "description": "特效词库 id"}, "seconds": {"type": "number"}, "attribute": {"type": "string"}, "scale": {"type": "string"}}}},
+        "lines": {"type": "array", "items": {"type": "object", "required": ["line_id"], "additionalProperties": false, "properties": {"line_id": {"type": "string"}, "delivery": {"type": "string"}, "offscreen": {"type": "boolean"}, "pace": {"type": "string", "description": "语速"}, "tone": {"type": "string", "description": "语调"}, "emotion": {"type": "string", "description": "情感"}, "placement": {"type": "string", "enum": ["画内", "画外", "离画"]}}}},
+        "voice": {"type": "string", "description": "台词之外的表演性人声"},
+        "sfx": {"type": "string", "description": "环境声 + 动作音；不写配乐"},
+        "bridge": {"type": "string", "enum": ["in", "out", "both"], "description": "音桥"},
+        "strategy": {"type": "string", "description": "唯一一个高级视听策略"},
+        "est": {"type": "number", "description": "估时秒；验证器可重算"},
+        "start_state": {"type": "string"},
+        "end_state": {"type": "string"},
+        "refs_hint": {"type": "array", "items": {"type": "string"}, "description": "本镜需要的资产：人物变体 / 场景版本 / 道具状态"},
+        "risk_tags": {"type": "array", "items": {"type": "string", "enum": ["handle_contamination", "identity_drift", "light_spill", "prop_misplace", "insert_focus_drift", "closeup_rotation", "three_axis", "phantom_across_barrier", "readable_text", "group_same_face", "big_action", "long_take_drift"]}},
+        "tag": {"$ref": "#/$defs/tag"},
+        "plant_id": {"type": "string"},
+        "emotion_arc": {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": false,
+          "description": "情绪弧（kb-performance vocab/emotion-arcs.jsonl）；编译器按镜头时长缩放成分秒表演链",
+          "properties": {
+            "id": {"type": "string"},
+            "phase_from": {"type": "integer", "minimum": 1, "description": "从弧的第几段开始（1 起）"},
+            "phase_to": {"type": "integer", "minimum": 1, "description": "到第几段结束（含）"},
+            "continues": {"type": "string", "description": "接着上一镜（同场同 focus）的弧往下走：写上一镜 id"},
+            "intensity": {"type": "string", "enum": ["hidden7", "normal", "open"]},
+            "trigger": {"type": "string", "description": "这一镜情绪为什么变：看见 / 听见 / 想到什么"}
+          }
+        },
+        "expression_terms": {"type": "array", "items": {"type": "string"}, "description": "表情核心词（vocab/expressions.jsonl 的 zh_terms），1～3 个；不写时编译按弧末段兜底"},
+        "action_pattern": {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {"type": "string", "description": "vocab/action-patterns.jsonl 的 id"},
+            "variant": {"type": "string"},
+            "role": {"type": "string", "enum": ["主动", "被动"]}
+          }
+        },
+        "composition": {"type": "string", "description": "构图：居中 / 三分法 / 对称 / 前景遮挡 / 框中框 / 留白 / 压迫式 / 纵深 + 主体位置 + 视线方向"},
+        "transition": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "in": {"type": "string", "description": "上一镜 → 本镜：硬切 / 动作匹配切 / 视线匹配 / 声音先入 / 叠化…"},
+            "out": {"type": "string", "description": "本镜 → 下一镜"},
+            "cut_point": {"type": "string", "enum": ["视线", "动作", "声音", "光线", "道具", "场景锚点"]}
+          }
+        },
+        "vo": {"type": "string", "description": "画外音：旁白 / 内心音 / 画外台词 / 声音先入或延后；无则不写"}
+      }
+    }
+  },
+  "properties": {
+    "profile": {"type": "string"},
+    "episode": {"type": "integer"},
+    "shots": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/shot"}}
+  }
+}

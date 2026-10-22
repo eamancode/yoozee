@@ -26,6 +26,7 @@
 | `progress.read` | `drama_progress_read`：每段六格和八个终态 |
 | `brief.read` / `brief.write` | `drama_brief_read` / `drama_brief_write`（整份需求 JSON，写入时校验生成模型和授权档位） |
 | `segments.read` / `segments.write` | `drama_segments_read` / `drama_segments_write`（unitId 取自 `drama_chapters_read`；按段号新增或改，新段号排到本章末尾；形状不合契约 segment 或超过项目生成模型上限的段会被拒绝。拆段、合段要带 `order`：先 `drama_segments_read` 取本章全部段号，`order` 是它们的新顺序，没改动的段和 derived 的旧镜头也要列；拆出的段用原段号加字母（S02 → S02b），紧跟在原段后面；被并掉的段不写进 `order`，它会连同候选视频和证据一起删除，无法恢复） |
+| `shotlist.read` / `shotlist.write` | `drama_shotlist_read` / `drama_shotlist_write`（一章一份镜头表，段由它装出：写入时服务端把章节正文转成台词表、分镜行 spec 转镜头表、按 R-SHOT 规则检查，有 error 整批拒绝并返回规则项；没有 error 才按场装段并替换本章全部段。用户在章节页生成分镜时走同一套） |
 | `bible.read` / `bible.write` | `drama_bible_read` / `drama_bible_write` |
 | `assets.check` | `drama_progress_read` 的「参考」一格 + `drama_bible_read` 的 checked；项目的「角色与资产」页是素材库，顶部按连戏表列出素材清单，文件齐了用户在那里勾「过门禁」 |
 | `image.generate` | `generate_media`（mode=image，经模型、价格、预算校验和界面审批） |

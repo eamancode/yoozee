@@ -1,0 +1,1205 @@
+{
+ "profile": "live-realism",
+ "episode": 1,
+ "shots": [
+  {
+   "id": "E01S01-01",
+   "scene": "E01S01",
+   "purpose": "建立夜班走廊：空、长、冷光，她是唯一的人",
+   "subject": "person",
+   "focus": "林小满",
+   "size": "全景",
+   "cam": {
+    "z": "Z7",
+    "y": "Y4",
+    "x": "X1",
+    "f": {
+     "lens_mm": 35,
+     "dof": "deep"
+    }
+   },
+   "move": [
+    "fixed"
+   ],
+   "blocking": [
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "面向镜头走来",
+     "behind": "电梯门"
+    }
+   ],
+   "action": "夜里的病房走廊，日光灯一盏接一盏向尽头排过去，塑胶地板反着冷白光。林小满抱着病历夹从尽头走来，边走边翻，脚步很轻。",
+   "light": {
+    "source_anchor": "头顶日光灯",
+    "direction": "顶光直落，越远越暗",
+    "policy": "practicals_only"
+   },
+   "sfx": "日光灯的嗡声；很轻的脚步",
+   "est": 4.5,
+   "start_state": "林小满在走廊尽头，抱着病历夹",
+   "end_state": "林小满走到走廊中段，仍抱着病历夹",
+   "refs_hint": [
+    "林小满",
+    "病房走廊"
+   ],
+   "tag": "原文事实"
+  },
+  {
+   "id": "E01S01-02",
+   "scene": "E01S01",
+   "purpose": "例行里的第一点不对：她放慢了",
+   "subject": "person",
+   "focus": "林小满",
+   "size": "中景",
+   "cam": {
+    "z": "Z5",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 50,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "track"
+   ],
+   "camera_emotion": {
+    "focal": "林小满",
+    "type": "handheld_smooth"
+   },
+   "blocking": [
+    {
+     "who": "林小满",
+     "at": "护士站柜台",
+     "facing": "面向画面右（走廊深处）",
+     "behind": "台灯"
+    }
+   ],
+   "action": "她边走边翻病历夹，走到护士站柜台旁脚步放慢，抬头。台灯的暖光打在她半边脸上。",
+   "performance": {
+    "beats": [
+     "① 翻页的手指停住",
+     "② 抬头前先屏了一下呼吸",
+     "③ 眼睛先于头转向七床方向"
+    ],
+    "restraint": "normal",
+    "subtext": "她已经听出不对，但不想承认"
+   },
+   "light": {
+    "source_anchor": "台灯",
+    "direction": "左侧暖光，右脸留在日光灯冷光里",
+    "policy": "practicals_only"
+   },
+   "sfx": "日光灯的嗡声；翻页声",
+   "est": 4,
+   "start_state": "林小满走到走廊中段，仍抱着病历夹",
+   "end_state": "林小满停在护士站旁，抬头看向七床门",
+   "refs_hint": [
+    "林小满",
+    "病房走廊"
+   ],
+   "tag": "导演设计",
+   "emotion_arc": {
+    "id": "arc-shock-002",
+    "phase_from": 1,
+    "phase_to": 2,
+    "intensity": "normal",
+    "trigger": "听出七床没有监护仪声"
+   },
+   "composition": "三分法，林小满在画面右三分线，视线看向画面右的七床方向",
+   "transition": {
+    "in": "动作匹配切（走动中接）",
+    "out": "视线匹配",
+    "cut_point": "视线"
+   }
+  },
+  {
+   "id": "E01S01-03",
+   "scene": "E01S01",
+   "purpose": "她看见门虚掩着，第一次出声",
+   "subject": "person",
+   "focus": "林小满",
+   "size": "近景",
+   "cam": {
+    "z": "Z3",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 85,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "push"
+   ],
+   "camera_emotion": {
+    "focal": "林小满",
+    "type": "static_then_push"
+   },
+   "blocking": [
+    {
+     "who": "林小满",
+     "at": "七床门",
+     "facing": "面向画面右（门）",
+     "behind": "护士站柜台"
+    }
+   ],
+   "action": "她看向七床的门牌，门虚掩着一条缝，里面没有监护仪的滴滴声。她眉头一紧，上前半步。",
+   "performance": {
+    "beats": [
+     "① 瞳孔先缩一下",
+     "② 嘴唇微张又合上",
+     "③ 喉结一次吞咽"
+    ],
+    "restraint": "normal"
+   },
+   "lines": [
+    {
+     "line_id": "E01S01L01",
+     "delivery": "压低声音，像怕吵醒谁",
+     "pace": "慢",
+     "tone": "压低的问句",
+     "emotion": "不安",
+     "placement": "画内"
+    }
+   ],
+   "light": {
+    "source_anchor": "头顶日光灯",
+    "direction": "顶光，门缝里黑",
+    "policy": "practicals_only"
+   },
+   "sfx": "日光灯的嗡声；远处别的病房监护仪很弱的滴滴声",
+   "est": 3.5,
+   "start_state": "林小满停在护士站旁，抬头看向七床门",
+   "end_state": "林小满站在七床门口，面朝门，右手离开病历夹",
+   "refs_hint": [
+    "林小满",
+    "病房走廊"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "readable_text"
+   ],
+   "emotion_arc": {
+    "id": "arc-shock-002",
+    "continues": "E01S01-02",
+    "intensity": "normal"
+   }
+  },
+  {
+   "id": "E01S01-04",
+   "scene": "E01S01",
+   "purpose": "推门：病床是空的",
+   "subject": "person",
+   "focus": "林小满",
+   "size": "中近景",
+   "cam": {
+    "z": "Z4",
+    "y": "Y4",
+    "x": "X3",
+    "f": {
+     "lens_mm": 50,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "handheld_micro"
+   ],
+   "camera_emotion": {
+    "focal": "林小满",
+    "type": "handheld_jittery"
+   },
+   "blocking": [
+    {
+     "who": "林小满",
+     "at": "七床门",
+     "facing": "面向画面右（病房内）",
+     "behind": "走廊"
+    }
+   ],
+   "action": "她伸手推门，门缓缓开。病床空着，被子掀开一半，输液管垂到地上还在滴。她的手停在门把上。",
+   "performance": {
+    "beats": [
+     "① 推门的手比平时慢",
+     "② 看见空床时没有后退，只是肩膀一沉",
+     "③ 第二句台词前一次短促的鼻吸"
+    ],
+    "restraint": "normal"
+   },
+   "lines": [
+    {
+     "line_id": "E01S01L02",
+     "delivery": "慌，但没有喊出来"
+    }
+   ],
+   "light": {
+    "source_anchor": "病房床头灯",
+    "direction": "门内暖光打在她脸上，身后走廊冷光",
+    "policy": "practicals_only"
+   },
+   "sfx": "门轴很轻的吱呀；输液滴落声",
+   "est": 5,
+   "start_state": "林小满站在七床门口，面朝门，右手离开病历夹",
+   "end_state": "林小满站在七床门口，门开着，右手搭在门把上，面朝房内",
+   "refs_hint": [
+    "林小满",
+    "病房走廊"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "prop_misplace"
+   ],
+   "emotion_arc": {
+    "id": "arc-shock-002",
+    "phase_from": 3,
+    "phase_to": 4,
+    "intensity": "normal",
+    "trigger": "看见空床"
+   },
+   "expression_terms": [
+    "倒吸凉气",
+    "睁大双眼"
+   ]
+  },
+  {
+   "id": "E01S01-05",
+   "scene": "E01S01",
+   "purpose": "留白：输液还在滴，人不在",
+   "subject": "non_person",
+   "size": "特写",
+   "cam": {
+    "z": "Z2",
+    "y": "Y5",
+    "x": "X1",
+    "f": {
+     "lens_mm": 85,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "fixed"
+   ],
+   "action": "输液管末端一滴药水落到地板上，积成一小摊，映着床头灯。画面里没有人。",
+   "light": {
+    "source_anchor": "病房床头灯",
+    "direction": "侧光，地板反光",
+    "policy": "practicals_only"
+   },
+   "sfx": "滴落声；输液滴落的间隔很规律",
+   "est": 3,
+   "start_state": "输液管垂在地上滴",
+   "end_state": "输液管垂在地上滴，一小摊药水",
+   "refs_hint": [
+    "病房走廊"
+   ],
+   "tag": "导演设计",
+   "risk_tags": [
+    "insert_focus_drift"
+   ]
+  },
+  {
+   "id": "E01S02-01",
+   "scene": "E01S02",
+   "purpose": "她追到尽头，电梯里出来的人是周岸",
+   "subject": "person",
+   "focus": "周岸",
+   "size": "全景",
+   "cam": {
+    "z": "Z7",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 35,
+     "dof": "deep"
+    }
+   },
+   "move": [
+    "track",
+    "handheld"
+   ],
+   "camera_emotion": {
+    "focal": "林小满",
+    "type": "handheld_jittery"
+   },
+   "camera_side": "林小满右后侧，看电梯门",
+   "blocking": [
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "面向电梯门（画面右）"
+    },
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "面向走廊（画面左）",
+     "behind": "电梯门"
+    }
+   ],
+   "action": "林小满小跑到走廊尽头，电梯门正在合上，一只手从里面把门挡住。周岸从电梯里走出来，病号服外套着黑夹克，拖鞋踩在地板上。",
+   "performance": {
+    "beats": [
+     "① 她刹住脚时病历夹差点掉",
+     "② 周岸出电梯的第一步很稳，第二步才看见她"
+    ],
+    "restraint": "normal"
+   },
+   "light": {
+    "source_anchor": "头顶闪烁的日光灯",
+    "direction": "顶光忽明忽暗；电梯指示灯红光在他侧脸",
+    "policy": "practicals_only",
+    "key": "头顶闪烁的日光灯，顶光直落",
+    "fill": "浅绿塑胶地板反射，极弱",
+    "rim": "电梯指示灯红光勾周岸侧脸",
+    "ratio": "6:1",
+    "kelvin": "4500K 冷白；指示灯 1800K 红",
+    "shadow": "眼窝与鼻下硬影，随闪烁跳动",
+    "exposure": "脸正常，走廊深处欠两档",
+    "change": "日光灯每 1 秒闪一次"
+   },
+   "sfx": "跑步声刹住；电梯门被手挡住的闷响；日光灯镇流器的滋滋声",
+   "est": 5,
+   "start_state": "林小满从走廊跑来；电梯门正在合上",
+   "end_state": "周岸站在电梯门前，林小满停在三米外",
+   "refs_hint": [
+    "林小满",
+    "周岸",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "identity_drift",
+    "light_spill"
+   ],
+   "composition": "纵深构图，周岸在电梯门前中景层，林小满背影在前景左下",
+   "vo": "无"
+  },
+  {
+   "id": "E01S02-02",
+   "scene": "E01S02",
+   "purpose": "他先开口，叫的是小名",
+   "subject": "person",
+   "focus": "周岸",
+   "size": "中近景",
+   "cam": {
+    "z": "Z4",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 50,
+     "dof": "shallow",
+     "identity": "ots"
+    }
+   },
+   "move": [
+    "handheld_micro"
+   ],
+   "camera_emotion": {
+    "focal": "周岸",
+    "type": "handheld_smooth"
+   },
+   "camera_side": "林小满右后侧（正反打 A）",
+   "blocking": [
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "面向画面左",
+     "behind": "电梯门"
+    },
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "背对镜头，画面左前景肩",
+     "occluded_by": "前景"
+    }
+   ],
+   "action": "过林小满的肩看周岸。他把手从电梯门上收回来，没有往前走，只是看着她。",
+   "performance": {
+    "beats": [
+     "① 下颌微抬",
+     "② 缓慢均匀的一次眨眼",
+     "③ 说话前嘴角先松了一下"
+    ],
+    "restraint": "hidden7",
+    "subtext": "他比她平静，这本身就是信息"
+   },
+   "lines": [
+    {
+     "line_id": "E01S02L01",
+     "delivery": "低、平，像确认不像打招呼",
+     "pace": "慢半拍",
+     "tone": "低平陈述",
+     "emotion": "确认而非打招呼",
+     "placement": "画内"
+    }
+   ],
+   "light": {
+    "source_anchor": "电梯指示灯",
+    "direction": "红光在他左颊，顶光闪烁",
+    "policy": "practicals_only"
+   },
+   "sfx": "日光灯镇流器的滋滋声",
+   "est": 3,
+   "start_state": "周岸站在电梯门前，林小满停在三米外",
+   "end_state": "周岸双手垂在身侧，面向林小满",
+   "refs_hint": [
+    "周岸",
+    "林小满",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "transition": {
+    "in": "硬切",
+    "out": "硬切",
+    "cut_point": "视线"
+   }
+  },
+  {
+   "id": "E01S02-03",
+   "scene": "E01S02",
+   "purpose": "她认出他，第一反应是职业的",
+   "subject": "person",
+   "focus": "林小满",
+   "size": "近景",
+   "cam": {
+    "z": "Z3",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 85,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "push"
+   ],
+   "camera_emotion": {
+    "focal": "林小满",
+    "type": "static_then_push"
+   },
+   "camera_side": "周岸左后侧（正反打 B）",
+   "blocking": [
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "面向画面右",
+     "behind": "走廊"
+    },
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "背对镜头",
+     "occluded_by": "前景"
+    }
+   ],
+   "action": "林小满停住，把病历夹抱紧贴到胸口。她的视线先落在他夹克里露出的病号服条纹上，再回到他脸上。",
+   "performance": {
+    "beats": [
+     "① 身体冻住 0.3 秒",
+     "② 视线从病号服往上扫到脸",
+     "③ 问话前咬了一下下唇内侧"
+    ],
+    "restraint": "normal"
+   },
+   "lines": [
+    {
+     "line_id": "E01S02L02",
+     "delivery": "问句，但声音发紧",
+     "pace": "快",
+     "tone": "问句上扬",
+     "emotion": "发紧",
+     "placement": "画内"
+    }
+   ],
+   "light": {
+    "source_anchor": "头顶闪烁的日光灯",
+    "direction": "顶光，闪一下她的脸亮一下",
+    "policy": "practicals_only"
+   },
+   "sfx": "日光灯镇流器的滋滋声",
+   "est": 4,
+   "start_state": "周岸双手垂在身侧，面向林小满",
+   "end_state": "林小满抱紧病历夹站在原地，面向周岸",
+   "refs_hint": [
+    "林小满",
+    "周岸",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "emotion_arc": {
+    "id": "arc-sadness-005",
+    "phase_from": 1,
+    "phase_to": 3,
+    "intensity": "normal",
+    "trigger": "认出两年没见的前夫"
+   }
+  },
+  {
+   "id": "E01S02-04",
+   "scene": "E01S02",
+   "purpose": "他知道她的事：时间没停在离婚那天",
+   "subject": "person",
+   "focus": "周岸",
+   "size": "中近景",
+   "cam": {
+    "z": "Z4",
+    "y": "Y3",
+    "x": "X2",
+    "f": {
+     "lens_mm": 50,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "handheld_micro"
+   ],
+   "camera_emotion": {
+    "focal": "周岸",
+    "type": "handheld_smooth"
+   },
+   "camera_side": "林小满右后侧（正反打 A）",
+   "blocking": [
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "面向画面左",
+     "behind": "电梯门"
+    },
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "背对镜头",
+     "occluded_by": "前景"
+    }
+   ],
+   "action": "周岸上前半步又停住，右手在夹克口袋外面按了一下，像确认什么东西还在。",
+   "performance": {
+    "beats": [
+     "① 上前半步时重心先动再迈脚",
+     "② 按口袋的手指停了一拍",
+     "③ 说话时视线没离开她"
+    ],
+    "restraint": "hidden7"
+   },
+   "lines": [
+    {
+     "line_id": "E01S02L03",
+     "delivery": "轻，带一点笑意但不是开玩笑"
+    }
+   ],
+   "light": {
+    "source_anchor": "电梯指示灯",
+    "direction": "红光在他左颊",
+    "policy": "practicals_only"
+   },
+   "sfx": "拖鞋在地板上蹭了一下",
+   "est": 4,
+   "start_state": "林小满抱紧病历夹站在原地，面向周岸",
+   "end_state": "周岸上前半步，右手搭在夹克口袋外",
+   "refs_hint": [
+    "周岸",
+    "林小满",
+    "电梯口"
+   ],
+   "tag": "原文事实"
+  },
+  {
+   "id": "E01S02-05",
+   "scene": "E01S02",
+   "purpose": "伏笔：他右手腕的留置针贴膏，他确实是七床",
+   "subject": "non_person",
+   "size": "特写",
+   "cam": {
+    "z": "Z2",
+    "y": "Y5",
+    "x": "X1",
+    "f": {
+     "lens_mm": 85,
+     "dof": "rack"
+    }
+   },
+   "move": [
+    "rack_focus"
+   ],
+   "action": "周岸垂下的右手，手腕内侧一块留置针贴膏，边角翘起一点，胶布下压着一小截软管；夹克袖口往上缩了一寸。画面只有手和袖口。",
+   "light": {
+    "source_anchor": "头顶闪烁的日光灯",
+    "direction": "顶光",
+    "policy": "practicals_only"
+   },
+   "sfx": "日光灯镇流器的滋滋声",
+   "est": 2.5,
+   "start_state": "周岸右手垂在身侧",
+   "end_state": "周岸右手垂在身侧，贴膏可见",
+   "refs_hint": [
+    "周岸",
+    "电梯口"
+   ],
+   "tag": "导演设计",
+   "plant_id": "P1",
+   "risk_tags": [
+    "insert_focus_drift"
+   ]
+  },
+  {
+   "id": "E01S02-06",
+   "scene": "E01S02",
+   "purpose": "门合上，灯闪：退路没了",
+   "subject": "person",
+   "focus": "周岸",
+   "size": "全景",
+   "cam": {
+    "z": "Z7",
+    "y": "Y4",
+    "x": "X3",
+    "f": {
+     "lens_mm": 35,
+     "dof": "deep"
+    }
+   },
+   "move": [
+    "fixed"
+   ],
+   "camera_side": "两人连线的侧面",
+   "blocking": [
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "面向画面右（林小满）",
+     "behind": "电梯门"
+    },
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "面向画面左（周岸）",
+     "behind": "走廊"
+    }
+   ],
+   "action": "侧面双人全景：电梯门在周岸身后合上，不锈钢门面映出两人的影子。头顶那盏灯闪了一下，暗下去再亮起来。两人隔着三步没动。",
+   "light": {
+    "source_anchor": "头顶闪烁的日光灯",
+    "direction": "顶光闪烁，门面反光",
+    "policy": "practicals_only"
+   },
+   "sfx": "电梯门合上的闷响；镇流器滋滋声突然大了一下又恢复",
+   "est": 3.5,
+   "start_state": "周岸上前半步，右手搭在夹克口袋外",
+   "end_state": "电梯门合上；两人隔三步相对站着",
+   "refs_hint": [
+    "周岸",
+    "林小满",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "light_spill",
+    "identity_drift"
+   ]
+  },
+  {
+   "id": "E01S02-07",
+   "scene": "E01S02",
+   "purpose": "她用护士的身份接管局面",
+   "subject": "person",
+   "focus": "林小满",
+   "size": "中景",
+   "cam": {
+    "z": "Z5",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 50,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "handheld_micro"
+   ],
+   "camera_emotion": {
+    "focal": "林小满",
+    "type": "handheld_smooth"
+   },
+   "camera_side": "周岸左后侧（正反打 B）",
+   "blocking": [
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "面向画面右",
+     "behind": "走廊"
+    },
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "背对镜头",
+     "occluded_by": "前景"
+    }
+   ],
+   "action": "林小满把病历夹抱紧，上前一步又停住，下巴抬起来，说话时眼睛看的是他的手腕而不是脸。",
+   "performance": {
+    "beats": [
+     "① 下巴抬起是职业姿态",
+     "② 眼睛落在他手腕",
+     "③ 第二句说完才敢看他的脸"
+    ],
+    "restraint": "normal",
+    "subtext": "用工作的话说私人的事"
+   },
+   "lines": [
+    {
+     "line_id": "E01S02L04",
+     "delivery": "护士口气，快而硬，尾音发颤"
+    }
+   ],
+   "light": {
+    "source_anchor": "头顶闪烁的日光灯",
+    "direction": "顶光",
+    "policy": "practicals_only"
+   },
+   "sfx": "镇流器滋滋声",
+   "est": 5,
+   "start_state": "电梯门合上；两人隔三步相对站着",
+   "end_state": "林小满上前一步，抱紧病历夹，面向周岸",
+   "refs_hint": [
+    "林小满",
+    "周岸",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "emotion_arc": {
+    "id": "arc-cold-001",
+    "phase_from": 1,
+    "phase_to": 3,
+    "intensity": "hidden7",
+    "trigger": "他拉袖口盖住贴膏"
+   }
+  },
+  {
+   "id": "E01S02-08",
+   "scene": "E01S02",
+   "purpose": "他否认住院：钩子",
+   "subject": "person",
+   "focus": "周岸",
+   "size": "近景",
+   "cam": {
+    "z": "Z3",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 85,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "push"
+   ],
+   "camera_emotion": {
+    "focal": "周岸",
+    "type": "static_then_push"
+   },
+   "camera_side": "林小满右后侧（正反打 A）",
+   "blocking": [
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "面向画面左",
+     "behind": "电梯门"
+    },
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "背对镜头",
+     "occluded_by": "前景"
+    }
+   ],
+   "action": "周岸低头看了一眼自己的手腕，再抬头，把袖口往下拉盖住贴膏。",
+   "performance": {
+    "beats": [
+     "① 低头看手腕时嘴角压平",
+     "② 拉袖口的动作很慢",
+     "③ 抬头时眼睛直接锁住她"
+    ],
+    "restraint": "hidden7"
+   },
+   "lines": [
+    {
+     "line_id": "E01S02L05",
+     "delivery": "平静，每个字都慢半拍"
+    }
+   ],
+   "light": {
+    "source_anchor": "电梯指示灯",
+    "direction": "红光在他左颊，顶光稳定下来",
+    "policy": "practicals_only"
+   },
+   "sfx": "镇流器滋滋声；袖口布料摩擦",
+   "est": 4,
+   "start_state": "林小满上前一步，抱紧病历夹，面向周岸",
+   "end_state": "周岸拉下袖口盖住手腕，抬头看林小满",
+   "refs_hint": [
+    "周岸",
+    "林小满",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "identity_drift"
+   ]
+  },
+  {
+   "id": "E01S03-01",
+   "scene": "E01S03",
+   "purpose": "防火门撞开，黑衣男持刀直奔周岸",
+   "subject": "person",
+   "focus": "黑衣男",
+   "size": "中全景",
+   "cam": {
+    "z": "Z6",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 35,
+     "dof": "deep"
+    }
+   },
+   "move": [
+    "handheld"
+   ],
+   "camera_side": "林小满一侧，过她肩看两人",
+   "blocking": [
+    {
+     "who": "黑衣男",
+     "at": "防火门",
+     "facing": "面向周岸（画面左下）"
+    },
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "转向防火门（画面右）"
+    },
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "面向防火门"
+    }
+   ],
+   "action": "楼梯间防火门被撞开，黑衣男冲出来，兜帽压低，右手一把折叠刀，三步直奔周岸。周岸转身。",
+   "fight": {
+    "initiator": "黑衣男",
+    "path": "从防火门直线冲刺两米",
+    "target": "周岸",
+    "response": "周岸听声转身，重心下沉",
+    "contact": "none",
+    "force_transfer": "无",
+    "end_pose": "黑衣男一步之外举刀，周岸侧身",
+    "martial_ids": [
+     "martial-056"
+    ]
+   },
+   "light": {
+    "source_anchor": "头顶日光灯",
+    "direction": "顶光，防火门内是黑的",
+    "policy": "practicals_only"
+   },
+   "sfx": "防火门撞墙的巨响；急促脚步",
+   "est": 2.5,
+   "start_state": "周岸拉下袖口盖住手腕，抬头看林小满",
+   "end_state": "黑衣男举刀逼近，周岸侧身对他，林小满在周岸身后",
+   "refs_hint": [
+    "黑衣男",
+    "周岸",
+    "林小满",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "big_action",
+    "phantom_across_barrier"
+   ]
+  },
+  {
+   "id": "E01S03-02",
+   "scene": "E01S03",
+   "purpose": "第一刀：周岸护人、让刀，袖子划破",
+   "subject": "person",
+   "focus": "周岸",
+   "size": "中景",
+   "cam": {
+    "z": "Z5",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 35,
+     "dof": "deep"
+    }
+   },
+   "move": [
+    "handheld_violent"
+   ],
+   "camera_side": "林小满一侧",
+   "blocking": [
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "面向防火门"
+    },
+    {
+     "who": "黑衣男",
+     "at": "防火门",
+     "facing": "面向周岸"
+    },
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "被拨到周岸身后"
+    }
+   ],
+   "action": "周岸左手把林小满往身后一拨，右脚撤步侧身，第一刀贴着他胸口划过，刀尖挑开夹克左袖口。",
+   "fight": {
+    "initiator": "黑衣男",
+    "path": "正手横划，自右向左",
+    "target": "周岸胸口",
+    "response": "周岸撤步侧身让开，左臂护人",
+    "contact": "graze",
+    "force_transfer": "刀尖带起夹克袖口布料",
+    "end_pose": "周岸侧身，左袖口裂开；黑衣男刀势用老、身体前倾",
+    "martial_ids": [
+     "martial-046",
+     "martial-056"
+    ]
+   },
+   "state": "周岸左袖口被划开",
+   "light": {
+    "source_anchor": "头顶日光灯",
+    "direction": "顶光",
+    "policy": "practicals_only"
+   },
+   "sfx": "布料撕裂声；刀锋破空",
+   "est": 2.5,
+   "start_state": "黑衣男举刀逼近，周岸侧身对他，林小满在周岸身后",
+   "end_state": "周岸侧身护人，左袖口裂开；黑衣男前倾",
+   "refs_hint": [
+    "周岸",
+    "黑衣男",
+    "林小满",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "big_action",
+    "prop_misplace"
+   ],
+   "action_pattern": {
+    "id": "act-fight"
+   }
+  },
+  {
+   "id": "E01S03-03",
+   "scene": "E01S03",
+   "purpose": "第二刀被格开，膝顶，刀脱手",
+   "subject": "person",
+   "focus": "周岸",
+   "size": "近景",
+   "cam": {
+    "z": "Z3",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 50,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "handheld_violent"
+   ],
+   "camera_side": "林小满一侧",
+   "blocking": [
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "面向黑衣男"
+    },
+    {
+     "who": "黑衣男",
+     "at": "防火门",
+     "facing": "面向周岸"
+    }
+   ],
+   "action": "黑衣男第二刀直刺，周岸右前臂格开他持刀的手腕，左膝顶上去，刀从他手里脱出砸在地板上。",
+   "fight": {
+    "initiator": "黑衣男",
+    "path": "直刺腹部",
+    "target": "周岸腹部",
+    "response": "周岸前臂外格手腕，顺势膝顶",
+    "contact": "hit",
+    "force_transfer": "黑衣男上身折起，刀脱手",
+    "end_pose": "黑衣男弯腰后退一步；周岸收膝站稳",
+    "martial_ids": [
+     "martial-046"
+    ]
+   },
+   "state": "周岸左袖口被划开",
+   "light": {
+    "source_anchor": "头顶日光灯",
+    "direction": "顶光",
+    "policy": "practicals_only"
+   },
+   "sfx": "前臂撞击的闷响；金属刀落地的脆响",
+   "est": 2.5,
+   "start_state": "周岸侧身护人，左袖口裂开；黑衣男前倾",
+   "end_state": "黑衣男弯腰后退一步，空手；周岸站稳；刀在地上",
+   "refs_hint": [
+    "周岸",
+    "黑衣男",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "big_action"
+   ]
+  },
+  {
+   "id": "E01S03-04",
+   "scene": "E01S03",
+   "purpose": "刀落地转半圈停下：结果",
+   "subject": "non_person",
+   "size": "特写",
+   "cam": {
+    "z": "Z2",
+    "y": "Y6",
+    "x": "X1",
+    "f": {
+     "lens_mm": 85,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "fixed"
+   ],
+   "action": "折叠刀在浅绿塑胶地板上转了半圈停下，刀刃朝向防火门。画面里只有刀和地板的反光。",
+   "fight": {
+    "initiator": "无",
+    "path": "刀落地旋转",
+    "target": "无",
+    "response": "无",
+    "contact": "none",
+    "force_transfer": "无",
+    "end_pose": "刀静止"
+   },
+   "light": {
+    "source_anchor": "头顶日光灯",
+    "direction": "顶光，地板反光",
+    "policy": "practicals_only"
+   },
+   "sfx": "刀在地板上转动的刮擦声停下",
+   "est": 2,
+   "start_state": "刀在地上",
+   "end_state": "刀静止，刃朝防火门",
+   "refs_hint": [
+    "折叠刀·E01S03B04",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "prop_misplace",
+    "insert_focus_drift"
+   ]
+  },
+  {
+   "id": "E01S03-05",
+   "scene": "E01S03",
+   "purpose": "黑衣男退走，周岸回头：现在信了",
+   "subject": "person",
+   "focus": "周岸",
+   "size": "中景",
+   "cam": {
+    "z": "Z5",
+    "y": "Y4",
+    "x": "X2",
+    "f": {
+     "lens_mm": 50,
+     "dof": "shallow"
+    }
+   },
+   "move": [
+    "handheld_micro"
+   ],
+   "camera_emotion": {
+    "focal": "周岸",
+    "type": "handheld_smooth"
+   },
+   "camera_side": "林小满一侧",
+   "blocking": [
+    {
+     "who": "黑衣男",
+     "at": "防火门",
+     "facing": "退回楼梯间"
+    },
+    {
+     "who": "周岸",
+     "at": "电梯门",
+     "facing": "回头面向林小满（画面左）"
+    },
+    {
+     "who": "林小满",
+     "at": "走廊尽头",
+     "facing": "面向周岸"
+    }
+   ],
+   "action": "黑衣男退回楼梯间，防火门弹回来晃着。周岸没有追，回头看林小满，左袖口裂着，呼吸还没平。",
+   "fight": {
+    "initiator": "黑衣男",
+    "path": "后退两步进门",
+    "target": "无",
+    "response": "周岸不追，回头",
+    "contact": "none",
+    "force_transfer": "无",
+    "end_pose": "黑衣男消失在门后；周岸回头"
+   },
+   "performance": {
+    "beats": [
+     "① 回头前先吐了一口气",
+     "② 说话时眉毛没动，只有嘴角",
+     "③ 视线落在她抱着的病历夹上"
+    ],
+    "restraint": "hidden7"
+   },
+   "state": "周岸左袖口被划开",
+   "lines": [
+    {
+     "line_id": "E01S03L01",
+     "delivery": "喘着，低，像在笑又不是"
+    }
+   ],
+   "light": {
+    "source_anchor": "头顶日光灯",
+    "direction": "顶光；防火门晃动时门内一道黑影来回",
+    "policy": "practicals_only"
+   },
+   "sfx": "防火门来回晃的吱呀；两人的呼吸",
+   "est": 4,
+   "start_state": "黑衣男弯腰后退一步，空手；周岸站稳；刀在地上",
+   "end_state": "防火门晃着；周岸回头面向林小满，左袖口裂开",
+   "refs_hint": [
+    "周岸",
+    "林小满",
+    "黑衣男",
+    "电梯口"
+   ],
+   "tag": "原文事实",
+   "risk_tags": [
+    "identity_drift"
+   ],
+   "emotion_arc": {
+    "id": "arc-smile-008",
+    "phase_from": 2,
+    "phase_to": 3,
+    "intensity": "hidden7",
+    "trigger": "她没躲开他的眼神"
+   },
+   "action_pattern": {
+    "id": "act-turn",
+    "variant": "战斗后回头：发丝凌乱，眼神凌厉"
+   }
+  }
+ ]
+}

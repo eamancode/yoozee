@@ -45,6 +45,8 @@ const (
 	ReasonUpstreamDNSFailed      ErrorReason = "upstream_dns_failed"
 	// ReasonTextOutputTruncated 是文本模型因输出上限停笔（finish_reason=length / stop_reason=max_tokens），结果不完整。
 	ReasonTextOutputTruncated ErrorReason = "text_output_truncated"
+	// ReasonShotlistCheckFailed 是镜头表门禁有 error 级问题，没有保存；details.check 是检查结果（规则项与镜头）。
+	ReasonShotlistCheckFailed ErrorReason = "shotlist_check_failed"
 )
 
 func ReasonForStatus(status int) ErrorReason {

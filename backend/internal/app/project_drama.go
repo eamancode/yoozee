@@ -630,7 +630,14 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 	if err != nil {
 		return DramaCompileResult{}, BadAuthRequest(err.Error())
 	}
-	result, err := drama.Compile(seg, m, req.Style, req.Acting)
+	// 2.1 段写了风格档案（由镜头表装出）：默认风格块和表演块取档案的，与本机 compile.py 一致。
+	var profile *drama.Profile
+	if strings.TrimSpace(seg.Profile) != "" {
+		if profile, err = drama.BuiltinProfile(strings.TrimSpace(seg.Profile)); err != nil {
+			return DramaCompileResult{}, BadAuthRequest(err.Error())
+		}
+	}
+	result, err := drama.CompileWithProfile(seg, m, req.Style, req.Acting, profile)
 	if err != nil {
 		return DramaCompileResult{}, err
 	}

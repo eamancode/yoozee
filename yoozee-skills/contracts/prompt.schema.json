@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/prompt.schema.json",
+  "title": "编译稿",
+  "description": "编译器（compile.py / backend compile.go）对一段在某个模型上的输出。模型不写提示词，只写段。",
+  "type": "object",
+  "required": ["segment", "model", "duration", "prompt", "files", "chars", "issues"],
+  "additionalProperties": false,
+  "properties": {
+    "segment": {"type": "string"},
+    "model": {"type": "string"},
+    "duration": {"type": "integer"},
+    "prompt": {"type": "string"},
+    "paste": {"type": "string", "description": "粘贴版（即梦网页）：提示词 + 一行说明要上传哪几张参考、各自编号"},
+    "files": {"type": "array", "items": {"type": "object", "required": ["file", "tag", "role"], "additionalProperties": false, "properties": {"file": {"type": "string"}, "tag": {"type": "string"}, "role": {"type": "string"}}}},
+    "chars": {"type": "integer", "description": "Python len() 口径"},
+    "chars_rune": {"type": "integer"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "issues": {"type": "array", "items": {"type": "object", "required": ["level", "message"], "additionalProperties": false, "properties": {"level": {"type": "string", "enum": ["error", "warn"]}, "message": {"type": "string"}, "rule": {"type": "string"}}}}
+  }
+}

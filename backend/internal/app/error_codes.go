@@ -40,6 +40,7 @@ const (
 	ReasonBadGateway          = kernel.ReasonBadGateway
 	ReasonUpstreamDNSFailed   = kernel.ReasonUpstreamDNSFailed
 	ReasonTextOutputTruncated = kernel.ReasonTextOutputTruncated
+	ReasonShotlistCheckFailed = kernel.ReasonShotlistCheckFailed
 )
 
 func ReasonForStatus(status int) ErrorReason {

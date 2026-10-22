@@ -347,6 +347,21 @@ type ShotEvidence struct {
 	CreatedAt   time.Time `json:"createdAt" gorm:"index"`
 }
 
+// DramaShotlist 是一章的镜头表（yoozee 契约 shotlist）：段由它装出来，用户改镜头表就重装段。
+// ScriptJSON 是由章节正文转出的台词表，CheckJSON 是最近一次检查结果。一章一份，按 unit_id 唯一。
+type DramaShotlist struct {
+	ID           string    `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID    string    `json:"projectId" gorm:"index;size:36;not null"`
+	UnitID       string    `json:"unitId" gorm:"uniqueIndex;size:36;not null"`
+	Version      int       `json:"version" gorm:"not null;default:1"`
+	ShotlistJSON string    `json:"shotlistJson" gorm:"type:text"`
+	ScriptJSON   string    `json:"scriptJson" gorm:"type:text"`
+	CheckJSON    string    `json:"checkJson" gorm:"type:text"`
+	CreatedBy    string    `json:"createdBy,omitempty" gorm:"size:36"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
 type ShotAssetReference struct {
 	ID             string    `json:"id" gorm:"primaryKey;size:36"`
 	ShotID         string    `json:"shotId" gorm:"index;size:36;uniqueIndex:idx_shot_asset_reference_unique,priority:1"`

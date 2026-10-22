@@ -1,0 +1,74 @@
+{
+  "title": "七床",
+  "episodes": [{"no": 1, "title": "七床", "hook_out": "病床是空的，而走廊尽头站着的人是她前夫"}],
+  "scenes": [
+    {
+      "id": "E01S01",
+      "heading": "内·病房走廊·夜",
+      "location_ref": "病房走廊",
+      "characters": ["林小满"],
+      "props": ["病历夹"],
+      "function": "建立夜班的孤独与异常：七床的门虚掩，监护仪声音不对",
+      "emotion": "例行 → 察觉 → 不安",
+      "kind": "dialogue",
+      "beats": [
+        {"id": "E01S01B01", "kind": "action", "text": "夜里的病房走廊，日光灯一盏接一盏。林小满抱着病历夹从尽头走来，边走边翻。", "tag": "原文事实"},
+        {"id": "E01S01B02", "kind": "action", "text": "她抬头看向七床的门牌，门虚掩着，里面没有监护仪的滴滴声。", "tag": "原文事实"},
+        {"id": "E01S01L01", "kind": "line", "speaker": "林小满", "text": "七床？", "tag": "原文事实"},
+        {"id": "E01S01B03", "kind": "action", "text": "她推门。病床空着，被子掀开一半，输液管垂在地上还在滴。", "tag": "原文事实", "state_change": "林小满手里仍抱着病历夹"},
+        {"id": "E01S01L02", "kind": "line", "speaker": "林小满", "text": "七床的人呢？", "tag": "原文事实"}
+      ]
+    },
+    {
+      "id": "E01S02",
+      "heading": "内·走廊尽头电梯口·夜",
+      "location_ref": "电梯口",
+      "characters": ["林小满", "周岸"],
+      "props": ["病历夹"],
+      "function": "撞上前夫：他为什么在这里；谁先开口决定关系的权力",
+      "emotion": "慌 → 僵住 → 试探",
+      "kind": "dialogue",
+      "beats": [
+        {"id": "E01S02B01", "kind": "action", "text": "林小满小跑到走廊尽头，电梯门正在关上，一只手把门挡住。周岸从电梯里走出来，穿着病号服外面套了件黑夹克。", "tag": "原文事实"},
+        {"id": "E01S02L01", "kind": "line", "speaker": "周岸", "text": "小满。", "tag": "原文事实"},
+        {"id": "E01S02B02", "kind": "action", "text": "林小满停住，病历夹贴在胸口。两人隔着三步。", "tag": "原文事实"},
+        {"id": "E01S02L02", "kind": "line", "speaker": "林小满", "text": "你是七床？", "tag": "原文事实"},
+        {"id": "E01S02L03", "kind": "line", "speaker": "周岸", "text": "我以为你早换科室了。", "tag": "原文事实"},
+        {"id": "E01S02B03", "kind": "action", "text": "电梯门在他身后合上。走廊的灯闪了一下。", "tag": "原文事实"},
+        {"id": "E01S02L04", "kind": "line", "speaker": "林小满", "text": "回去躺着。你的输液还没拔。", "tag": "原文事实"},
+        {"id": "E01S02L05", "kind": "line", "speaker": "周岸", "text": "我不是来住院的。", "tag": "原文事实"}
+      ]
+    },
+    {
+      "id": "E01S03",
+      "heading": "内·走廊尽头电梯口·夜",
+      "location_ref": "电梯口",
+      "characters": ["林小满", "周岸", "黑衣男"],
+      "props": ["病历夹", "折叠刀"],
+      "function": "黑衣男从楼梯间冲出来抢周岸手里的东西，周岸护住林小满",
+      "emotion": "试探 → 突袭 → 僵持",
+      "kind": "action",
+      "fight": {
+        "phase_plan": [
+          {"phase": "standoff", "beats": ["E01S03B01"]},
+          {"phase": "escalate", "beats": ["E01S03B02", "E01S03B03"]},
+          {"phase": "resolve", "beats": ["E01S03B04"]},
+          {"phase": "aftermath", "beats": ["E01S03L01"]}
+        ],
+        "sides": [
+          {"name": "黑衣男", "style": "martial-056", "weapon": "折叠刀"},
+          {"name": "周岸", "style": "martial-046", "weapon": "空手"}
+        ],
+        "arena": "走廊尽头：左侧电梯门已合上，右侧是楼梯间防火门，中间约三米宽"
+      },
+      "beats": [
+        {"id": "E01S03B01", "kind": "action", "text": "楼梯间防火门被撞开，黑衣男冲出来，手里一把折叠刀，直奔周岸。", "tag": "原文事实"},
+        {"id": "E01S03B02", "kind": "action", "text": "周岸把林小满往身后一拨，侧身让过第一刀，刀划破夹克袖子。", "tag": "原文事实", "contact": true, "state_change": "周岸左袖口被划开"},
+        {"id": "E01S03B03", "kind": "action", "text": "黑衣男第二刀刺来，周岸格开他的手腕，膝盖顶上去，刀掉在地上。", "tag": "原文事实", "contact": true},
+        {"id": "E01S03B04", "kind": "action", "text": "黑衣男退回楼梯间，门弹回来晃着。刀在地上转了半圈停下。", "tag": "原文事实"},
+        {"id": "E01S03L01", "kind": "line", "speaker": "周岸", "text": "现在信了？", "tag": "原文事实"}
+      ]
+    }
+  ],
+  "screen_text": [{"who": "门牌", "text": "7", "when": "E01S01"}]
+}

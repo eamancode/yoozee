@@ -1,0 +1,12 @@
+{
+  "kind": "script",
+  "expect": ["R-SCRIPT-001", "R-SCRIPT-002", "R-SCRIPT-003", "R-SCRIPT-004", "R-SCRIPT-006"],
+  "title": "坏样例",
+  "scenes": [
+    {"id": "E01S01", "heading": "", "kind": "action", "beats": [
+      {"id": "E01S02L01", "kind": "line", "speaker": "", "text": "我其实是你失散多年的继承人", "tag": "原文事实"},
+      {"id": "E01S01B01", "kind": "action", "text": "他意识到自己错了（其实是在掩饰紧张）。", "tag": "原文事实"},
+      {"id": "E01S01B01", "kind": "action", "text": "重复的 id", "tag": "原文事实"}
+    ]}
+  ]
+}

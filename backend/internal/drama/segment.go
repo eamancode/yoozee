@@ -10,28 +10,41 @@ import (
 	"unicode/utf8"
 )
 
-// Segment 是契约 segment（yoozee-skills/contracts/segment.schema.json）：一段 = 一次生成，段内多镜头。
+// Segment 是契约 segment（yoozee-skills/contracts/segment.schema.json 2.1）：一段 = 一次生成，段内多镜头。
+// 2.0 起 shot_ids 回指镜头表；2.1 加情绪链、站位、灯光七项、衔接、台词四元。1.0 字段全部保留，旧段照常编译。
 type Segment struct {
-	ID         string    `json:"id"`
-	Scene      string    `json:"scene"`
-	Title      string    `json:"title,omitempty"`
-	Dur        float64   `json:"dur"`
-	Mode       string    `json:"mode"`
-	FirstFrame string    `json:"first_frame,omitempty"`
-	LastFrame  string    `json:"last_frame,omitempty"`
-	Refs       []Ref     `json:"refs,omitempty"`
-	Voices     []Voice   `json:"voices,omitempty"`
-	Shots      []SubShot `json:"shots"`
-	Sound      string    `json:"sound,omitempty"`
-	Rules      string    `json:"rules,omitempty"`
-	Hook       string    `json:"hook,omitempty"`
-	Lang       string    `json:"lang,omitempty"`
+	ID               string            `json:"id"`
+	Scene            string            `json:"scene"`
+	Title            string            `json:"title,omitempty"`
+	Dur              float64           `json:"dur"`
+	Mode             string            `json:"mode"`
+	FirstFrame       string            `json:"first_frame,omitempty"`
+	LastFrame        string            `json:"last_frame,omitempty"`
+	Refs             []Ref             `json:"refs,omitempty"`
+	Voices           []Voice           `json:"voices,omitempty"`
+	Shots            []SubShot         `json:"shots"`
+	Cast             []CastLine        `json:"cast,omitempty"`
+	ScreenText       []string          `json:"screen_text,omitempty"`
+	Jimeng           *Jimeng           `json:"jimeng,omitempty"`
+	Sound            string            `json:"sound,omitempty"`
+	Rules            string            `json:"rules,omitempty"`
+	Hook             string            `json:"hook,omitempty"`
+	Lang             string            `json:"lang,omitempty"`
+	ShotIDs          []string          `json:"shot_ids,omitempty"`
+	StorySpan        string            `json:"story_span,omitempty"`
+	Profile          string            `json:"profile,omitempty"`
+	Reanchor         string            `json:"reanchor,omitempty"`
+	Density          string            `json:"density,omitempty"`
+	Handles          []Handle          `json:"handles,omitempty"`
+	Warnings         []string          `json:"warnings,omitempty"`
+	ContinuityBridge *ContinuityBridge `json:"continuity_bridge,omitempty"`
 }
 
 type Ref struct {
-	File string `json:"file"`
-	Role string `json:"role"`
-	Note string `json:"note,omitempty"`
+	File  string `json:"file"`
+	Role  string `json:"role"`
+	Note  string `json:"note,omitempty"`
+	State string `json:"state,omitempty"`
 }
 
 type Voice struct {
@@ -39,23 +52,75 @@ type Voice struct {
 	File      string `json:"file"`
 }
 
+// CastLine 是没有身份参考图的在场人物的外貌声明，编译写进段头。
+type CastLine struct {
+	Name string   `json:"name"`
+	Lock []string `json:"lock"`
+}
+
+// Jimeng 是即梦小节头（由装段从剧本 / 镜头表 / 资产圣经推导）。
+type Jimeng struct {
+	NarrativeSpan  string `json:"narrative_span,omitempty"`
+	Function       string `json:"function,omitempty"`
+	Strategy       string `json:"strategy,omitempty"`
+	Atmosphere     string `json:"atmosphere,omitempty"`
+	LightSource    string `json:"light_source,omitempty"`
+	SoundBed       string `json:"sound_bed,omitempty"`
+	GroupVariation string `json:"group_variation,omitempty"`
+}
+
+type Handle struct {
+	Tag  string `json:"tag"`
+	Text string `json:"text"`
+}
+
+// ContinuityBridge 是同一场拆成多段时后段带的一致性桥。
+type ContinuityBridge struct {
+	PrevSegment  string   `json:"prev_segment"`
+	HandoffState string   `json:"handoff_state"`
+	SharedRefs   []string `json:"shared_refs"`
+	BridgeFrame  string   `json:"bridge_frame,omitempty"`
+	BridgeClip   string   `json:"bridge_clip,omitempty"`
+	ReanchorText string   `json:"reanchor_text,omitempty"`
+	SharedBed    string   `json:"shared_bed,omitempty"`
+}
+
 // SubShot 是段内的一个镜头。Sound、EndState 记在镜头上：段没写 sound / rules 时编译从镜头取，
 // 拆段、合段、移镜头之后声音和结尾约束跟着镜头走，不会留在原来那一段。
 type SubShot struct {
-	At       float64 `json:"at"`
-	Size     string  `json:"size,omitempty"`
-	Camera   string  `json:"camera,omitempty"`
-	Text     string  `json:"text"`
-	Lines    []Line  `json:"lines,omitempty"`
-	Sound    string  `json:"sound,omitempty"`
-	EndState string  `json:"end_state,omitempty"`
+	At              float64     `json:"at"`
+	Size            string      `json:"size,omitempty"`
+	Camera          string      `json:"camera,omitempty"`
+	Text            string      `json:"text"`
+	Lines           []Line      `json:"lines,omitempty"`
+	Sound           string      `json:"sound,omitempty"`
+	EndState        string      `json:"end_state,omitempty"`
+	ShotID          string      `json:"shot_id,omitempty"`
+	RiskTags        []string    `json:"risk_tags,omitempty"`
+	StartState      string      `json:"start_state,omitempty"`
+	Purpose         string      `json:"purpose,omitempty"`
+	Expression      string      `json:"expression,omitempty"`
+	ExpressionTerms []string    `json:"expression_terms,omitempty"`
+	Composition     string      `json:"composition,omitempty"`
+	Transition      *Transition `json:"transition,omitempty"`
+	VO              string      `json:"vo,omitempty"`
+	Positions       string      `json:"positions,omitempty"`
+	Anchors         string      `json:"anchors,omitempty"`
+	Motion          string      `json:"motion,omitempty"`
+	LightFull       string      `json:"light_full,omitempty"`
 }
 
 type Line struct {
-	Speaker  string `json:"speaker"`
-	Text     string `json:"text"`
-	VO       bool   `json:"vo,omitempty"`
-	Delivery string `json:"delivery,omitempty"`
+	Speaker   string `json:"speaker"`
+	Text      string `json:"text"`
+	VO        bool   `json:"vo,omitempty"`
+	Delivery  string `json:"delivery,omitempty"`
+	LineID    string `json:"line_id,omitempty"`
+	Timbre    string `json:"timbre,omitempty"`
+	Pace      string `json:"pace,omitempty"`
+	Tone      string `json:"tone,omitempty"`
+	Emotion   string `json:"emotion,omitempty"`
+	Placement string `json:"placement,omitempty"`
 }
 
 const (
@@ -69,7 +134,7 @@ const (
 var segmentIDPattern = regexp.MustCompile(`^S[0-9]{2,3}[a-z]?$`)
 
 // SegmentShape 是写给 Agent 和人看的分段字段说明（契约 segment）。
-const SegmentShape = "每段字段：id（S01、S12b）；scene（场次）；title?；dur（秒）；mode（lock_identity / lock_first_frame / text_only）；first_frame?、last_frame?（lock_first_frame 用）；refs?:[{file, role(identity/location/plate/prop/frame), note?}]，file 填柚子资产 ID；voices?:[{character, file}]；shots:[{at（段内第几秒）, size?, camera?, text, lines?:[{speaker, text, vo?, delivery?}], sound?（这一镜的声音）, end_state?（这一镜结束时的状态）}]；sound?（不写时按镜头顺序接各镜头的 sound）、rules?（不写时取最后一镜的 end_state）、hook?、lang?。拆段合段时把声音和结尾状态写在镜头上，段级 sound / rules 只写整段通用的。不认识的字段会被拒绝。"
+const SegmentShape = "每段字段：id（S01、S12b）；scene（场次）；title?；dur（秒）；mode（lock_identity / lock_first_frame / text_only）；first_frame?、last_frame?（lock_first_frame 用）；refs?:[{file, role(identity/location/plate/prop/frame/motion), note?, state?}]，file 填柚子资产 ID；voices?:[{character, file}]；shots:[{at（段内第几秒）, size?, camera?, text, lines?:[{speaker, text, vo?, delivery?, line_id?, timbre?, pace?, tone?, emotion?, placement?}], sound?（这一镜的声音）, end_state?（这一镜结束时的状态）, shot_id?, start_state?, purpose?, expression?, expression_terms?, composition?, transition?:{in?, out?, cut_point?}, vo?, positions?, anchors?, motion?, light_full?, risk_tags?}]；sound?（不写时按镜头顺序接各镜头的 sound）、rules?（不写时取最后一镜的 end_state）、hook?、lang?；2.1 装段另写 shot_ids、profile、cast、screen_text、jimeng、warnings、story_span、continuity_bridge（同场后段）。拆段合段时把声音和结尾状态写在镜头上，段级 sound / rules 只写整段通用的。不认识的字段会被拒绝。"
 
 var refRoles = map[string]bool{"identity": true, "location": true, "plate": true, "prop": true, "frame": true, "motion": true}
 
@@ -127,6 +192,24 @@ func (s Segment) Validate() error {
 			return fmt.Errorf("%s 的第 %d 个音色参考缺少人物或文件", s.ID, i+1)
 		}
 	}
+	switch s.Density {
+	case "", "tight", "standard", "dense":
+	default:
+		return fmt.Errorf("%s 的 density %q 无效", s.ID, s.Density)
+	}
+	if b := s.ContinuityBridge; b != nil && strings.TrimSpace(b.PrevSegment) == "" {
+		return fmt.Errorf("%s 的一致性桥缺少 prev_segment", s.ID)
+	}
+	for i, c := range s.Cast {
+		if strings.TrimSpace(c.Name) == "" {
+			return fmt.Errorf("%s 的第 %d 个人物声明缺少名字", s.ID, i+1)
+		}
+	}
+	for i, h := range s.Handles {
+		if strings.TrimSpace(h.Tag) == "" {
+			return fmt.Errorf("%s 的第 %d 个句柄缺少编号", s.ID, i+1)
+		}
+	}
 	for i, sh := range s.Shots {
 		if sh.At < 0 || strings.TrimSpace(sh.Text) == "" {
 			return fmt.Errorf("%s 的第 %d 个镜头缺少画面或开始秒无效", s.ID, i+1)
@@ -154,6 +237,8 @@ func (s Segment) Dialogue() string {
 // HasDialogue 这一段有没有台词。
 func (s Segment) HasDialogue() bool { return utf8.RuneCountInString(s.Dialogue()) > 0 }
 
+var soundSplit = regexp.MustCompile(`[；;]`)
+
 // SoundText 是这一段的声音：段级 sound；没写时按镜头顺序接各镜头的 sound（去掉句尾标点、去重，用 sep 分隔）。
 // 与 compile.py 的 segment_sound 一致。
 func (s Segment) SoundText(sep string) string {
@@ -162,8 +247,11 @@ func (s Segment) SoundText(sep string) string {
 	}
 	var parts []string
 	for _, sh := range s.Shots {
-		if part := strings.TrimRight(strings.TrimSpace(sh.Sound), "。；;，,. "); part != "" && !slices.Contains(parts, part) {
-			parts = append(parts, part)
+		// 一镜多条声音按分号拆开再去重，重复的环境声只写一次。
+		for _, raw := range soundSplit.Split(sh.Sound, -1) {
+			if part := strings.TrimRight(strings.TrimSpace(raw), "。；;，,. "); part != "" && !slices.Contains(parts, part) {
+				parts = append(parts, part)
+			}
 		}
 	}
 	return strings.Join(parts, sep)
@@ -222,7 +310,11 @@ func Issues(seg Segment, m Model) []Issue {
 		}
 		last = at
 	}
-	hasRefs := len(seg.Refs) > 0 || len(seg.Voices) > 0
+	bridge := seg.ContinuityBridge
+	if bridge == nil {
+		bridge = &ContinuityBridge{}
+	}
+	hasRefs := len(seg.Refs) > 0 || len(seg.Voices) > 0 || bridge.BridgeFrame != "" || bridge.BridgeClip != ""
 	if seg.Mode == ModeLockFirstFrame {
 		if strings.TrimSpace(seg.FirstFrame) == "" {
 			out = append(out, Issue{"error", fmt.Sprintf("%s 是锁首帧模式但没有 first_frame", seg.ID)})
@@ -245,6 +337,12 @@ func Issues(seg Segment, m Model) []Issue {
 			images++
 		}
 	}
+	if bridge.BridgeFrame != "" {
+		images++
+	}
+	if bridge.BridgeClip != "" {
+		videos++
+	}
 	audios := len(seg.Voices)
 	for _, c := range []struct {
 		name string
@@ -257,6 +355,9 @@ func Issues(seg Segment, m Model) []Issue {
 	}
 	if m.Refs.Total != nil && images+videos+audios > *m.Refs.Total {
 		out = append(out, Issue{"error", fmt.Sprintf("%s 参考素材合计 %d 个，超过 %s 的上限 %d", seg.ID, images+videos+audios, m.Label, *m.Refs.Total)})
+	}
+	if m.FilesTotal != nil && images+videos+audios > *m.FilesTotal {
+		out = append(out, Issue{"error", fmt.Sprintf("%s 参考文件合计 %d 个，超过 %s 的混合上限 %d", seg.ID, images+videos+audios, m.Label, *m.FilesTotal)})
 	}
 	return out
 }

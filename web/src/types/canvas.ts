@@ -143,6 +143,8 @@ export type StoryboardRow = {
     previsSceneId?: string;
     /** 最后一次生成白膜预演后的缩略图 URL，用于在分镜行内展示预览图。 */
     previsSnapshotUrl?: string;
+    /** yoozee 镜头表的一镜（契约 shotlist 的 shot），由 yz-chapter-shots 写出；保存时交给后端转镜头表、检查、装段。 */
+    spec?: Record<string, unknown>;
 };
 
 export type StoryboardData = {

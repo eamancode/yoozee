@@ -1,0 +1,16 @@
+{
+  "kind": "shots",
+  "args": ["--profile", "live-realism"],
+  "profile": "live-realism",
+  "expect": ["R-SHOT-025", "R-SHOT-026", "R-SHOT-027", "R-SHOT-028", "R-SHOT-029", "R-SHOT-030"],
+  "shots": [
+    {"id": "E01S01-01", "scene": "E01S01", "purpose": "坏样例：弧 id 不存在、辅光写补光", "subject": "person", "focus": "林小满", "size": "近景", "cam": {"z": "Z3", "y": "Y4", "x": "X2"}, "move": ["fixed"],
+     "action": "林小满低头翻病历夹。", "emotion_arc": {"id": "arc-nope-999"}, "light": {"source_anchor": "台灯", "policy": "practicals_only", "fill": "画外一块反光板补亮右脸"}, "est": 3, "start_state": "站着", "end_state": "站着", "tag": "导演设计"},
+    {"id": "E01S01-02", "scene": "E01S01", "purpose": "坏样例：同主体景别只差一级机位未变却写硬切；台词三元缺项；续接指向不带弧的镜头", "subject": "person", "focus": "林小满", "size": "中近景", "cam": {"z": "Z4", "y": "Y4", "x": "X2"}, "move": ["fixed"],
+     "action": "她抬头。", "lines": [{"line_id": "E01S01L01", "pace": "慢", "tone": "压低"}], "transition": {"in": "硬切", "out": "硬切", "cut_point": "视线"}, "emotion_arc": {"id": "arc-shock-002", "continues": "E01S01-01"},
+     "light": {"source_anchor": "台灯", "policy": "practicals_only"}, "est": 3, "start_state": "站着", "end_state": "站着", "tag": "导演设计"},
+    {"id": "E01S01-03", "scene": "E01S01", "purpose": "坏样例：双人动作模式用在单人镜头；含台词却没有弧也没有节拍", "subject": "person", "focus": "林小满", "size": "全景", "cam": {"z": "Z7", "y": "Y4", "x": "X1"}, "move": ["fixed"],
+     "action": "林小满站在走廊中间。", "blocking": [{"who": "林小满", "at": "走廊尽头"}], "lines": [{"line_id": "E01S01L02"}], "action_pattern": {"id": "act-hug"},
+     "light": {"source_anchor": "日光灯", "policy": "practicals_only"}, "est": 3, "start_state": "站着", "end_state": "站着", "tag": "导演设计"}
+  ]
+}

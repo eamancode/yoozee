@@ -1,0 +1,83 @@
+{
+ "kind": "shots",
+ "errors": 0,
+ "warnings": 15,
+ "items": [
+  {
+   "level": "warn",
+   "rule": "R-SHOT-024",
+   "message": "E01S01-03 档案要求微表演节拍，performance.beats 为空"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-024",
+   "message": "E01S01-06 档案要求微表演节拍，performance.beats 为空"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-024",
+   "message": "E01S01-08 档案要求微表演节拍，performance.beats 为空"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-024",
+   "message": "E01S02-01 档案要求微表演节拍，performance.beats 为空"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S02-03 A 档景别没写全在场人物位置：['周岸']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-007",
+   "message": "E01S02-07 与上一镜同主体、景别只差 1 级且机位未变：跳切风险"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-027",
+   "message": "E01S02-07 衔接写了硬切，但与上一镜同主体、景别只差 1 级且机位未变，是跳切"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-007",
+   "message": "E01S03-03 与上一镜同主体、景别只差 1 级且机位未变：跳切风险"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S03-05 A 档景别没写全在场人物位置：['林小满']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S03-07 A 档景别没写全在场人物位置：['林小满']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-027",
+   "message": "E01S03-07 衔接写了动作匹配切，但上一镜 action 里没有动作动词可接"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S03-08 A 档景别没写全在场人物位置：['林小满']"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-024",
+   "message": "E01S03-09 档案要求微表演节拍，performance.beats 为空"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-027",
+   "message": "E01S03-09 衔接写了动作匹配切，但上一镜 action 里没有动作动词可接"
+  },
+  {
+   "level": "warn",
+   "rule": "R-SHOT-013",
+   "message": "E01S03-12 A 档景别没写全在场人物位置：['林小满']"
+  }
+ ],
+ "skipped": []
+}

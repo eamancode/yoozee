@@ -1,0 +1,9 @@
+[
+  {"id": "R-COMPILE-001", "level": "error", "desc": "提示词字符数 ≤ 模型 prompt_max_chars_measured（本账户实测）或 prompt_max_chars（文档值），按 Python len() 口径", "source": "Seedance 技能 字符数实测铁律", "impl": "compile_chars"},
+  {"id": "R-COMPILE-002", "level": "error", "desc": "参考按角色编号，@图片 / @视频 / @音频 各自从 1 起连续", "source": "即梦 0.1 / Seedance 平台参数", "impl": "compile_refs"},
+  {"id": "R-COMPILE-003", "level": "error", "desc": "首尾帧与参考互斥的模型不能同时给", "source": "Seedance 2.0 文档", "impl": "compile_frames"},
+  {"id": "R-COMPILE-004", "level": "error", "desc": "台词逐字出现在提示词里，没有被改写或截断", "source": "F5", "impl": "compile_lines_verbatim"},
+  {"id": "R-COMPILE-005", "level": "error", "desc": "每个 @句柄后紧跟名词解释（谁 / 什么），不得裸出现", "source": "camera-codec 断句防歧义铁律", "impl": "compile_handle_noun"},
+  {"id": "R-COMPILE-006", "level": "warn", "desc": "镜头 risk_tags 每项都对应一条 ⚠️ 警告文案；不追加与本段无关的通用负面词", "source": "Higgsfield 失败模式警告 / 设计 P11", "impl": "compile_warnings"},
+  {"id": "R-COMPILE-007", "level": "warn", "desc": "超过 15 秒的 Seedance 段在中段有再锚定句；带桥的段开头有 reanchor_text", "source": "即梦 0.1 中段再锚点 / 设计 5.15", "impl": "compile_reanchor"}
+]

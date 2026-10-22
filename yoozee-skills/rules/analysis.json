@@ -1,0 +1,7 @@
+[
+  {"id": "R-ANALYSIS-001", "level": "error", "desc": "phases 时间范围连续：首段从 0 起，每段 to 等于下一段 from，末段 to 等于 source.duration（允许 0.1 秒误差）", "source": "动作模式分析模板 十三-4", "impl": "analysis_continuous"},
+  {"id": "R-ANALYSIS-002", "level": "error", "desc": "key_actions 里 contact_evidence 少于两项的，confidence 不得为 high；contact=hit 的 phase 必须有对应 key_action", "source": "动作模式分析模板 六 命中判定标准", "impl": "analysis_evidence"},
+  {"id": "R-ANALYSIS-003", "level": "warn", "desc": "source.has_cuts 为 true 时 camera 必须列出切镜时间；摄影机运动与人物位移分开描述", "source": "动作模式分析模板 十", "impl": "analysis_camera"},
+  {"id": "R-ANALYSIS-004", "level": "error", "desc": "actors 至少一人且每人有固定身份标签 desc（不能只写左边的人 / 右边的人）", "source": "动作模式分析模板 三", "impl": "analysis_actors"},
+  {"id": "R-ANALYSIS-005", "level": "warn", "desc": "source.limits 非空时（无法逐帧 / 无音轨），精度字段与 audio_timeline 应与之一致", "source": "动作模式分析模板 一-6", "impl": "analysis_limits"}
+]

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yoozee.dev/contracts/story.schema.json",
+  "title": "故事档",
+  "description": "yz-story 的产物：方案列表、剧情创意（treatment）、人物档、结构对照表、场景列表、伏笔登记、连续性档案；短剧速产另有全剧架构；改编另有事实账本。叙述体正文放 treatment.text，不写成剧本体。",
+  "type": "object",
+  "required": ["mode"],
+  "additionalProperties": false,
+  "$defs": {
+    "tag": {"type": "string", "enum": ["原文事实", "逻辑修复", "视觉扩写", "导演设计", "待确认"]}
+  },
+  "properties": {
+    "mode": {"type": "string", "enum": ["five_stage", "duanju_fast", "adapt"]},
+    "format": {"type": "string", "enum": ["ultrashort", "short", "feature", "series", "duanju", "grid25"], "description": "格式路由"},
+    "taste_anchor": {"type": "string", "description": "点火提问的答案（可空）"},
+    "options": {
+      "type": "array",
+      "description": "阶段 1 微缩试奏",
+      "items": {
+        "type": "object",
+        "required": ["no", "title", "audition"],
+        "additionalProperties": false,
+        "properties": {
+          "no": {"type": "integer"},
+          "title": {"type": "string"},
+          "tags": {"type": "array", "items": {"type": "string"}},
+          "audition": {"type": "string", "description": "试奏正文：这个故事被这样讲起来的样子"},
+          "concept": {"type": "string", "description": "一句话概念"},
+          "life_sign": {"type": "string", "description": "生命迹象：那个不可推导的细节"},
+          "estimate": {"type": "string", "description": "预估格式与体量"},
+          "offset": {"type": "string", "description": "若有现实偏移：是什么、为什么纯现实拍不出"},
+          "killed": {"type": "array", "items": {"type": "string"}, "description": "被杀掉的版本（选题自审开启时）"}
+        }
+      }
+    },
+    "chosen": {"type": "integer", "description": "用户选中的方案号"},
+    "treatment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tuning_scene": {"type": "string", "description": "音叉场景 ≤200 字，唯一允许的近剧本片段"},
+        "text": {"type": "string", "description": "叙述体剧情创意，按选定讲法的观看顺序写"},
+        "key_lines": {"type": "array", "items": {"type": "string"}, "description": "嵌引的关键对白，全片十来句为限"},
+        "aftertaste": {"type": "string", "description": "余味：观众看完手里拿着什么"},
+        "endings": {"type": "array", "items": {"type": "object", "required": ["kind", "text"], "additionalProperties": false, "properties": {"kind": {"type": "string", "enum": ["closed", "open"]}, "text": {"type": "string"}}}}
+      }
+    },
+    "characters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "want": {"type": "string"},
+          "need": {"type": "string"},
+          "contradiction": {"type": "string"},
+          "ghost": {"type": "string", "description": "来历，按格式深浅"},
+          "voice": {"type": "string", "description": "说话方式的区分度：遮住名字能认出是谁"},
+          "function": {"type": "string", "description": "功能定位"},
+          "nn": {"type": "integer", "description": "出场序号"}
+        }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "template": {"type": "string", "description": "Save the Cat / McKee / Story Circle / 四段式 / 短剧五段 / 短片结构库条目"},
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["slot", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "slot": {"type": "string", "description": "功能位"},
+              "section": {"type": "string", "description": "对应故事段落"},
+              "minutes": {"type": "number"},
+              "status": {"type": "string", "enum": ["ok", "weak", "missing"]},
+              "reason": {"type": "string", "description": "weak 保留时的理由"}
+            }
+          }
+        }
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title"],
+        "additionalProperties": false,
+        "properties": {
+          "title": {"type": "string"},
+          "minutes": {"type": "number"},
+          "plot": {"type": "string", "enum": ["loose", "mid", "tight"]},
+          "emotion": {"type": "string", "enum": ["light", "mid", "heavy"]},
+          "kind": {"type": "string", "enum": ["dialogue", "action", "montage", "insert"]}
+        }
+      }
+    },
+    "plants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "setup"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "setup": {"type": "string", "description": "埋在哪"},
+          "payoff": {"type": "string", "description": "回收在哪"},
+          "status": {"type": "string", "enum": ["planted", "paid", "open"]}
+        }
+      }
+    },
+    "continuity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "character_states": {"type": "array", "items": {"type": "string"}},
+        "open_seeds": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "duanju": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "短剧速产五项产出",
+      "properties": {
+        "hook": {"type": "string", "description": "总钩子一句话（投流文案母本）"},
+        "cast_cards": {"type": "array", "items": {"type": "string"}},
+        "engines": {"type": "array", "items": {"type": "string"}, "description": "主引擎 + 副引擎"},
+        "reversals": {"type": "array", "items": {"type": "object", "required": ["episode", "text"], "additionalProperties": false, "properties": {"episode": {"type": "integer"}, "text": {"type": "string"}, "strength": {"type": "integer"}}}},
+        "paywalls": {"type": "array", "items": {"type": "object", "required": ["episode"], "additionalProperties": false, "properties": {"episode": {"type": "integer"}, "note": {"type": "string"}}}},
+        "sections": {"type": "array", "items": {"type": "object", "required": ["name", "from", "to", "task"], "additionalProperties": false, "properties": {"name": {"type": "string"}, "from": {"type": "integer"}, "to": {"type": "integer"}, "task": {"type": "string"}, "consumes": {"type": "string"}}}},
+        "outline": {"type": "array", "items": {"type": "object", "required": ["episode", "logline"], "additionalProperties": false, "properties": {"episode": {"type": "integer"}, "logline": {"type": "string"}, "template": {"type": "string", "description": "E1～E7"}, "hook_out": {"type": "string"}}}},
+        "ad_cuts": {"type": "array", "items": {"type": "string"}, "description": "投流切片标注"}
+      }
+    },
+    "grid25": {
+      "type": "array",
+      "description": "25 格拆解（≥45 秒短片）",
+      "items": {"type": "object", "required": ["no", "task"], "additionalProperties": false, "properties": {"no": {"type": "integer"}, "task": {"type": "string"}, "seconds": {"type": "number"}, "note": {"type": "string"}}}
+    },
+    "fact_ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "改编：三步思考法第一步",
+      "properties": {
+        "facts": {"type": "array", "items": {"type": "string"}},
+        "problems": {"type": "array", "items": {"type": "string"}},
+        "fixes": {"type": "array", "items": {"type": "object", "required": ["problem", "fix", "tag"], "additionalProperties": false, "properties": {"problem": {"type": "string"}, "fix": {"type": "string"}, "tag": {"$ref": "#/$defs/tag"}}}},
+        "unresolved": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "cold_read": {"type": "array", "items": {"type": "string"}, "description": "冷读证词（阶段 4 完成后）"},
+    "doctor": {"type": "array", "items": {"type": "object", "required": ["issue"], "additionalProperties": false, "properties": {"issue": {"type": "string"}, "where": {"type": "string"}, "fix": {"type": "string"}, "done": {"type": "boolean"}}}}
+  }
+}

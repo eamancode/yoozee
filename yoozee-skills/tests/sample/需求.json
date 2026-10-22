@@ -1,0 +1,17 @@
+{
+  "title": "七床",
+  "video_model": "seedance-2.5",
+  "auth_mode": "full",
+  "style_profile": "live-realism",
+  "script_mode": "given",
+  "entry": "script",
+  "purpose": {"value": "短剧试片：夜班护士发现七床空了，走廊尽头与前夫撞上", "status": "已确认", "quote": "就做一场戏试试这套流程", "date": "2026-10-20"},
+  "platform": {"value": "视频号，9:16，一个无字幕 mp4 + SRT，-16 LUFS", "status": "默认，已授权"},
+  "duration": {"value": "90 秒", "status": "已确认"},
+  "taste": {"value": "真人剧，夜班题材惊悚短片的质感，不要血腥；配乐真乐器", "status": "已确认"},
+  "budget": {"value": "30 美元", "status": "已确认"},
+  "acceptance": {"value": "看两下：护士发现病床空了的那一下；走廊尽头两人撞上时谁先开口", "status": "已确认"},
+  "items": [],
+  "questions": [],
+  "decided_for_you": []
+}

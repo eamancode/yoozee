@@ -1,0 +1,7 @@
+[
+  {"id": "R-BRIEF-001", "level": "error", "desc": "六项事实（purpose / platform / duration / taste / budget / acceptance）都存在且 status 为「已确认」或「默认，已授权」，才算需求问透", "source": "分镜师 4.0 规则一", "impl": "brief_facts"},
+  {"id": "R-BRIEF-002", "level": "error", "desc": "video_model 必须在 models.json 里", "source": "yoozee 1.0", "impl": "brief_model"},
+  {"id": "R-BRIEF-003", "level": "error", "desc": "style_profile 必须是 profiles/ 里存在的档案", "source": "yoozee 2.0 设计 5.3", "impl": "brief_profile"},
+  {"id": "R-BRIEF-004", "level": "warn", "desc": "script_mode=original 走速产时应有 duanju_mode；adapt 时 story 应有 fact_ledger", "source": "山音 短剧速产 / 即梦三步思考法", "impl": "brief_mode_consistency"},
+  {"id": "R-BRIEF-005", "level": "warn", "desc": "待确认 Q- 里 blocking=true 且未答的问题，开工前必须有答案或已授权默认", "source": "分镜师 4.0 规则一", "impl": "brief_blocking_questions"}
+]

@@ -1,0 +1,93 @@
+{
+  "id": "duanju-shiga",
+  "label": "短剧视感（小墨 6.3）",
+  "source": "小墨 SKill 6.3 电影分镜导演（短剧视感版）+ 前缀约束词",
+  "medium": "live_action",
+  "style_block": {
+    "zh": "视觉质感：Tier A 电影级高质感，高清晰度与高阶调密度，保留真实介质的物理特性与粗糙、随机的胶片颗粒。拒绝廉价的数字平滑与任何柔化处理。除特定有可见尘埃介质的场景外，严禁任何体积光作弊；画面呈现一种干燥、寒冷、坚硬的物理质感。光线层次：光/曝光分离机制，高对比度但扎实的灰阶过渡。侧光与逆光为主导，明暗交界线清晰锐利。允许局部死黑与过曝高光，以强化戏剧张力。严格执行物理雾双重核查：无介质环境中绝对禁止体积光；当有尘埃介质存在时，光束必须呈现出锐利、躁动、坚实的尘埃感。皮肤质感：100% 保留原始皮肤纹理与微观细节，超写实。皮肤呈现高级哑光状态；绝对禁止任何油腻、光泽、塑料感或现代磨皮处理。充分发挥导演能力。全程无背景音乐，无字幕。"
+  },
+  "acting_block": {
+    "zh": "表演克制，藏七分露三分：情绪靠大动作层（走位、递物、起身）、小动作层（指节发白、摩挲、整理衣角）、微表情层（喉结滚动、屏息、视线游移）外化，不靠台词直说，不写表情包式表演；强情绪反用静更有力。"
+  },
+  "performance_grain": "visible_action",
+  "emotion_arc_required": true,
+  "camera_default": "X2",
+  "camera_follows_emotion": false,
+  "light_policy": "motivated",
+  "prompt_density": "standard",
+  "quotas": {
+    "normal_max": 0.35,
+    "side45_min": 0.3,
+    "side45_max": 0.4,
+    "side90_max": 0.15,
+    "dutch_max": 1,
+    "extreme_low_max": 3,
+    "extreme_high_max": 3,
+    "shake_violent_max": 3,
+    "fixed_max": 0.1,
+    "closeup_max": 0.4,
+    "non_person_min": 0.1,
+    "non_person_max": 0.2,
+    "group_wide_min": 0.4,
+    "min_angles": 6,
+    "min_moves": 8,
+    "consecutive_same_move_max": 2,
+    "consecutive_same_size_max": 2,
+    "heavy_moves": {"dolly_zoom": 1, "orbit": 3, "snorricam": 1, "fisheye": 2, "crane_up": 2, "crane_down": 2, "jib": 2, "pov": 3}
+  },
+  "rules": {
+    "one_take_allowed": false,
+    "standing_talk_max_sec": 3,
+    "big_action_isolated": false,
+    "reaction_after_hammer": true,
+    "dialogue_open_size": ["中景", "中全景", "全景"],
+    "shot_time_code": false,
+    "max_move_axes": 2,
+    "no_rotation_at_z1_z3": true,
+    "one_line_one_shot": true,
+    "bgm_allowed": false,
+    "adjacent_size_min_gap": 2,
+    "indoor_light_anchor_required": true,
+    "expression_min_sec": 0.5,
+    "group_variation_required": true
+  },
+  "color": {
+    "layers": ["palette", "saturation", "film_stock", "grain", "halation"],
+    "default": {"palette": "冷中性", "saturation": "低", "film_stock": "Kodak 500T", "grain": "细腻", "halation": "无"},
+    "buckets": {
+      "G1": "冷峻纪实/正剧：低饱和克制；禁失控 HDR、广告级鲜艳、浮夸光效",
+      "G2": "科幻史诗：去饱和 + 胶片高光滚降；体积光仅在介质成立时",
+      "G3": "胶片诗意/浪漫：放行暖调 halation、柔和 flare、轻微畸变",
+      "G4": "霓虹/高对比发光：放行高饱和彩色光溢出 + halation；禁美颜",
+      "G5": "都市情感/现代短剧：自然肤色、生活化布光、适度饱和；禁网红滤镜、糖水色",
+      "G6": "恐怖/惊悚：放行大面积欠曝、死黑、低饱和",
+      "G7": "动作大片：放行胶片颗粒、暖怀旧、深阴影；禁合成感光照"
+    },
+    "softening_budget_max": 2,
+    "contrast_color_shots_max": 0.15
+  },
+  "lens_policy": {
+    "大远景": "超广角 14-24mm", "远景": "广角 24-35mm", "全景": "广角 24-35mm", "中景": "标准 35-50mm", "中近景": "标准 50mm", "近景": "中长焦 85mm", "特写": "中长焦 85-100mm", "大特写": "中长焦 / 微距",
+    "min_lens_kinds": 4
+  },
+  "space_policy": {
+    "S1": {"max_size": "全景", "no": ["crane_up", "crane_down", "jib", "orbit", "fpv"], "no_lens_over_mm": 135, "no_birdseye": true},
+    "S2": {"max_size": "全景", "no": ["crane_up", "crane_down", "jib"], "no_birdseye": true},
+    "S3": {"max_size": "远景", "no_birdseye_unless_height_m": 5},
+    "S4": {"max_size": "大远景"},
+    "O1": {"max_size": "大远景"},
+    "O2": {"max_size": "远景"},
+    "X": {"max_size": "中全景", "no": ["truck", "pull", "track", "crane_up", "crane_down", "orbit", "dolly_zoom", "jib"], "no_ots": true}
+  },
+  "asset_tier_policy": {
+    "lead": ["crops>=3", "lock_card>=8", "anchors>=3", "voice_if_speaks"],
+    "support": ["crops>=3", "lock_card>=8", "anchors>=3", "voice_if_speaks"],
+    "extra": ["crops>=1", "lock_card>=4"]
+  },
+  "notes": [
+    "常规镜头 = 平视（含 ≤15° 微仰微俯）+ 正面或纯过肩 + 平稳运镜；它是呼吸与基准线，不是消灭对象。",
+    "激进机位必须由画面情绪买单：有情绪节点却全程平视是浪费；无情绪节点硬上倾斜俯仰是炫技。",
+    "非人物镜头 10%～20%，每个都要回答承载什么情绪 / 信息、人物镜头能否替代、删掉影不影响叙事。",
+    "原版不写时长、不分段：2.0 由验证器按台词估时、由 yz-pack 装段。"
+  ]
+}

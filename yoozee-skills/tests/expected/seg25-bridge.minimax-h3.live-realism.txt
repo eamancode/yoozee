@@ -1,0 +1,42 @@
+model: minimax-h3
+duration: 15
+--- prompt
+integrated_multimodal_description:
+Reference roles: <Picture 1> is the exact identity reference of 林小满，黑色低马尾；右眉一道小疤；瓜子脸: match the face, hairstyle and distinguishing marks exactly and wear exactly what the reference wears; ignore its plain grey background; <Picture 2> is the exact identity reference of 周岸，寸头；方下巴；左耳后一颗痣: match the face, hairstyle and distinguishing marks exactly and wear exactly what the reference wears; ignore its plain grey background; <Picture 3> is the location reference: keep its layout, materials, colours and light; it contains no people. 电梯口; <Picture 4> is the background for one camera side: 电梯口，A 侧机位身后; <Picture 5> is the background for one camera side: 电梯口，B 侧机位身后; <Audio 1> gives only the sound of the voice (timbre) of 林小满 (S1); <Audio 2> gives only the sound of the voice (timbre) of 周岸 (S2). How each line is delivered (volume, pitch, emotion, pace, breath) comes only from the acting described in the scene, never from the audio references; do not reuse any words from them.
+[Shot 1] Live-action realism shot on a cinema camera with prime lenses; light comes only from practical sources in the scene (windows, lamps, screens, fire), no fill light, no reflectors, no neon; camera on the shadow side of the face; matte skin with visible pores, no beauty retouching, no over-sharpening; fine film grain; no 3D-render look, no game-engine look, no oversaturation or HDR look. Specific, truthful acting: inner thought must be visible in the eyes, the breath and the small changes of the face; intensity follows the drama, from stillness to outburst; no empty stares, no stage voice, no overacting; the face stays clear. 承接上一段（S02）结尾：周岸上前半步，右手搭在夹克口袋外；人物形象、服装、光源方向与上一段完全一致。 周岸拉下袖口盖住手腕，抬头看林小满；视线：周岸面向画面左；林小满背对镜头 周岸垂下的右手，手腕内侧一块留置针贴膏，边角翘起一点，胶布下压着一小截软管；夹克袖口往上缩了一寸。画面只有手和袖口。光来自头顶闪烁的日光灯，顶光。
+[Shot 2] At 00:02.500, 侧面双人全景：电梯门在周岸身后合上，不锈钢门面映出两人的影子。头顶那盏灯闪了一下，暗下去再亮起来。两人隔着三步没动。光来自头顶闪烁的日光灯，顶光闪烁，门面反光。
+[Shot 3] At 00:06.000, 林小满把病历夹抱紧，上前一步又停住，下巴抬起来，说话时眼睛看的是他的手腕而不是脸。表演：① 下巴抬起是职业姿态；② 眼睛落在他手腕；③ 第二句说完才敢看他的脸。光来自头顶闪烁的日光灯，顶光。 (S1), 护士口气，快而硬，尾音发颤:
+<d>[Chinese] 回去躺着。你的输液还没拔。</d>
+[Shot 4] At 00:11.000, 周岸低头看了一眼自己的手腕，再抬头，把袖口往下拉盖住贴膏。表演：① 低头看手腕时嘴角压平；② 拉袖口的动作很慢；③ 抬头时眼睛直接锁住她。光来自电梯指示灯，红光在他左颊，顶光稳定下来。 (S2), 平静，每个字都慢半拍:
+<d>[Chinese] 我不是来住院的。</d>
+
+overall_soundscape: 日光灯镇流器的滋滋声; 电梯门合上的闷响; 镇流器滋滋声突然大了一下又恢复; 镇流器滋滋声; 袖口布料摩擦
+
+non_diegetic_music: N/A
+
+constraints: ⚠️人物面部、发型、小特征与服装全程与人物参考一致，不随景别和光线变化。 ⚠️插入镜头的焦点落在道具与手上，不漂到背景。 ⚠️屏幕、灯具只作为画面里发光的物件，不向人物皮肤与服装投射大面积色光。
+--- paste
+integrated_multimodal_description:
+Reference roles: <Picture 1> is the exact identity reference of 林小满，黑色低马尾；右眉一道小疤；瓜子脸: match the face, hairstyle and distinguishing marks exactly and wear exactly what the reference wears; ignore its plain grey background; <Picture 2> is the exact identity reference of 周岸，寸头；方下巴；左耳后一颗痣: match the face, hairstyle and distinguishing marks exactly and wear exactly what the reference wears; ignore its plain grey background; <Picture 3> is the location reference: keep its layout, materials, colours and light; it contains no people. 电梯口; <Picture 4> is the background for one camera side: 电梯口，A 侧机位身后; <Picture 5> is the background for one camera side: 电梯口，B 侧机位身后; <Audio 1> gives only the sound of the voice (timbre) of 林小满 (S1); <Audio 2> gives only the sound of the voice (timbre) of 周岸 (S2). How each line is delivered (volume, pitch, emotion, pace, breath) comes only from the acting described in the scene, never from the audio references; do not reuse any words from them.
+[Shot 1] Live-action realism shot on a cinema camera with prime lenses; light comes only from practical sources in the scene (windows, lamps, screens, fire), no fill light, no reflectors, no neon; camera on the shadow side of the face; matte skin with visible pores, no beauty retouching, no over-sharpening; fine film grain; no 3D-render look, no game-engine look, no oversaturation or HDR look. Specific, truthful acting: inner thought must be visible in the eyes, the breath and the small changes of the face; intensity follows the drama, from stillness to outburst; no empty stares, no stage voice, no overacting; the face stays clear. 承接上一段（S02）结尾：周岸上前半步，右手搭在夹克口袋外；人物形象、服装、光源方向与上一段完全一致。 周岸拉下袖口盖住手腕，抬头看林小满；视线：周岸面向画面左；林小满背对镜头 周岸垂下的右手，手腕内侧一块留置针贴膏，边角翘起一点，胶布下压着一小截软管；夹克袖口往上缩了一寸。画面只有手和袖口。光来自头顶闪烁的日光灯，顶光。
+[Shot 2] At 00:02.500, 侧面双人全景：电梯门在周岸身后合上，不锈钢门面映出两人的影子。头顶那盏灯闪了一下，暗下去再亮起来。两人隔着三步没动。光来自头顶闪烁的日光灯，顶光闪烁，门面反光。
+[Shot 3] At 00:06.000, 林小满把病历夹抱紧，上前一步又停住，下巴抬起来，说话时眼睛看的是他的手腕而不是脸。表演：① 下巴抬起是职业姿态；② 眼睛落在他手腕；③ 第二句说完才敢看他的脸。光来自头顶闪烁的日光灯，顶光。 (S1), 护士口气，快而硬，尾音发颤:
+<d>[Chinese] 回去躺着。你的输液还没拔。</d>
+[Shot 4] At 00:11.000, 周岸低头看了一眼自己的手腕，再抬头，把袖口往下拉盖住贴膏。表演：① 低头看手腕时嘴角压平；② 拉袖口的动作很慢；③ 抬头时眼睛直接锁住她。光来自电梯指示灯，红光在他左颊，顶光稳定下来。 (S2), 平静，每个字都慢半拍:
+<d>[Chinese] 我不是来住院的。</d>
+
+overall_soundscape: 日光灯镇流器的滋滋声; 电梯门合上的闷响; 镇流器滋滋声突然大了一下又恢复; 镇流器滋滋声; 袖口布料摩擦
+
+non_diegetic_music: N/A
+
+constraints: ⚠️人物面部、发型、小特征与服装全程与人物参考一致，不随景别和光线变化。 ⚠️插入镜头的焦点落在道具与手上，不漂到背景。 ⚠️屏幕、灯具只作为画面里发光的物件，不向人物皮肤与服装投射大面积色光。
+--- files
+<Picture 1>	素材库/人物/林小满_特写.png	identity
+<Picture 2>	素材库/人物/周岸_特写.png	identity
+<Picture 3>	素材库/场景/电梯口_夜_空景.png	location
+<Picture 4>	素材库/场景/电梯口_夜_A侧.png	plate
+<Picture 5>	素材库/场景/电梯口_夜_B侧.png	plate
+<Audio 1>	素材库/声音/林小满.wav	voice
+<Audio 2>	素材库/声音/周岸.wav	voice
+--- issues
+
