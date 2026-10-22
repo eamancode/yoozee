@@ -101,6 +101,11 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 	errorCode := ""
 	if isContentModerationFailure(task.Error) {
 		errorCode = contentModerationErrorCode
+	} else if task.Status == model.TaskStatusFailed {
+		// 截断要让前端提示换长输出模型或按场生成，和普通上游失败区分开。
+		if diagnostic := taskExecutionDiagnostic(&task); diagnostic != nil && diagnostic.Code == string(ReasonTextOutputTruncated) {
+			errorCode = diagnostic.Code
+		}
 	}
 	previewURL, previewKind, previewPosterURL := taskMediaPreviewWithPoster(task.ResultJSON, task.Type)
 	return TaskSummary{

@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -37,6 +38,9 @@ func executeProtocolCreateRequest(ctx context.Context, input canvasGenerationInp
 	}
 	if input.Mode != "text" || !input.StreamText || (wire != "chat-completion" && wire != "responses" && wire != "claude-api") {
 		data, err := executeProtocolRequest(ctx, input.Config, spec)
+		if err == nil && input.Mode == "text" {
+			err = checkTextFinish(protocolTextFinishReason(wire, data))
+		}
 		return data, nil, err
 	}
 	body := protocolBodyObject(spec.Body)
@@ -53,12 +57,18 @@ func executeProtocolCreateRequest(ctx context.Context, input canvasGenerationInp
 	parser := newStreamingAgentParser(wire, input.OnTextDelta)
 	parser.emitReasoning = input.OnReasoningDelta
 	data, mimeType, err := executeProtocolBinaryRequestWithConsumer(ctx, input.Config, spec, parser.consume)
-	if err != nil || !strings.Contains(strings.ToLower(mimeType), "event-stream") {
+	if err != nil {
 		return data, nil, err
+	}
+	if !strings.Contains(strings.ToLower(mimeType), "event-stream") {
+		return data, nil, checkTextFinish(protocolTextFinishReason(wire, data))
 	}
 	parser.flush()
 	parsed, err := parser.result()
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkTextFinish(stringField(parsed, "finishReason")); err != nil {
 		return nil, nil, err
 	}
 	text := stringField(parsed, "text")
@@ -182,6 +192,89 @@ func normalizeAgentToolChoice(body map[string]interface{}, input canvasGeneratio
 type providerTextResult struct {
 	Text      string
 	Reasoning string
+}
+
+// textPayloadFinishReason 取非流式文本响应的停笔原因：Chat Completions 的 choices[].finish_reason、
+// Claude 的 stop_reason、Responses 的 incomplete_details.reason（status=incomplete 时），
+// 以及 Gemini 兼容响应的 candidates[].finishReason。多个 choice 时只要有一个被截断就返回它。
+func textPayloadFinishReason(payload map[string]interface{}, protocol string) string {
+	if payload == nil {
+		return ""
+	}
+	if data, ok := payload["data"].(map[string]interface{}); ok && payload["choices"] == nil {
+		payload = data
+	}
+	switch protocol {
+	case "claude-api":
+		return stringField(payload, "stop_reason")
+	case "responses":
+		if stringField(payload, "status") != "incomplete" {
+			return ""
+		}
+		details, _ := payload["incomplete_details"].(map[string]interface{})
+		return defaultString(stringField(details, "reason"), "incomplete")
+	}
+	reason := ""
+	for _, key := range []string{"choices", "candidates"} {
+		for _, value := range interfaceSlice(payload[key]) {
+			choice, _ := value.(map[string]interface{})
+			current := firstNonEmptyString(stringField(choice, "finish_reason"), stringField(choice, "finishReason"))
+			if textFinishTruncated(current) {
+				return current
+			}
+			reason = firstNonEmptyString(reason, current)
+		}
+	}
+	return reason
+}
+
+// protocolTextFinishReason 读声明式协议的非流式文本响应。插件协议的 wire 不一定是三种内置协议，
+// 认不出时按 OpenAI 兼容（choices / candidates）读，再看顶层 stop_reason / stopReason（Anthropic、Bedrock 形状）。
+// 响应不是 JSON 对象时返回空，交给协议自己的解析报错。
+func protocolTextFinishReason(wire string, data []byte) string {
+	var payload map[string]interface{}
+	if json.Unmarshal(data, &payload) != nil {
+		return ""
+	}
+	switch wire {
+	case "claude-api", "anthropic-messages", "claude-messages":
+		return textPayloadFinishReason(payload, "claude-api")
+	case "responses":
+		return textPayloadFinishReason(payload, "responses")
+	}
+	if reason := textPayloadFinishReason(payload, "chat-completion"); reason != "" {
+		return reason
+	}
+	return firstNonEmptyString(stringField(payload, "stop_reason"), stringField(payload, "stopReason"))
+}
+
+// textFinishTruncated 判断停笔原因是不是输出上限：OpenAI 兼容 length、Claude max_tokens、
+// Responses max_output_tokens、Gemini MAX_TOKENS。
+func textFinishTruncated(reason string) bool {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "length", "max_tokens", "max_output_tokens":
+		return true
+	}
+	return false
+}
+
+// textOutputTruncatedError 让截断的文本任务失败：分镜表、提取结果这类结构化输出被截断后
+// 解析不全，按成功保存只会表现成"没有返回镜头行"，所以带稳定 reason 交给前端提示。
+func textOutputTruncatedError(reason string) error {
+	return &AppError{
+		Status:  CodeBadGateway,
+		Code:    CodeBadGateway,
+		Reason:  ReasonTextOutputTruncated,
+		Message: fmt.Sprintf("模型输出达到上限被截断（%s），结果不完整：请换输出上限更大的模型，或按场分开生成", strings.TrimSpace(reason)),
+	}
+}
+
+// checkTextFinish 在文本任务成功前核对停笔原因；截断就失败，其余原因放行。
+func checkTextFinish(reason string) error {
+	if textFinishTruncated(reason) {
+		return textOutputTruncatedError(reason)
+	}
+	return nil
 }
 
 func providerTextTaskResult(result providerTextResult) map[string]interface{} {

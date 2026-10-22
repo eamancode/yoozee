@@ -1,3 +1,5 @@
+import { API_ERROR_REASON } from "@/services/api/error-codes";
+
 export const CONTENT_MODERATION_ERROR_CODE = "sensitive_words_detected";
 
 export const CONTENT_MODERATION_MESSAGE = "内容审核未通过，本次平台积分未扣除或已退还。请修改提示词后重新生成。";
@@ -20,6 +22,7 @@ const REASON_MESSAGES: Record<string, string> = {
     bad_gateway: "模型服务暂时不可用，请稍后再试。",
     unavailable: "模型服务暂时不可用，请稍后再试。",
     upstream_dns_failed: "模型服务暂时不可用，请稍后再试。",
+    [API_ERROR_REASON.TextOutputTruncated]: "输出超过模型上限被截断，结果不完整：请换输出上限更大的模型，或按场分开生成。",
     unauthorized: "当前登录状态或权限不足，请重新登录后再试。",
     forbidden: "当前账号没有执行此操作的权限。",
     failed_precondition: "当前请求条件不满足，请检查输入或换用其他模型。",

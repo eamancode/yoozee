@@ -361,6 +361,11 @@ export type WaitForGenerationTaskOptions = {
     useTextEvents?: boolean;
 };
 
+/** 失败任务的错误：后端给了 errorCode（如 text_output_truncated）就带上，提示按 reason 走而不是解析文案。 */
+function generationTaskFailure(task: GenerationTask) {
+    return task.errorCode ? Object.assign(new Error(task.error || ""), { reason: task.errorCode }) : task.error;
+}
+
 export async function waitForGenerationTask(id: string, options?: WaitForGenerationTaskOptions) {
     if (options?.onTextDelta || options?.useTextEvents) return waitForGenerationTaskTextEvents(id, options);
     const startedAt = Date.now();
@@ -395,7 +400,7 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
             }
             if (task.status === "failed" || task.status === "cancelled") {
                 window.dispatchEvent(new CustomEvent("wallet:updated"));
-                throw new Error(task.error ? generationErrorMessage(task.error) : `任务${task.status === "cancelled" ? "已取消" : "失败"}`);
+                throw new Error(task.error ? generationErrorMessage(generationTaskFailure(task)) : `任务${task.status === "cancelled" ? "已取消" : "失败"}`);
             }
             await delay(intervalMs, options?.signal);
         }
@@ -492,7 +497,7 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
                 window.dispatchEvent(new CustomEvent("wallet:updated"));
                 if (completed.status === "succeeded") return completed;
                 if (completed.status === "failed" || completed.status === "cancelled") {
-                    throw new TaskTextStreamFatalError(completed.error ? generationErrorMessage(completed.error) : `任务${completed.status === "cancelled" ? "已取消" : "失败"}`);
+                    throw new TaskTextStreamFatalError(completed.error ? generationErrorMessage(generationTaskFailure(completed)) : `任务${completed.status === "cancelled" ? "已取消" : "失败"}`);
                 }
             }
             lastStreamError = new Error("任务文本流连接提前结束");

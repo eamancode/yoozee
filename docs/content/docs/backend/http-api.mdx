@@ -408,6 +408,7 @@ CSV 使用中文表头、UTF-8 BOM、CRLF；金额按整数分精确转换为两
 | 502 | 502 | `bad_gateway` | 上游失败 |
 | 503 | 503 | `unavailable` | 暂时不可用 |
 | 504 | 504 | `timeout` | 超时 |
+| 502 | 502 | `text_output_truncated` | 文本模型因输出上限停笔（Chat Completions `finish_reason: length`、Claude `stop_reason: max_tokens`、Responses `incomplete_details.reason: max_output_tokens`，流式与非流式、内置与声明式协议都查），任务失败，不按成功保存半截结果；任务查询的 `errorCode` 同为此值，前端提示换输出上限更大的模型或按场分开生成。不自动重试 |
 | 400 | 400 | `segment_too_long` | 段时长超过项目生成模型的单段上限（Seedance 2.0 / MiniMax-H3 15 秒，Seedance 2.5 30 秒）；拆段后重试 |
 | 400 | 400 | `evidence_missing` | 选定候选时证据不齐（抽帧、人脸，有台词时加台词转写，三项都要通过） |
 | 40301 | 403 | `quota_exceeded` | 账号配额用尽（不自动重试） |

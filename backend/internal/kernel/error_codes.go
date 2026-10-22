@@ -43,6 +43,8 @@ const (
 	ReasonInternal               ErrorReason = "internal"
 	ReasonBadGateway             ErrorReason = "bad_gateway"
 	ReasonUpstreamDNSFailed      ErrorReason = "upstream_dns_failed"
+	// ReasonTextOutputTruncated 是文本模型因输出上限停笔（finish_reason=length / stop_reason=max_tokens），结果不完整。
+	ReasonTextOutputTruncated ErrorReason = "text_output_truncated"
 )
 
 func ReasonForStatus(status int) ErrorReason {
