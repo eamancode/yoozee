@@ -421,7 +421,7 @@ async function addPrevisObject(cdp, tabLabel, itemName) {
     if (!(await cdp.click(`.previs-add-dialog__tabs button:nth-of-type(${tabIndex})`))) return false;
     const confirmMatches = `[...document.querySelectorAll('.previs-add-dialog__footer .pv-btn--accent')].some((b) => (b.textContent || "").includes(${JSON.stringify(itemName)}))`;
     if (!(await cdp.poll(confirmMatches, "confirm label", 15000))) return false;
-    return cdp.click('.previs-add-dialog__footer .pv-btn--accent');
+    return cdp.click(".previs-add-dialog__footer .pv-btn--accent");
 }
 
 async function smokeWorkbench(cdp, baseUrl) {
