@@ -125,7 +125,9 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 	if _, err = ValidateOutboundURL(url); err != nil {
 		return "", "", err
 	}
-	if sameProviderOrigin(config.BaseURL, url) {
+	// 结果地址可能落在渠道的另一个域名（同一台网关，如 api.lecapi.net 与 api.paipu.net），
+	// 这类地址同样需要渠道鉴权，否则上游按未授权拒绝下载。
+	if providerHostRelated(config.BaseURL, url) {
 		applyProviderAuth(req, config)
 		ApplyOutboundHeaders(req, config.Headers)
 	}
@@ -148,6 +150,14 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 	defer response.Body.Close()
 	statusCode = response.StatusCode
 	if statusCode < 200 || statusCode >= 300 {
+		// 火山 CDN（doubao）按客户端指纹拒绝 Go 的 HTTP 栈：同一台机器上 curl/wget 能拿到 200，
+		// Go 无论 HTTP/1.1 还是 HTTP/2 都是 403 ACCESS DENIED。镜像自带 GNU wget，用它兜底。
+		if statusCode == http.StatusForbidden || statusCode == http.StatusUnauthorized {
+			if name, mimeType, fallbackErr := s.downloadTaskMediaWithWget(downloadCtx, url, mode, limit); fallbackErr == nil {
+				err = nil
+				return name, mimeType, nil
+			}
+		}
 		return "", "", providerHTTPError{StatusCode: statusCode, Status: response.Status, RetryAfter: parseRetryAfter(response.Header.Get("Retry-After"), time.Now())}
 	}
 	if response.ContentLength > limit {
@@ -192,6 +202,67 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 	}
 	if !strings.HasPrefix(mimeType, mode+"/") {
 		return "", "", errors.New("上游返回的内容不是有效的" + mode + "媒体")
+	}
+	if err = file.Sync(); err != nil {
+		return "", "", err
+	}
+	if err = file.Close(); err != nil {
+		return "", "", err
+	}
+	return filepath.Base(file.Name()), mimeType, nil
+}
+
+// downloadTaskMediaWithWget 用镜像自带的 GNU wget 兜底下载。
+// 火山 CDN（doubao）按客户端指纹拒绝 Go 的 HTTP 栈（403 ACCESS DENIED），
+// 同一台机器上 wget 能正常取回；只在 Go 请求被 401/403 拒绝时切换。
+func (s *Service) downloadTaskMediaWithWget(ctx context.Context, url, mode string, limit int64) (name, mimeType string, err error) {
+	wget, lookupErr := exec.LookPath("wget")
+	if lookupErr != nil {
+		return "", "", lookupErr
+	}
+	cmd := exec.CommandContext(ctx, wget, "-q", "--tries=1", "--timeout=120", "-O", "-", url)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", "", err
+	}
+	if err = cmd.Start(); err != nil {
+		return "", "", err
+	}
+	defer func() { _ = cmd.Wait() }()
+
+	file, err := s.newMediaTemp(limit)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() {
+		_ = file.Close()
+		if err != nil {
+			_ = os.Remove(file.Name())
+		}
+	}()
+	size, err := io.Copy(file, io.LimitReader(stdout, limit+1))
+	if err != nil {
+		return "", "", err
+	}
+	if size == 0 || size > limit {
+		return "", "", errors.New("生成文件为空或超过大小限制")
+	}
+	if err = file.Truncate(size); err != nil {
+		return "", "", err
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		return "", "", err
+	}
+	head := make([]byte, min(size, 512))
+	if _, err = io.ReadFull(file, head); err != nil {
+		return "", "", err
+	}
+	mimeType = normalizedMediaMimeType("", head)
+	if mode == "audio" && mimeType == "application/ogg" {
+		mimeType = "audio/ogg"
+	}
+	if !strings.HasPrefix(mimeType, mode+"/") {
+		return "", "", errors.New("上游返回的内容不是有效的" + mode + "媒体（" + mimeType + "）")
 	}
 	if err = file.Sync(); err != nil {
 		return "", "", err

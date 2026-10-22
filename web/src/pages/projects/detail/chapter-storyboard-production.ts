@@ -4,13 +4,15 @@ import { withStoryboardOutputContract } from "@/lib/canvas/canvas-project-domain
 import { normalizeStoryboardAssetBindings } from "@/lib/canvas/canvas-storyboard-assets";
 import { storyboardCharacterAppearancePrompt, storyboardStylePrompt } from "@/lib/canvas/canvas-storyboard-context";
 import { formatShotOrdinal } from "@/lib/shot-label";
-import type { ProjectDetail, ShotRevisionInput } from "@/services/api/projects";
+import type { ProjectAsset, ProjectDetail, ShotRevisionInput } from "@/services/api/projects";
+import type { SkillOutputField } from "@/services/skill-runtime";
 import { ensureShotAssetMentionPrompt } from "./workflow-shot-references";
 
 export type ChapterStoryboardAsset = {
     id: string;
     title: string;
-    type: "image" | "video" | "audio" | "character";
+    /** entity：已确认但还没有图片的场景、道具设定。 */
+    type: "image" | "video" | "audio" | "character" | "entity";
     category?: string;
     tags: string[];
     prompt: string;
@@ -60,8 +62,13 @@ export function chapterStoryboardCharacters(detail: ProjectDetail, unitId?: stri
     return [...confirmed, ...pending];
 }
 
+/**
+ * 交给分镜任务的资产清单。已确认的场景和道具没出图时也要进清单（mediaType 为 entity）：
+ * 模型才能按名称写进 assets，镜头才有场景绑定、装段才能按场切；参考图另由 assetReferenceVersionId 只取有图的版本。
+ */
 export function chapterStoryboardAssets(detail: ProjectDetail): ChapterStoryboardAsset[] {
     return detail.assets.flatMap((asset): ChapterStoryboardAsset[] => {
+        if (asset.status === "archived") return [];
         const type = storyboardAssetType(asset.mediaType, asset.category);
         if (!type || (type !== "character" && !asset.primaryVersionId)) return [];
         const characterVersionId = asset.character?.versionId;
@@ -93,10 +100,10 @@ const TEXT_FIELDS = ["imageGenerationPrompt", "plotDescription", "performanceBlo
  * 项目画风、已确认角色的外观和资产清单都只能写进提示词，各段自带字数上限；画风和角色放在输出契约前，
  * 资产清单带着 assets 字段要求跟在契约后。待确认角色的设定还没定稿，不写外观。
  */
-export function chapterStoryboardTaskPrompt(skillPrompt: string, context: { sourceText: string; projectStyle: { title: string; prompt: string }; characters: ChapterStoryboardCharacter[]; assets: ChapterStoryboardAsset[] }) {
+export function chapterStoryboardTaskPrompt(skillPrompt: string, context: { sourceText: string; projectStyle: { title: string; prompt: string }; characters: ChapterStoryboardCharacter[]; assets: ChapterStoryboardAsset[]; outputFields?: SkillOutputField[] }) {
     const confirmed = context.characters.filter((character) => character.assetId && character.versionId);
     const projectContext = [skillPrompt, storyboardStylePrompt(context.projectStyle), storyboardCharacterAppearancePrompt(confirmed, context.sourceText)].filter(Boolean).join("\n\n");
-    return [withStoryboardOutputContract(projectContext), chapterStoryboardAssetPrompt(context.assets)].filter(Boolean).join("\n\n");
+    return [withStoryboardOutputContract(projectContext, { extraFields: context.outputFields }), chapterStoryboardAssetPrompt(context.assets)].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -212,8 +219,9 @@ function uniqueEntries(entries: CatalogEntry[]) {
 }
 
 export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: ProjectDetail): ProjectShotReplacementInput[] {
-    const versionByAssetId = new Map((detail?.assets || []).flatMap((asset) => asset.primaryVersionId ? [[asset.id, asset.primaryVersionId] as const] : []));
-    const mentionReferenceByAssetId = new Map((detail?.assets || []).map((asset) => [asset.id, {
+    const referable = (detail?.assets || []).filter((asset) => assetReferenceVersionId(asset));
+    const versionByAssetId = new Map(referable.map((asset) => [asset.id, assetReferenceVersionId(asset) as string] as const));
+    const mentionReferenceByAssetId = new Map(referable.map((asset) => [asset.id, {
         assetId: asset.id,
         kind: asset.category === "character" ? "character" as const : "image" as const,
         label: asset.title,
@@ -279,7 +287,18 @@ function storyboardRowAssetIds(row: StoryboardRow) {
 function storyboardAssetType(mediaType: string, category: string): ChapterStoryboardAsset["type"] | null {
     if (category === "character") return "character";
     if (mediaType === "image" || mediaType === "video" || mediaType === "audio") return mediaType;
+    if (mediaType === "entity" && (SCENE_ASSET_CATEGORIES.has(category) || category === "prop")) return "entity";
     return null;
+}
+
+/**
+ * 能当参考图的版本：角色和有媒体的资产取主版本；没出图的场景、道具（entity）主版本只有文字设定，
+ * 不能当参考，也不写 @ 引用。
+ */
+export function assetReferenceVersionId(asset: Pick<ProjectAsset, "mediaType" | "category" | "primaryVersionId">) {
+    if (!asset.primaryVersionId) return undefined;
+    if (asset.mediaType === "entity" && asset.category !== "character") return undefined;
+    return asset.primaryVersionId;
 }
 
 function assetPrompt(previewText: string | undefined, definition: Record<string, unknown> | undefined, title: string) {

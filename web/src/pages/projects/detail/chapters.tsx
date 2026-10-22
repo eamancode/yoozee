@@ -411,10 +411,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         const projectIds = new Set(assets.map((asset) => asset.id));
         return { ...detail, assets: [...assets, ...detail.assets.filter((asset) => !projectIds.has(asset.id))] };
     };
-    const storeGeneratedStoryboard = async (unitId: string, rows: ReturnType<typeof chapterStoryboardFromGenerationTask>["rows"]) => {
+    const storeGeneratedStoryboard = async (unitId: string, rows: ReturnType<typeof chapterStoryboardFromGenerationTask>["rows"], sourceText?: string) => {
         const unit = detail.units.find((item) => item.id === unitId);
         const assetDetail = await storyboardDetail();
-        // 模型按名称给的资产（或镜头文字里出现的资产名）先落成分镜行绑定，装段才能按场景切场、带上参考。
+        // 模型按名称给的资产（或镜头文字里出现的资产名）先落成分镜行绑定，装段才能按场景切场、带上参考；
+        // 一个场景都没绑上时按正文的场景标题切场，所以正文要按行保留。
         const boundRows = bindStoryboardRowAssets(rows, chapterStoryboardAssets(assetDetail));
         const expectedShotIds = detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id);
         const refresh = async () => {
@@ -442,7 +443,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 if (choice === "cancel") throw new Error("镜头表检查未通过，分镜没有保存");
             }
         }
-        const plan = storyboardRowsToSegments(boundRows, assetDetail, { chapterTitle: unit?.title || "", rule: segmentRule, target: DEFAULT_SEGMENT_TARGET, maxRefs: dramaModel?.refs.images ?? undefined });
+        const plan = storyboardRowsToSegments(boundRows, assetDetail, { chapterTitle: unit?.title || "", sourceText: sourceText ?? htmlToPlainLines(unit?.sourceText || ""), rule: segmentRule, target: DEFAULT_SEGMENT_TARGET, maxRefs: dramaModel?.refs.images ?? undefined });
         await replaceProjectUnitShots(detail.project.id, unitId, plan.shots, expectedShotIds);
         await refresh();
         if (plan.notes.length) message.warning(plan.notes.join("；"), 10);
@@ -550,7 +551,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 skills: availableSkills,
                 selectedSkillIds,
             }, { onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task) });
-            const stored = await storeGeneratedStoryboard(unit.id, result.rows);
+            const stored = await storeGeneratedStoryboard(unit.id, result.rows, sourceText);
             const summary = `已按 ${stored.scenes} 场生成 ${stored.count} 段（每段 ${segmentRule.label}）`;
             message.success(result.skillCount ? `${summary}，并应用 ${result.skillCount} 个技能` : summary);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/video`);
@@ -938,6 +939,19 @@ function plainTextToHtml(value: string) {
 
 function stripHtml(value: string) {
     return value.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
+}
+
+/** 章节 HTML 转纯文本时段落、标题和换行各占一行，装段才认得出单独成行的场景标题。 */
+function htmlToPlainLines(value: string) {
+    return value
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/(?:p|h[1-6]|li|div|blockquote)>/gi, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&")
+        .trim();
 }
 
 function readStoredScroll(key: string) {

@@ -90,9 +90,9 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         skills: input.skills,
         selectedSkillIds: input.selectedSkillIds,
     });
-    // 技能上下文只描述工作流，不会约束输出结构；输出契约、项目画风、角色外观和资产清单都由 chapterStoryboardTaskPrompt 写进提示词。
+    // 技能上下文只描述工作流，不会约束输出结构；输出契约（含所选技能声明的额外字段）、项目画风、角色外观和资产清单都由 chapterStoryboardTaskPrompt 写进提示词。
     // 下面 input 里的 projectStyle / characters / canvasAssets / requirements 后端不读，只留作任务记录。
-    const prompt = chapterStoryboardTaskPrompt(skillExecution.prompt, { sourceText: input.sourceText, projectStyle: input.projectStyle, characters: input.characters, assets: input.assets });
+    const prompt = chapterStoryboardTaskPrompt(skillExecution.prompt, { sourceText: input.sourceText, projectStyle: input.projectStyle, characters: input.characters, assets: input.assets, outputFields: skillExecution.outputFields });
     const task = await createGenerationTask({
         projectId: input.projectId,
         type: "canvas_text",
