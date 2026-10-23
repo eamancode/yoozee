@@ -91,10 +91,11 @@ func pyNumber(literal string) string {
 	return literal
 }
 
+// joinNonEmpty 拼片段时跳过空片段（含只有空白的）：编译档案里把某个模板设成空串就是去掉这一片，不会留下「；；」。
 func joinNonEmpty(parts []string, sep string) string {
 	out := parts[:0:0]
 	for _, p := range parts {
-		if p != "" {
+		if strings.TrimSpace(p) != "" {
 			out = append(out, p)
 		}
 	}
@@ -155,7 +156,11 @@ func fightText(f *Fight, people []string, cp *CompileProfile) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return fill(ph.Fight, "parts", strings.Join(parts, "；"))
+	joined := joinNonEmpty(parts, "；")
+	if joined == "" {
+		return ""
+	}
+	return fill(ph.Fight, "parts", joined)
 }
 
 // fightPeople 是一镜里的人物：焦点、站位里的人和发起者（判断打击目标、反应主语是不是人）。
@@ -292,7 +297,7 @@ func ExpandArc(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseE
 		parts = append(parts, seg)
 		t += m.dur
 	}
-	text := strings.Join(parts, "；")
+	text := joinNonEmpty(parts, "；")
 	if intensity == "hidden7" {
 		text += cp.Expression.Hidden7Tail
 	}
@@ -479,7 +484,7 @@ func LightFullText(l Light, cp *CompileProfile) string {
 			parts = append(parts, fill(lp.Item, "label", kv[1], "value", kv[0]))
 		}
 	}
-	return strings.Join(parts, "；")
+	return joinNonEmpty(parts, "；")
 }
 
 func positionsText(sh *Shot, cp *CompileProfile) string {
@@ -504,7 +509,7 @@ func positionsText(sh *Shot, cp *CompileProfile) string {
 	if sh.CameraSide != "" {
 		bits = append(bits, fill(ph.PositionCamera, "side", sh.CameraSide))
 	}
-	return strings.Join(bits, "；")
+	return joinNonEmpty(bits, "；")
 }
 
 func dedupeStrings(items []string) []string {
@@ -599,7 +604,7 @@ func motionText(sh *Shot, cp *CompileProfile) string {
 			bits = append(bits, fill(cp.Shot.MotionChange, "from", sh.StartState, "to", sh.EndState))
 		}
 	}
-	return strings.Join(bits, "；")
+	return joinNonEmpty(bits, "；")
 }
 
 func vfxText(v VfxRef, vocab *Vocab, cp *CompileProfile) string {
@@ -630,7 +635,7 @@ func vfxText(v VfxRef, vocab *Vocab, cp *CompileProfile) string {
 	if s := string(v.Seconds); s != "" && s != "0" {
 		seconds = fill(cp.Shot.VfxSeconds, "seconds", pyNumber(s))
 	}
-	return fill(cp.Shot.Vfx, "name", name, "items", strings.Join(bits, "，"), "seconds", seconds)
+	return fill(cp.Shot.Vfx, "name", name, "items", joinNonEmpty(bits, "，"), "seconds", seconds)
 }
 
 // shotText 是一镜的画面句：动作 + 动作模式 + 表情 / 表演 + 状态 + 光 + 灯光七项 + 动作单元 + 流派 + 特效。
@@ -1310,11 +1315,8 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 			gaze = append(gaze, fill(cp.Segment.GazeToward, "who", b.Who, "target", b.Facing))
 		}
 	}
-	if len(gaze) > 0 {
-		if rules != "" {
-			rules += "；"
-		}
-		rules += fill(cp.Segment.Gaze, "gaze", strings.Join(gaze, "；"))
+	if g := joinNonEmpty(gaze, "；"); g != "" {
+		rules = joinNonEmpty([]string{rules, fill(cp.Segment.Gaze, "gaze", g)}, "；")
 	}
 	if rules != "" {
 		// 这是段末连戏状态，不是开场状态；编译稿放在风格块之后。

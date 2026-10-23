@@ -13,11 +13,11 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - 每集时长：项目设置「短剧生成」加「每集时长（秒）」，存进需求文档 `episode_seconds`；生成分镜的提示词加「【本集时长】本集目标 N 秒，镜头 est 合计不超过 N×1.1 秒」；写镜头表装段后按它查 R-SEG-008（warn），本机 `check.py` 同序读取。
 - 场景锚点：章节资产提取契约升到 `chapter-assets/v2`，场景要写 `anchors`；资产预览里场景多一节「空间锚点」，铅笔按钮编辑（顿号分隔），`PATCH /api/projects/:id/assets/:assetId { anchors }` 原地写主版本设定；生成分镜的资产清单在场景行后带「；锚点：…」，并要求站位只用锚点名；镜头表检查把场标题对上的场景资产锚点当空间图（R-SHOT-012）。
 - 单场参考：段的场景参考只取本段 `spec.scene` 对应的场景资产，一镜写了两个场景以本场为准（一场里走进别的房间的镜头也挂本场场景，要分开请在剧本里另起一场）。
-- 打斗句式与标点（编译档案内置默认 + `pack.py` 同步）：不再出现「没有接触；无直接接触」、目标不是人时的「对方…」、路径已写到目标后的「打向…」、「本段结束时：…。；」、「视线：林小满：电梯门」（改「林小满看向电梯门」）；段末规则统一以「。」收句。黄金对照（`testdata/golden/online-*-pack-*`、`tests/sample/剧本/分段.json`、`tests/expected/storyboard-sample-E01.md`）随之更新，`tests/expected/segment-*` 与 `kb-dialects/models.json` 未动。
+- 打斗句式与标点（编译档案内置默认 + `pack.py` 同步）：不再出现「没有接触；无直接接触」、目标不是人时的「对方…」、路径已写到目标后的「打向…」、「本段结束时：…。；」、「视线：林小满：电梯门」（改「林小满看向电梯门」）；段末规则统一以「。」收句。编译档案里把片段模板（如 `shot.fight_contact.none`）设成空串即去掉这一片，拼接跳过空片段，不再留「；；」（线上验收档案「去掉没有接触」时 S04、S05 出现过）。黄金对照（`testdata/golden/online-*-pack-*`、`tests/sample/剧本/分段.json`、`tests/expected/storyboard-sample-E01.md`）随之更新，`tests/expected/segment-*` 与 `kb-dialects/models.json` 未动。
 
 自动化覆盖：
 
-- [x] `internal/drama`：`TestProjectStyleBlockTakesListedSectionsWithinLimit`、`TestCompileUsesProjectStyleAsStyleBlock`、`TestStyleMapCoversProjectStylePresets`、`TestEpisodeTargetSecondsAndSegmentTotal`、`TestFightTextAvoidsRepeatsAndStrayDuifang`、`TestSegmentEndRulesReadable`；`TestOnlineOutputEndToEnd`、`TestPackMatchesPythonSample` 与新黄金逐字一致。
+- [x] `internal/drama`：`TestProjectStyleBlockTakesListedSectionsWithinLimit`、`TestCompileUsesProjectStyleAsStyleBlock`、`TestStyleMapCoversProjectStylePresets`、`TestEpisodeTargetSecondsAndSegmentTotal`、`TestFightTextAvoidsRepeatsAndStrayDuifang`、`TestSegmentEndRulesReadable`、`TestEmptiedProfilePiecesLeaveNoDoubleSeparators`；`TestOnlineOutputEndToEnd`、`TestPackMatchesPythonSample` 与新黄金逐字一致。
 - [x] `internal/app`：`TestShotlistSegmentKeepsOnlyItsSceneLocation`（on3，第二场段首镜头另写了病房走廊，2.5 / 2.0 每段只有本场一个场景参考，桥也不带别场的）、`TestShotlistSceneAnchorsFeedBlockingCheck`、`TestShotlistSegmentTotalUsesEpisodeSeconds`、`TestProjectDramaContextMapsStyleToProfile`、`TestCompileProjectShotUsesProjectStyle`、`TestUpdateProjectAssetSceneAnchors`、`TestChapterAssetsPromptContract`（anchors）。
 - [x] `yoozee-skills/tests/*.py` 全过（`pack.py`、`check.py`、`storyboard_md.py` 同步改）。
 - [x] 前端 `bun test`：章节分镜提示词（锚点、本集时长）、资产提取解析（anchors）、需求文档每集时长读写。

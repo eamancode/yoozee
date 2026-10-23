@@ -172,3 +172,55 @@ func TestSegmentEndRulesReadable(t *testing.T) {
 		t.Fatalf("段末规则：\n got %s\nwant %s", segs[0].Rules, want)
 	}
 }
+
+// 编译档案把可去掉的片段设成空串（或只有空白）就是去掉这一片：拼接时跳过，不留「；；」。线上验收档案「去掉没有接触」时出现过。
+func TestEmptiedProfilePiecesLeaveNoDoubleSeparators(t *testing.T) {
+	cp, err := ParseCompileProfile([]byte(`{
+		"shot": {"fight_contact": {"none": "", "graze": " "}, "fight_response": "{response}", "position_camera": "", "light_source": "  ", "position_behind": ""},
+		"segment": {"gaze": ""}
+	}`), true)
+	if err != nil {
+		t.Fatalf("可去掉的片段允许设成空串：%v", err)
+	}
+	if _, err := ParseCompileProfile([]byte(`{"shot": {"fight": ""}}`), true); err == nil {
+		t.Fatal("整句模板（shot.fight）不能设成空串")
+	}
+	shots := []Shot{
+		{ID: "E01S03-01", Scene: "E01S03", Size: "中景", Cam: Cam{Z: "Z5", Y: "Y4", X: "X2"}, Est: 4, Action: "阿坤扑上来", CameraSide: "A",
+			Blocking: []Blocking{{Who: "周岸", At: "电梯门前", Facing: "朝阿坤", Behind: "电梯门"}, {Who: "阿坤", At: "楼梯间防火门"}},
+			Light:    &Light{SourceAnchor: "顶灯", Key: "顶灯冷白硬光"},
+			Fight:    &Fight{Initiator: "阿坤", Path: "挥刀前冲", Target: "周岸", Response: "侧身将林小满挡到身后", Contact: "none", ForceTransfer: "门板反弹", EndPose: "两人对峙"},
+			EndState: "两人对峙。"},
+		{ID: "E01S03-02", Scene: "E01S03", Size: "近景", Cam: Cam{Z: "Z3", Y: "Y4", X: "X3"}, Est: 4, Action: "阿坤松手后退",
+			Blocking: []Blocking{{Who: "阿坤", At: "楼梯间防火门", Facing: "朝周岸"}},
+			Fight:    &Fight{Initiator: "周岸", Path: "扣腕", Target: "阿坤", Response: "松手后退", Contact: "graze", ForceTransfer: "刀已脱手落地"},
+			EndState: "刀已脱手落地"},
+	}
+	m, _ := ModelByID("seedance-2.5")
+	in := PackInput{Shotlist: Shotlist{Profile: DefaultProfileID, Shots: shots}, Model: m, Profile: testProfile(t, "live-realism"), ProfileID: DefaultProfileID, Vocab: testVocab(t), Phrases: cp}
+	segs, _ := Pack(in)
+	if len(segs) == 0 {
+		t.Fatal("应装出段")
+	}
+	for _, seg := range segs {
+		res, err := CompileWith(seg, m, nil, nil, testProfile(t, "live-realism"), cp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, bad := range []string{"；；", "；。", "：；", "，；", "对方", "没有接触", "视线", "机位在"} {
+			if strings.Contains(res.Prompt, bad) {
+				t.Fatalf("去掉的片段留下了「%s」：\n%s", bad, res.Prompt)
+			}
+		}
+		if !strings.Contains(res.Prompt, "侧身将林小满挡到身后；门板反弹") || !strings.Contains(res.Prompt, "松手后退；刀已脱手落地") {
+			t.Fatalf("其余片段照常拼接：\n%s", res.Prompt)
+		}
+	}
+	// 默认档案下同样的镜头照常写判定、对方和视线。
+	in.Phrases = nil
+	segs, _ = Pack(in)
+	res, _ := CompileWith(segs[0], m, nil, nil, testProfile(t, "live-realism"), nil)
+	if !strings.Contains(res.Prompt, "对方侧身将林小满挡到身后；没有接触；门板反弹") || !strings.Contains(res.Prompt, "视线：") {
+		t.Fatalf("默认档案的写法不变：\n%s", res.Prompt)
+	}
+}

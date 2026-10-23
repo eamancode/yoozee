@@ -16,7 +16,7 @@ import (
 // 参考声明、约束、⚠️ 风险文案、风格块与表演块、机位词表——从代码搬到可在线编辑、带版本的 JSON。
 // 代码只保留结构：分秒、字段顺序、参考编号、预算与切点算法。
 //
-// 模板用 {name} 占位符，每个模板允许的占位符由 vars 标签固定，req 标签是必须保留的占位符；
+// 模板用 {name} 占位符，每个模板允许的占位符由 vars 标签固定，req 标签是必须保留的占位符，drop 标签标出可以设成空串去掉的片段；
 // 可选片段（光源方向、特效持续时间等）拆成单独模板，由代码决定拼不拼，文案改坏也不会改坏结构。
 // 版本 0 是内置默认（compile_profile_default.json），逐字等于 M5 之前代码里的文字。
 
@@ -109,32 +109,32 @@ type CameraWords struct {
 type ShotPhrases struct {
 	ActionPattern   string            `json:"action_pattern" vars:"name,items" req:"items"`
 	Expression      string            `json:"expression" vars:"text" req:"text"`
-	CoreTerms       string            `json:"core_terms" vars:"terms" req:"terms"`
-	Performance     string            `json:"performance" vars:"beats" req:"beats"`
-	State           string            `json:"state" vars:"state" req:"state"`
-	LightSource     string            `json:"light_source" vars:"anchor,direction" req:"anchor"`
-	LightDirection  string            `json:"light_direction" vars:"direction" req:"direction"`
+	CoreTerms       string            `json:"core_terms" vars:"terms" req:"terms" drop:"ok"`
+	Performance     string            `json:"performance" vars:"beats" req:"beats" drop:"ok"`
+	State           string            `json:"state" vars:"state" req:"state" drop:"ok"`
+	LightSource     string            `json:"light_source" vars:"anchor,direction" req:"anchor" drop:"ok"`
+	LightDirection  string            `json:"light_direction" vars:"direction" req:"direction" drop:"ok"`
 	LightFull       string            `json:"light_full" vars:"text" req:"text"`
 	Fight           string            `json:"fight" vars:"parts" req:"parts"`
 	FightInitiator  string            `json:"fight_initiator" vars:"initiator" req:"initiator"`
-	FightPath       string            `json:"fight_path" vars:"path" req:"path"`
-	FightTarget     string            `json:"fight_target" vars:"target" req:"target"`
-	FightResponse   string            `json:"fight_response" vars:"response" req:"response"`
-	FightEndPose    string            `json:"fight_end_pose" vars:"pose" req:"pose"`
+	FightPath       string            `json:"fight_path" vars:"path" req:"path" drop:"ok"`
+	FightTarget     string            `json:"fight_target" vars:"target" req:"target" drop:"ok"`
+	FightResponse   string            `json:"fight_response" vars:"response" req:"response" drop:"ok"`
+	FightEndPose    string            `json:"fight_end_pose" vars:"pose" req:"pose" drop:"ok"`
 	FightContact    map[string]string `json:"fight_contact"`
 	Martial         string            `json:"martial" vars:"names" req:"names"`
 	Vfx             string            `json:"vfx" vars:"name,items,seconds" req:"items"`
-	VfxScale        string            `json:"vfx_scale" vars:"scale" req:"scale"`
-	VfxSeconds      string            `json:"vfx_seconds" vars:"seconds" req:"seconds"`
+	VfxScale        string            `json:"vfx_scale" vars:"scale" req:"scale" drop:"ok"`
+	VfxSeconds      string            `json:"vfx_seconds" vars:"seconds" req:"seconds" drop:"ok"`
 	SoundBridgeIn   string            `json:"sound_bridge_in"`
 	SoundBridgeOut  string            `json:"sound_bridge_out"`
 	MotionStill     string            `json:"motion_still"`
 	MotionChange    string            `json:"motion_change" vars:"from,to"`
-	MotionCamera    string            `json:"motion_camera" vars:"moves" req:"moves"`
+	MotionCamera    string            `json:"motion_camera" vars:"moves" req:"moves" drop:"ok"`
 	PositionAt      string            `json:"position_at" vars:"who,at"`
-	PositionBehind  string            `json:"position_behind" vars:"behind" req:"behind"`
-	PositionOcclude string            `json:"position_occlude" vars:"by" req:"by"`
-	PositionCamera  string            `json:"position_camera" vars:"side" req:"side"`
+	PositionBehind  string            `json:"position_behind" vars:"behind" req:"behind" drop:"ok"`
+	PositionOcclude string            `json:"position_occlude" vars:"by" req:"by" drop:"ok"`
+	PositionCamera  string            `json:"position_camera" vars:"side" req:"side" drop:"ok"`
 }
 
 // ExpressionPhrases 是情绪弧展开成的分秒表情链。
@@ -162,8 +162,8 @@ type LightPhrases struct {
 // SegmentPhrases 是段末连戏和同场后段的再锚点。
 type SegmentPhrases struct {
 	EndState         string `json:"end_state" vars:"rules" req:"rules"`
-	Gaze             string `json:"gaze" vars:"gaze" req:"gaze"`
-	GazeToward       string `json:"gaze_toward" vars:"who,target" req:"target"`
+	Gaze             string `json:"gaze" vars:"gaze" req:"gaze" drop:"ok"`
+	GazeToward       string `json:"gaze_toward" vars:"who,target" req:"target" drop:"ok"`
 	Reanchor         string `json:"reanchor"`
 	ReanchorWithPrev string `json:"reanchor_with_prev" vars:"prev,state" req:"state"`
 }
@@ -352,6 +352,10 @@ func validateTemplates(v reflect.Value, prefix string) error {
 					return fmt.Errorf("%s 只能用占位符 %s，出现了 {%s}", path, braceList(allowed), m[1])
 				}
 			}
+			// drop:"ok" 的模板是可去掉的片段：设成空串（或只有空白）就不写这一片，拼接时跳过，不用保留占位符。
+			if strings.TrimSpace(text) == "" && field.Tag.Get("drop") == "ok" {
+				continue
+			}
 			for _, need := range splitTag(field.Tag.Get("req")) {
 				if !strings.Contains(text, "{"+need+"}") {
 					return fmt.Errorf("%s 必须保留占位符 {%s}", path, need)
@@ -378,7 +382,11 @@ func braceList(names []string) string {
 }
 
 // fill 替换模板里的占位符（一次扫描，值里的花括号不会被再次替换）。
+// 只有空白的模板等于空串（编译档案里去掉的片段），不写进句子。
 func fill(tpl string, kv ...string) string {
+	if strings.TrimSpace(tpl) == "" {
+		return ""
+	}
 	if len(kv) == 0 || !strings.Contains(tpl, "{") {
 		return tpl
 	}
