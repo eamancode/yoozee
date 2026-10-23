@@ -89,7 +89,12 @@ export type DramaCompileResult = {
     spec: DramaSegment;
     derived: boolean;
     result: { segment: string; model: string; duration: number; prompt: string; paste?: string; files: Array<{ file: string; tag: string; role: string }>; chars: number; warnings?: string[]; issues: DramaIssue[] };
+    /** 这次编译用的编译档案（version 0 为内置默认）。 */
+    compileProfile?: DramaCompileProfileRef;
 };
+
+/** 编译档案版本：装段、编译的文字（镜头画面句、台词四元、约束、⚠️ 等），0 为内置默认。 */
+export type DramaCompileProfileRef = { version: number; name: string };
 
 export type DramaSegmentProgress = {
     shotId: string;
@@ -194,7 +199,15 @@ export type DramaCheckItem = { level: "error" | "warn"; rule: string; message: s
 export type DramaCheckReport = { kind: "shots"; errors: number; warnings: number; items: DramaCheckItem[]; skipped: Array<{ rule: string; why: string }> };
 export type DramaShotlistStats = { rows: number; shots: number; no_spec?: number; line_exact?: number; line_fuzzy?: number; line_unmatched?: number; scene_remap?: number; scene_unknown?: number; dup_id?: number };
 /** 一章的镜头表（契约 shotlist）、由章节正文转出的台词表与最近一次检查结果。 */
-export type DramaShotlistView = { unitId: string; version: number; shotlist: { profile: string; episode?: number; shots: Array<Record<string, unknown>> }; script?: Record<string, unknown>; check: DramaCheckReport; updatedAt: string };
+export type DramaShotlistView = {
+    unitId: string;
+    version: number;
+    shotlist: { profile: string; episode?: number; shots: Array<Record<string, unknown>> };
+    script?: Record<string, unknown>;
+    check: DramaCheckReport;
+    compileProfile?: DramaCompileProfileRef;
+    updatedAt: string;
+};
 export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; notes: string[] };
 
 export function getDramaShotlist(projectId: string, unitId: string, signal?: AbortSignal) {

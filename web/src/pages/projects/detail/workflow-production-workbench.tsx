@@ -411,7 +411,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     const warnings = compiled.result.issues.filter((issue) => issue.level === "warn");
                     if (warnings.length) message.warning(warnings.map((issue) => issue.message).join("；"));
                     config = { ...config, videoSeconds: String(compiled.result.duration) };
-                    dialect = { prompt: compiled.result.prompt, images: media.images, audios: media.audios, metadata: { promptSource: "yoozee-dialect", dramaModel: compiled.result.model, dramaSegment: compiled.result.segment } };
+                    dialect = { prompt: compiled.result.prompt, images: media.images, audios: media.audios, metadata: { promptSource: "yoozee-dialect", dramaModel: compiled.result.model, dramaSegment: compiled.result.segment, dramaCompileProfileVersion: compiled.compileProfile?.version ?? 0 } };
                 }
             }
             if (!isAiConfigReady(config, routedModel)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");

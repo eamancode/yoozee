@@ -26,53 +26,50 @@ type PackInput struct {
 	Target     [2]float64
 	Vocab      *Vocab
 	FileExists func(file string) bool
+	// Phrases 是编译档案（镜头画面句、表情链、灯光七项等文字）；nil 用内置默认。
+	Phrases *CompileProfile
 }
 
 var (
-	camXZh   = map[string]string{"X1": "正面", "X2": "侧 45 度", "X3": "侧面", "X4": "背面"}
-	camYZh   = map[string]string{"Y1": "贴地大仰角", "Y2": "仰拍", "Y3": "微仰", "Y4": "平视", "Y5": "微俯", "Y6": "俯拍", "Y7": "正上方俯拍"}
-	moveZh   = map[string]string{"fixed": "固定机位", "push": "推近", "pull": "拉远", "crane_up": "升起", "crane_down": "下降", "truck": "横移", "pan": "摇镜", "tilt": "俯仰摇", "roll": "滚转", "zoom": "变焦", "rack_focus": "焦点转换", "track": "跟拍", "orbit": "环绕", "spiral": "螺旋环绕", "handheld_micro": "手持微晃", "handheld": "手持晃动", "handheld_violent": "手持剧烈晃动", "dolly_zoom": "滑动变焦", "snorricam": "主体稳定背景晃动", "jib": "摇臂", "fpv": "FPV 穿越", "one_take": "一镜到底"}
-	fZh      = map[string]string{"pov": "主观视角", "ots": "过肩", "voyeur": "透过门缝 / 栅栏偷窥", "mirror": "通过镜面反射", "dutch": "荷兰角倾斜构图", "symmetry": "对称构图", "leading": "引导线构图", "frame": "框中框构图", "negspace": "大量留白"}
-	contactZ = map[string]string{"hit": "命中", "graze": "擦过", "blocked": "被挡下", "miss": "落空", "none": "没有接触"}
 	nilWords = map[string]bool{"": true, "无": true, "——": true, "-": true, "none": true, "None": true}
 
-	bigSignals        = []string{"掩面", "嘶吼", "大哭", "捶地", "瘫坐", "跪倒", "狂笑", "嚎啕", "怒吼", "尖叫", "扑", "剧烈", "失控", "决堤", "滚落", "大颗", "涌出", "夺眶", "甩落", "瘫"}
-	familyDefaultTerm = map[string]string{"sadness": "红眼眶", "love": "含情脉脉", "smile": "微笑", "cold": "冷酷", "shock": "睁大双眼"}
-	forbidTags        = [][2]string{{"穿模", "model_clip"}, {"穿透", "model_clip"}, {"穿帮", "bg_extras"}, {"虚化过度", "bg_extras"}, {"反物理", "physics"}, {"脚离地", "physics"}, {"同手同脚", "physics"}, {"步伐僵硬", "physics"}, {"扭曲", "limb_distortion"}, {"僵硬", "limb_distortion"}, {"畸形", "limb_distortion"}, {"多指", "limb_distortion"}, {"少指", "limb_distortion"}, {"多余手指", "limb_distortion"}, {"比例", "proportion"}}
-	functionMap       = [][2]string{{"建立", "建立空间"}, {"反转", "反转"}, {"揭", "信息揭示"}, {"真相", "信息揭示"}, {"发现", "信息揭示"}, {"先知", "信息揭示"}, {"悬", "信息揭示"}, {"交手", "动作推进"}, {"打斗", "动作推进"}, {"搏", "动作推进"}, {"追", "动作推进"}, {"穿越", "动作推进"}, {"崩溃", "情绪爆发"}, {"爆发", "情绪爆发"}, {"兑付", "情绪爆发"}, {"告白", "情绪爆发"}, {"钩", "收束留白"}, {"留白", "收束留白"}, {"对话", "对话拉扯"}, {"拉扯", "对话拉扯"}, {"施压", "对话拉扯"}}
-	atmosMap          = [][2]string{{"压", "压抑"}, {"紧", "紧张"}, {"冷", "冷寂"}, {"暖", "温暖"}, {"燃", "高燃"}, {"疑", "神秘"}, {"荒", "荒诞"}, {"甜", "浪漫"}, {"惊", "紧张"}, {"怕", "紧张"}, {"悲", "压抑"}, {"追", "紧张"}, {"护", "紧张"}}
-	hidden7Skip       = []string{"极度", "嚎啕", "暴怒", "狂喜", "目瞪口呆", "惊掉"}
-	gazePrefix        = regexp.MustCompile(`^(面向|背对|转|看|正面|被|退|面朝|朝|侧)`)
-	soundFragSplit    = regexp.MustCompile(`[；;]`)
+	bigSignals     = []string{"掩面", "嘶吼", "大哭", "捶地", "瘫坐", "跪倒", "狂笑", "嚎啕", "怒吼", "尖叫", "扑", "剧烈", "失控", "决堤", "滚落", "大颗", "涌出", "夺眶", "甩落", "瘫"}
+	forbidTags     = [][2]string{{"穿模", "model_clip"}, {"穿透", "model_clip"}, {"穿帮", "bg_extras"}, {"虚化过度", "bg_extras"}, {"反物理", "physics"}, {"脚离地", "physics"}, {"同手同脚", "physics"}, {"步伐僵硬", "physics"}, {"扭曲", "limb_distortion"}, {"僵硬", "limb_distortion"}, {"畸形", "limb_distortion"}, {"多指", "limb_distortion"}, {"少指", "limb_distortion"}, {"多余手指", "limb_distortion"}, {"比例", "proportion"}}
+	functionMap    = [][2]string{{"建立", "建立空间"}, {"反转", "反转"}, {"揭", "信息揭示"}, {"真相", "信息揭示"}, {"发现", "信息揭示"}, {"先知", "信息揭示"}, {"悬", "信息揭示"}, {"交手", "动作推进"}, {"打斗", "动作推进"}, {"搏", "动作推进"}, {"追", "动作推进"}, {"穿越", "动作推进"}, {"崩溃", "情绪爆发"}, {"爆发", "情绪爆发"}, {"兑付", "情绪爆发"}, {"告白", "情绪爆发"}, {"钩", "收束留白"}, {"留白", "收束留白"}, {"对话", "对话拉扯"}, {"拉扯", "对话拉扯"}, {"施压", "对话拉扯"}}
+	atmosMap       = [][2]string{{"压", "压抑"}, {"紧", "紧张"}, {"冷", "冷寂"}, {"暖", "温暖"}, {"燃", "高燃"}, {"疑", "神秘"}, {"荒", "荒诞"}, {"甜", "浪漫"}, {"惊", "紧张"}, {"怕", "紧张"}, {"悲", "压抑"}, {"追", "紧张"}, {"护", "紧张"}}
+	hidden7Skip    = []string{"极度", "嚎啕", "暴怒", "狂喜", "目瞪口呆", "惊掉"}
+	gazePrefix     = regexp.MustCompile(`^(面向|背对|转|看|正面|被|退|面朝|朝|侧)`)
+	soundFragSplit = regexp.MustCompile(`[；;]`)
 )
 
-func cameraText(sh *Shot) string {
+func cameraText(sh *Shot, cp *CompileProfile) string {
+	words := cp.Camera
 	f := sh.camF()
-	parts := []string{camXZh[sh.Cam.X], camYZh[sh.Cam.Y]}
+	parts := []string{words.X[sh.Cam.X], words.Y[sh.Cam.Y]}
 	if f.Identity != "" {
-		parts = append(parts, lookupOr(fZh, f.Identity))
+		parts = append(parts, lookupOr(words.Composition, f.Identity))
 	}
 	if f.Geometry != "" {
-		g := lookupOr(fZh, f.Geometry)
+		g := lookupOr(words.Composition, f.Geometry)
 		if d := string(f.DutchDeg); d != "" && d != "0" && d != "0.0" {
-			g += " " + pyNumber(d) + "°"
+			g += fill(words.Dutch, "deg", pyNumber(d))
 		}
 		parts = append(parts, g)
 	}
 	for _, m := range sh.Move {
-		parts = append(parts, lookupOr(moveZh, m))
+		parts = append(parts, lookupOr(words.Move, m))
 	}
 	if f.LensMM != nil && *f.LensMM != 0 {
-		parts = append(parts, fmt.Sprintf("%dmm", int(*f.LensMM)))
+		parts = append(parts, fill(words.Lens, "mm", fmt.Sprintf("%d", int(*f.LensMM))))
 	}
 	dof := sh.Dof
 	if dof == "" {
 		dof = f.Dof
 	}
 	if dof == "shallow" {
-		parts = append(parts, "浅景深")
+		parts = append(parts, words.DofShallow)
 	} else if dof == "deep" {
-		parts = append(parts, "深景深")
+		parts = append(parts, words.DofDeep)
 	}
 	return joinNonEmpty(parts, "，")
 }
@@ -113,16 +110,17 @@ func fightValue(v string) string {
 }
 
 // fightText 把因果动作单元写成一句话：发起 → 路径 → 反应 → 接触 → 力的传递 → 结束姿态。
-func fightText(f *Fight) string {
+func fightText(f *Fight, cp *CompileProfile) string {
+	ph := cp.Shot
 	initiator, path, target, response := fightValue(f.Initiator), fightValue(f.Path), fightValue(f.Target), fightValue(f.Response)
 	var parts []string
 	if initiator != "" {
-		p := initiator + "发起"
+		p := fill(ph.FightInitiator, "initiator", initiator)
 		if path != "" {
-			p += "，" + path
+			p += fill(ph.FightPath, "path", path)
 		}
 		if target != "" {
-			p += "，打向" + target
+			p += fill(ph.FightTarget, "target", target)
 		}
 		parts = append(parts, p)
 	} else if path != "" {
@@ -130,24 +128,24 @@ func fightText(f *Fight) string {
 	}
 	if response != "" {
 		if initiator != "" {
-			parts = append(parts, "对方"+response)
+			parts = append(parts, fill(ph.FightResponse, "response", response))
 		} else {
 			parts = append(parts, response)
 		}
 	}
-	if c, ok := contactZ[f.Contact]; ok {
+	if c, ok := ph.FightContact[f.Contact]; ok {
 		parts = append(parts, c)
 	}
 	if ft := fightValue(f.ForceTransfer); ft != "" {
 		parts = append(parts, ft)
 	}
 	if ep := fightValue(f.EndPose); ep != "" {
-		parts = append(parts, "结束在："+ep)
+		parts = append(parts, fill(ph.FightEndPose, "pose", ep))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return "动作：" + strings.Join(parts, "；") + "。"
+	return fill(ph.Fight, "parts", strings.Join(parts, "；"))
 }
 
 type mergedPhase struct {
@@ -156,8 +154,9 @@ type mergedPhase struct {
 	signals []string
 }
 
-// ExpandArc 把情绪弧展开成分秒表演链（pack.expand_arc）：返回文本、用到的段号、弧的情绪族。
-func ExpandArc(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEnd int) (string, []int, string) {
+// ExpandArc 把情绪弧展开成分秒表演链（pack.expand_arc）：返回文本、用到的段号、弧的情绪族。cp 为 nil 用内置默认文字。
+func ExpandArc(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEnd int, cp *CompileProfile) (string, []int, string) {
+	cp = mustCompileProfile(cp)
 	ref := sh.EmotionArc
 	if !ref.truthy() || vocab == nil {
 		return "", nil, ""
@@ -258,16 +257,16 @@ func ExpandArc(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseE
 				sig = []string{sig[0], sig[len(sig)/2], sig[len(sig)-1]}
 			}
 		}
-		seg := fmtSec(t) + "–" + fmtSec(t+m.dur) + "秒：" + strings.Join(sig, "，")
+		seg := fill(cp.Expression.Phase, "from", fmtSec(t), "to", fmtSec(t+m.dur), "signals", strings.Join(sig, "，"))
 		if i == lineAt {
-			seg += "（台词落在这一段）"
+			seg += cp.Expression.LineMarker
 		}
 		parts = append(parts, seg)
 		t += m.dur
 	}
 	text := strings.Join(parts, "；")
 	if intensity == "hidden7" {
-		text += "；幅度压到最小，藏七露三"
+		text += cp.Expression.Hidden7Tail
 	}
 	used := make([]int, 0, len(chosen))
 	for i := range chosen {
@@ -277,7 +276,7 @@ func ExpandArc(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseE
 }
 
 // expressionTerms 取表情核心词：镜头写了用镜头的；否则按弧段的可见信号在词典里匹配，命中太少按情绪族取温和的默认词。
-func expressionTerms(sh *Shot, family string, used []int, vocab *Vocab) []string {
+func expressionTerms(sh *Shot, family string, used []int, vocab *Vocab, cp *CompileProfile) []string {
 	if len(sh.ExpressionTerms) > 0 {
 		return []string(sh.ExpressionTerms)[:min(3, len(sh.ExpressionTerms))]
 	}
@@ -348,7 +347,7 @@ func expressionTerms(sh *Shot, family string, used []int, vocab *Vocab) []string
 	if best != nil && score >= 3 {
 		return best.ZhTerms[:min(2, len(best.ZhTerms))]
 	}
-	name := familyDefaultTerm[family]
+	name := cp.Expression.FamilyTerms[family]
 	for i := range vocab.Expressions {
 		if vocab.Expressions[i].Name == name {
 			terms := vocab.Expressions[i].ZhTerms
@@ -371,7 +370,7 @@ func forbidRiskTags(forbid []string) []string {
 }
 
 // actionPatternText 把动作模式写成动作句片段，并返回它的禁止项。
-func actionPatternText(sh *Shot, vocab *Vocab) (string, []string) {
+func actionPatternText(sh *Shot, vocab *Vocab, cp *CompileProfile) (string, []string) {
 	ap := sh.ActionPattern
 	if ap == nil || vocab == nil {
 		return "", nil
@@ -420,52 +419,54 @@ func actionPatternText(sh *Shot, vocab *Vocab) (string, []string) {
 	kept = kept[:min(4, len(kept))]
 	text := ""
 	if len(kept) > 0 {
-		text = "动作模式·" + strings.SplitN(pat.Name, "-", 2)[0] + "：" + strings.Join(kept, "；") + "。"
+		text = fill(cp.Shot.ActionPattern, "name", strings.SplitN(pat.Name, "-", 2)[0], "items", strings.Join(kept, "；"))
 	}
 	return text, slices.Clone(pat.Forbid)
 }
 
 // expressionText 是这一镜的「表情」：弧展开 + 手写节拍；返回文本、核心词、用到的弧段号。
-func expressionText(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEnd int) (string, []string, []int) {
-	arcText, used, family := ExpandArc(sh, est, profile, vocab, prevPhaseEnd)
+func expressionText(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEnd int, cp *CompileProfile) (string, []string, []int) {
+	arcText, used, family := ExpandArc(sh, est, profile, vocab, prevPhaseEnd, cp)
 	beats := sh.Performance.beats()
 	text := arcText
 	if len(beats) > 0 {
 		if text != "" {
 			text += "；"
 		}
-		text += "节拍：" + strings.Join(beats, "；")
+		text += fill(cp.Expression.Beats, "beats", strings.Join(beats, "；"))
 	}
 	var terms []string
 	if arcText != "" || len(beats) > 0 {
-		terms = expressionTerms(sh, family, used, vocab)
+		terms = expressionTerms(sh, family, used, vocab, cp)
 	}
 	return text, terms, used
 }
 
-// LightFullText 是灯光七项句（即梦格式）；一项都没写返回空。
-func LightFullText(l Light) string {
+// LightFullText 是灯光七项句（即梦格式）；一项都没写返回空。cp 为 nil 用内置默认标签。
+func LightFullText(l Light, cp *CompileProfile) string {
+	lp := mustCompileProfile(cp).Light
 	var parts []string
-	for _, kv := range [][2]string{{l.Key, "主光"}, {l.Fill, "辅光"}, {l.Rim, "轮廓光"}, {l.Ratio, "光比"}, {l.Kelvin, "色温"}, {l.Shadow, "阴影"}, {l.Exposure, "曝光"}, {l.Change, "光线变化"}} {
+	for _, kv := range [][2]string{{l.Key, lp.Key}, {l.Fill, lp.Fill}, {l.Rim, lp.Rim}, {l.Ratio, lp.Ratio}, {l.Kelvin, lp.Kelvin}, {l.Shadow, lp.Shadow}, {l.Exposure, lp.Exposure}, {l.Change, lp.Change}} {
 		if kv[0] != "" {
-			parts = append(parts, kv[1]+"："+kv[0])
+			parts = append(parts, fill(lp.Item, "label", kv[1], "value", kv[0]))
 		}
 	}
 	return strings.Join(parts, "；")
 }
 
-func positionsText(sh *Shot) string {
+func positionsText(sh *Shot, cp *CompileProfile) string {
+	ph := cp.Shot
 	var bits []string
 	for _, b := range sh.Blocking {
-		t := b.Who + "在" + b.At
+		t := fill(ph.PositionAt, "who", b.Who, "at", b.At)
 		if b.Facing != "" {
 			t += "，" + b.Facing
 		}
 		if b.Behind != "" {
-			t += "，身后是" + b.Behind
+			t += fill(ph.PositionBehind, "behind", b.Behind)
 		}
 		if o := b.OccludedBy; o != "" {
-			t += "，被" + o
+			t += fill(ph.PositionOcclude, "by", o)
 			if !(strings.HasSuffix(o, "挡住") || strings.HasSuffix(o, "遮住") || strings.HasSuffix(o, "挡") || strings.HasSuffix(o, "遮")) {
 				t += "挡住一部分"
 			}
@@ -473,7 +474,7 @@ func positionsText(sh *Shot) string {
 		bits = append(bits, t)
 	}
 	if sh.CameraSide != "" {
-		bits = append(bits, "机位在"+sh.CameraSide)
+		bits = append(bits, fill(ph.PositionCamera, "side", sh.CameraSide))
 	}
 	return strings.Join(bits, "；")
 }
@@ -542,7 +543,7 @@ func anchorsText(sh *Shot, scene *ScriptScene, bible *Bible) string {
 	return strings.Join(parts, "；")
 }
 
-func motionText(sh *Shot) string {
+func motionText(sh *Shot, cp *CompileProfile) string {
 	var bits []string
 	if f := sh.Fight; f != nil {
 		if f.Initiator != "" && f.Path != "" && f.Initiator != "无" {
@@ -557,23 +558,23 @@ func motionText(sh *Shot) string {
 		switch m {
 		case "fixed", "handheld_micro", "handheld", "handheld_violent", "rack_focus":
 		default:
-			moves = append(moves, lookupOr(moveZh, m))
+			moves = append(moves, lookupOr(cp.Camera.Move, m))
 		}
 	}
 	if len(moves) > 0 {
-		bits = append(bits, "机位"+strings.Join(moves, "、"))
+		bits = append(bits, fill(cp.Shot.MotionCamera, "moves", strings.Join(moves, "、")))
 	}
 	if len(bits) == 0 {
 		if sh.StartState == sh.EndState {
-			bits = append(bits, "人物原地；")
+			bits = append(bits, cp.Shot.MotionStill)
 		} else {
-			bits = append(bits, "从「"+sh.StartState+"」到「"+sh.EndState+"」")
+			bits = append(bits, fill(cp.Shot.MotionChange, "from", sh.StartState, "to", sh.EndState))
 		}
 	}
 	return strings.Join(bits, "；")
 }
 
-func vfxText(v VfxRef, vocab *Vocab) string {
+func vfxText(v VfxRef, vocab *Vocab, cp *CompileProfile) string {
 	name, exe := v.ID, ""
 	if vocab != nil {
 		if e := vocab.VfxEntry(v.ID); e != nil {
@@ -595,48 +596,49 @@ func vfxText(v VfxRef, vocab *Vocab) string {
 		bits = append(bits, v.Attribute)
 	}
 	if v.Scale != "" {
-		bits = append(bits, "范围："+v.Scale)
+		bits = append(bits, fill(cp.Shot.VfxScale, "scale", v.Scale))
 	}
-	out := "特效·" + name + "：" + strings.Join(bits, "，")
+	seconds := ""
 	if s := string(v.Seconds); s != "" && s != "0" {
-		out += "，持续 " + pyNumber(s) + " 秒"
+		seconds = fill(cp.Shot.VfxSeconds, "seconds", pyNumber(s))
 	}
-	return out + "。"
+	return fill(cp.Shot.Vfx, "name", name, "items", strings.Join(bits, "，"), "seconds", seconds)
 }
 
 // shotText 是一镜的画面句：动作 + 动作模式 + 表情 / 表演 + 状态 + 光 + 灯光七项 + 动作单元 + 流派 + 特效。
-func shotText(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEnd int) string {
+func shotText(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEnd int, cp *CompileProfile) string {
+	ph := cp.Shot
 	text := strings.TrimSpace(sh.Action)
-	if pat, _ := actionPatternText(sh, vocab); pat != "" {
+	if pat, _ := actionPatternText(sh, vocab, cp); pat != "" {
 		text += pat
 	}
 	if sh.EmotionArc.truthy() {
-		expr, terms, _ := expressionText(sh, est, profile, vocab, prevPhaseEnd)
+		expr, terms, _ := expressionText(sh, est, profile, vocab, prevPhaseEnd, cp)
 		if expr != "" {
-			text += "表情：" + expr + "。"
+			text += fill(ph.Expression, "text", expr)
 		}
 		if len(terms) > 0 {
-			text += "核心词：" + strings.Join(terms, "、") + "。"
+			text += fill(ph.CoreTerms, "terms", strings.Join(terms, "、"))
 		}
 	} else if beats := sh.Performance.beats(); len(beats) > 0 {
-		text += "表演：" + strings.Join(beats, "；") + "。"
+		text += fill(ph.Performance, "beats", strings.Join(beats, "；"))
 	}
 	if sh.State != "" {
-		text += "此刻人物状态：" + sh.State + "。"
+		text += fill(ph.State, "state", sh.State)
 	}
 	light := sh.light()
 	if light.SourceAnchor != "" {
-		text += "光来自" + light.SourceAnchor
+		direction := ""
 		if light.Direction != "" {
-			text += "，" + light.Direction
+			direction = fill(ph.LightDirection, "direction", light.Direction)
 		}
-		text += "。"
+		text += fill(ph.LightSource, "anchor", light.SourceAnchor, "direction", direction)
 	}
-	if lf := LightFullText(light); lf != "" {
-		text += lf + "。"
+	if lf := LightFullText(light, cp); lf != "" {
+		text += fill(ph.LightFull, "text", lf)
 	}
 	if sh.Fight.truthy() {
-		text += fightText(sh.Fight)
+		text += fightText(sh.Fight, cp)
 	}
 	if sh.Fight != nil && len(sh.Fight.MartialIDs) > 0 && vocab != nil {
 		var names []string
@@ -646,16 +648,16 @@ func shotText(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEn
 			}
 		}
 		if len(names) > 0 {
-			text += "流派：" + strings.Join(names, "、") + "。"
+			text += fill(ph.Martial, "names", strings.Join(names, "、"))
 		}
 	}
 	for _, v := range sh.Vfx {
-		text += vfxText(v, vocab)
+		text += vfxText(v, vocab, cp)
 	}
 	return text
 }
 
-func soundText(sh *Shot) string {
+func soundText(sh *Shot, cp *CompileProfile) string {
 	s := strings.TrimSpace(sh.Sfx)
 	appendPart := func(part string) {
 		if s != "" {
@@ -668,9 +670,9 @@ func soundText(sh *Shot) string {
 	}
 	switch sh.Bridge {
 	case "in":
-		appendPart("声音先入")
+		appendPart(cp.Shot.SoundBridgeIn)
 	case "out":
-		appendPart("声音延续到下一镜")
+		appendPart(cp.Shot.SoundBridgeOut)
 	}
 	return s
 }
@@ -1007,7 +1009,7 @@ func mapFirst(text string, table [][2]string, def string) string {
 }
 
 // castLines 是没有身份参考图（或图还没出）的在场人物的外貌声明（lock_card 前 6 条）。
-func castLines(shots []*Shot, refs []Ref, bible *Bible, exists func(string) bool) []CastLine {
+func castLines(shots []*Shot, refs []Ref, bible *Bible, exists func(string) bool, lockMax int) []CastLine {
 	have := map[string]bool{}
 	for _, r := range refs {
 		if r.Role == "identity" && exists != nil && exists(r.File) {
@@ -1041,7 +1043,7 @@ func castLines(shots []*Shot, refs []Ref, bible *Bible, exists func(string) bool
 			lock = ch.Anchors
 		}
 		if len(lock) > 0 {
-			out = append(out, CastLine{Name: ch.Name, Lock: slices.Clone(lock[:min(6, len(lock))])})
+			out = append(out, CastLine{Name: ch.Name, Lock: slices.Clone(lock[:min(lockMax, len(lock))])})
 		}
 	}
 	return out
@@ -1146,6 +1148,7 @@ func jimengBlock(scene *ScriptScene, shots []*Shot, bible *Bible, segShots []Sub
 
 type packState struct {
 	in     PackInput
+	cp     *CompileProfile
 	lines  scriptLines
 	arcEnd map[string]int
 }
@@ -1166,6 +1169,7 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		bible = &Bible{}
 	}
 	profile := p.in.Profile
+	cp := p.cp
 	voiceProfiles := map[string]BibleCharacter{}
 	for _, c := range bible.Characters {
 		voiceProfiles[c.Name] = c
@@ -1199,8 +1203,8 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		if sh.EmotionArc != nil {
 			prevEnd = p.arcEnd[sh.EmotionArc.Continues]
 		}
-		s := SubShot{At: pyRound(at, 1), Size: sh.Size, Camera: cameraText(sh), Text: shotText(sh, e, profile, p.in.Vocab, prevEnd), ShotID: sh.ID}
-		expr, terms, used := expressionText(sh, e, profile, p.in.Vocab, prevEnd)
+		s := SubShot{At: pyRound(at, 1), Size: sh.Size, Camera: cameraText(sh, cp), Text: shotText(sh, e, profile, p.in.Vocab, prevEnd, cp), ShotID: sh.ID}
+		expr, terms, used := expressionText(sh, e, profile, p.in.Vocab, prevEnd, cp)
 		if len(used) > 0 {
 			p.arcEnd[sh.ID] = used[len(used)-1]
 		}
@@ -1211,18 +1215,18 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 			tr := *sh.Transition
 			s.Transition = &tr
 		}
-		s.Positions = positionsText(sh)
-		s.Motion = motionText(sh)
+		s.Positions = positionsText(sh, cp)
+		s.Motion = motionText(sh, cp)
 		s.Anchors = anchorsText(sh, scene, p.in.Bible)
-		s.LightFull = LightFullText(sh.light())
-		_, forbid := actionPatternText(sh, p.in.Vocab)
+		s.LightFull = LightFullText(sh.light(), cp)
+		_, forbid := actionPatternText(sh, p.in.Vocab, cp)
 		for _, tag := range forbidRiskTags(forbid) {
 			if !slices.Contains(risk, tag) {
 				risk = append(risk, tag)
 			}
 		}
 		s.Lines = lines
-		s.Sound = soundText(sh)
+		s.Sound = soundText(sh, cp)
 		s.EndState = sh.EndState
 		if len(sh.RiskTags) > 0 {
 			s.RiskTags = slices.Clone([]string(sh.RiskTags))
@@ -1281,11 +1285,11 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		if rules != "" {
 			rules += "；"
 		}
-		rules += "视线：" + strings.Join(gaze, "；")
+		rules += fill(cp.Segment.Gaze, "gaze", strings.Join(gaze, "；"))
 	}
 	if rules != "" {
 		// 这是段末连戏状态，不是开场状态；编译稿放在风格块之后。
-		rules = "本段结束时：" + rules
+		rules = fill(cp.Segment.EndState, "rules", rules)
 	}
 	mode := ModeTextOnly
 	if len(refs) > 0 {
@@ -1297,7 +1301,7 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 	}
 	seg := Segment{ID: segID, Scene: sceneID, Title: runePrefix(shots[0].Purpose, 40), Dur: float64(dur), Mode: mode, Shots: segShots, ShotIDs: shotIDs, Profile: p.in.ProfileID}
 	seg.Jimeng = jimengBlock(scene, shots, p.in.Bible, segShots)
-	seg.Cast = castLines(shots, refs, p.in.Bible, p.in.FileExists)
+	seg.Cast = castLines(shots, refs, p.in.Bible, p.in.FileExists, cp.Cast.LockMax)
 	seg.ScreenText = screenTextsFor(shots, scene)
 	seg.Refs = refs
 	seg.Voices = voices
@@ -1357,9 +1361,9 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 			}
 		}
 		bed, _ := mostCommonFirst(frags)
-		reanchor := "人物形象、服装、光源方向与上一段完全一致。"
+		reanchor := cp.Segment.Reanchor
 		if prevEnd != "" {
-			reanchor = fmt.Sprintf("承接上一段（%s）结尾：%s；人物形象、服装、光源方向与上一段完全一致。", prev.ID, prevEnd)
+			reanchor = fill(cp.Segment.ReanchorWithPrev, "prev", prev.ID, "state", prevEnd)
 		}
 		if shared == nil {
 			shared = []string{}
@@ -1377,7 +1381,7 @@ func Pack(in PackInput) ([]Segment, []string) {
 	if in.Target == [2]float64{} {
 		in.Target = [2]float64{15, 25}
 	}
-	p := &packState{in: in, lines: newScriptLines(in.Script), arcEnd: map[string]int{}}
+	p := &packState{in: in, cp: mustCompileProfile(in.Phrases), lines: newScriptLines(in.Script), arcEnd: map[string]int{}}
 	hi, lo := float64(in.Model.Duration.Max), float64(in.Model.Duration.Min)
 	is25 := hi >= 30
 	var order []string

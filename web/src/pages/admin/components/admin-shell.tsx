@@ -79,6 +79,7 @@ const adminNavigation: Array<{ label: string; items: AdminNavigationItem[] }> = 
             { path: "/admin/models", label: "前台模型", description: "展示、线路与用户价格", icon: <Layers3 className="size-4" />, requireFeature: "frontendModelsEnabled" },
             { path: "/admin/prompt-templates", label: "提示词模板", description: "平台创作策略版本", icon: <MessageSquareText className="size-4" /> },
             { path: "/admin/builtin-skills", label: "内置技能", description: "在线覆盖内置技能版本", icon: <WandSparkles className="size-4" /> },
+            { path: "/admin/drama-compile-profiles", label: "编译档案", description: "短剧视频提示词的文字版本", icon: <MessageSquareText className="size-4" /> },
             { path: "/admin/workbench-tools", label: "工作台工具", description: "生图/视频工具与预设", icon: <WandSparkles className="size-4" /> },
             { path: "/admin/resources", label: "存储资源", description: "资源列表、容量与预览", icon: <Database className="size-4" /> },
         ],

@@ -39,7 +39,7 @@ func TestShotlistRefsResolveToBoundProjectAssets(t *testing.T) {
 	if got := strings.Join(shots[0].RefsHint, "|"); got != "林小满·夜班|病历夹·夹在腋下|七床门牌|病房走廊" {
 		t.Fatalf("模型写的 refs_hint 保留，绑定了但没写的资产补在后面：%s", got)
 	}
-	bible := dramaShotlistBible(shots, rows, assets, map[string]bool{"char-1": true, "loc-1": true, "prop-1": true})
+	bible := dramaShotlistBible(shots, rows, assets, map[string]bool{"char-1": true, "loc-1": true, "prop-1": true}, 6)
 	m, _ := drama.ModelByID("seedance-2.5")
 	segs, problems := drama.Pack(drama.PackInput{Shotlist: drama.Shotlist{Profile: "live-realism", Shots: shots}, Bible: bible, Model: m, ProfileID: "live-realism", FileExists: func(string) bool { return true }})
 	if len(problems) > 0 || len(segs) != 1 {
@@ -245,7 +245,7 @@ func TestShotlistSameNamedScenesKeepTheirOwnCast(t *testing.T) {
 	for _, a := range assets {
 		imaged[a.ID] = true
 	}
-	plan, err := planDramaShotlist(rows, &script, assets, imaged, m)
+	plan, err := planDramaShotlist(rows, &script, assets, imaged, m, nil)
 	if err != nil {
 		t.Fatalf("on3 应能保存：%v", err)
 	}
@@ -344,7 +344,7 @@ func loadOn3(t *testing.T) ([]shotlistRow, []ProjectAssetSummary, drama.Script) 
 func TestShotlistImagelessAssetsCompileWithoutPictures(t *testing.T) {
 	rows, assets, script := loadOn3(t)
 	m, _ := drama.ModelByID("seedance-2.5")
-	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{}, m)
+	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{}, m, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestShotlistImagedAndImagelessAssetsMix(t *testing.T) {
 	rows, assets, script := loadOn3(t)
 	m, _ := drama.ModelByID("seedance-2.5")
 	// 只有林小满有三视图：她挂参考，不写声明；其他人写声明；场景、道具都没图。
-	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{"char-1": true}, m)
+	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{"char-1": true}, m, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestCompileDropsImagelessRefsFromStoredSegments(t *testing.T) {
 	for _, a := range assets {
 		imaged[a.ID] = true // 模拟旧逻辑：所有有主版本的资产都当成有图，装出带参考的段
 	}
-	plan, err := planDramaShotlist(rows, &script, assets, imaged, m)
+	plan, err := planDramaShotlist(rows, &script, assets, imaged, m, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +478,7 @@ func TestCompileDropsImagelessRefsFromStoredSegments(t *testing.T) {
 		if len(stored.Refs) == 0 {
 			t.Fatalf("%s 夹具前提：旧段带参考", stored.ID)
 		}
-		seg, issues := dropImagelessRefs(stored, lookup)
+		seg, issues := dropImagelessRefs(stored, lookup, 6)
 		if len(seg.Refs) != 0 || seg.Mode != drama.ModeTextOnly || len(issues) == 0 {
 			t.Fatalf("%s 去掉没图的参考后应是 text_only：%+v %v", seg.ID, seg.Refs, issues)
 		}
@@ -502,7 +502,7 @@ func TestCompileDropsImagelessRefsFromStoredSegments(t *testing.T) {
 	seg := drama.Segment{ID: "S01", Scene: "E01S01", Dur: 5, Mode: drama.ModeLockIdentity, Shots: []drama.SubShot{{At: 0, Text: "x"}}, Refs: []drama.Ref{{File: "has-image", Role: "identity"}, {File: "agent-file", Role: "location"}}}
 	kept, issues := dropImagelessRefs(seg, func(file string) dramaRefAsset {
 		return dramaRefAsset{known: file == "has-image", hasImage: true}
-	})
+	}, 6)
 	if len(kept.Refs) != 2 || kept.Mode != drama.ModeLockIdentity || issues != nil {
 		t.Fatalf("有图和认不出的参考不动：%+v %v", kept, issues)
 	}

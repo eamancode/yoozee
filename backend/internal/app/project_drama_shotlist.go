@@ -41,12 +41,14 @@ type DramaShotlistWriteRequest struct {
 
 // DramaShotlistView 是一章的镜头表、台词表与最近一次检查结果。
 type DramaShotlistView struct {
-	UnitID    string            `json:"unitId"`
-	Version   int               `json:"version"`
-	Shotlist  drama.Shotlist    `json:"shotlist"`
-	Script    *drama.Script     `json:"script,omitempty"`
-	Check     drama.CheckReport `json:"check"`
-	UpdatedAt time.Time         `json:"updatedAt"`
+	UnitID   string            `json:"unitId"`
+	Version  int               `json:"version"`
+	Shotlist drama.Shotlist    `json:"shotlist"`
+	Script   *drama.Script     `json:"script,omitempty"`
+	Check    drama.CheckReport `json:"check"`
+	// CompileProfile 是装段用的编译档案版本（0 为内置默认）。
+	CompileProfile DramaCompileProfileRef `json:"compileProfile"`
+	UpdatedAt      time.Time              `json:"updatedAt"`
 }
 
 type DramaShotlistWriteResult struct {
@@ -132,11 +134,11 @@ func dramaAssetDescription(a ProjectAssetSummary) string {
 
 var dramaLockSplit = regexp.MustCompile(`[，,；;。、\n]+`)
 
-// dramaLockCard 把文字设定拆成外貌声明的短句（最多 6 条，与 pack.py 的 cast 取 lock_card 前 6 条一致）。
-func dramaLockCard(description string) []string {
+// dramaLockCard 把文字设定拆成外貌声明的短句，最多 lockMax 条（编译档案 cast.lock_max，默认 6，与 pack.py 的 cast 取 lock_card 前 6 条一致）。
+func dramaLockCard(description string, lockMax int) []string {
 	var out []string
 	for _, part := range dramaLockSplit.Split(description, -1) {
-		if part = strings.TrimSpace(part); part != "" && len(out) < 6 {
+		if part = strings.TrimSpace(part); part != "" && len(out) < lockMax {
 			out = append(out, string([]rune(part)[:min(40, len([]rune(part)))]))
 		}
 	}
@@ -190,7 +192,7 @@ func dramaAssetHasImage(a ProjectAssetSummary, versionHasImage bool) bool {
 // 镜头 refs_hint 里写的「名称·变体」也挂到同一个版本上，装段按 refs_hint 取参考时就能落到柚子资产。
 // 没图的人物照样进圣经但不给文件，锁定卡取文字设定：装段就不挂参考，改写「人物·X」外貌声明（pack.py 身份图缺失时同样处理）；
 // 没图的场景、道具不进圣经，由 describeTextOnlyAssets 写进镜头描述。
-func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []ProjectAssetSummary, imaged map[string]bool) *drama.Bible {
+func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []ProjectAssetSummary, imaged map[string]bool, lockMax int) *drama.Bible {
 	byID := make(map[string]ProjectAssetSummary, len(assets))
 	for _, a := range assets {
 		byID[a.ID] = a
@@ -217,7 +219,7 @@ func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []Project
 			}
 			switch dramaRefRole(a.Category) {
 			case "identity":
-				lock := dramaLockCard(dramaAssetDescription(a))
+				lock := dramaLockCard(dramaAssetDescription(a), lockMax)
 				ch := drama.BibleCharacter{Name: a.Title, Variants: []drama.BibleVariant{{Kind: "base", Sheet: file, LockCard: lock}}}
 				for _, v := range variants[a.Title] {
 					ch.Variants = append(ch.Variants, drama.BibleVariant{Label: v, Kind: "state", Sheet: file, LockCard: lock})
@@ -484,11 +486,15 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
+	phrases, err := s.activeCompileProfile()
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
 	imaged, err := s.dramaImagedAssets(assets)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	plan, err := planDramaShotlist(rows, script, assets, imaged, m)
+	plan, err := planDramaShotlist(rows, script, assets, imaged, m, phrases)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
@@ -508,7 +514,8 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	// 5 镜头表与段同一事务写入
 	shotlistJSON, _ := json.Marshal(shotlist)
 	checkJSON, _ := json.Marshal(report)
-	record := &model.DramaShotlist{ShotlistJSON: string(shotlistJSON), CheckJSON: string(checkJSON)}
+	rowsJSON, _ := json.Marshal(req.Rows)
+	record := &model.DramaShotlist{ShotlistJSON: string(shotlistJSON), CheckJSON: string(checkJSON), RowsJSON: string(rowsJSON), CompileProfileVersion: phrases.Version()}
 	if script != nil {
 		scriptJSON, _ := json.Marshal(script)
 		record.ScriptJSON = string(scriptJSON)
@@ -524,7 +531,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if script == nil {
 		notes = append(notes, "章节正文为空，台词覆盖（R-SHOT-001）没有检查")
 	}
-	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, UpdatedAt: record.UpdatedAt}
+	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, CompileProfile: compileProfileRef(phrases), UpdatedAt: record.UpdatedAt}
 	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: report, Stats: plan.Stats, Notes: notes}, nil
 }
 
@@ -554,7 +561,13 @@ type dramaShotlistPlan struct {
 
 // planDramaShotlist 是写镜头表不碰数据库的部分：分镜行 → 镜头表 → 检查（有 error 返回 shotlist_check_failed）→ 按场装段。
 // 场按镜头表的 scene（E01S01…）分，不按绑定的场景资产分：两场戏用同一个场景资产时各装各的段，参考取各自镜头。
-func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model) (dramaShotlistPlan, error) {
+func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, phrases *drama.CompileProfile) (dramaShotlistPlan, error) {
+	if phrases == nil {
+		var err error
+		if phrases, err = drama.DefaultCompileProfile(); err != nil {
+			return dramaShotlistPlan{}, err
+		}
+	}
 	storyRows := make([]drama.StoryboardRow, 0, len(rows))
 	for _, row := range rows {
 		storyRows = append(storyRows, row.StoryboardRow)
@@ -572,11 +585,11 @@ func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []Projec
 	}
 	packShots := slices.Clone(plan.Shotlist.Shots)
 	attachRefsHints(packShots, rows, assets, script)
-	bible := dramaShotlistBible(packShots, rows, assets, imaged)
+	bible := dramaShotlistBible(packShots, rows, assets, imaged, phrases.Cast.LockMax)
 	plan.Segments, plan.Problems = drama.Pack(drama.PackInput{
 		Shotlist: drama.Shotlist{Profile: plan.Shotlist.Profile, Episode: plan.Shotlist.Episode, Shots: packShots},
 		Script:   script, Bible: bible, Model: m, Profile: profile, ProfileID: plan.Shotlist.Profile, Vocab: ctx.Vocab,
-		FileExists: func(string) bool { return true },
+		FileExists: func(string) bool { return true }, Phrases: phrases,
 	})
 	describeTextOnlyAssets(plan.Segments, packShots, assets, imaged)
 	return plan, nil
@@ -641,7 +654,13 @@ func (s *Service) DramaShotlist(userID string, projectID string, unitID string) 
 	if err != nil {
 		return nil, err
 	}
-	view := &DramaShotlistView{UnitID: unitID, Version: record.Version, UpdatedAt: record.UpdatedAt}
+	view := &DramaShotlistView{UnitID: unitID, Version: record.Version, CompileProfile: DramaCompileProfileRef{Version: record.CompileProfileVersion, Name: "内置默认"}, UpdatedAt: record.UpdatedAt}
+	if record.CompileProfileVersion > 0 {
+		view.CompileProfile.Name = fmt.Sprintf("v%d", record.CompileProfileVersion)
+		if p, err := s.repo.DramaCompileProfileByVersion(record.CompileProfileVersion); err == nil {
+			view.CompileProfile.Name = p.Name
+		}
+	}
 	if err := json.Unmarshal([]byte(record.ShotlistJSON), &view.Shotlist); err != nil {
 		return nil, fmt.Errorf("镜头表数据损坏: %w", err)
 	}
@@ -667,7 +686,7 @@ type dramaRefAsset struct {
 // dropImagelessRefs 去掉段里指向没图资产的参考：编译成「@图片N」却没有文件，提交时会缺图或错号。
 // 去掉的人物改写「人物·X」外貌声明（文字设定拆成短句），场景、道具只靠镜头文字；一张参考都不剩时改成 text_only。
 // 镜头表装段已经不会挂没图的资产，这里兜住旧段、前端装段和 Agent 写的段。
-func dropImagelessRefs(seg drama.Segment, lookup func(file string) dramaRefAsset) (drama.Segment, []drama.Issue) {
+func dropImagelessRefs(seg drama.Segment, lookup func(file string) dramaRefAsset, lockMax int) (drama.Segment, []drama.Issue) {
 	var issues []drama.Issue
 	var kept []drama.Ref
 	dropped := map[string]bool{}
@@ -680,7 +699,7 @@ func dropImagelessRefs(seg drama.Segment, lookup func(file string) dramaRefAsset
 		dropped[r.File] = true
 		title := firstNonEmpty(strings.TrimSpace(info.asset.Title), r.File)
 		if r.Role == "identity" {
-			lock := dramaLockCard(dramaAssetDescription(info.asset))
+			lock := dramaLockCard(dramaAssetDescription(info.asset), lockMax)
 			if len(lock) > 0 && !slices.ContainsFunc(seg.Cast, func(c drama.CastLine) bool { return c.Name == title }) {
 				seg.Cast = append(seg.Cast, drama.CastLine{Name: title, Lock: lock})
 			}

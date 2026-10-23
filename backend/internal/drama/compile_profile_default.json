@@ -1,0 +1,217 @@
+{
+  "blocks": {
+    "seedance": {
+      "style": "",
+      "acting": ""
+    },
+    "h3": {
+      "style": "",
+      "acting": ""
+    },
+    "profiles": {}
+  },
+  "camera": {
+    "x": {
+      "X1": "正面",
+      "X2": "侧 45 度",
+      "X3": "侧面",
+      "X4": "背面"
+    },
+    "y": {
+      "Y1": "贴地大仰角",
+      "Y2": "仰拍",
+      "Y3": "微仰",
+      "Y4": "平视",
+      "Y5": "微俯",
+      "Y6": "俯拍",
+      "Y7": "正上方俯拍"
+    },
+    "move": {
+      "fixed": "固定机位",
+      "push": "推近",
+      "pull": "拉远",
+      "crane_up": "升起",
+      "crane_down": "下降",
+      "truck": "横移",
+      "pan": "摇镜",
+      "tilt": "俯仰摇",
+      "roll": "滚转",
+      "zoom": "变焦",
+      "rack_focus": "焦点转换",
+      "track": "跟拍",
+      "orbit": "环绕",
+      "spiral": "螺旋环绕",
+      "handheld_micro": "手持微晃",
+      "handheld": "手持晃动",
+      "handheld_violent": "手持剧烈晃动",
+      "dolly_zoom": "滑动变焦",
+      "snorricam": "主体稳定背景晃动",
+      "jib": "摇臂",
+      "fpv": "FPV 穿越",
+      "one_take": "一镜到底"
+    },
+    "composition": {
+      "pov": "主观视角",
+      "ots": "过肩",
+      "voyeur": "透过门缝 / 栅栏偷窥",
+      "mirror": "通过镜面反射",
+      "dutch": "荷兰角倾斜构图",
+      "symmetry": "对称构图",
+      "leading": "引导线构图",
+      "frame": "框中框构图",
+      "negspace": "大量留白"
+    },
+    "dutch": " {deg}°",
+    "lens": "{mm}mm",
+    "dof_shallow": "浅景深",
+    "dof_deep": "深景深"
+  },
+  "shot": {
+    "action_pattern": "动作模式·{name}：{items}。",
+    "expression": "表情：{text}。",
+    "core_terms": "核心词：{terms}。",
+    "performance": "表演：{beats}。",
+    "state": "此刻人物状态：{state}。",
+    "light_source": "光来自{anchor}{direction}。",
+    "light_direction": "，{direction}",
+    "light_full": "{text}。",
+    "fight": "动作：{parts}。",
+    "fight_initiator": "{initiator}发起",
+    "fight_path": "，{path}",
+    "fight_target": "，打向{target}",
+    "fight_response": "对方{response}",
+    "fight_end_pose": "结束在：{pose}",
+    "fight_contact": {
+      "hit": "命中",
+      "graze": "擦过",
+      "blocked": "被挡下",
+      "miss": "落空",
+      "none": "没有接触"
+    },
+    "martial": "流派：{names}。",
+    "vfx": "特效·{name}：{items}{seconds}。",
+    "vfx_scale": "范围：{scale}",
+    "vfx_seconds": "，持续 {seconds} 秒",
+    "sound_bridge_in": "声音先入",
+    "sound_bridge_out": "声音延续到下一镜",
+    "motion_still": "人物原地；",
+    "motion_change": "从「{from}」到「{to}」",
+    "motion_camera": "机位{moves}",
+    "position_at": "{who}在{at}",
+    "position_behind": "，身后是{behind}",
+    "position_occlude": "，被{by}",
+    "position_camera": "机位在{side}"
+  },
+  "expression": {
+    "phase": "{from}–{to}秒：{signals}",
+    "line_marker": "（台词落在这一段）",
+    "hidden7_tail": "；幅度压到最小，藏七露三",
+    "beats": "节拍：{beats}",
+    "family_default_terms": {
+      "sadness": "红眼眶",
+      "love": "含情脉脉",
+      "smile": "微笑",
+      "cold": "冷酷",
+      "shock": "睁大双眼"
+    }
+  },
+  "light": {
+    "item": "{label}：{value}",
+    "key": "主光",
+    "fill": "辅光",
+    "rim": "轮廓光",
+    "ratio": "光比",
+    "kelvin": "色温",
+    "shadow": "阴影",
+    "exposure": "曝光",
+    "change": "光线变化"
+  },
+  "segment": {
+    "end_state": "本段结束时：{rules}",
+    "gaze": "视线：{gaze}",
+    "reanchor": "人物形象、服装、光源方向与上一段完全一致。",
+    "reanchor_with_prev": "承接上一段（{prev}）结尾：{state}；人物形象、服装、光源方向与上一段完全一致。"
+  },
+  "cast": {
+    "decl": "人物·{name}：{lock}",
+    "lock_max": 6
+  },
+  "line": {
+    "vo": "画外音，嘴不动",
+    "timbre": "音色：{value}",
+    "pace": "语速：{value}",
+    "tone": "语调：{value}",
+    "emotion": "情感：{value}",
+    "with_how": "{speaker}（{how}）：“{text}”",
+    "plain": "{speaker}：“{text}”",
+    "h3_vo": " [off-screen voiceover]",
+    "h3_line": "{vo} ({speaker}), {how}:\n<d>[{lang}] {text}</d>",
+    "h3_line_plain": "{vo} ({speaker}):\n<d>[{lang}] {text}</d>",
+    "default_lang": "Chinese"
+  },
+  "seedance": {
+    "first_frame": "以{ref}为首帧（构图、人物、服装和光线照此）",
+    "last_frame": "以{ref}为尾帧，视频结束在这一画面",
+    "role_identity": "{ref}为人物参考（{note}；脸、发型、小特征和服装照此，忽略灰色背景）",
+    "role_location": "{ref}为场景参考（布局、材质、颜色和光线照此，图中无人）{note}",
+    "role_plate": "{ref}为这一机位身后的背景{note}",
+    "role_prop": "{ref}为道具参考{note}",
+    "role_frame": "{ref}只作构图参考（取景、光线、位置），人物的脸以人物参考为准{note}",
+    "role_motion": "{ref}为运镜参考{note}",
+    "role_voice": "{ref}为{name}的音色参考（只取音色，不复用其中的话）",
+    "note_prefix": "：{note}",
+    "identity_default": "该人物",
+    "ref_state": "此刻{state}",
+    "bridge_frame_note": "上一段的末帧：构图、人物位置与此刻状态照此，人脸以人物参考为准",
+    "bridge_clip_note": "上一段末尾的运镜与姿态连续参考，不复刻其中的人物与场景",
+    "head": "生成{dur}秒视频。整体风格：{style}{acting}",
+    "reanchor_mid": "（再锚点：人物形象、服装与光源方向与开头一致）",
+    "sound": "声音：{sound}；不要背景音乐和配乐。",
+    "sound_default": "环境声与动作音效",
+    "shared_bed": "{bed}（与上一段相同、不中断）",
+    "screen_text": "⚠️画面里只出现这些登记过的文字：{texts}，写法要正确；其他地方不出现任何可读文字、字幕、水印。",
+    "group_variation": "⚠️群像差异化：{text}；禁止同脸。",
+    "constraint": "约束：{identity}、场景连续、光源方向不变、口型与台词同步、无字幕、无水印、{text}。",
+    "identity_refs": "人物与参考一致",
+    "identity_cast": "人物外貌全程与开头的人物声明一致",
+    "text_refs": "除参考里已有的字外不出现可读文字",
+    "text_registered": "除登记的文字外不出现可读文字",
+    "lang": "台词用{lang}说。"
+  },
+  "h3": {
+    "first_frame": "Keep the exact framing, faces, wardrobe and lighting of the first frame. ",
+    "last_frame": "The video must end exactly on the last frame. ",
+    "roles": {
+      "identity": "is the exact identity reference of {note}: match the face, hairstyle and distinguishing marks exactly and wear exactly what the reference wears; ignore its plain grey background",
+      "location": "is the location reference: keep its layout, materials, colours and light; it contains no people. {note}",
+      "plate": "is the background for one camera side: {note}",
+      "prop": "is the exact prop: {note}",
+      "frame": "is a composition reference only (framing, light, seating); the faces must follow the identity references, not this picture. {note}"
+    },
+    "role_other": "{note}",
+    "ref_state": "current state: {state}",
+    "bridge_frame_note": "last frame of the previous segment: keep framing, positions and the current state; faces follow the identity references",
+    "role_voice": "{ref} gives only the sound of the voice (timbre) of {name} ({speaker})",
+    "delivery_note": " How each line is delivered (volume, pitch, emotion, pace, breath) comes only from the acting described in the scene, never from the audio references; do not reuse any words from them.",
+    "sound_default": "quiet room tone"
+  },
+  "risk": {
+    "limb_distortion": "⚠️肢体结构正确：五指清晰、关节不畸形、身体不僵硬、不扭曲。",
+    "model_clip": "⚠️武器、头发、身体不穿模，膝盖不穿透地面，身体不互相穿透。",
+    "physics": "⚠️动作符合物理：脚踏实地、不同手同脚、重心真实、步伐不僵硬。",
+    "bg_extras": "⚠️背景不出现无关人物，背景虚化适度。",
+    "proportion": "⚠️两人身体比例与服装风格一致。",
+    "handle_contamination": "⚠️各参考只按声明的用途使用：人物参考只取人物，场景参考只取场景，不把人物参考里的背景或场景参考里的任何人形带进画面。",
+    "identity_drift": "⚠️人物面部、发型、小特征与服装全程与人物参考一致，不随景别和光线变化。",
+    "light_spill": "⚠️屏幕、灯具只作为画面里发光的物件，不向人物皮肤与服装投射大面积色光。",
+    "prop_misplace": "⚠️道具位置与状态按描述固定，不凭空出现或消失，不复制成多件。",
+    "insert_focus_drift": "⚠️插入镜头的焦点落在道具与手上，不漂到背景。",
+    "closeup_rotation": "⚠️近景时机位不做大幅环绕或旋转，运动幅度小、匀速。",
+    "three_axis": "⚠️每个时间段只做一到两种运镜，不同时推拉、升降、环绕。",
+    "phantom_across_barrier": "⚠️河流、墙、门、车辆等阻隔物的另一侧没有人，除非描述里写了。",
+    "readable_text": "⚠️除参考里已有的字外不出现任何可读文字、字幕、水印。",
+    "group_same_face": "⚠️群像人物面孔各不相同，按描述的差异化特征区分，不复制同一张脸。",
+    "big_action": "⚠️大动作（走路、起身、转身）完整、连贯、重心真实，不穿模、不多出肢体。",
+    "long_take_drift": "⚠️段落较长：人物形象、服装、光源方向在后半段与开头完全一致。"
+  }
+}

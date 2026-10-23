@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"strings"
 	"sync"
 
 	builtinAssets "yingce/backend/builtin"
@@ -299,6 +300,21 @@ func BuiltinProfile(id string) (*Profile, error) {
 	}
 	profileCache[id] = p
 	return p, nil
+}
+
+// BuiltinProfileIDs 列出内置风格档案的 ID（按文件名排序）。
+func BuiltinProfileIDs() []string {
+	entries, err := fs.ReadDir(builtinAssets.FS, profilesDir)
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	for _, e := range entries {
+		if id, ok := strings.CutSuffix(e.Name(), ".json"); ok && !e.IsDir() && profileIDPattern.MatchString(id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // RuleLevels 是规则表里每条规则的级别（error / warn）。
