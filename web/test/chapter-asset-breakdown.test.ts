@@ -13,7 +13,13 @@ describe("章节三类资产解析", () => {
         expect(() => parseChapterAssetBreakdown('{"characters":[],"scenes":[{"name":"车站"}],"props":[]}')).toThrow("description");
     });
     test("场景带上模型填的锚点，道具不带", () => {
-        const result = parseChapterAssetBreakdown(JSON.stringify({ characters: [], scenes: [{ name: "电梯口", description: "走廊尽头", prompt: "不锈钢电梯门", anchors: ["电梯门前", " 楼梯间防火门 ", "电梯门前", ""] }], props: [{ name: "信封", description: "牛皮纸信封", prompt: "信封特写", anchors: ["桌上"] }] }));
+        const result = parseChapterAssetBreakdown(
+            JSON.stringify({
+                characters: [],
+                scenes: [{ name: "电梯口", description: "走廊尽头", prompt: "不锈钢电梯门", anchors: ["电梯门前", " 楼梯间防火门 ", "电梯门前", ""] }],
+                props: [{ name: "信封", description: "牛皮纸信封", prompt: "信封特写", anchors: ["桌上"] }],
+            }),
+        );
         expect(result.scenes[0].anchors).toEqual(["电梯门前", "楼梯间防火门"]);
         expect(result.props[0].anchors).toBeUndefined();
         expect(sceneAnchorList("电梯门前、护士站柜台，楼梯间")).toEqual(["电梯门前", "护士站柜台", "楼梯间"]);
