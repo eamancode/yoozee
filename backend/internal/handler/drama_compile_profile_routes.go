@@ -66,6 +66,37 @@ func registerDramaCompileProfileRoutes(r *gin.RouterGroup, svc *service.Service)
 		}
 		ok(c, gin.H{"ok": true})
 	})
+	r.POST("/admin/drama/eval", func(c *gin.Context) {
+		actor, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var req service.DramaEvalRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("评测请求格式无效"))
+			return
+		}
+		run, err := svc.AdminDramaEval(actor, req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"run": run})
+	})
+	r.GET("/admin/drama/eval-runs", func(c *gin.Context) {
+		actor, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		runs, err := svc.AdminDramaEvalRuns(actor)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"runs": runs})
+	})
 	r.DELETE("/admin/drama/compile-profiles/:id", func(c *gin.Context) {
 		actor, err := currentUser(c, svc)
 		if err != nil {

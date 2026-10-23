@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 61
+const CurrentSchemaVersion int64 = 62
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -219,6 +219,10 @@ var schemaMigrations = []migration{
 	// M5：编译档案（装段、编译的文字）带版本在线编辑；镜头表记下分镜行原文和装段用的档案版本。
 	{version: 61, name: "drama_compile_profiles", checksum: "sha256:drama-compile-profiles-v61-20261022", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaCompileProfile{}, &model.DramaShotlist{})
+	}},
+	// M5：评测重跑的结果（指标表与逐段提示词）。
+	{version: 62, name: "drama_eval_runs", checksum: "sha256:drama-eval-runs-v62-20261022", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaEvalRun{})
 	}},
 }
 

@@ -583,16 +583,27 @@ func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []Projec
 	if plan.Report.HasErrors() {
 		return plan, shotlistCheckFailed(plan.Report, converted.Stats)
 	}
-	packShots := slices.Clone(plan.Shotlist.Shots)
+	plan.Segments, plan.Problems = packDramaShotlist(plan.Shotlist, rows, script, assets, imaged, m, profile, ctx.Vocab, phrases)
+	return plan, nil
+}
+
+// packDramaShotlist 是检查通过后的装段：镜头挂上分镜行绑定的资产（rows 与镜头一一对应），拼资产圣经，按场装段，没图的场景、道具写进镜头描述。
+func packDramaShotlist(shotlist drama.Shotlist, rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, profile *drama.Profile, vocab *drama.Vocab, phrases *drama.CompileProfile) ([]drama.Segment, []string) {
+	packShots := slices.Clone(shotlist.Shots)
 	attachRefsHints(packShots, rows, assets, script)
+	return packHintedShots(shotlist, packShots, rows, script, assets, imaged, m, profile, vocab, phrases)
+}
+
+// packHintedShots 是装段的后半：镜头 refs_hint 已经挂好资产名，rows 只用来决定哪些资产进圣经。
+func packHintedShots(shotlist drama.Shotlist, packShots []drama.Shot, rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, profile *drama.Profile, vocab *drama.Vocab, phrases *drama.CompileProfile) ([]drama.Segment, []string) {
 	bible := dramaShotlistBible(packShots, rows, assets, imaged, phrases.Cast.LockMax)
-	plan.Segments, plan.Problems = drama.Pack(drama.PackInput{
-		Shotlist: drama.Shotlist{Profile: plan.Shotlist.Profile, Episode: plan.Shotlist.Episode, Shots: packShots},
-		Script:   script, Bible: bible, Model: m, Profile: profile, ProfileID: plan.Shotlist.Profile, Vocab: ctx.Vocab,
+	segments, problems := drama.Pack(drama.PackInput{
+		Shotlist: drama.Shotlist{Profile: shotlist.Profile, Episode: shotlist.Episode, Shots: packShots},
+		Script:   script, Bible: bible, Model: m, Profile: profile, ProfileID: shotlist.Profile, Vocab: vocab,
 		FileExists: func(string) bool { return true }, Phrases: phrases,
 	})
-	describeTextOnlyAssets(plan.Segments, packShots, assets, imaged)
-	return plan, nil
+	describeTextOnlyAssets(segments, packShots, assets, imaged)
+	return segments, problems
 }
 
 // dramaSegmentShotInput 把装出的一段写成章节镜头：段 JSON 进版本 spec，平铺字段由它补齐，分镜行的提示词备注接在后面。
@@ -636,6 +647,43 @@ func dramaSegmentShotInput(seg drama.Segment, rowByShot map[string]shotlistRow) 
 		}},
 		AssetVersionIDs: versions[:min(6, len(versions))],
 	}, nil
+}
+
+// DramaShotlistRepackRequest 是用已存镜头表重新装段的参数：rule 与写镜头表时一样，是渠道实际能提交的段长。
+type DramaShotlistRepackRequest struct {
+	Rule *DramaShotlistRule `json:"rule,omitempty"`
+}
+
+// RepackDramaShotlist 用这一章已存的分镜行原文按当前生效的编译档案重新检查、装段（不调模型）：改了镜头画面句类的文字后用它让段换上新写法。
+// 与写镜头表一样整章替换段，旧段的候选视频和证据一并删除。
+func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID string, req DramaShotlistRepackRequest) (DramaShotlistWriteResult, error) {
+	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
+	unitID = strings.TrimSpace(unitID)
+	record, err := s.repo.DramaShotlistForUnit(projectID, unitID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return DramaShotlistWriteResult{}, BadAuthRequest("这一章还没有镜头表，先生成分段")
+	}
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
+	if strings.TrimSpace(record.RowsJSON) == "" {
+		return DramaShotlistWriteResult{}, BadAuthRequest("这一章的镜头表保存时还没有记录分镜行原文，不能直接重装；请重新生成分段")
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal([]byte(record.RowsJSON), &rows); err != nil {
+		return DramaShotlistWriteResult{}, fmt.Errorf("镜头表分镜行原文损坏: %w", err)
+	}
+	views, err := s.DramaSegments(userID, projectID, unitID)
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
+	expected := make([]string, 0, len(views))
+	for _, v := range views {
+		expected = append(expected, v.ShotID)
+	}
+	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected})
 }
 
 // DramaShotlist 读一章的镜头表、台词表与最近一次检查结果；这一章还没有镜头表时返回 nil。

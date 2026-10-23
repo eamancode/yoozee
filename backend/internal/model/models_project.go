@@ -379,6 +379,21 @@ type DramaCompileProfile struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+// DramaEvalRun 是一次评测重跑（M5）：选一个阶段的候选版本与基线版本，在评测集上复用已存的上游产物重跑该阶段和下游，
+// result_json 是指标表与逐段提示词。
+type DramaEvalRun struct {
+	ID               string    `json:"id" gorm:"primaryKey;size:36"`
+	Stage            string    `json:"stage" gorm:"size:24;index"`
+	ProjectID        string    `json:"projectId" gorm:"size:36;index"`
+	UnitIDsJSON      string    `json:"-" gorm:"type:text"`
+	Model            string    `json:"model" gorm:"size:64"`
+	CandidateVersion int       `json:"candidateVersion"`
+	BaselineVersion  int       `json:"baselineVersion"`
+	ResultJSON       string    `json:"-" gorm:"type:text"`
+	CreatedBy        string    `json:"createdBy" gorm:"size:36"`
+	CreatedAt        time.Time `json:"createdAt" gorm:"index"`
+}
+
 type ShotAssetReference struct {
 	ID             string    `json:"id" gorm:"primaryKey;size:36"`
 	ShotID         string    `json:"shotId" gorm:"index;size:36;uniqueIndex:idx_shot_asset_reference_unique,priority:1"`

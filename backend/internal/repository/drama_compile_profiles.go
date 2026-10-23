@@ -84,3 +84,30 @@ func (r *Repository) DeleteDramaCompileProfile(id string) (bool, error) {
 	result := r.db.Where("id = ? AND enabled = ?", id, false).Delete(&model.DramaCompileProfile{})
 	return result.RowsAffected > 0, result.Error
 }
+
+// ProjectByID 不按用户取项目（只给管理员评测用，调用方先校验管理员）。
+func (r *Repository) ProjectByID(id string) (*model.Project, error) {
+	var project model.Project
+	if err := r.db.First(&project, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &project, nil
+}
+
+// DramaShotlistsForProject 列出一个项目的全部镜头表。
+func (r *Repository) DramaShotlistsForProject(projectID string) ([]model.DramaShotlist, error) {
+	var shotlists []model.DramaShotlist
+	err := r.db.Where("project_id = ?", projectID).Find(&shotlists).Error
+	return shotlists, err
+}
+
+func (r *Repository) CreateDramaEvalRun(run *model.DramaEvalRun) error {
+	return r.db.Create(run).Error
+}
+
+// DramaEvalRuns 返回最近的评测记录，新的在前。
+func (r *Repository) DramaEvalRuns(limit int) ([]model.DramaEvalRun, error) {
+	var runs []model.DramaEvalRun
+	err := r.db.Order("created_at desc").Limit(limit).Find(&runs).Error
+	return runs, err
+}

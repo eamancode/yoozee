@@ -439,6 +439,7 @@ func migrations() []tableMigration {
 		migrateTable[model.ShotEvidence]("shot_evidences"),
 		migrateTable[model.DramaShotlist]("drama_shotlists"),
 		migrateTable[model.DramaCompileProfile]("drama_compile_profiles"),
+		migrateTable[model.DramaEvalRun]("drama_eval_runs"),
 		migrateTable[model.ShotAssetReference]("shot_asset_references"),
 		migrateTable[model.WorkflowTemplateVersion]("workflow_template_versions"),
 		migrateTable[model.WorkflowInstance]("workflow_instances"),

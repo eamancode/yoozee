@@ -141,6 +141,26 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, result)
 	})
+	r.POST("/projects/:id/units/:unitId/drama/shotlist/repack", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var req service.DramaShotlistRepackRequest
+		if c.Request.ContentLength != 0 {
+			if err := c.ShouldBindJSON(&req); err != nil {
+				fail(c, http.StatusBadRequest, err)
+				return
+			}
+		}
+		result, err := svc.RepackDramaShotlist(user.ID, c.Param("id"), c.Param("unitId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
 	r.POST("/projects/:id/shots/:shotId/compile", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

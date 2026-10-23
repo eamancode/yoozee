@@ -18,6 +18,7 @@ import {
 } from "@/services/api/admin-drama-compile-profiles";
 import { AdminPageFrame } from "../components/admin-shell";
 import { AdminDataTable, AdminRowActions, AdminStatusBadge, AdminTableEmpty } from "../components/admin-ui";
+import { DramaEvalPanel } from "./drama-eval-panel";
 
 type FormValues = { name: string; note: string; enabled: boolean };
 
@@ -165,12 +166,13 @@ export default function DramaCompileProfilesPage() {
             }
         >
             <Callout tone="info" title={data.activeVersion ? `生效中：v${data.activeVersion}` : "生效中：内置默认（v0）"}>
-                编译期的文字（参考声明、约束、⚠️、风格块）下次编译就生效；镜头画面句类的文字（表情、灯光、动作、人物状态）写在段里，要用已存镜头表重新装段。先在「评测」里跑候选版本，对比指标后再启用。
+                编译期的文字（参考声明、约束、⚠️、风格块）下次编译就生效；镜头画面句类的文字（表情、灯光、动作、人物状态）写在段里，要用已存镜头表重新装段。先在下面的「评测重跑」里跑候选版本，对比指标后再启用。
             </Callout>
             <AdminDataTable
                 table={{ className: "app-data-table", size: "small", rowKey: "id", loading, pagination: false, columns, dataSource: data.profiles, scroll: { x: 1080 } }}
                 empty={<AdminTableEmpty title="还没有在线版本" description="现在用的是内置默认（v0）。新建版本时只需写要改的项。" />}
             />
+            <DramaEvalPanel profiles={data.profiles} activeVersion={data.activeVersion} />
 
             <AdminDrawer
                 flush
