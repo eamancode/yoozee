@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -57,6 +58,15 @@ func (s *Service) EnsureBuiltinSkills() error {
 		return nil
 	}
 
+	// 已有包版本的流程技能包只认上传的版本：内置目录只是首次安装的种子，目录信息和文件都不再同步。
+	flowPackages, err := s.repo.PackageSkillIDs()
+	if err != nil {
+		return fmt.Errorf("读取流程技能包失败: %w", err)
+	}
+	packages = slices.DeleteFunc(packages, func(item builtinSkillPackage) bool { return flowPackages[item.skill.ID] })
+	if len(packages) == 0 {
+		return nil
+	}
 	rows := make([]model.Skill, 0, len(packages))
 	for _, item := range packages {
 		rows = append(rows, item.skill)

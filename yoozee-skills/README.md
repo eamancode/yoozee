@@ -18,6 +18,7 @@
 | --- | --- |
 | `skills/yz-*` | 12 个技能，每个只管一个环节 |
 | `kb/kb-*` | 5 个知识包，只有卡片，技能按需读取 |
+| `packages/<id>` | 柚子短剧流程技能包（目前是 `yz-chapter-shots`）：技能目录加清单 `package.json`，原样上传到柚子后台「流程技能」 |
 | `kb/kb-dialects/models.json` | 可选的生成模型和它们的边界（段长上限、参考数量、提示词上限），柚子后端也读它 |
 | `contracts/*.schema.json` | 四份数据契约：需求、分段、连戏表、证据 |
 | `ports.md` | 能力端口清单：技能只说「要做什么」，具体调用由运行时绑定 |
@@ -42,6 +43,7 @@
 ```bash
 python3 yoozee-skills/build.py            # 打出四种包到 yoozee-skills/dist/，并同步柚子内置技能
 python3 yoozee-skills/build.py --check    # 只做自检：字数上限、引用的卡片存在、契约是合法 JSON Schema
+python3 yoozee-skills/build.py --package yz-chapter-shots   # 流程技能包：静态校验后打成 dist/packages/<id>-<version>.zip，到后台「流程技能」上传
 ```
 
 产物：

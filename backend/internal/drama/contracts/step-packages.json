@@ -1,0 +1,34 @@
+{
+  "manifestFile": "package.json",
+  "hashFile": "package.hash.json",
+  "steps": [
+    {
+      "id": "chapter.shots",
+      "contract": "chapter.shots@2",
+      "skillBudgetChars": 32000,
+      "skillLinkedFiles": 3
+    }
+  ],
+  "profiles": [
+    "action-epic",
+    "anime-3d",
+    "duanju-shiga",
+    "game-ip",
+    "live-realism"
+  ],
+  "requiredReading": "(?:先|必须|需要|完成[^。；]*前)[^。；]{0,24}(?:读取|阅读)|(?:读取|阅读)[^。；]{0,24}(?:先|必须)",
+  "cardReference": "`([^`\\s]+\\.(?:md|mdx|txt|json|yaml|yml|toml|csv))`",
+  "textExtensions": [
+    ".md",
+    ".mdx",
+    ".txt",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".csv"
+  ],
+  "idPattern": "^[a-z0-9][a-z0-9-]{0,35}$",
+  "versionPattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$",
+  "contractPattern": "^[a-z0-9][a-z0-9.-]*@[0-9]+$"
+}

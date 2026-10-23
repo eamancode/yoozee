@@ -363,7 +363,7 @@ export default function BuiltinSkillsPage() {
                                 />
                             </div>
                             <Input.TextArea className="mt-3" rows={2} maxLength={500} showCount value={note} onChange={(event) => setNote(event.target.value)} placeholder="这一版改了什么（必填），例如：动作句要求写清起止状态" aria-label="版本说明" />
-                            <p className="mt-2 text-xs text-foreground/50">SKILL.md 的 metadata.skillId 不能改，metadata.outputFields 已声明的字段不能删（前端解析器靠它读取 spec）。</p>
+                            <p className="mt-2 text-xs text-foreground/50">SKILL.md 的 metadata.skillId 不能改。短剧流程技能包（如 yz-chapter-shots）不在这里，去「流程技能」上传新版本。</p>
                         </section>
                     </div>
                 ) : null}

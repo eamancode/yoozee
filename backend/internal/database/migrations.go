@@ -4,8 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"path"
+	"slices"
+	"strings"
 	"time"
 
+	builtinAssets "yingce/backend/builtin"
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
 
@@ -13,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 63
+const CurrentSchemaVersion int64 = 64
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -228,6 +233,75 @@ var schemaMigrations = []migration{
 	}},
 	// M6：项目风格档案（老项目按画风对照回填）；风格档案 × 步骤 → 技能的绑定表，生成分段默认绑 yz-chapter-shots。
 	{version: 63, name: "drama_step_bindings", checksum: "sha256:drama-step-bindings-v63-20261023", apply: migrateDramaStepBindings},
+	// M6 第二期：流程技能包（skill_versions.origin=package，清单存 manifest）；步骤默认技能的当前版本标成第一个包版本。
+	{version: 64, name: "drama_step_packages", checksum: "sha256:drama-step-packages-v64-20261023", apply: migrateDramaStepPackages},
+}
+
+// migrateDramaStepPackages 加 skill_versions.manifest，把每个步骤默认技能（现在只有 yz-chapter-shots）的当前版本标成第一个包版本：
+// 清单取内置种子的 package.json，version 和 files 换成这个版本自己的版本号和文件。这个技能已有包版本时不动；之后启动同步不再覆盖它。
+func migrateDramaStepPackages(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.SkillVersion{}); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, step := range drama.Steps() {
+		skillID := step.DefaultSkill
+		if seen[skillID] {
+			continue
+		}
+		seen[skillID] = true
+		var skill model.Skill
+		err := tx.Where("id = ?", skillID).Limit(1).Find(&skill).Error
+		if err != nil {
+			return err
+		}
+		if skill.ID == "" || skill.CurrentVersionID == "" {
+			continue
+		}
+		var packaged int64
+		if err := tx.Model(&model.SkillVersion{}).Where("skill_id = ? AND origin = ?", skillID, "package").Count(&packaged).Error; err != nil {
+			return err
+		}
+		if packaged > 0 {
+			continue
+		}
+		var version model.SkillVersion
+		if err := tx.Where("id = ? AND skill_id = ?", skill.CurrentVersionID, skillID).Limit(1).Find(&version).Error; err != nil {
+			return err
+		}
+		if version.ID == "" {
+			continue
+		}
+		raw, err := fs.ReadFile(builtinAssets.FS, path.Join(skillID, drama.StepPackageManifestFile))
+		if err != nil {
+			return fmt.Errorf("读取内置种子 %s 的清单：%w", skillID, err)
+		}
+		manifest, problems := drama.ParseStepPackageManifest(raw)
+		if len(problems) > 0 {
+			return fmt.Errorf("内置种子 %s 的清单无效：%s", skillID, problems[0].Message)
+		}
+		var paths []string
+		if err := tx.Model(&model.SkillFile{}).Where("skill_version_id = ? AND path NOT IN ?", version.ID, []string{drama.StepPackageManifestFile, drama.StepPackageHashFile}).Pluck("path", &paths).Error; err != nil {
+			return err
+		}
+		slices.Sort(paths)
+		if version.VersionLabel != "" {
+			manifest.Version = version.VersionLabel
+		}
+		manifest.Files = paths
+		encoded, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return err
+		}
+		values := map[string]any{"origin": "package", "manifest": string(encoded)}
+		if strings.TrimSpace(version.Note) == "" {
+			values["note"] = "由内置版本迁入，作为第一个包版本"
+		}
+		if err := tx.Model(&model.SkillVersion{}).Where("id = ?", version.ID).Updates(values).Error; err != nil {
+			return fmt.Errorf("把 %s 当前版本标成包版本：%w", skillID, err)
+		}
+	}
+	return nil
 }
 
 // migrateDramaStepBindings 加 projects.style_profile 并回填（需求文档手动指定的优先，否则按画风对照表），

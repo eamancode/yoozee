@@ -24,6 +24,8 @@ export const API_ERROR_REASON = {
     TextOutputTruncated: "text_output_truncated",
     /** 镜头表门禁有 error，没有保存；`ApiError.details.check` 是检查结果（规则项与镜头）。 */
     ShotlistCheckFailed: "shotlist_check_failed",
+    /** 上传的流程技能包没过静态校验，没有保存；`ApiError.details.problems` 逐条列出原因。 */
+    PackageCheckFailed: "package_check_failed",
 } as const;
 
 export type ApiErrorReason = (typeof API_ERROR_REASON)[keyof typeof API_ERROR_REASON];
