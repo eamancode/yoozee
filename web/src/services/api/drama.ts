@@ -303,3 +303,44 @@ export function parseEvidenceMetrics(evidence: DramaEvidence): Record<string, un
         return {};
     }
 }
+
+/** yoozee 风格档案（live-realism、anime-3d …）：检查、装段的配额与规则，短剧流程每一步按它取绑定的技能。 */
+export type DramaStyleProfile = { id: string; label: string };
+/** 画风 → 风格档案对照表（后端 style_map.json）：medium / world 是画风选择项，keywords 匹配自定义画风的标题和标签。 */
+export type DramaStyleMapRule = { label: string; medium?: string[]; world?: string[]; keywords?: string[]; profile: string };
+export type DramaStyleProfiles = { profiles: DramaStyleProfile[]; default: string; styleMap: { default: string; rules: DramaStyleMapRule[] } };
+
+export function getDramaStyleProfiles(signal?: AbortSignal) {
+    return http.get<DramaStyleProfiles>("/drama/style-profiles", { signal });
+}
+
+/** 按画风对照表推荐风格档案（与后端 StyleMap.ProfileFor 同一规则：写了的条件都要满足，先写的规则先匹配）。 */
+export function recommendDramaStyleProfile(styleMap: DramaStyleProfiles["styleMap"], style?: { selection?: { world?: string; medium?: string }; title?: string; tags?: string[] }) {
+    const text = `${style?.title || ""} ${(style?.tags || []).join(" ")}`;
+    const medium = style?.selection?.medium || "";
+    const world = style?.selection?.world || "";
+    const rule = styleMap.rules.find((item) => (!item.medium?.length || item.medium.includes(medium)) && (!item.world?.length || item.world.includes(world)) && (!item.keywords?.length || item.keywords.some((keyword) => text.includes(keyword))));
+    return rule?.profile || styleMap.default;
+}
+
+/** 短剧流程步骤：chapter.shots 是生成分段。 */
+export type DramaStepId = "chapter.shots";
+
+/** 一个项目跑这一步用哪个技能版本（风格档案查绑定；bound 为 false 时是步骤默认技能）。 */
+export type DramaStepUsage = {
+    step: DramaStepId;
+    stepLabel: string;
+    contract: string;
+    profile: DramaStyleProfile;
+    skill: { id: string; name: string; versionId: string; version: string; contentHash: string };
+    bound: boolean;
+};
+
+export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?: AbortSignal) {
+    return http.get<{ usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}`, { signal });
+}
+
+/** 对这一章跑这一步：提示词（技能上下文、画风、角色、资产与锚点、每集时长、契约）由服务端组装，这里只带文本模型选择。 */
+export function runDramaStep(projectId: string, unitId: string, step: DramaStepId, input: { model: string; logicalModelId?: string; config: Record<string, unknown> }) {
+    return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
+}

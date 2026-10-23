@@ -1,12 +1,7 @@
 import type { StoryboardAssetRole, StoryboardCharacterReference, StoryboardRow } from "@/types/canvas";
-import { assetCategoryLabel } from "@/lib/asset-category";
-import { sceneAnchorList } from "@/lib/canvas/chapter-asset-breakdown";
-import { withStoryboardOutputContract } from "@/lib/canvas/canvas-project-domain";
 import { normalizeStoryboardAssetBindings } from "@/lib/canvas/canvas-storyboard-assets";
-import { storyboardCharacterAppearancePrompt, storyboardStylePrompt } from "@/lib/canvas/canvas-storyboard-context";
 import { formatShotOrdinal } from "@/lib/shot-label";
 import type { ProjectAsset, ProjectDetail, ShotRevisionInput } from "@/services/api/projects";
-import type { SkillOutputField } from "@/services/skill-runtime";
 import { ensureShotAssetMentionPrompt } from "./workflow-shot-references";
 
 export type ChapterStoryboardAsset = {
@@ -15,19 +10,8 @@ export type ChapterStoryboardAsset = {
     /** entity：已确认但还没有图片的场景、道具设定。 */
     type: "image" | "video" | "audio" | "character" | "entity";
     category?: string;
-    tags: string[];
-    prompt: string;
-    /** 场景的空间锚点（资产设定 anchors），提示词里跟在场景行后，分镜站位只用这些名字。 */
-    anchors?: string[];
     characterAssetId?: string;
     characterVersionId?: string;
-};
-
-export type ChapterStoryboardCharacter = {
-    assetId?: string;
-    versionId?: string;
-    name: string;
-    definition: Record<string, unknown>;
 };
 
 export type ProjectShotReplacementInput = {
@@ -46,28 +30,9 @@ export type ChapterStoryboardReplaceImpact = {
     candidateCount: number;
 };
 
-export function chapterStoryboardCharacters(detail: ProjectDetail, unitId?: string): ChapterStoryboardCharacter[] {
-    const confirmed = detail.assets.flatMap((asset): ChapterStoryboardCharacter[] => {
-        const card = asset.character;
-        if (asset.category !== "character" || !card?.versionId) return [];
-        return [{ assetId: asset.id, versionId: card.versionId, name: asset.title, definition: card.definition || {} }];
-    });
-    const seenNames = new Set(confirmed.map((character) => normalizeCharacterName(character.name)));
-    const pending = detail.assetCandidates.flatMap((candidate): ChapterStoryboardCharacter[] => {
-        if (candidate.category !== "character" || candidate.status !== "pending_confirmation") return [];
-        if (unitId && candidate.unitId && candidate.unitId !== unitId) return [];
-        const name = candidate.name.trim();
-        const normalizedName = normalizeCharacterName(name);
-        if (!normalizedName || seenNames.has(normalizedName)) return [];
-        seenNames.add(normalizedName);
-        return [{ name, definition: candidateDefinition(candidate.detailsJson) }];
-    });
-    return [...confirmed, ...pending];
-}
-
 /**
- * 交给分镜任务的资产清单。已确认的场景和道具没出图时也要进清单（mediaType 为 entity）：
- * 模型才能按名称写进 assets，镜头才有场景绑定、装段才能按场切；参考图另由 assetReferenceVersionId 只取有图的版本。
+ * 分镜行按名称落资产绑定用的资产清单，与服务端写进生成分段提示词的【项目已确认资产】同一套筛选（chapterShotsAssets）：
+ * 已确认的场景和道具没出图时也进清单（mediaType 为 entity），镜头才有场景绑定、装段才能按场切；参考图另由 assetReferenceVersionId 只取有图的版本。
  */
 export function chapterStoryboardAssets(detail: ProjectDetail): ChapterStoryboardAsset[] {
     return detail.assets.flatMap((asset): ChapterStoryboardAsset[] => {
@@ -76,15 +41,11 @@ export function chapterStoryboardAssets(detail: ProjectDetail): ChapterStoryboar
         if (!type || (type !== "character" && !asset.primaryVersionId)) return [];
         const characterVersionId = asset.character?.versionId;
         if (type === "character" && !characterVersionId) return [];
-        const anchors = SCENE_ASSET_CATEGORIES.has(asset.category || "") ? sceneAnchorList(asset.visual?.definition.anchors) : [];
         return [{
             id: asset.id,
             title: asset.title,
             type,
             category: asset.category || undefined,
-            tags: [],
-            prompt: assetPrompt(asset.previewText, asset.character?.definition || asset.visual?.definition, asset.title),
-            ...(anchors.length ? { anchors } : {}),
             ...(type === "character" ? { characterAssetId: asset.id, characterVersionId } : {}),
         }];
     }).slice(0, 60);
@@ -99,42 +60,6 @@ const ROLE_BY_KIND: Record<AssetKind, StoryboardAssetRole> = { character: "chara
 const NAME_NOISE = /[\s·・,，。、；;：:!！?？"'“”‘’「」『』《》〈〉()（）[\]【】<>_—-]/g;
 // 文字兜底匹配看的字段：首帧画面最能说明镜头在哪，排在最前；台词只认说话人，且只用来认角色。
 const TEXT_FIELDS = ["imageGenerationPrompt", "plotDescription", "performanceBlocking", "videoMotionPrompt", "continuityOut"] as const;
-
-/**
- * 章节分镜任务实际发给模型的提示词。后端不读任务 input 里的 projectStyle / characters / canvasAssets，
- * 项目画风、已确认角色的外观和资产清单都只能写进提示词，各段自带字数上限；画风和角色放在输出契约前，
- * 资产清单带着 assets 字段要求跟在契约后。待确认角色的设定还没定稿，不写外观。
- */
-export function chapterStoryboardTaskPrompt(skillPrompt: string, context: { sourceText: string; projectStyle: { title: string; prompt: string }; characters: ChapterStoryboardCharacter[]; assets: ChapterStoryboardAsset[]; outputFields?: SkillOutputField[]; episodeSeconds?: number }) {
-    const confirmed = context.characters.filter((character) => character.assetId && character.versionId);
-    const projectContext = [skillPrompt, storyboardStylePrompt(context.projectStyle), storyboardCharacterAppearancePrompt(confirmed, context.sourceText), chapterEpisodeDurationPrompt(context.episodeSeconds)].filter(Boolean).join("\n\n");
-    return [withStoryboardOutputContract(projectContext, { extraFields: context.outputFields }), chapterStoryboardAssetPrompt(context.assets)].filter(Boolean).join("\n\n");
-}
-
-/** 每集时长（项目设置，存在需求文档 brief_json.episode_seconds）：镜头估时合计留 10% 余量，后端 R-SEG-008 按同一个数检查分段合计。 */
-export function chapterEpisodeDurationPrompt(episodeSeconds?: number) {
-    if (!episodeSeconds || !Number.isFinite(episodeSeconds) || episodeSeconds <= 0) return "";
-    const seconds = Math.round(episodeSeconds);
-    return `【本集时长】本集目标 ${seconds} 秒，镜头 est 合计不超过 ${Math.round(seconds * 1.1)} 秒（${seconds}×1.1）；戏多时并镜或删掉不推进剧情的镜头，不靠压短单镜估时凑数。`;
-}
-
-/**
- * 生成分镜时交给模型的资产清单：后端不读任务 input 里的 canvasAssets，清单只能写进提示词；
- * 并要求每个镜头在 assets 里写出它画面里出现的资产，bindStoryboardRowAssets 按名称落成绑定。
- */
-export function chapterStoryboardAssetPrompt(assets: ChapterStoryboardAsset[]) {
-    if (!assets.length) return "";
-    return [
-        "【项目已确认资产】",
-        ...assets.map((asset) => {
-            const brief = asset.prompt.trim().startsWith("{") ? "" : asset.prompt.replace(/\s+/g, " ").trim().slice(0, 40);
-            const anchors = asset.anchors?.length ? `；锚点：${asset.anchors.slice(0, 12).join("、")}` : "";
-            return `- ${asset.title}（${assetCategoryLabel(asset.type === "character" ? "character" : asset.category)}）${brief && brief !== asset.title ? `：${brief}` : ""}${anchors}`;
-        }),
-        "- rows 每项再加 assets（字符串数组）：本镜画面里出现的上面这些角色、场景和道具，名称原样抄写，清单外的不写，没有就写空数组；角色同时写进 characters。镜头换了场景，assets 里就写新场景。",
-        ...(assets.some((asset) => asset.anchors?.length) ? ["- 场景写了锚点的，镜头 spec 的 blocking.at 只用该场景的锚点名，不另起位置名。"] : []),
-    ].join("\n");
-}
 
 /**
  * 分镜行落资产绑定，装段才能按场景切场、按绑定带参考：模型在 assets / characters / assetBindings 里给的
@@ -313,26 +238,6 @@ export function assetReferenceVersionId(asset: Pick<ProjectAsset, "mediaType" | 
     if (!asset.primaryVersionId) return undefined;
     if (asset.mediaType === "entity" && asset.category !== "character") return undefined;
     return asset.primaryVersionId;
-}
-
-function assetPrompt(previewText: string | undefined, definition: Record<string, unknown> | undefined, title: string) {
-    const preview = previewText?.replace(/\s+/g, " ").trim();
-    if (preview) return preview.slice(0, 600);
-    if (definition && Object.keys(definition).length) return JSON.stringify(definition).slice(0, 600);
-    return title.trim();
-}
-
-function candidateDefinition(value: string): Record<string, unknown> {
-    try {
-        const parsed: unknown = JSON.parse(value || "{}");
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-    } catch {
-        return {};
-    }
-}
-
-function normalizeCharacterName(value: string) {
-    return value.trim().toLocaleLowerCase();
 }
 
 function joinStoryboardAction(row: StoryboardRow) {

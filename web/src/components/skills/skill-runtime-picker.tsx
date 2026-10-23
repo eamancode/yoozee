@@ -47,11 +47,6 @@ export function useSkillRuntimeCatalog(ensureSkillIds: readonly string[] = []) {
 
 const REMEMBERED_SKILLS_KEY = "yingce:skill-runtime-selection";
 
-/** 这个入口是否记过用户的选择（包括选空）；没记过时入口可以用自己的默认技能。 */
-export function hasRememberedSkillIds(slot: string) {
-    return scopedLocalStorage.getItem(`${REMEMBERED_SKILLS_KEY}:${slot}`) !== null;
-}
-
 /** 读出上次在同一入口选的技能；只是 UI 偏好，按用户 scope 存在 localStorage。没记过时返回 fallback。 */
 export function readRememberedSkillIds(slot: string, fallback: readonly string[] = []) {
     const stored = scopedLocalStorage.getItem(`${REMEMBERED_SKILLS_KEY}:${slot}`);

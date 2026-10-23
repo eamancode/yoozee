@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "chapter.shots@2",
+  "title": "章节分镜（镜头表）",
+  "description": "生成分段这一步的模型输出：一章拆成镜头行，柚子分镜行字段之外每镜带一个 spec（yoozee 镜头表的一镜）。契约文字由 drama.Contract.Text 按本文件生成；required 的顺序就是契约里字段的顺序。",
+  "type": "object",
+  "required": ["title", "rows"],
+  "x-contract": {
+    "heading": "【受保护输出契约】",
+    "format": "只返回一个 JSON 对象，不要 Markdown、表格、代码块、注释或任何解释文字。",
+    "rowsIntro": "rows 每项对应一个镜头，按剧情顺序排列；字段缺失时填空字符串或空数组，不要省略字段：",
+    "requirement": "每个镜头必须能独立用于生成首帧图片和镜头视频。",
+    "rules": ["镜头数量以完整覆盖剧情因果、人物关系和关键台词为准，不要为压缩数量删减关键情节。"]
+  },
+  "properties": {
+    "title": {"type": "string"},
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "shotNumber", "durationSeconds", "plotDescription", "dialogue", "characters",
+          "narrativeIntent", "viewerPOV", "performanceBlocking", "shotSize", "emotion", "lightingAndAtmosphere",
+          "audioEffects", "camera", "motion", "timeBeats", "imageGenerationPrompt",
+          "videoMotionPrompt", "continuityOut", "negativePrompt",
+          "mustHave", "optionalDetails", "spec", "assets"
+        ],
+        "properties": {
+          "shotNumber": {"type": "integer", "minimum": 1, "description": "从 1 递增"},
+          "durationSeconds": {"type": "integer", "minimum": 1, "maximum": 60},
+          "plotDescription": {"type": "string", "description": "本镜可见的剧情与关键动作"},
+          "dialogue": {"type": "string", "description": "本镜实际念出的台词或简短旁白，超长必须拆镜"},
+          "characters": {"type": "array", "items": {"type": "string"}, "description": "本镜出现的角色名"},
+          "narrativeIntent": {"type": "string"},
+          "viewerPOV": {"type": "string"},
+          "performanceBlocking": {"type": "string"},
+          "shotSize": {"type": "string", "description": "景别"},
+          "emotion": {"type": "string"},
+          "lightingAndAtmosphere": {"type": "string"},
+          "audioEffects": {"type": "string"},
+          "camera": {"type": "string"},
+          "motion": {"type": "string"},
+          "timeBeats": {"type": "string"},
+          "imageGenerationPrompt": {"type": "string", "description": "首帧画面提示词"},
+          "videoMotionPrompt": {"type": "string", "description": "运镜与结尾状态"},
+          "continuityOut": {"type": "string"},
+          "negativePrompt": {"type": "string"},
+          "mustHave": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+          "optionalDetails": {"type": "array", "items": {"type": "string"}},
+          "spec": {
+            "type": "object",
+            "x-shape": "skill",
+            "description": "yoozee 镜头表契约，形状见下文「spec 的形状」；装段、检查、编译都从这里取"
+          },
+          "assets": {
+            "type": "array",
+            "items": {"type": "string"},
+            "x-section": "assets",
+            "description": "本镜画面里出现的上面这些角色、场景和道具，名称原样抄写，清单外的不写，没有就写空数组；角色同时写进 characters。镜头换了场景，assets 里就写新场景。"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,16 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { storyboardRowsFromTask } from "@/lib/canvas/canvas-project-domain";
-import { compileCanvasStylePreset } from "@/lib/canvas/canvas-style-system";
 import { segmentDurationRule, storyboardRowsToSegments } from "@/pages/projects/detail/chapter-segments";
 import {
     bindStoryboardRowAssets,
-    chapterEpisodeDurationPrompt,
-    chapterStoryboardAssetPrompt,
     chapterStoryboardAssets,
-    chapterStoryboardCharacters,
     chapterStoryboardReplaceImpact,
-    chapterStoryboardTaskPrompt,
     storyboardRowsToProjectShots,
 } from "@/pages/projects/detail/chapter-storyboard-production";
 import type { DramaSegment } from "@/services/api/drama";
@@ -44,68 +39,11 @@ describe("章节分镜写入分镜制作", () => {
         expect(shots[0].revision.action).toContain("声音：雨声与木门摩擦声");
     });
 
-    test("把已确认角色和本章待确认角色交给分镜任务", () => {
-        const detail = projectDetail();
-
-        expect(chapterStoryboardCharacters(detail, "chapter-1")).toEqual([
-            { assetId: "character-1", versionId: "character-version-1", name: "林默", definition: { appearance: "黑色风衣" } },
-            { name: "张天昊", definition: { role: "主角" } },
-        ]);
-        expect(chapterStoryboardAssets(detail).map((asset) => ({ id: asset.id, type: asset.type, characterVersionId: asset.characterVersionId }))).toEqual([
+    test("分镜行落绑定用的资产清单：有角色卡的角色、有主版本的场景和道具", () => {
+        expect(chapterStoryboardAssets(projectDetail()).map((asset) => ({ id: asset.id, type: asset.type, characterVersionId: asset.characterVersionId }))).toEqual([
             { id: "character-1", type: "character", characterVersionId: "character-version-1" },
             { id: "prop-1", type: "image", characterVersionId: undefined },
         ]);
-    });
-
-    test("资产清单写进分镜提示词，并要求每个镜头写出场资产", () => {
-        const prompt = chapterStoryboardAssetPrompt(chapterStoryboardAssets(projectDetail()));
-        expect(prompt).toContain("【项目已确认资产】");
-        expect(prompt).toContain("- 林默（角色）");
-        expect(prompt).toContain("- 旧信封（道具）：泛黄的旧信封");
-        expect(prompt).toContain("rows 每项再加 assets");
-        expect(chapterStoryboardAssetPrompt([])).toBe("");
-    });
-
-    test("场景资产的锚点跟在场景行后，并要求站位只用锚点名", () => {
-        const assets = chapterStoryboardAssets(projectDetail());
-        const scene = { id: "scene-1", title: "电梯口", type: "entity" as const, category: "environment", tags: [], prompt: "不锈钢电梯门，楼层灯亮红色", anchors: ["电梯门前", "楼梯间防火门", "灭火器箱"] };
-        const prompt = chapterStoryboardAssetPrompt([...assets, scene]);
-        expect(prompt).toContain("- 电梯口（场景）：不锈钢电梯门，楼层灯亮红色；锚点：电梯门前、楼梯间防火门、灭火器箱");
-        expect(prompt).toContain("blocking.at 只用该场景的锚点名");
-        expect(chapterStoryboardAssetPrompt(assets)).not.toContain("锚点");
-    });
-
-    test("设了每集时长时，分镜任务提示词写本集目标和 1.1 倍上限", () => {
-        const detail = projectDetail();
-        const style = compileCanvasStylePreset({ world: "suspense", tone: "dark", medium: "live-action", character: "realistic" });
-        const context = { sourceText: "林默推门进入旧屋。", projectStyle: { title: style.title, prompt: style.prompt }, characters: chapterStoryboardCharacters(detail, "chapter-1"), assets: chapterStoryboardAssets(detail) };
-        const prompt = chapterStoryboardTaskPrompt("【用户任务】", { ...context, episodeSeconds: 90 });
-        expect(prompt).toContain("【本集时长】本集目标 90 秒，镜头 est 合计不超过 99 秒（90×1.1）");
-        expect(prompt.indexOf("【本集时长】")).toBeLessThan(prompt.indexOf("【受保护输出契约】"));
-        expect(chapterStoryboardTaskPrompt("【用户任务】", context)).not.toContain("【本集时长】");
-        expect(chapterEpisodeDurationPrompt(0)).toBe("");
-    });
-
-    test("分镜任务提示词带上项目画风和已确认角色外观，待确认角色不写外观", () => {
-        const detail = projectDetail();
-        detail.assets[0].character!.definition = { appearance: "瘦高，眉骨有一道旧疤", clothing: "黑色风衣", consistencyPrompt: "始终戴银色怀表" };
-        const style = compileCanvasStylePreset({ world: "suspense", tone: "dark", medium: "ink", character: "stylized" });
-        const prompt = chapterStoryboardTaskPrompt("【用户任务】\n章节：雨夜\n\n林默推门进入旧屋。", {
-            sourceText: "林默推门进入旧屋。张天昊在屋里等他。",
-            projectStyle: { title: style.title, prompt: style.prompt },
-            characters: chapterStoryboardCharacters(detail, "chapter-1"),
-            assets: chapterStoryboardAssets(detail),
-        });
-
-        expect(prompt).toStartWith("【用户任务】\n章节：雨夜");
-        expect(prompt).toContain(`【项目画风：${style.title}】`);
-        expect(prompt).toContain("【视觉媒介】");
-        expect(prompt).toContain(style.prompt.split("\n").find((line) => line.startsWith("【视觉媒介】")));
-        expect(prompt).toContain("- 林默｜外貌：瘦高，眉骨有一道旧疤；服装：黑色风衣；一致性：始终戴银色怀表");
-        expect(prompt).not.toContain("张天昊｜");
-        expect(prompt.indexOf("【项目画风")).toBeLessThan(prompt.indexOf("【已确认角色外观】"));
-        expect(prompt.indexOf("【已确认角色外观】")).toBeLessThan(prompt.indexOf("【受保护输出契约】"));
-        expect(prompt.indexOf("【受保护输出契约】")).toBeLessThan(prompt.indexOf("【项目已确认资产】"));
     });
 
     test("模型按名称给的资产落成分镜行绑定，按场景装成两段（走廊 4 镜 + 病房 2 镜）", () => {

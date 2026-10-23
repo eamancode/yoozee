@@ -51,11 +51,10 @@ import {
 
 import { useNavigate, useParams } from "react-router";
 
-import { hasRememberedSkillIds, SkillRuntimePicker, useRememberedSkillSelection, useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
-import { DEFAULT_CHAPTER_STORYBOARD_SKILL_ID } from "@/services/skill-defaults";
 import { ModelPicker } from "@/components/model-picker";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
+import { parseStyleProfile } from "@/lib/canvas/style-profile";
 import { decodeNovelText, splitTextIntoChapters } from "@/lib/canvas/canvas-document";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
@@ -74,13 +73,12 @@ import {
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { getDramaBrief, putDramaShotlist, shotlistCheckFailure, type DramaCheckReport } from "@/services/api/drama";
+import { getDramaStepUsage, putDramaShotlist, shotlistCheckFailure, type DramaCheckReport } from "@/services/api/drama";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
-import { bindStoryboardRowAssets, chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
+import { bindStoryboardRowAssets, chapterStoryboardAssets, chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
 import { chapterDialogueCoverage, DEFAULT_SEGMENT_TARGET, segmentDurationRule, storyboardRowsToSegments } from "./chapter-segments";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
-import { briefEpisodeSeconds, dramaBriefKey } from "./drama-brief";
 import { appendProjectUnits } from "./project-cache";
 import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
 
@@ -126,10 +124,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const [completedChapterOperations, setCompletedChapterOperations] = useState<Record<string, true>>({});
     const [operationNow, setOperationNow] = useState(() => Date.now());
     const [selectedTextModel, setSelectedTextModel] = useState("");
-    // 短剧项目的「生成分镜」默认用 yoozee 章节分镜（镜头表）；用户在这个入口选过（包括清空）就只认用户的。
-    const [defaultStoryboardSkillIds] = useState(() => (detail.project.type === "short-drama" && !hasRememberedSkillIds("chapter-storyboard") ? [DEFAULT_CHAPTER_STORYBOARD_SKILL_ID] : []));
-    const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog(defaultStoryboardSkillIds);
-    const [selectedSkillIds, setSelectedSkillIds] = useRememberedSkillSelection("chapter-storyboard", availableSkills, skillsLoading, defaultStoryboardSkillIds);
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const listRef = useRef<HTMLDivElement>(null);
@@ -174,7 +168,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const referenceAssetCount = (projectAssetsQuery.data || []).filter((asset) => asset.primaryVersionId && (asset.category !== "character" || asset.character?.versionId)).length;
     const assetsNotReady = projectAssetsQuery.isSuccess && (pendingCandidateCount > 0 || referenceAssetCount === 0);
     // 建项目时画风可以先空着，但生成分镜要按画风写画面：在对话框里直接说明并给入口，而不是提交后顶部闪一下。
-    const projectStyleMissing = !resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt.trim();
+    // 提示词在服务端组装，画风原文取项目保存的画风快照；只存了预设 ID 的老项目要在项目设置里重新保存一次画风。
+    const projectStyleMissing = !parseStyleProfile(detail.project.styleProfileJson)?.prompt.trim();
+    // 生成分段用哪个技能由项目风格档案绑定（后台「流程技能」），对话框只显示，不让选。
+    const storyboardStepQuery = useQuery({
+        queryKey: ["project", detail.project.id, "drama-step", "chapter.shots", detail.project.styleProfile || ""],
+        queryFn: ({ signal }) => getDramaStepUsage(detail.project.id, "chapter.shots", signal).then((result) => result.usage),
+        enabled: storyboardOpen,
+    });
+    const storyboardStep = storyboardStepQuery.data;
     // 台词覆盖率和超长段：拿本章正文里引号中的台词，对照各段 lines；超过项目模型上限的段要拆。
     const unitShots = useMemo(() => detail.shots.filter((shot) => shot.unitId === selectedUnit?.id), [detail.shots, selectedUnit?.id]);
     const dialogueCoverage = useMemo(() => chapterDialogueCoverage(stripHtml(draftHtml || selectedUnit?.sourceText || ""), unitShots, detail.shotRevisions), [detail.shotRevisions, draftHtml, selectedUnit?.sourceText, unitShots]);
@@ -519,8 +521,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (detail.project.status === "archived") return message.warning("项目已归档，请先在项目设置中恢复");
         const sourceText = editor?.getText().trim() || stripHtml(unit.sourceText);
         if (!sourceText) return message.warning("当前章节没有可用于分镜的正文");
-        const projectStyle = resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson);
-        if (!projectStyle?.prompt.trim()) return message.warning("请先在项目设置中选择项目画风，再生成分镜");
+        if (projectStyleMissing) return message.warning("请先在项目设置中选择项目画风，再生成分镜");
         if (segmentRule.problem) return message.warning(`${segmentRule.problem}，先在项目设置里换默认视频模型或生成模型`);
         const textModel = selectedTextModel;
         const config = { ...effectiveConfig, model: textModel, textModel };
@@ -534,29 +535,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         message.info("分镜生成任务已开始，可继续编辑或切换章节");
         let regenerate = false;
         try {
-            const assetDetail = await storyboardDetail();
-            const brief = await queryClient.fetchQuery({ queryKey: dramaBriefKey(detail.project.id), queryFn: async () => (await getDramaBrief(detail.project.id)).document });
-            const result = await generateChapterStoryboard({
-                projectId: detail.project.id,
-                chapterId: unit.id,
-                chapterTitle: unit.title,
-                sourceText,
-                projectStyle: {
-                    presetId: projectStyle.id,
-                    title: projectStyle.title,
-                    prompt: projectStyle.prompt,
-                    profileJson: detail.project.styleProfileJson,
-                },
-                characters: chapterStoryboardCharacters(assetDetail, unit.id),
-                assets: chapterStoryboardAssets(assetDetail),
-                config,
-                skills: availableSkills,
-                selectedSkillIds,
-                episodeSeconds: briefEpisodeSeconds(brief),
-            }, { onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task) });
+            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config }, { onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task) });
             const stored = await storeGeneratedStoryboard(unit.id, result.rows, sourceText);
             const summary = `已按 ${stored.scenes} 场生成 ${stored.count} 段（每段 ${segmentRule.label}${"profile" in stored && stored.profile ? `，风格档案：${stored.profile}` : ""}）`;
-            message.success(result.skillCount ? `${summary}，并应用 ${result.skillCount} 个技能` : summary);
+            message.success(`${summary}，技能：${result.usage.skill.name} ${result.usage.skill.version}`);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/video`);
         } catch (error) {
             if (error instanceof StoryboardRegenerateRequested) {
@@ -760,7 +742,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     </label>
                 </div>
             </Modal>
-            <Modal className="library-modal" title="生成章节分段" open={storyboardOpen} width={560} okText={storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard()} styles={{ body: { paddingTop: 12 } }}>
+            <Modal className="library-modal" title="生成章节分段" open={storyboardOpen} width={560} okText={storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard()} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
                     {projectStyleMissing ? <Callout tone="warning" title="还没有项目画风" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去选画风</Button>}>分镜要按项目画风写画面和参考，先在项目设置里选一个画风并保存，再回来生成。</Callout> : null}
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
@@ -775,13 +757,22 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
                         <ModelPicker config={effectiveConfig} capability="text" value={selectedTextModel} onChange={setSelectedTextModel} variant="creation" fullWidth placeholder="选择用于生成分镜的文本模型" showSelectedPrice={false} onMissingConfig={() => navigateToSettings({ continueCreation: true })} />
                     </label>
-                    <div>
-                        <label className="block">
-                            <span className="mb-1.5 block text-xs font-medium text-foreground/68">分镜技能</span>
-                            <SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} placeholder="选择本次章节分镜使用的技能" />
-                        </label>
-                        <p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/42">可不选，最多 4 个。所选技能会在本次生成时由统一 Skill Runtime 按需读取，并记录实际使用的版本和文件。</p>
-                    </div>
+                    {storyboardStepQuery.isError ? (
+                        <Callout tone="error" title="读不到本步使用的技能">{storyboardStepQuery.error instanceof Error ? storyboardStepQuery.error.message : "请稍后重试"}</Callout>
+                    ) : (
+                        <div className="rounded-lg border border-border/70 px-3 py-2.5 text-xs leading-5 text-foreground/62" aria-live="polite">
+                            {storyboardStep ? (
+                                <>
+                                    <div>
+                                        本步使用：<span className="font-medium text-foreground/85">{storyboardStep.skill.name}</span> {storyboardStep.skill.version}（{storyboardStep.profile.label}）
+                                    </div>
+                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">技能由项目的风格档案决定，管理员在后台「流程技能」里绑定；换风格档案到项目设置。</div>
+                                </>
+                            ) : (
+                                "正在读取本步使用的技能…"
+                            )}
+                        </div>
+                    )}
                 </div>
             </Modal>
             <Modal className="library-modal" title="移动章节" open={Boolean(moveTargetId)} width={400} okText="移动" cancelText="取消" okButtonProps={{ disabled: !movePosition || movePosition < 1 || movePosition > orderedUnits.length, loading: reorderMutation.isPending }} onCancel={() => { setMoveTargetId(""); setMovePosition(null); }} onOk={moveChapterToPosition} styles={{ body: { paddingTop: 12 } }}>

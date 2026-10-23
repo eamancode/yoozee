@@ -82,3 +82,53 @@ func (m StyleMap) ProfileFor(style ProjectStyle) (string, string) {
 	}
 	return m.Default, ""
 }
+
+// styleSnapshot 是画风快照（项目 style_profile_json）里对照要用的字段。
+type styleSnapshot struct {
+	PresetID  string            `json:"presetId"`
+	Title     string            `json:"title"`
+	Tags      []string          `json:"tags"`
+	Selection map[string]string `json:"selection"`
+}
+
+// ProjectStyleOf 从项目的画风预设 ID 和画风快照读出对照用的画风；快照写坏时按没有快照处理。
+func ProjectStyleOf(stylePresetID, styleProfileJSON string) ProjectStyle {
+	var snap styleSnapshot
+	if raw := strings.TrimSpace(styleProfileJSON); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &snap)
+	}
+	in := ProjectStyle{World: snap.Selection["world"], Medium: snap.Selection["medium"], Title: snap.Title, Tags: snap.Tags}
+	if in.Medium == "" {
+		// 只存了预设 ID 的项目：v2-{world}--{tone}--{medium}--{character}。
+		presetID := strings.TrimSpace(snap.PresetID)
+		if presetID == "" {
+			presetID = strings.TrimSpace(stylePresetID)
+		}
+		if parts := strings.Split(strings.TrimPrefix(presetID, "v2-"), "--"); len(parts) == 4 {
+			in.World, in.Medium = parts[0], parts[2]
+		}
+	}
+	return in
+}
+
+// RecommendProfile 是项目没有显式选风格档案时的档案：需求文档 style_profile 手动指定的优先，否则按画风对照表。
+// 新建项目表单的默认值、老项目回填 projects.style_profile 都用它。
+func RecommendProfile(stylePresetID, styleProfileJSON, briefJSON string) (string, string) {
+	var brief struct {
+		StyleProfile string `json:"style_profile"`
+	}
+	if raw := strings.TrimSpace(briefJSON); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &brief)
+	}
+	if id := strings.TrimSpace(brief.StyleProfile); id != "" && slices.Contains(BuiltinProfileIDs(), id) {
+		return id, "需求文档指定"
+	}
+	sm, err := BuiltinStyleMap()
+	if err != nil {
+		return DefaultProfileID, ""
+	}
+	return sm.ProfileFor(ProjectStyleOf(stylePresetID, styleProfileJSON))
+}
+
+// ValidProfileID 判断是不是内置风格档案。
+func ValidProfileID(id string) bool { return slices.Contains(BuiltinProfileIDs(), id) }

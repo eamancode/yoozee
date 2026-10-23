@@ -6,9 +6,6 @@ export const DEFAULT_CANVAS_AGENT_SKILL_ID = "yingce-short-drama-workflow";
 /** 短剧项目画布由 yoozee 制片总控统筹，替代旧六步短剧技能。 */
 export const DEFAULT_DRAMA_AGENT_SKILL_ID = "yz-producer";
 
-/** 短剧项目章节「生成分镜」的默认技能：按柚子分镜行输出，每镜附 yoozee 镜头表 spec。 */
-export const DEFAULT_CHAPTER_STORYBOARD_SKILL_ID = "yz-chapter-shots";
-
 export type AddedSkillsResult = { skills: Skill[] };
 
 /** 绑定了短剧项目的画布默认用制片总控，其余画布沿用通用默认技能。 */

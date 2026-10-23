@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { configuredModelMatchesCapability, modelDisplayName, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
-import { listDramaModels, type DramaAuthMode, type DramaModel, type DramaRegistry } from "@/services/api/drama";
+import { getDramaStyleProfiles, listDramaModels, recommendDramaStyleProfile, type DramaAuthMode, type DramaModel, type DramaRegistry, type DramaStyleProfiles } from "@/services/api/drama";
 
 /** models.json 的默认值；目录还没读到时用它占位，最终以服务端校验为准。 */
 export const DEFAULT_DRAMA_MODEL = "seedance-2.0";
@@ -14,6 +14,23 @@ export const DRAMA_AUTH_OPTIONS: Array<{ label: string; value: DramaAuthMode; hi
 export function useDramaModels() {
     return useQuery({ queryKey: ["drama", "models"], queryFn: async () => (await listDramaModels()).models, staleTime: 10 * 60_000 });
 }
+
+/** 五个风格档案与画风对照表（新建项目、项目设置的「风格档案」选项与默认推荐）。 */
+export function useDramaStyleProfiles() {
+    return useQuery({ queryKey: ["drama", "style-profiles"], queryFn: ({ signal }) => getDramaStyleProfiles(signal), staleTime: 10 * 60_000 });
+}
+
+/** 风格档案选项：按画风推荐的那个标「按画风推荐」。 */
+export function dramaStyleProfileOptions(profiles: DramaStyleProfiles | undefined, recommended?: string) {
+    return (profiles?.profiles || []).map((profile) => ({ value: profile.id, label: profile.id === recommended ? `${profile.label}（按画风推荐）` : profile.label }));
+}
+
+/** 按画风快照推荐风格档案；对照表没读到时返回 undefined。 */
+export function recommendedDramaStyleProfile(profiles: DramaStyleProfiles | undefined, style: Parameters<typeof recommendDramaStyleProfile>[1]) {
+    return profiles ? recommendDramaStyleProfile(profiles.styleMap, style) : undefined;
+}
+
+export const DRAMA_STYLE_PROFILE_HINT = "决定镜头表检查、装段的规则，以及生成分段用哪个流程技能；默认按画风推荐。";
 
 /** 当前账号已配置视频渠道覆盖到的生成模型族；目录没读到时返回 undefined（不做判断）。 */
 export function useDramaChannelFamilies(registry: DramaRegistry | undefined) {

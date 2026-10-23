@@ -1,59 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import { storyboardRowsFromTask, storyboardRowsOutputContract } from "@/lib/canvas/canvas-project-domain";
+import { storyboardRowsFromTask } from "@/lib/canvas/canvas-project-domain";
 import { chapterSourceScenes, segmentDurationRule, sourceSceneOfRows, storyboardRowsToSegments } from "@/pages/projects/detail/chapter-segments";
-import { bindStoryboardRowAssets, chapterStoryboardAssetPrompt, chapterStoryboardAssets, chapterStoryboardTaskPrompt } from "@/pages/projects/detail/chapter-storyboard-production";
+import { bindStoryboardRowAssets, chapterStoryboardAssets } from "@/pages/projects/detail/chapter-storyboard-production";
 import type { DramaSegment } from "@/services/api/drama";
 import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
-import type { Skill, SkillPackageFileContent } from "@/services/api/skills";
 import type { GenerationTask } from "@/services/api/task-center";
-import { createSkillRuntime, skillOutputFields } from "@/services/skill-runtime";
 
 // 线上验收夹具：一章三场（病房走廊、电梯口、电梯口打斗），模型输出 29 镜。
 const fixture = (name: string) => Bun.file(new URL(`./fixtures/chapter-storyboard-online/${name}`, import.meta.url)).text();
-const skillMarkdown = () => Bun.file(new URL("../../backend/builtin/yz-chapter-shots/SKILL.md", import.meta.url)).text();
 
-describe("技能声明的额外输出字段写进分镜契约", () => {
-    test("yz-chapter-shots 在 frontmatter 声明 spec", async () => {
-        expect(skillOutputFields(await skillMarkdown())).toEqual([{ name: "spec", type: "object", description: expect.stringContaining("spec 的形状") }]);
-    });
-
-    test("写坏、重名或不在 metadata 里的声明都忽略", () => {
-        const frontmatter = (line: string, key = "metadata") => `---\nname: x\n${key}:\n  version: "1"\n${line}\n---\n# 正文`;
-        expect(skillOutputFields(frontmatter(`  outputFields: [{"name": "spec", "type": "object"`))).toEqual([]);
-        expect(skillOutputFields(frontmatter(`  outputFields: [{"name": "spec", "type": "map"}, {"name": "spec-v2", "type": "object"}, {"name": "beats", "type": "array"}]`))).toEqual([{ name: "beats", type: "array", description: "" }]);
-        expect(skillOutputFields(frontmatter(`  outputFields: [{"name": "spec", "type": "object"}]`, "other"))).toEqual([]);
-        expect(skillOutputFields(`# 没有 frontmatter\n  outputFields: [{"name": "spec", "type": "object"}]`)).toEqual([]);
-    });
-
-    test("Skill Runtime 把所选技能的额外字段交给调用方，SKILL.md 超预算截断也不丢", async () => {
-        const markdown = await skillMarkdown();
-        const runtime = createSkillRuntime({
-            getFile: async (_skillId, path) => ({ file: file(path, markdown) }),
-            listFiles: async () => ({ files: [] }),
-        });
-        const result = await runtime.prepare({ profile: "shortDrama", prompt: "章节：第一集", skills: [skill()], selectedSkillIds: ["yz-chapter-shots"], maxContextChars: 400 });
-        expect(result.prompt).toContain("文件内容超过本轮技能上下文预算");
-        expect(result.outputFields.map((field) => field.name)).toEqual(["spec"]);
-
-        const none = await runtime.prepare({ profile: "shortDrama", prompt: "章节：第一集", skills: [skill()], selectedSkillIds: [] });
-        expect(none.outputFields).toEqual([]);
-    });
-
-    test("选了 yz-chapter-shots 时契约要求每镜写 spec；没选时契约不变", async () => {
-        const outputFields = skillOutputFields(await skillMarkdown());
-        const context = { sourceText: await fixture("chapter.md"), projectStyle: { title: "短剧写实", prompt: "【视觉媒介】真人实拍" }, characters: [], assets: chapterStoryboardAssets(onlineDetail()) };
-        const prompt = chapterStoryboardTaskPrompt("【用户任务】\n章节：第一集", { ...context, outputFields });
-        const contract = prompt.slice(prompt.indexOf("【受保护输出契约】"), prompt.indexOf("【项目已确认资产】"));
-
-        expect(contract).toContain("- rows 每项再加 spec（对象，形状见技能说明，每个镜头都要写，不能省略）：");
-        expect(contract.indexOf("optionalDetails（数组）")).toBeLessThan(contract.indexOf("再加 spec"));
-        expect(chapterStoryboardTaskPrompt("【用户任务】\n章节：第一集", context)).not.toContain("再加 spec");
-        expect(storyboardRowsOutputContract("每镜可独立生成。", [])).toBe(storyboardRowsOutputContract("每镜可独立生成。"));
-        // 与契约固定字段重名的声明不再追加一行。
-        expect(storyboardRowsOutputContract("", [{ name: "dialogue", type: "string", description: "" }])).not.toContain("再加 dialogue");
-    });
-
+describe("线上模型输出解析", () => {
     test("线上模型输出的 spec 解析后保留在每个分镜行上", async () => {
         const { rows } = storyboardRowsFromTask(task(await fixture("model-output.txt")));
         expect(rows).toHaveLength(29);
@@ -73,9 +30,6 @@ describe("没图的场景资产进清单，装段按场切", () => {
             ["折叠刀", "entity"],
             ["病历夹", "image"],
         ]);
-        const prompt = chapterStoryboardAssetPrompt(assets);
-        expect(prompt).toContain("- 病房走廊（场景）");
-        expect(prompt).toContain("- 折叠刀（道具）");
     });
 
     test("正文按场景标题切成三场，同名标题也是两场", async () => {
@@ -153,14 +107,6 @@ function runs(values: number[]) {
 
 function task(text: string): GenerationTask {
     return { resultJson: JSON.stringify({ mode: "text", text }) } as GenerationTask;
-}
-
-function file(path: string, content: string): SkillPackageFileContent {
-    return { file: { path, kind: "markdown", mimeType: "text/markdown", size: content.length, sha256: `sha-${path}` }, content, binary: false };
-}
-
-function skill(): Skill {
-    return { skillId: "yz-chapter-shots", skillName: "yoozee · 章节分镜（镜头表）", description: "", versionId: "v", version: "2.2.1", isAdded: true } as Skill;
 }
 
 function onlineDetail(options: { sceneAssets?: boolean } = {}): ProjectDetail {

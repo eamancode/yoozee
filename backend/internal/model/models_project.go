@@ -224,6 +224,9 @@ type Project struct {
 	GenerationModel string `json:"generationModel" gorm:"size:40"`
 	// AuthMode 是授权档位：step 每步确认；full 全权（只在超预算、删文件、对外发布、用账号时找人）。
 	AuthMode string `json:"authMode" gorm:"size:16"`
+	// StyleProfile 是 yoozee 风格档案（live-realism、anime-3d …，五选一，与 StyleProfileJSON 的画风快照不是一回事）：
+	// 检查、装段用它的配额与规则，短剧流程每一步按它查 drama_step_bindings 取技能。
+	StyleProfile string `json:"styleProfile" gorm:"size:32"`
 	// BriefJSON / BibleJSON 是需求文档与连戏表（契约 brief、bible），由短剧技能读写。
 	BriefJSON string        `json:"briefJson" gorm:"type:text"`
 	BibleJSON string        `json:"bibleJson" gorm:"type:text"`
@@ -392,6 +395,18 @@ type DramaEvalRun struct {
 	ResultJSON       string    `json:"-" gorm:"type:text"`
 	CreatedBy        string    `json:"createdBy" gorm:"size:36"`
 	CreatedAt        time.Time `json:"createdAt" gorm:"index"`
+}
+
+// DramaStepBinding 是「风格档案 × 步骤 → 技能」的一格（M6）：运行时按项目风格档案取这一格技能的当前版本；
+// 没配的格子用步骤表里该步骤的默认技能。
+type DramaStepBinding struct {
+	ID           string    `json:"id" gorm:"primaryKey;size:36"`
+	StyleProfile string    `json:"styleProfile" gorm:"size:32;not null;uniqueIndex:idx_drama_step_binding,priority:1"`
+	Step         string    `json:"step" gorm:"size:40;not null;uniqueIndex:idx_drama_step_binding,priority:2"`
+	SkillID      string    `json:"skillId" gorm:"size:36;not null"`
+	UpdatedBy    string    `json:"updatedBy" gorm:"size:36"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type ShotAssetReference struct {

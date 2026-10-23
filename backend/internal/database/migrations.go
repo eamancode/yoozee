@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"time"
 
+	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 62
+const CurrentSchemaVersion int64 = 63
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -224,6 +226,43 @@ var schemaMigrations = []migration{
 	{version: 62, name: "drama_eval_runs", checksum: "sha256:drama-eval-runs-v62-20261022", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaEvalRun{})
 	}},
+	// M6：项目风格档案（老项目按画风对照回填）；风格档案 × 步骤 → 技能的绑定表，生成分段默认绑 yz-chapter-shots。
+	{version: 63, name: "drama_step_bindings", checksum: "sha256:drama-step-bindings-v63-20261023", apply: migrateDramaStepBindings},
+}
+
+// migrateDramaStepBindings 加 projects.style_profile 并回填（需求文档手动指定的优先，否则按画风对照表），
+// 建 drama_step_bindings，五个风格档案的 chapter.shots 都绑到步骤默认技能。回填不动 updated_at / revision。
+func migrateDramaStepBindings(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.Project{}, &model.DramaStepBinding{}); err != nil {
+		return err
+	}
+	var batch []model.Project
+	result := tx.Model(&model.Project{}).Select("id", "style_preset_id", "style_profile_json", "brief_json").
+		Where("style_profile IS NULL OR style_profile = ?", "").
+		FindInBatches(&batch, 200, func(inner *gorm.DB, _ int) error {
+			for _, project := range batch {
+				id, _ := drama.RecommendProfile(project.StylePresetID, project.StyleProfileJSON, project.BriefJSON)
+				if err := tx.Model(&model.Project{}).Where("id = ?", project.ID).UpdateColumn("style_profile", id).Error; err != nil {
+					return fmt.Errorf("回填项目 %s 的风格档案：%w", project.ID, err)
+				}
+			}
+			return nil
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	step, ok := drama.StepByID(drama.StepChapterShots)
+	if !ok {
+		return errors.New("步骤表缺少 chapter.shots")
+	}
+	now := time.Now()
+	for _, profile := range drama.BuiltinProfileIDs() {
+		row := model.DramaStepBinding{ID: "dsb-" + profile + "-" + step.ID, StyleProfile: profile, Step: step.ID, SkillID: step.DefaultSkill, CreatedAt: now, UpdatedAt: now}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
+			return fmt.Errorf("写入默认绑定 %s × %s：%w", profile, step.ID, err)
+		}
+	}
+	return nil
 }
 
 // migrateBuiltinSkillOnlineVersions 加列并回填：内置技能已有的版本都来自内置包，当前版本就是内置版本。

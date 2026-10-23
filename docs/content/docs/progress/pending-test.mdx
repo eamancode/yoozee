@@ -5,6 +5,36 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M6 第一期：短剧流程与技能解耦（步骤表、契约 schema、服务端组装生成分段）
+
+设计见 `yoozee-skills/DESIGN-M6-流程与技能解耦.md` 第 6 节第一期。
+
+- 步骤表 `backend/internal/drama/steps.go`：`chapter.shots`（生成分段）的契约 `chapter.shots@2`（`contracts/chapter.shots.v2.schema.json`）、代码组装的变量（技能上下文与正文、项目画风、已确认角色外观、每集时长、契约、资产清单与锚点）、解析与检查（`RowsToShotlist`、`CheckShots`、`Pack`）、技能上下文 32k 字与最多 3 张卡、默认技能 `yz-chapter-shots`、启用门槛（本期只定义）。
+- 契约文字由 schema 生成：生成分段的契约在服务端拼；画布拆镜用的契约模板生成到 `web/src/lib/canvas/storyboard-output-contract.generated.ts`（schema 改了而没重新生成时 `TestCanvasStoryboardContractGenerated` 失败）。前端手写的字段清单、技能 `outputFields` 拼接、`chapterStoryboardTaskPrompt` 与 Skill Runtime 的 `outputFields` 删除。
+- 生成分段改为 `POST /api/projects/:id/units/:unitId/drama/steps/chapter.shots/run`：服务端按项目风格档案查绑定、取技能当前版本、组装提示词并建任务；弹窗去掉技能选择，显示「本步使用：技能名 版本（档案）」；任务 metadata 记 `dramaStep`（步骤、契约、档案、技能版本与内容哈希）。
+- `drama_step_bindings`（迁移 63，默认五个档案都绑 `yz-chapter-shots`）；后台「流程技能」页按档案 × 步骤选技能（只能选启用、公开的技能，选「用步骤默认」删掉这一格）。
+- 项目 `style_profile`：新建项目表单「风格档案」五选一，默认按所选画风推荐（改过就不再跟着画风变）；项目设置「短剧生成」里可改；老项目迁移时按需求文档指定或画风对照回填。镜头表检查、装段改读项目字段，没填时才按旧规则推荐。
+
+与原先前端组装的提示词对照（「yoozee 实测·七床」第一章的本机复刻：同一份正文、悬疑犯罪·暗黑诡谲·真人实拍画风快照、3 角色 + 3 场景（带锚点）+ 8 道具、每集 90 秒、内置 `yz-chapter-shots` 2.2.1；线上项目本次没有读取）：技能上下文（4 个文件）、画风、角色外观、资产与锚点、每集时长、契约逐字相同，只有两处有意的差异：
+
+1. 技能上下文开场说明由「来自用户主动安装并在本轮明确选择的技能库」改为「来自本步骤按项目风格档案绑定的流程技能」。
+2. 契约字段清单由 schema 生成：`characters（本镜出现的角色名数组）` → `characters（字符串数组，本镜出现的角色名）`，`mustHave（数组，最多 3 项）` → `mustHave（字符串数组，最多 3 项）`，`optionalDetails（数组）` → `optionalDetails（字符串数组）`，折行位置不同；字段名和顺序不变，spec 一行、末条规则不变。
+
+另有两处非提示词的变化：任务 `input.characters` 只记已确认角色（原先连本章待确认角色一起记，模型本来就看不到）；只存了预设 ID、没有画风快照的老项目不能再生成分段，要在项目设置里重新保存一次画风（原先前端按预设目录补画风原文）。
+
+自动化覆盖：
+
+- [x] `internal/drama`：`TestChapterShotsContractText`（契约逐句）、`TestCanvasStoryboardContractGenerated`、`TestStepTable`。
+- [x] `internal/app`：`TestChapterShotsPromptQichuang`（服务端提示词等于黄金 `testdata/qichuang-chapter-shots/server-prompt.txt`）、`TestChapterShotsPromptMatchesFrontend`（与旧前端实现在同一份接口数据上的输出 `frontend-prompt.txt` 对照，只差上面两处）、`TestChapterShotsPromptEdgesMatchFrontend`（边界数据：画风小节取舍与截断、角色排序与 1600 字预算、别名、归档 / 没卡 / 没主版本、JSON 预览、锚点字符串与去重、分类名、技能卡必读 / 相关度 / 预算截断 / 二进制与脚本、编辑器 getText 的空白与块分隔、每集时长取整）、`TestDramaStepBindingsResolveAndAdminWrite`、`TestDramaStepTaskRequestRecordsSkillVersion`、`TestChapterEditorText`、`TestDramaStepRequiresStyleAndText`。
+- [x] `internal/database`：`TestDramaStepBindingsMigrationBackfillsProfilesAndSeedsBindings`。
+- [x] 前端 `bun test`：章节页不再有技能选择、走 `getDramaStepUsage`；画布拆镜契约测试照旧通过。
+- [ ] 浏览器验收（未做）：新建项目选画风后风格档案跟着推荐、手动改过不再变；项目设置改档案后生成分段弹窗显示的档案和技能跟着变；后台「流程技能」改绑后弹窗显示新技能；生成分段任务的提示词与改动前一致（技能、画风、角色、资产与锚点、每集时长、契约）。
+
+仍需线上验收：
+
+- [ ] 「yoozee 实测·七床」第一章重新生成分段：用 `GET /api/projects/:id/units/:unitId/drama/steps/chapter.shots/prompt` 取服务端提示词，与上一次线上任务的提示词对照，只差上面两处；镜头数、spec 写出率、台词覆盖、检查 error / warn 与改动前同量级。
+- [ ] 老项目迁移后 `style_profile` 回填正确（真人实拍 → `live-realism`，3D / 国漫 / 水墨 → `anime-3d`）。
+
 ## 视频作品保存：已生成但画布看不到
 
 线上任务排查结论：

@@ -5,8 +5,9 @@ const read = (path: string) => Bun.file(new URL(`../src/${path}`, import.meta.ur
 describe("项目画风引导", () => {
     test("生成章节分段对话框在缺画风时直接提示并给入口，不能提交", async () => {
         const source = await read("pages/projects/detail/chapters.tsx");
-        expect(source).toContain("const projectStyleMissing = !resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt.trim();");
-        expect(source).toContain("okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) }}");
+        // 提示词在服务端组装，画风原文取项目保存的画风快照。
+        expect(source).toContain("const projectStyleMissing = !parseStyleProfile(detail.project.styleProfileJson)?.prompt.trim();");
+        expect(source).toContain("okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }}");
         expect(source).toContain("去选画风");
     });
 

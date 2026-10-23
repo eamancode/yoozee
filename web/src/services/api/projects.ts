@@ -20,6 +20,8 @@ export type Project = {
     generationModel?: string;
     /** 授权档位：step 每步确认，full 全权。 */
     authMode?: "step" | "full" | "";
+    /** yoozee 风格档案（五选一），短剧流程每一步按它取绑定的技能；与画风快照 styleProfileJson 不是一回事。 */
+    styleProfile?: string;
     briefJson?: string;
     bibleJson?: string;
     status: "active" | "archived" | string;
@@ -444,11 +446,11 @@ function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
     };
 }
 
-export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string; generationModel?: string; authMode?: "step" | "full" }) {
+export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string; generationModel?: string; authMode?: "step" | "full"; styleProfile?: string }) {
     return http.post<{ project: Project }>("/projects", input);
 }
 
-export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "authMode" | "status">>) {
+export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "authMode" | "styleProfile" | "status">>) {
     return http.patch<{ project: Project }>(`/projects/${encodeURIComponent(projectId)}`, input);
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { stripProjectStyleExecutionBlocks, withStoryboardOutputContract } from "../src/lib/canvas/canvas-project-domain";
+import { storyboardRowsOutputContract, stripProjectStyleExecutionBlocks, withStoryboardOutputContract } from "../src/lib/canvas/canvas-project-domain";
 
 describe("stripProjectStyleExecutionBlocks", () => {
     test("removes repeated legacy style suffixes while preserving the original story", () => {
@@ -42,5 +42,17 @@ describe("withStoryboardOutputContract", () => {
         const prompt = withStoryboardOutputContract("章节正文");
         expect(prompt).toContain("1 项。每个镜头必须能独立用于生成首帧图片和镜头视频。");
         expect(prompt).toContain("不要为压缩数量删减关键情节。");
+    });
+});
+
+// 契约文字由后端 chapter.shots@2 schema 生成（storyboard-output-contract.generated.ts）；画布拆镜没有技能，不要 spec 和 assets。
+describe("画布拆镜契约来自 schema 生成的模板", () => {
+    test("模板里的要求句被替换，字段清单与 schema 同序，不含技能形状的字段", () => {
+        const contract = storyboardRowsOutputContract("每镜 $& 秒。");
+        expect(contract).toContain("rows 至少 1 项。每镜 $& 秒。");
+        expect(contract).not.toContain("{{requirement}}");
+        expect(contract.indexOf("shotNumber（整数，从 1 递增）")).toBeLessThan(contract.indexOf("optionalDetails（字符串数组）"));
+        expect(contract).not.toContain("spec");
+        expect(contract).not.toContain("assets");
     });
 });

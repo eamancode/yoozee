@@ -14,9 +14,9 @@ import (
 
 // dramaProjectContext 是一个项目的短剧上下文；零值等于「没选画风、没设时长」：默认档案、档案 style_block、不查 R-SEG-008。
 type dramaProjectContext struct {
-	// ProfileID 是 yoozee 风格档案：需求文档 style_profile 手动指定的优先，否则按项目画风对照（style_map.json）。
+	// ProfileID 是 yoozee 风格档案：项目的 style_profile；没填时需求文档 style_profile 手动指定的优先，否则按项目画风对照（style_map.json）。
 	ProfileID string
-	// ProfileRule 是对照命中的规则说明（手动指定时为「需求文档指定」），给装段说明看。
+	// ProfileRule 是档案的来由（「项目设置」「需求文档指定」或对照命中的规则说明），给装段说明看。
 	ProfileRule string
 	// StyleSpec 是项目画风的执行规范原文；为空时视频提示词的风格段用档案 style_block。
 	StyleSpec string
@@ -36,7 +36,8 @@ func (pc dramaProjectContext) targetSeconds() float64 {
 	return pc.Brief.EpisodeTargetSeconds(pc.Episode)
 }
 
-// projectDramaContext 从项目字段读短剧上下文。需求文档按非严格方式读：早期写进来的不合契约字段不影响这里要的几项。
+// projectDramaContext 从项目字段读短剧上下文。风格档案取项目的 style_profile；没填（只有测试和内部调用方会这样建项目）
+// 时按 RecommendProfile 推荐。需求文档按非严格方式读：早期写进来的不合契约字段不影响这里要的几项。
 func projectDramaContext(project *model.Project) dramaProjectContext {
 	pc := dramaProjectContext{}
 	if raw := strings.TrimSpace(project.BriefJSON); raw != "" {
@@ -48,20 +49,11 @@ func projectDramaContext(project *model.Project) dramaProjectContext {
 	}
 	pc.StyleSpec = strings.TrimSpace(style.Prompt)
 	pc.HasStyle = pc.StyleSpec != "" || strings.TrimSpace(project.StylePresetID) != ""
-	in := drama.ProjectStyle{World: style.Selection["world"], Medium: style.Selection["medium"], Title: style.Title, Tags: style.Tags}
-	if in.Medium == "" {
-		// 只存了预设 ID 的项目：v2-{world}--{tone}--{medium}--{character}。
-		if parts := strings.Split(strings.TrimPrefix(firstNonEmpty(style.PresetID, project.StylePresetID), "v2-"), "--"); len(parts) == 4 {
-			in.World, in.Medium = parts[0], parts[2]
-		}
-	}
-	if id := strings.TrimSpace(pc.Brief.StyleProfile); id != "" && slices.Contains(drama.BuiltinProfileIDs(), id) {
-		pc.ProfileID, pc.ProfileRule = id, "需求文档指定"
+	if id := strings.TrimSpace(project.StyleProfile); drama.ValidProfileID(id) {
+		pc.ProfileID, pc.ProfileRule = id, "项目设置"
 		return pc
 	}
-	if sm, err := drama.BuiltinStyleMap(); err == nil {
-		pc.ProfileID, pc.ProfileRule = sm.ProfileFor(in)
-	}
+	pc.ProfileID, pc.ProfileRule = drama.RecommendProfile(project.StylePresetID, project.StyleProfileJSON, project.BriefJSON)
 	return pc
 }
 
