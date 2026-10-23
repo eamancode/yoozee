@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 59
+const CurrentSchemaVersion int64 = 60
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -214,6 +214,23 @@ var schemaMigrations = []migration{
 	{version: 59, name: "drama_shotlists", checksum: "sha256:drama-shotlists-v59-20261022", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaShotlist{})
 	}},
+	// M5：内置技能可在线编辑出新版本；启动同步只比较内置包与 builtin_version_id，不覆盖在线版本。
+	{version: 60, name: "builtin_skill_online_versions", checksum: "sha256:builtin-skill-online-versions-v60-20261022", apply: migrateBuiltinSkillOnlineVersions},
+}
+
+// migrateBuiltinSkillOnlineVersions 加列并回填：内置技能已有的版本都来自内置包，当前版本就是内置版本。
+func migrateBuiltinSkillOnlineVersions(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.Skill{}, &model.SkillVersion{}); err != nil {
+		return err
+	}
+	builtin := tx.Model(&model.Skill{}).Select("id").Where("source_type = ?", "builtin")
+	if err := tx.Model(&model.SkillVersion{}).Where("skill_id IN (?)", builtin).Update("origin", "builtin").Error; err != nil {
+		return fmt.Errorf("回填内置技能版本来源：%w", err)
+	}
+	if err := tx.Model(&model.Skill{}).Where("source_type = ? AND current_version_id <> ''", "builtin").Update("builtin_version_id", gorm.Expr("current_version_id")).Error; err != nil {
+		return fmt.Errorf("回填内置技能的内置版本：%w", err)
+	}
+	return nil
 }
 
 func migratePrefixedIDSequenceReconcile(tx *gorm.DB) error {

@@ -5,6 +5,27 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M5 第一项：内置技能在线覆盖
+
+目标是流程定版后只改提示词、不发版（设计见 `yoozee-skills/DESIGN-M5-提示词在线迭代.md`）。生成分段用的 `yz-chapter-shots` 是内置技能，以前改它必须发版：启动同步覆盖 `instruction`，哈希一变就切到内置包。
+
+- 数据（v60）：`skills.builtin_version_id`；`skill_versions.origin / note / created_by`；回填内置技能已有版本为 `builtin`。
+- 启动同步只比较内置包与 `builtin_version_id` 那一版；内置包变了就新建内置版本，在线版本生效时不切走；`UpsertBuiltinSkills` 不再覆盖 `instruction`。
+- 管理员接口 `/api/admin/builtin-skills…`：列表、版本历史、按版本读文件、新建在线版本（可只保存不启用）、启用任一版本、回退到内置版本。保存时校验 frontmatter、`metadata.skillId` 不变、`metadata.outputFields` 字段名不减。
+- `GET /api/skills/:id/file` 返回 `versionId / version`；前端技能运行时用 `SKILL.md` 那次读取的版本写任务 `metadata.skillVersions` 和 `<skill-context version>`。
+- 后台页面 `/admin/builtin-skills`「内置技能」：列表（只看在线版本生效）、抽屉里版本历史（以此为底、启用）、按文件编辑、版本说明、「只保存」「保存并启用」、回退到内置。
+
+自动化覆盖：
+
+- [x] `internal/skills`（本机 msys2 gcc + cgo sqlite 跑通）：`TestBuiltinSkillOnlineVersionWinsOverStartupSync`（在线版本生效、运行时读到在线版本号、重启同步不动、内置包更新只记新内置版本并标「内置包有更新」、回退到最新内置版本、再启用在线版本）、`TestBuiltinSkillOnlineVersionSavedWithoutActivation`、`TestBuiltinSkillOnlineVersionRejectsBrokenContract`（删 spec 字段、改 skillId、坏 frontmatter、无改动、删 SKILL.md、非管理员）、`TestBuiltinSkillSyncBackfillsLegacyPointer`、`TestSkillOutputFieldNamesMatchesFrontendRule`。
+- [x] 前端：`bun run typecheck`、`eslint`、`test/skill-runtime.test.ts`（实际版本优先、旧后端退回列表版本）。
+- [ ] 浏览器验收（项目约定不自启 dev server，未做）：后台「内置技能」页的编辑、启用、回退。
+
+仍需线上验收（部署后）：
+
+- [ ] 后台改 `yz-chapter-shots` 的一张卡并「保存并启用」，新建一章生成分段：任务 `metadata.skillVersions` 是 `2.2.1+online.1`，提示词里是改过的卡。
+- [ ] 重启后端，生效版本仍是在线版本；回退后再生成，任务记回内置版本号。
+
 ## M4.1 第二期补丁：没图的资产不进参考，一镜只留一个场景
 
 线上复测（399e837f，测试项目第 1 章）：S02 编译出 7 个「@图片N」——电梯口（夜）、周岸、留置针贴膏、病房走廊（夜）、林小满、病历夹、工牌，全是只有文字设定的实体（mediaType entity，有主版本、没有图）。原因：装段用的最小资产圣经把每个绑定资产的文件都写成主版本 ID，不看这个版本有没有图。

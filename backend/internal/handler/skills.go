@@ -16,6 +16,7 @@ import (
 
 func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 	registerSkillCurationRoutes(r, svc)
+	registerBuiltinSkillVersionRoutes(r, svc)
 	r.POST("/skills/install", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

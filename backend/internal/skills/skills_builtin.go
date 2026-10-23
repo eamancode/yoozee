@@ -44,6 +44,7 @@ type builtinSkillPackage struct {
 
 // EnsureBuiltinSkills syncs embedded Markdown packages to the catalog and version tables.
 // User relationships remain in their own table and are not changed by catalog updates.
+// 在线版本生效时只记录新的内置版本，不切走（见 syncBuiltinPackage）。
 func (s *Service) EnsureBuiltinSkills() error {
 	packages, err := loadBuiltinSkillPackages(s.repo)
 	if err != nil {
@@ -68,10 +69,7 @@ func (s *Service) EnsureBuiltinSkills() error {
 		if err != nil {
 			return fmt.Errorf("读取内置技能 %s 同步结果失败: %w", item.skill.ID, err)
 		}
-		if current.ContentHash == item.archive.ContentHash && current.CurrentVersionID != "" {
-			continue
-		}
-		if err := s.addSkillArchiveVersion(current, item.archive, "builtin", "", "", "", "", false); err != nil {
+		if err := s.syncBuiltinPackage(current, item.archive); err != nil {
 			return fmt.Errorf("同步内置技能 %s 文件包失败: %w", item.skill.ID, err)
 		}
 	}

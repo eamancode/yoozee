@@ -113,6 +113,21 @@ describe("skill runtime", () => {
         expect(result.metadata.skillIds).toEqual(["director"]);
     });
 
+    test("任务记录实际读到的技能版本：内置技能在线覆盖后以 SKILL.md 返回的版本为准", async () => {
+        const runtime = createSkillRuntime({
+            getFile: async () => ({ file: { ...file("SKILL.md", "# AI导演"), versionId: "online-3", version: "2.0.0+online.3" } }),
+            listFiles: async () => ({ files: [] }),
+        });
+        const result = await runtime.prepare({ profile: "shortDrama", prompt: "生成分镜", skills: [skill()], selectedSkillIds: ["director"] });
+        expect(result.metadata.skillVersions).toEqual([{ skillId: "director", versionId: "online-3", version: "2.0.0+online.3" }]);
+        expect(result.prompt).toContain('version="2.0.0+online.3"');
+
+        // 旧后端不返回版本时退回技能列表里的版本。
+        const legacy = createSkillRuntime({ getFile: async () => ({ file: file("SKILL.md", "# AI导演") }), listFiles: async () => ({ files: [] }) });
+        const fallback = await legacy.prepare({ profile: "shortDrama", prompt: "生成分镜", skills: [skill()], selectedSkillIds: ["director"] });
+        expect(fallback.metadata.skillVersions).toEqual([{ skillId: "director", versionId: "version-2", version: "2.0.0" }]);
+    });
+
     test("调用方传入的字符预算会收紧技能上下文，避免顶爆图片模型的提示词上限", async () => {
         const entry = "甲".repeat(40_000);
         const runtime = createSkillRuntime({

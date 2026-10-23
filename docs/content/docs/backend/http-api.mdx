@@ -526,6 +526,22 @@ CSV 使用中文表头、UTF-8 BOM、CRLF；金额按整数分精确转换为两
 
 受管图片任务使用 `metadata.operation=project_asset_image`、`projectAssetId` 和 `projectAssetVersionId`，由任务成功事务绑定资源，媒体保存恢复同样适用。结果的 `projectAssetImageStatus=bound|stale` 表示已绑定或资产版本已变化；stale 仍保留生成文件，不能自动重发收费请求。历史画布图片匹配只信任服务端版本表现记录，不信任客户端自报的历史。
 
+## 内置技能在线覆盖
+
+以下接口都要求管理员。后台编辑内置技能时生成在线版本（`skill_versions.origin = online`），版本号为「内置版本号+online.n」，优先于内置包；运行时仍只读 `skills.current_version_id`。服务启动同步只比较内置包与 `skills.builtin_version_id` 那一版的哈希：内置包变了就新建内置版本，在线版本生效时不切走，列表标「内置包有更新」。版本不可删除。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | `/api/admin/builtin-skills` | 内置技能列表：`currentVersion`（生效版本）、`builtinVersion`（内置包版本）、`overridden`（生效的是在线版本）、`builtinUpdated`（在线版本生效期间内置包更新过）、`onlineVersionCount` |
+| GET | `/api/admin/builtin-skills/:id/versions` | `{ skill, versions }`，版本新的在前，每项带 `origin`（`builtin` / `online`）、`versionLabel`、`note`、`createdBy`、`active`、`builtin` |
+| GET | `/api/admin/builtin-skills/:id/versions/:versionId/files` | 某个版本的文件清单 |
+| GET | `/api/admin/builtin-skills/:id/versions/:versionId/file?path=` | 某个版本某个文件的文本内容（非文本返回 `binary: true`，超过 512 KB 拒绝） |
+| POST | `/api/admin/builtin-skills/:id/versions` | `{ baseVersionId?, files: [{path, content}], deletePaths?, note, activate }`：以底版本（默认生效版本）覆盖、删除文本文件，新建在线版本；`activate` 为 `false` 时只保存不生效（评测用）。`note` 必填；`SKILL.md` 不能删，frontmatter 必须能解析，`metadata.skillId` 不能改，`metadata.outputFields` 已声明的字段名不能少；内容与底版本相同时拒绝。返回 `{ skill, version }` |
+| POST | `/api/admin/builtin-skills/:id/activate` | `{ versionId }`：把任一版本（在线或历史内置）设为生效，`instruction` 换成该版本的 `SKILL.md` |
+| POST | `/api/admin/builtin-skills/:id/revert` | 回退到内置版本（`builtin_version_id`） |
+
+`GET /api/skills/:id/file` 的返回带 `versionId`、`version`：这次读到的文件属于哪个版本。前端技能运行时用 `SKILL.md` 那次读取返回的版本写任务 `metadata.skillVersions` 和 `<skill-context version>`，不再用技能列表里可能过期的版本。
+
 ## 平台技能策展
 
 新增登录读取 `/api/skills/curation` 与管理员 GET／PUT `/api/admin/skill-curation`；原技能列表仅在策展开启时应用新增分类筛选，响应结构不变。见 [接口与行为](./skill-curation)。
