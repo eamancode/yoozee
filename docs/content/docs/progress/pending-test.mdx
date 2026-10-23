@@ -5,6 +5,19 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 视频作品保存：已生成但画布看不到
+
+线上任务排查结论：
+- 任务 `6552acfe…`：视频已生成，保存卡在“登记作品失败”（`not_found`）。任务所属画布只在浏览器缓存、服务端没有记录；创建任务时允许这种画布，登记作品时却要求画布或项目存在，于是作品无法登记，“重试保存”也同样失败。现改为与创建规则一致，找不到时按无项目归属保存到用户名下，归档项目仍拒绝。
+- 遗留手写视频协议（Seedance Videos、OpenAI 风格 `/videos`、方舟 Agent Plan）的结果下载不走保存恢复：结果地址返回 401/403 等错误时整条任务按生成失败处理，提示“模型服务鉴权失败”，只能重新生成。现改为进入保存恢复，提示“保存未完成（上游返回 HTTP 403…）”，可“重试保存”不重新生成；Seedance 结果地址补充读取 `content.video_url` / `metadata.url` 等嵌套字段；保存阶段失败不再被视频轮询当作临时错误重查。
+- 结果下载按文件内容判断类型（`binary/octet-stream`、`application/mp4`、QuickTime / M4V 等通用标注不再被拒，wget 兜底同样适用），结果地址去首尾空白；失败提示追加不含上游地址的原因（HTTP 状态、超时、连接中断、返回内容类型、暂存空间），自动恢复时写任务日志。
+- 截图里报“模型服务鉴权失败”的任务不在排查账号下，未能核对其模型和渠道；若部署后仍出现，需要管理员调用日志里该任务 `download` / `poll` 记录的状态码。
+
+- [x] `go test ./internal/app -run 'TestTaskMediaMimeType|TestMediaFailureDetail|TestMediaRecovery|TestMediaTaskProject|TestSeedanceVideoResult'`。
+- [x] `go test ./internal/app -run 'Video|Seedance|ArkPlan|AgentPlan|Protocol|Media|TaskWorker|Recover'`（Windows 本机，仅目录 fsync 的无关用例失败）。
+- [ ] 部署后对任务 `6552acfe…` 点“重试保存”，确认视频回到画布节点。
+- [ ] 部署后用 Seedance 遗留渠道生成一条视频，确认结果下载失败时节点显示“重试保存（不重新生成）”。
+
 ## M4.1 第三期：项目画风进视频提示词、每集时长、场景锚点、单场参考、打斗句式
 
 线上复测剩下的问题。设计见 `yoozee-skills/DESIGN-M4.1-线上修复.md` 第 3 节（第 3.4 分镜脚本下载、3.5 按场生成本期不做）。

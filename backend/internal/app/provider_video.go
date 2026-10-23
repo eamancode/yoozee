@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/protocol"
 )
 
 func (s *Service) validateResolvedVideoCapability(input *canvasGenerationInput) error {
@@ -147,28 +148,56 @@ func runVideoTaskWithPolicy(ctx context.Context, input canvasGenerationInput, po
 		status := strings.ToLower(stringField(state, "status"))
 		if status == "completed" || status == "succeeded" || status == "success" || status == "done" {
 			if videoURL := newAPIVideoResultURL(state); videoURL != "" {
-				data, mimeType, err := runVideoDownload(ctx, id, pollPolicy, func(ctx context.Context) ([]byte, string, error) {
+				outcome, err := finishVideoResultURL(ctx, input.Config, id, pollPolicy, videoURL, func(ctx context.Context) ([]byte, string, error) {
 					return getProviderExternalBinary(withProviderRequestKind(ctx, "download"), input.Config, videoURL)
 				})
-				if err != nil {
+				if err != nil && !isMediaRecoveryError(err) {
 					return videoPollOutcome{}, fmt.Errorf("视频结果下载失败（任务 %s）：%w", id, err)
 				}
-				mimeType = normalizedMediaMimeType(mimeType, data)
-				return videoPollOutcome{Done: true, Result: map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}}, nil
+				return outcome, err
 			}
-			data, mimeType, err := runVideoDownload(ctx, id, pollPolicy, func(ctx context.Context) ([]byte, string, error) {
+			return finishVideoResultURL(ctx, input.Config, id, pollPolicy, apiURL(input.Config.BaseURL, "/videos/"+id+"/content"), func(ctx context.Context) ([]byte, string, error) {
 				return getBinary(withProviderRequestKind(ctx, "download"), input.Config, "/videos/"+id+"/content")
 			})
-			if err != nil {
-				return videoPollOutcome{}, err
-			}
-			return videoPollOutcome{Done: true, Result: map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}}, nil
 		}
 		if status == "failed" || status == "cancelled" {
 			return videoPollOutcome{}, errors.New("视频生成失败")
 		}
 		return videoPollOutcome{}, nil
 	})
+}
+
+// finishVideoResultURL 把遗留视频协议拿到的结果地址交给作品保存恢复链路：上游已生成后，
+// 结果下载失败进入“作品已生成，保存未完成”，可重试保存而不重新生成，结果地址的 401/403
+// 也不会再被报成渠道鉴权失败。没有任务执行上下文（测试、手工查询）时保留原下载方式。
+func finishVideoResultURL(ctx context.Context, config providerConfig, taskID string, pollPolicy videoPollPolicy, videoURL string, download func(context.Context) ([]byte, string, error)) (videoPollOutcome, error) {
+	if output, handled, err := recoverProtocolMedia(ctx, config, "video", []protocol.MediaReference{{URL: videoURL}}); handled {
+		return videoPollOutcome{Done: err == nil, Result: output}, err
+	}
+	data, mimeType, err := runVideoDownload(ctx, taskID, pollPolicy, download)
+	if err != nil {
+		return videoPollOutcome{}, err
+	}
+	mimeType = normalizedMediaMimeType(mimeType, data)
+	return videoPollOutcome{Done: true, Result: map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}}, nil
+}
+
+func isMediaRecoveryError(err error) bool {
+	var failure *mediaRecoveryError
+	return errors.As(err, &failure)
+}
+
+func seedanceNestedVideoURL(state map[string]interface{}) string {
+	for _, key := range []string{"content", "metadata", "result", "output"} {
+		if nested, ok := state[key].(map[string]interface{}); ok {
+			for _, field := range []string{"video_url", "videoUrl", "url"} {
+				if videoURL := strings.TrimSpace(stringField(nested, field)); isPublicMediaURL(videoURL) {
+					return videoURL
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func newAPIVideoResultURL(state map[string]interface{}) string {
@@ -262,23 +291,27 @@ func runSeedanceVideosTask(ctx context.Context, input canvasGenerationInput, pol
 		}
 		status := strings.ToLower(stringField(state, "status"))
 		if status == "completed" || status == "succeeded" {
-			videoURL := stringField(state, "video_url")
+			videoURL := strings.TrimSpace(stringField(state, "video_url"))
+			if videoURL == "" {
+				// 中转站常把结果放在 content.video_url、metadata.url 等嵌套字段；都没有才退到 /content。
+				videoURL = seedanceNestedVideoURL(state)
+			}
 			if videoURL != "" {
-				data, mimeType, err := runVideoDownload(ctx, id, pollPolicy, func(ctx context.Context) ([]byte, string, error) {
+				outcome, err := finishVideoResultURL(ctx, input.Config, id, pollPolicy, videoURL, func(ctx context.Context) ([]byte, string, error) {
 					return getExternalBinary(withProviderRequestKind(ctx, "download"), videoURL)
 				})
-				if err != nil {
+				if err != nil && !isMediaRecoveryError(err) {
 					return videoPollOutcome{}, fmt.Errorf("视频结果下载失败：%w", err)
 				}
-				return videoPollOutcome{Done: true, Result: map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}}, nil
+				return outcome, err
 			}
-			data, mimeType, err := runVideoDownload(ctx, id, pollPolicy, func(ctx context.Context) ([]byte, string, error) {
+			outcome, err := finishVideoResultURL(ctx, input.Config, id, pollPolicy, apiURL(input.Config.BaseURL, "/videos/"+id+"/content"), func(ctx context.Context) ([]byte, string, error) {
 				return getBinary(withProviderRequestKind(ctx, "download"), input.Config, "/videos/"+id+"/content")
 			})
-			if err != nil {
+			if err != nil && !isMediaRecoveryError(err) {
 				return videoPollOutcome{}, fmt.Errorf("Seedance 任务成功但未返回视频 URL，备用内容下载失败：%w", err)
 			}
-			return videoPollOutcome{Done: true, Result: map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}}, nil
+			return outcome, err
 		}
 		if status == "failed" || status == "cancelled" || status == "expired" {
 			return videoPollOutcome{}, errors.New(defaultString(seedanceErrorMessage(state), "Seedance 视频生成失败"))
@@ -353,13 +386,13 @@ func runSeedanceAgentPlanVideoTask(ctx context.Context, input canvasGenerationIn
 			if videoURL == "" {
 				return videoPollOutcome{}, fmt.Errorf("%s任务成功但没有返回视频 URL", providerName)
 			}
-			data, mimeType, err := runVideoDownload(ctx, id, pollPolicy, func(ctx context.Context) ([]byte, string, error) {
+			outcome, err := finishVideoResultURL(ctx, input.Config, id, pollPolicy, videoURL, func(ctx context.Context) ([]byte, string, error) {
 				return getExternalBinary(withProviderRequestKind(ctx, "download"), videoURL)
 			})
-			if err != nil {
+			if err != nil && !isMediaRecoveryError(err) {
 				return videoPollOutcome{}, fmt.Errorf("视频结果下载失败：%w", err)
 			}
-			return videoPollOutcome{Done: true, Result: map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}}, nil
+			return outcome, err
 		}
 		if status == "failed" || status == "cancelled" || status == "expired" {
 			return videoPollOutcome{}, fmt.Errorf("%s视频生成失败", providerName)

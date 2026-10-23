@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"math/rand/v2"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +46,11 @@ type mediaRecoveryError struct {
 type mediaExecutionTaskKey struct{}
 
 func (e *mediaRecoveryError) Error() string {
-	return "作品已生成，但保存未完成：" + mediaStageLabel(e.stage)
+	message := "作品已生成，但保存未完成：" + mediaStageLabel(e.stage)
+	if detail := mediaFailureDetail(e.cause); detail != "" {
+		message += "（" + detail + "）"
+	}
+	return message
 }
 func (e *mediaRecoveryError) Unwrap() error { return e.cause }
 
@@ -255,6 +263,52 @@ func (s *Service) materializeTaskMedia(ctx context.Context, task *model.Task, co
 
 var errMediaRecoveryBusy = errors.New("作品保存并发已满")
 
+// mediaFailureDetail 只返回可公开的失败原因。上游结果地址常带签名，net/url 错误会回显
+// 完整地址，所以原始错误不能进入任务错误、日志或请求记录，只能按类型归类。
+func mediaFailureDetail(err error) string {
+	if err == nil || errors.Is(err, errMediaRecoveryBusy) {
+		return ""
+	}
+	var content mediaDownloadContentError
+	if errors.As(err, &content) {
+		return string(content)
+	}
+	var upstream providerHTTPError
+	if errors.As(err, &upstream) {
+		switch upstream.StatusCode {
+		case 401, 403, 404, 410:
+			return fmt.Sprintf("上游返回 HTTP %d，结果地址可能已过期或需要鉴权", upstream.StatusCode)
+		default:
+			return fmt.Sprintf("上游返回 HTTP %d", upstream.StatusCode)
+		}
+	}
+	var appErr *AppError
+	if errors.As(err, &appErr) && strings.TrimSpace(appErr.Message) != "" {
+		return appErr.Message
+	}
+	// syscall.Errno 也实现了 net.Error，文件系统错误不能按网络错误归类，只认 HTTP 客户端和套接字错误。
+	var urlError *url.Error
+	var opError *net.OpError
+	transport := errors.As(err, &urlError) || errors.As(err, &opError)
+	if errors.Is(err, context.DeadlineExceeded) || (urlError != nil && urlError.Timeout()) || (opError != nil && opError.Timeout()) {
+		return "下载超时"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "下载被中断"
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) || (transport && retryableProtocolMediaDownload(err)) {
+		return "下载连接中断"
+	}
+	var dnsError *net.DNSError
+	if errors.As(err, &dnsError) {
+		return "结果地址域名解析失败"
+	}
+	if transport {
+		return "无法连接结果地址"
+	}
+	return ""
+}
+
 func retryableMediaRecovery(err error) bool {
 	if retryableProtocolMediaDownload(err) || errors.Is(err, context.DeadlineExceeded) {
 		return true
@@ -296,6 +350,7 @@ func (s *Service) handleMediaRecoveryFailure(task *model.Task, cause error) erro
 			if err := s.saveMediaCheckpoint(task, checkpoint, failure.stage); err != nil {
 				return err
 			}
+			_ = s.log(task.UserID, task.ID, "warn", "作品已生成，保存遇到问题，正在自动恢复", failure.Error())
 			return s.repo.DeferRunningTaskForProviderPoll(task.ID, task.LeaseOwner, "作品已生成，保存遇到问题，正在自动恢复", delay)
 		}
 		if err := s.saveMediaCheckpoint(task, checkpoint, failure.stage); err != nil {
