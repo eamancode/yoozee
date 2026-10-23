@@ -10,7 +10,7 @@ import (
 )
 
 // registerDramaStepRoutes 是短剧流程步骤（M6）的接口：风格档案列表、一步用哪个技能、服务端组装提示词并建任务、
-// 管理员读写「风格档案 × 步骤 → 技能」绑定。
+// 管理员读写「风格档案 × 步骤 → 技能」绑定，以及流程技能包的上传、版本列表和启用（回退就是启用历史版本）。
 func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 	r.GET("/drama/style-profiles", func(c *gin.Context) {
 		if _, err := currentUser(c, svc); err != nil {
@@ -106,5 +106,74 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		ok(c, matrix)
+	})
+	r.GET("/admin/drama/packages", func(c *gin.Context) {
+		actor, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		packages, err := svc.AdminFlowPackages(actor)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"packages": packages})
+	})
+	r.POST("/admin/drama/packages", func(c *gin.Context) {
+		actor, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		if err := svc.RequireAdmin(actor); err != nil {
+			failService(c, err)
+			return
+		}
+		policy, available := loadRuntimePolicy(c, svc)
+		if !available || !enforceRateLimit(c, "admin-drama-package-upload:"+actor.ID, policy.Request.ResourceUploadPerMinute, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, service.SkillPackageUploadMaxBytes)
+		file, err := c.FormFile("file")
+		if c.Request.MultipartForm != nil {
+			defer c.Request.MultipartForm.RemoveAll()
+		}
+		if err != nil {
+			failService(c, service.BadAuthRequest("请选择 build.py --package 构建的技能包 ZIP"))
+			return
+		}
+		result, err := svc.UploadFlowPackage(actor, file, c.PostForm("note"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+	r.GET("/admin/drama/packages/:id/versions", func(c *gin.Context) {
+		actor, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		pkg, versions, err := svc.AdminFlowPackageVersions(actor, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"package": pkg, "versions": versions})
+	})
+	r.POST("/admin/drama/packages/:id/versions/:vid/activate", func(c *gin.Context) {
+		actor, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		pkg, err := svc.ActivateFlowPackageVersion(actor, c.Param("id"), c.Param("vid"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"package": pkg})
 	})
 }

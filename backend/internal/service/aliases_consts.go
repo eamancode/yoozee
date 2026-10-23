@@ -73,6 +73,7 @@ const (
 	ReasonUpstreamDNSFailed            = app.ReasonUpstreamDNSFailed
 	ReasonTextOutputTruncated          = app.ReasonTextOutputTruncated
 	ReasonShotlistCheckFailed          = app.ReasonShotlistCheckFailed
+	ReasonPackageCheckFailed           = app.ReasonPackageCheckFailed
 	ReasonConflict                     = app.ReasonConflict
 	ReasonProjectNameConflict          = app.ReasonProjectNameConflict
 	ReasonFailedPrecondition           = app.ReasonFailedPrecondition

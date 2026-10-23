@@ -5,6 +5,30 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M6 第二期：流程技能包（包格式、构建、上传、静态校验、版本列表、启用与回退）
+
+设计见 `yoozee-skills/DESIGN-M6-流程与技能解耦.md` 第 6 节第二期。
+
+- 包格式：技能目录加 `package.json`（`id`、`step`、`contract`、`profiles`、`version`、`files`、`eval`）。本地仓库 `yoozee-skills/packages/yz-chapter-shots/` 为准（内容与原内置技能逐字相同，加了清单：五个风格档案、`chapter.shots@2`、2.2.1）；默认 `build.py` 把它同步成内置种子 `backend/builtin/yz-chapter-shots/`，`build.py --check` 和 `TestChapterShotsPackageMatchesBuiltinSeed` 查两者一致。
+- 构建：`python yoozee-skills/build.py --package yz-chapter-shots` → `yoozee-skills/dist/packages/yz-chapter-shots-<version>.zip`（清单、`files` 列出的文件、`package.hash.json`），先跑与线上同一套静态校验，不过就不出包。规则数据由后端导出到 `backend/internal/drama/contracts/step-packages.json`（步骤表或规则改了要 `go test ./internal/drama -run TestStepPackageRulesExported -update`）；两边共用样例 `yoozee-skills/tests/packages/cases.json`。
+- 上传 `POST /api/admin/drama/packages`、列表 `GET /api/admin/drama/packages`、版本 `GET .../packages/:id/versions`、启用 `POST .../versions/:vid/activate`（回退就是启用历史版本）。上传通过存成「已校验未启用」的新版本；不通过返回 `package_check_failed` 和逐条原因。
+- 后台「流程技能」页下方加「技能包版本」：选 zip、写说明、上传并校验；被拒时列出逐条原因；版本表显示来源、契约、内容哈希、校验结论（不兼容时列原因）、上传人和时间、说明，可启用、回退。
+- 迁移 64：`yz-chapter-shots` 当前版本标成第一个包版本（清单取种子，版本号和文件取这一版自己的）；之后启动同步不覆盖有包版本的技能，新库首次安装时由内置种子落成第一个包版本。`yz-chapter-shots` 不再出现在「内置技能」页，不能在线编辑；在线编辑不再校验 `metadata.outputFields`（只有它用过）。
+
+本机验收（不是线上）：
+
+- [x] 把本地包的「你是这一章的导演。」改成「总导演」、版本改 2.2.2，`build.py --package` 构建出 zip；在七床第一章复刻项目上用真实服务上传：服务端算出的内容哈希与 build.py 一致，新版本 `2.2.2`、已校验、未启用，「只组装提示词」不变；启用后提示词只多这处改动和 `version="2.2.2"`；回退到 2.2.1 后与黄金文件逐字相同。本地改动已还原。
+- [x] 坏包被拒绝并说明原因：缺卡（`required_card`）、契约版本不符（`contract`）、超出预算（`budget`）各一个；另测未知风格档案、哈希不符、未登记的包 ID、不是 zip、重复版本号。拒绝的包不落版本。
+
+自动化覆盖：
+
+- [x] `internal/drama`：`TestStepPackageCases`（共用样例）、`TestStepPackageRulesExported`、`TestChapterShotsPackageMatchesBuiltinSeed`；`yoozee-skills/tests/test_package.py` 跑同一份样例（本机通过，CI 不跑 Python）。
+- [x] `internal/skills`：`TestFlowPackageSeededOnFirstInstall`、`TestFlowPackageUploadActivateRollback`、`TestFlowPackageUploadRejectsBrokenPackages`、`TestFlowPackageVersionCheckAgainstCurrentSteps`；在线编辑测试改用 `yz-producer`。
+- [x] `internal/app`：`TestFlowPackageUploadChangesAssembledPrompt`（上传 → 启用 → 提示词带改动 → 回退恢复黄金；缺卡、契约不符、超预算被拒）。
+- [x] `internal/database`：`TestDramaStepPackagesMigrationMarksCurrentVersion`。
+- [ ] 浏览器验收（未做）：「流程技能」页上传区、被拒原因、版本表的启用与回退、明暗主题。
+- [ ] 线上验收：部署后确认迁移 64 把线上 `yz-chapter-shots` 当前版本标成包版本，后台版本列表显示它为「技能包 · 已校验 · 生效中」；上传一个改一个字的包、启用、回退，七床第一章「只组装提示词」随之变化与恢复。
+
 ## M6 第一期：短剧流程与技能解耦（步骤表、契约 schema、服务端组装生成分段）
 
 设计见 `yoozee-skills/DESIGN-M6-流程与技能解耦.md` 第 6 节第一期。

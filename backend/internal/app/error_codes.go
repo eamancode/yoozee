@@ -41,6 +41,7 @@ const (
 	ReasonUpstreamDNSFailed   = kernel.ReasonUpstreamDNSFailed
 	ReasonTextOutputTruncated = kernel.ReasonTextOutputTruncated
 	ReasonShotlistCheckFailed = kernel.ReasonShotlistCheckFailed
+	ReasonPackageCheckFailed  = kernel.ReasonPackageCheckFailed
 )
 
 func ReasonForStatus(status int) ErrorReason {

@@ -8,12 +8,13 @@ import { getAdminDramaStepBindings, putAdminDramaStepBindings, type DramaStepBin
 import type { DramaStyleProfile } from "@/services/api/drama";
 import { AdminPageFrame } from "../components/admin-shell";
 import { AdminDataTable, AdminTableEmpty } from "../components/admin-ui";
+import { DramaPackagesPanel } from "./drama-packages-panel";
 
 const EMPTY: DramaStepBindingMatrix = { profiles: [], steps: [], cells: [], skills: [] };
 // 下拉里「用默认技能」的取值：删掉这一格。
 const DEFAULT_OPTION = "";
 
-/** 短剧流程的「风格档案 × 步骤 → 技能」绑定：每格一个技能，项目按风格档案自动用该技能的当前版本。 */
+/** 短剧流程的「风格档案 × 步骤 → 技能」绑定：每格一个技能，项目按风格档案自动用该技能的当前版本；下方管理流程技能包的版本。 */
 export default function DramaStepBindingsPage() {
     const { message } = App.useApp();
     const [data, setData] = useState<DramaStepBindingMatrix>(EMPTY);
@@ -86,12 +87,13 @@ export default function DramaStepBindingsPage() {
     return (
         <AdminPageFrame title="流程技能" description="短剧流程每一步用哪个技能：按项目的风格档案绑定，项目自动用该技能当前生效的版本">
             <Callout tone="info" title="绑定只决定用哪个技能">
-                步骤、顺序和输出契约写在代码里，改了要发版；技能内容的版本在「内置技能」里管理。没配的格子用该步骤的默认技能。
+                步骤、顺序和输出契约写在代码里，改了要发版；流程技能包的内容在下方上传、启用和回退，线上不在线编辑。没配的格子用该步骤的默认技能。
             </Callout>
             <AdminDataTable
                 table={{ className: "app-data-table", size: "small", rowKey: "id", loading, pagination: false, columns, dataSource: data.profiles, scroll: { x: 720 } }}
                 empty={<AdminTableEmpty title="没有风格档案" description="后端没有返回内置风格档案。" />}
             />
+            <DramaPackagesPanel />
         </AdminPageFrame>
     );
 }

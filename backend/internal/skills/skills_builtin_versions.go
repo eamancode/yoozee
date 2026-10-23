@@ -4,7 +4,6 @@
 package skills
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -76,8 +75,11 @@ type BuiltinSkillVersionRequest struct {
 }
 
 // syncBuiltinPackage 把内置包同步成版本：与 builtin_version_id 那一版哈希相同就不动；
-// 不同就新建内置版本，生效的不是在线版本时同时切过去。
+// 不同就新建内置版本，生效的不是在线版本时同时切过去。带 package.json 的是流程技能包的种子，只在还没有包版本时导入一次（见 seedFlowPackage）。
 func (s *Service) syncBuiltinPackage(skill *model.Skill, archive skillPackageArchive) error {
+	if isFlowPackageSeed(archive) {
+		return s.seedFlowPackage(skill, archive)
+	}
 	builtinID := strings.TrimSpace(skill.BuiltinVersionID)
 	if builtinID != "" {
 		version, err := s.repo.SkillVersion(builtinID)
@@ -123,17 +125,24 @@ func (s *Service) syncBuiltinPackage(skill *model.Skill, archive skillPackageArc
 
 // addBuiltinSkillVersion 落一个版本；内置版本同时更新 builtin_version_id，activate 时切为生效版本。
 func (s *Service) addBuiltinSkillVersion(skillID string, archive skillPackageArchive, label string, origin string, note string, createdBy string, activate bool) error {
+	_, err := s.addSkillVersionWith(skillID, archive, model.SkillVersion{VersionLabel: label, Origin: origin, Note: note, CreatedBy: createdBy}, activate)
+	return err
+}
+
+// addSkillVersionWith 落一个版本，版本号、来源、说明、创建人、清单取 meta；返回新版本 ID。
+func (s *Service) addSkillVersionWith(skillID string, archive skillPackageArchive, meta model.SkillVersion, activate bool) (string, error) {
 	versionID := kernel.NewID()
 	packageKey, version, files, err := s.persistSkillArchive(skillID, versionID, archive, "")
 	if err != nil {
-		return err
+		return "", err
 	}
-	version.VersionLabel = label
-	version.Origin = origin
-	version.Note = note
-	version.CreatedBy = createdBy
+	version.VersionLabel = meta.VersionLabel
+	version.Origin = meta.Origin
+	version.Note = meta.Note
+	version.CreatedBy = meta.CreatedBy
+	version.Manifest = meta.Manifest
 	values := map[string]any{}
-	if origin == SkillOriginBuiltin {
+	if meta.Origin == SkillOriginBuiltin {
 		values["builtin_version_id"] = versionID
 	}
 	if activate {
@@ -143,9 +152,9 @@ func (s *Service) addBuiltinSkillVersion(skillID string, archive skillPackageArc
 	}
 	if err := s.repo.AddSkillVersionWithUpdates(version, files, skillID, values); err != nil {
 		_ = os.Remove(filepath.Join(s.dataDir, "skill-packages", filepath.FromSlash(packageKey)))
-		return err
+		return "", err
 	}
-	return nil
+	return versionID, nil
 }
 
 // activeSkillVersionColumns 是切换生效版本时要改的技能列：版本指针、摘要和 instruction（生效版本的 SKILL.md）。
@@ -180,6 +189,13 @@ func (s *Service) adminBuiltinSkill(actor *model.User, skillID string) (*model.S
 	}
 	if skill.SourceType != "builtin" {
 		return nil, kernel.BadAuthRequest("只有内置技能可以在线覆盖")
+	}
+	packages, err := s.repo.PackageSkillIDs()
+	if err != nil {
+		return nil, err
+	}
+	if packages[skill.ID] {
+		return nil, kernel.BadAuthRequest("这是流程技能包，只能在「流程技能」里上传新版本、启用或回退，不能在线编辑")
 	}
 	return skill, nil
 }
@@ -249,6 +265,12 @@ func (s *Service) AdminBuiltinSkills(actor *model.User) ([]BuiltinSkillSummary, 
 	if err != nil {
 		return nil, err
 	}
+	// 流程技能包在「流程技能」里管理。
+	packages, err := s.repo.PackageSkillIDs()
+	if err != nil {
+		return nil, err
+	}
+	skills = slices.DeleteFunc(skills, func(skill model.Skill) bool { return packages[skill.ID] })
 	return s.builtinSkillSummaries(skills)
 }
 
@@ -472,8 +494,7 @@ func (s *Service) onlineVersionLabel(skill *model.Skill) (string, error) {
 	return fmt.Sprintf("%s+online.%d", base, counts[skill.ID]+1), nil
 }
 
-// checkBuiltinEntryEdit 校验在线改过的 SKILL.md：frontmatter 能解析，skillId 不变，
-// outputFields 声明过的字段名一个不少（前端解析器靠它拿到 spec 等额外字段）。
+// checkBuiltinEntryEdit 校验在线改过的 SKILL.md：frontmatter 能解析，skillId 不变。
 func checkBuiltinEntryEdit(before []byte, after []byte) error {
 	if len(after) == 0 {
 		return kernel.BadAuthRequest("技能包入口必须是 SKILL.md")
@@ -492,58 +513,7 @@ func checkBuiltinEntryEdit(before []byte, after []byte) error {
 	if prev.SkillID != next.SkillID {
 		return kernel.BadAuthRequest("SKILL.md 的 metadata.skillId 不能修改")
 	}
-	nextFields, err := skillOutputFieldNames(after)
-	if err != nil {
-		return kernel.BadAuthRequest("SKILL.md 的 metadata.outputFields 不是合法的单行 JSON 数组：" + err.Error())
-	}
-	prevFields, _ := skillOutputFieldNames(before)
-	for _, name := range prevFields {
-		if !slices.Contains(nextFields, name) {
-			return kernel.BadAuthRequest("SKILL.md 的 metadata.outputFields 少了字段 " + name + "：前端解析器靠它读取额外输出")
-		}
-	}
 	return nil
-}
-
-// skillOutputFieldNames 按前端 skillOutputFields 同一规则读 frontmatter metadata.outputFields 的字段名。
-func skillOutputFieldNames(markdown []byte) ([]string, error) {
-	lines := strings.Split(strings.ReplaceAll(string(markdown), "\r\n", "\n"), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return nil, nil
-	}
-	inMetadata := false
-	for _, line := range lines[1:] {
-		if strings.TrimSpace(line) == "---" {
-			break
-		}
-		key, value, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		indented := len(key) > len(strings.TrimLeft(key, " \t"))
-		key = strings.TrimSpace(key)
-		if !indented {
-			inMetadata = key == "metadata"
-			continue
-		}
-		if !inMetadata || key != "outputFields" {
-			continue
-		}
-		var fields []struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(value)), &fields); err != nil {
-			return nil, err
-		}
-		names := make([]string, 0, len(fields))
-		for _, f := range fields {
-			if name := strings.TrimSpace(f.Name); name != "" {
-				names = append(names, name)
-			}
-		}
-		return names, nil
-	}
-	return nil, nil
 }
 
 // ActivateBuiltinSkillVersion 把某个版本（在线或历史内置）设为生效。

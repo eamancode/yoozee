@@ -124,8 +124,10 @@ type SkillVersion struct {
 	FileCount    int    `json:"fileCount"`
 	TotalBytes   int64  `json:"totalBytes"`
 	SourceCommit string `json:"sourceCommit" gorm:"size:64"`
-	// Origin 是内置技能版本的来源：builtin 由内置包同步，online 由后台在线编辑；其他来源为空。
-	Origin    string    `json:"origin" gorm:"size:16;index"`
+	// Origin 是内置技能版本的来源：builtin 由内置包同步，online 由后台在线编辑，package 是流程技能包（上传或首次安装的种子）；其他来源为空。
+	Origin string `json:"origin" gorm:"size:16;index"`
+	// Manifest 是流程技能包的清单 package.json（只有 origin=package 的版本有值）；静态校验和版本列表读它。
+	Manifest  string    `json:"-" gorm:"type:text"`
 	Note      string    `json:"note" gorm:"size:500"`
 	CreatedBy string    `json:"createdBy" gorm:"size:36"`
 	CreatedAt time.Time `json:"createdAt" gorm:"index"`

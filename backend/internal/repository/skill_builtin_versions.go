@@ -85,3 +85,16 @@ func (r *Repository) UpdateSkillColumns(skillID string, values map[string]any) e
 func (r *Repository) SetSkillVersionOrigin(versionID string, origin string) error {
 	return r.db.Model(&model.SkillVersion{}).Where("id = ?", versionID).Update("origin", origin).Error
 }
+
+// PackageSkillIDs 是有流程技能包版本（origin=package）的技能：启动同步不再用内置目录覆盖它们，后台只在「流程技能」里管理。
+func (r *Repository) PackageSkillIDs() (map[string]bool, error) {
+	var ids []string
+	if err := r.db.Model(&model.SkillVersion{}).Where("origin = ?", "package").Distinct("skill_id").Pluck("skill_id", &ids).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
+}

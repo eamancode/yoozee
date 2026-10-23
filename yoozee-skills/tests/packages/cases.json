@@ -1,0 +1,294 @@
+{
+  "_说明": "流程技能包静态校验的共用样例：backend/internal/drama/step_package_test.go 与 tests/test_package.py 都跑这份。files 的值是文本，或 {repeat, times} 表示把 repeat 重复 times 次；expect 是校验不过的规则编号（按出现次数）。",
+  "cases": [
+    {
+      "name": "ok",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": "# A\n",
+        "cards/b.md": "# B\n"
+      },
+      "expect": []
+    },
+    {
+      "name": "missing-required-card",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/b.md"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/b.md": "# B\n"
+      },
+      "expect": [
+        "required_card"
+      ]
+    },
+    {
+      "name": "contract-mismatch",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": "# A\n",
+        "cards/b.md": "# B\n"
+      },
+      "expect": [
+        "contract"
+      ]
+    },
+    {
+      "name": "over-budget",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": {
+          "repeat": "字",
+          "times": 33000
+        },
+        "cards/b.md": "# B\n"
+      },
+      "expect": [
+        "budget"
+      ]
+    },
+    {
+      "name": "over-budget-optional-card",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": "# A\n",
+        "cards/b.md": {
+          "repeat": "𠀀",
+          "times": 16000
+        }
+      },
+      "expect": [
+        "budget"
+      ]
+    },
+    {
+      "name": "too-many-required",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md",
+          "cards/c.md",
+          "cards/d.md"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）；必须先读取 `cards/b.md`、`cards/c.md` 和 `cards/d.md`。\n",
+        "cards/a.md": "a",
+        "cards/b.md": "b",
+        "cards/c.md": "c",
+        "cards/d.md": "d"
+      },
+      "expect": [
+        "budget"
+      ]
+    },
+    {
+      "name": "unknown-step",
+      "manifest": {
+        "id": "yz-test",
+        "step": "episode.story",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": "# A\n",
+        "cards/b.md": "# B\n"
+      },
+      "expect": [
+        "step"
+      ]
+    },
+    {
+      "name": "unknown-profile",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism",
+          "noir"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": "# A\n",
+        "cards/b.md": "# B\n"
+      },
+      "expect": [
+        "profiles"
+      ]
+    },
+    {
+      "name": "files-mismatch",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md",
+          "cards/c.md"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": "# A\n",
+        "cards/b.md": "# B\n",
+        "notes.md": "x"
+      },
+      "expect": [
+        "files",
+        "files"
+      ]
+    },
+    {
+      "name": "manifest-unknown-field",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md"
+        ],
+        "eval": [],
+        "author": "x"
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": "# A\n",
+        "cards/b.md": "# B\n"
+      },
+      "expect": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "manifest-missing-fields",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "files": [
+          "SKILL.md"
+        ]
+      },
+      "files": {
+        "SKILL.md": "---\nname: a\ndescription: b\n---\n"
+      },
+      "expect": [
+        "manifest",
+        "manifest"
+      ]
+    }
+  ]
+}
