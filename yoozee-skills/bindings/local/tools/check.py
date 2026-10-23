@@ -750,13 +750,15 @@ def check_segments(segs, ctx):
                     a, b = shots_by_id.get(prev["shot_ids"][-1]), shots_by_id.get(cur["shot_ids"][0])
                     if a and b and a.get("lines") and b.get("lines") and not has_action_verb(a.get("action")):
                         R.add("R-SEG-004", f"{prev['id']}→{cur['id']} 切在两句接话之间")
-    # 目标片长：多集项目按本批段所属的集读 episodes[].target_seconds；否则读 duration.value 里的「数字 + 单位」。
+    # 目标片长：多集项目按本批段所属的集读 episodes[].target_seconds；其次每集时长 episode_seconds；否则读 duration.value 里的「数字 + 单位」。
     # 75% 是「分段表按片长的 75% 写、剪辑再压」的生成余量；按单集 target_seconds 比。
     secs = None
     eps = {str(e.get("no")): e.get("target_seconds") for e in (brief or {}).get("episodes", []) if e.get("target_seconds")}
     ep_nos = {m.group(1) for s in segs for m in [re.match(r"E(\d{2})", str(s.get("scene", "")))] if m}
     if eps and ep_nos:
         secs = sum(float(eps[str(int(n))]) for n in ep_nos if str(int(n)) in eps) or None
+    if secs is None and brief and brief.get("episode_seconds"):
+        secs = float(brief["episode_seconds"])  # 项目设置里的「每集时长（秒）」
     if secs is None:
         target = brief.get("duration", {}).get("value") if brief else None
         mt = re.search(r"(\d+(?:\.\d+)?)\s*(分钟|分|秒|s|min)", str(target)) if target else None

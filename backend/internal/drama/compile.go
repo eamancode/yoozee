@@ -202,7 +202,10 @@ func compileSeedance(seg Segment, m Model, style, acting string, cp *CompileProf
 	dur := SubmitDuration(seg.Dur, m)
 	head := ""
 	if len(decl) > 0 {
-		head = strings.Join(decl, "；") + "；"
+		head = joinNonEmpty(decl, "；")
+	}
+	if head != "" {
+		head += "；"
 	}
 	head += fill(sp.Head, "dur", fmt.Sprintf("%d", dur), "style", style, "acting", acting)
 	if text := strings.TrimSpace(bridge.ReanchorText); text != "" {
@@ -260,7 +263,7 @@ func compileSeedance(seg Segment, m Model, style, acting string, cp *CompileProf
 				parts = append(parts, x)
 			}
 		}
-		sound = strings.Join(parts, "；")
+		sound = joinNonEmpty(parts, "；")
 	}
 	if sound == "" {
 		sound = sp.SoundDefault
@@ -352,7 +355,7 @@ func compileH3(seg Segment, m Model, style, acting string, cp *CompileProfile) (
 			roles = append(roles, fill(hp.RoleVoice, "ref", ref, "name", v.Character, "speaker", fmt.Sprintf("S%d", k+1)))
 		}
 		if len(roles) > 0 {
-			body.WriteString("Reference roles: " + strings.Join(roles, "; ") + ".")
+			body.WriteString("Reference roles: " + joinNonEmpty(roles, "; ") + ".")
 			if len(speakers) > 0 {
 				body.WriteString(hp.DeliveryNote)
 			}

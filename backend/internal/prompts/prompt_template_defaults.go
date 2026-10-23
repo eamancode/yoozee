@@ -22,10 +22,10 @@ const legacyStoryboardVideoPromptPreamble = "生成单一连续镜头的视频�
 func defaultPromptDefinitions() []PromptOperationDefinition {
 	return []PromptOperationDefinition{
 		{
-			Operation: OperationChapterAssetsExtract, Label: "章节角色、场景与道具提取", Category: "角色", OutputType: "json", SchemaKey: "chapter-assets/v1",
+			Operation: OperationChapterAssetsExtract, Label: "章节角色、场景与道具提取", Category: "角色", OutputType: "json", SchemaKey: "chapter-assets/v2",
 			Description:    "从章节正文提取角色、实际发生剧情的场景和影响剧情的道具，分别进入资产待确认列表。",
 			Variables:      []PromptTemplateVariable{{Label: "项目名称", Placeholder: "{{项目名称}}"}, {Label: "章节名称", Placeholder: "{{章节名称}}"}, {Label: "项目画风", Placeholder: "{{项目画风}}"}},
-			DefaultContent: `你是短剧资产导演。按章节事实提取角色、场景和道具。同一身份的别名合并，不编造正文未出现的资产；未明确的视觉信息写“正文未明确”。角色包含剧情定位、稳定外貌服装体态、性格、一致性提示、三视图提示及语言、声音年龄、音色。场景描述空间布局、环境和光照；道具描述材质、形状及剧情用途。无对应资产时返回空数组。`,
+			DefaultContent: `你是短剧资产导演。按章节事实提取角色、场景和道具。同一身份的别名合并，不编造正文未出现的资产；未明确的视觉信息写“正文未明确”。角色包含剧情定位、稳定外貌服装体态、性格、一致性提示、三视图提示及语言、声音年龄、音色。场景描述空间布局、环境和光照，并列出人物能站、能走到的锚点；道具描述材质、形状及剧情用途。无对应资产时返回空数组。`,
 		},
 		{
 			Operation: OperationStoryboardPlan, Label: "分镜规划", Category: "分镜", OutputType: "json", SchemaKey: "storyboard-plan/v3",
@@ -131,6 +131,7 @@ func protectedPromptContext(operation string, values map[string]string) string {
 			fmt.Sprintf("【任务】\n从短剧项目《%s》的章节“%s”提取角色、场景和道具。", values["项目名称"], values["章节名称"]),
 			"【项目画风】\n" + values["项目画风"],
 			"【章节正文】\n" + values["章节正文"],
+			"【场景锚点】scenes 每项写 anchors：这个场景里人物能站、能走到的具体位置，3～8 个短名词（如 电梯门前、护士站柜台、楼梯间防火门），分镜站位只用这些名字；正文看不出时只写能确定的几个，不编造正文没有的设施。",
 			"【受保护输出契约】\n" + promptOutputContract(operation),
 		}, "\n\n")
 	case OperationCharacterTurnaround:
@@ -157,7 +158,7 @@ func promptOutputContract(operation string) string {
 	case OperationCharacterExtract:
 		return "服务端固定 JSON Schema character-breakdown/v1（不可由运营模板或用户定制覆盖）：\n" + characterBreakdownJSONSchema
 	case OperationChapterAssetsExtract:
-		return "服务端固定 JSON Schema chapter-assets/v1（不可由运营模板或用户定制覆盖）：\n" + ChapterAssetsJSONSchema
+		return "服务端固定 JSON Schema chapter-assets/v2（不可由运营模板或用户定制覆盖）：\n" + ChapterAssetsJSONSchema
 	case OperationShortDramaOutline:
 		return "服务端固定 JSON Schema short-drama-outline/v1（不可由运营模板或用户定制覆盖）：\n" + shortDramaOutlineJSONSchema + "\n只输出一个 JSON 对象，不要输出 markdown 代码块或其他文字。"
 	case OperationSkillDraft:
@@ -266,7 +267,7 @@ const ChapterAssetsJSONSchema = `{
   "required": ["characters", "scenes", "props"],
   "properties": {
     "characters": {"$ref": "#/$defs/characterBreakdown/properties/characters"},
-    "scenes": {"type": "array", "items": {"$ref": "#/$defs/asset"}},
+    "scenes": {"type": "array", "items": {"$ref": "#/$defs/scene"}},
     "props": {"type": "array", "items": {"$ref": "#/$defs/asset"}}
   },
   "$defs": {
@@ -274,6 +275,14 @@ const ChapterAssetsJSONSchema = `{
       "type": "object", "additionalProperties": false,
       "required": ["name", "description", "prompt"],
       "properties": {"name": {"type": "string"}, "description": {"type": "string"}, "prompt": {"type": "string"}}
+    },
+    "scene": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "description", "prompt", "anchors"],
+      "properties": {
+        "name": {"type": "string"}, "description": {"type": "string"}, "prompt": {"type": "string"},
+        "anchors": {"type": "array", "maxItems": 12, "description": "空间锚点：人物能站、能走到的具体位置，短名词（电梯门前、护士站柜台、楼梯间防火门）", "items": {"type": "string"}}
+      }
     },
     "characterBreakdown": ` + characterBreakdownJSONSchema + `
   }

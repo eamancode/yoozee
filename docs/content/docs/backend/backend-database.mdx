@@ -194,7 +194,7 @@ docker compose -f docker-compose.deploy.yml up -d backend web
 
 | 表 | 用途 | 关键边界 |
 | --- | --- | --- |
-| `projects` | 保存短剧项目基础设置、画幅、画风快照、项目主图和默认图片/视频模型 | `default_image_model` / `default_video_model` 保存前端模型选择器的渠道限定引用；模型下架或渠道停用时前端回退当前全局默认。`cover_resource_id` 只能引用当前用户已就绪的图片资源；资源删除检查会阻止仍被项目主图使用的图片被回收。`generation_model` 是建项目时选定的视频模型族（`kb-dialects/models.json` 的 id），决定一段最长几秒，视频任务按它校验模型族；`auth_mode` 为 `step`（每步确认）或 `full`（全权）；`brief_json` / `bible_json` 保存契约格式的需求文档与连戏表 |
+| `projects` | 保存短剧项目基础设置、画幅、画风快照、项目主图和默认图片/视频模型 | `default_image_model` / `default_video_model` 保存前端模型选择器的渠道限定引用；模型下架或渠道停用时前端回退当前全局默认。`cover_resource_id` 只能引用当前用户已就绪的图片资源；资源删除检查会阻止仍被项目主图使用的图片被回收。`generation_model` 是建项目时选定的视频模型族（`kb-dialects/models.json` 的 id），决定一段最长几秒，视频任务按它校验模型族；`auth_mode` 为 `step`（每步确认）或 `full`（全权）；`brief_json` / `bible_json` 保存契约格式的需求文档与连戏表；`brief_json.episode_seconds` 是每集目标时长（秒，项目设置填，生成分镜提示词与 R-SEG-008 读），`brief_json.style_profile` 可手动指定 yoozee 风格档案（不写按 `style_profile_json` 的画风对照）。都在 JSON 里，不加列 |
 | `project_units` | 保存项目章节或集数的正文、排序和状态 | `word_count` 在正文创建、导入和更新时同步维护，项目详情只返回摘要和字数，不批量返回长篇正文；升级时会为旧正文回填字数 |
 | `assets` / `asset_folders` / `asset_versions` / `project_asset_links` | 保存用户资产、自定义分类、不可变版本及项目引用 | 业务分类统一为 `character`、`environment`、`prop`、`material`、`other`；自定义分类通过用户级 `asset_folders` 与 `assets.folder_id` 表达，不改变业务分类语义 |
 | `project_asset_candidates` | 保存章节或 Agent 提取后等待用户确认的资产候选 | `name_key` 保存规范化名称，`source` 记录提取入口；角色候选只允许来自 `chapter_character_extract` 且必须关联章节，同一项目、分类和规范化名称的待确认候选保持唯一 |
@@ -229,7 +229,7 @@ docker compose -f docker-compose.deploy.yml up -d backend web
 | `GET /api/projects/:id/assets` | 项目资产分页、分类/目录计数，支持分类、媒体类型、目录和关键词筛选 |
 | `GET /api/projects/:id/asset-candidates` | 资产候选分页，支持章节、状态、分类和名称关键词筛选 |
 
-场景/道具提取设定复用 `assets.kind=entity` 与 `asset_versions.definition_json`。绑定真实图片后，同一资产转为 `image`，新版本通过 `asset_representations` 的 `primary` 角色关联资源，旧表现记录不删除。画布引用可匹配该资产的服务端历史图片；不通过客户端 metadata 授权历史资源。此流程不增加表或字段。
+场景/道具提取设定复用 `assets.kind=entity` 与 `asset_versions.definition_json`。场景设定可带 `anchors`（字符串数组，空间锚点）：提取场景时由模型填，资产页可改；改锚点原地更新主版本的 `definition_json`（不影响出图，不建新版本），不加列。绑定真实图片后，同一资产转为 `image`，新版本通过 `asset_representations` 的 `primary` 角色关联资源，旧表现记录不删除。画布引用可匹配该资产的服务端历史图片；不通过客户端 metadata 授权历史资源。此流程不增加表或字段。
 
 旧 `GET /api/projects/:id` 暂时保留给尚未迁移的调用方；短剧工作台页面不得重新依赖该整包接口。
 

@@ -91,10 +91,11 @@ func pyNumber(literal string) string {
 	return literal
 }
 
+// joinNonEmpty 拼片段时跳过空片段（含只有空白的）：编译档案里把某个模板设成空串就是去掉这一片，不会留下「；；」。
 func joinNonEmpty(parts []string, sep string) string {
 	out := parts[:0:0]
 	for _, p := range parts {
-		if p != "" {
+		if strings.TrimSpace(p) != "" {
 			out = append(out, p)
 		}
 	}
@@ -110,16 +111,22 @@ func fightValue(v string) string {
 }
 
 // fightText 把因果动作单元写成一句话：发起 → 路径 → 反应 → 接触 → 力的传递 → 结束姿态。
-func fightText(f *Fight, cp *CompileProfile) string {
+// fightText 把因果动作单元写成一句：发起 → 路径 → 反应 → 接触 → 力的传递 → 结束姿态。
+// 路径已写到目标就不再写「打向」；反应前的「对方」只在目标是镜头里的人物、反应又没自带主语时写；
+// 接触判定与反应、力的传递重复（「擦过」「刀尖擦过袖口」，「没有接触」「无直接接触」）时不写判定。
+func fightText(f *Fight, people []string, cp *CompileProfile) string {
 	ph := cp.Shot
 	initiator, path, target, response := fightValue(f.Initiator), fightValue(f.Path), fightValue(f.Target), fightValue(f.Response)
+	startsWithPerson := func(text string) bool {
+		return text != "" && slices.ContainsFunc(people, func(p string) bool { return p != "" && strings.HasPrefix(text, p) })
+	}
 	var parts []string
 	if initiator != "" {
 		p := fill(ph.FightInitiator, "initiator", initiator)
 		if path != "" {
 			p += fill(ph.FightPath, "path", path)
 		}
-		if target != "" {
+		if target != "" && !strings.Contains(path, target) {
 			p += fill(ph.FightTarget, "target", target)
 		}
 		parts = append(parts, p)
@@ -127,16 +134,20 @@ func fightText(f *Fight, cp *CompileProfile) string {
 		parts = append(parts, path)
 	}
 	if response != "" {
-		if initiator != "" {
+		if initiator != "" && startsWithPerson(target) && !startsWithPerson(response) {
 			parts = append(parts, fill(ph.FightResponse, "response", response))
 		} else {
 			parts = append(parts, response)
 		}
 	}
+	ft := fightValue(f.ForceTransfer)
 	if c, ok := ph.FightContact[f.Contact]; ok {
-		parts = append(parts, c)
+		said := response + ft
+		if !strings.Contains(said, c) && !((f.Contact == "none" || f.Contact == "miss") && strings.Contains(said, "接触")) {
+			parts = append(parts, c)
+		}
 	}
-	if ft := fightValue(f.ForceTransfer); ft != "" {
+	if ft != "" {
 		parts = append(parts, ft)
 	}
 	if ep := fightValue(f.EndPose); ep != "" {
@@ -145,7 +156,29 @@ func fightText(f *Fight, cp *CompileProfile) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return fill(ph.Fight, "parts", strings.Join(parts, "；"))
+	joined := joinNonEmpty(parts, "；")
+	if joined == "" {
+		return ""
+	}
+	return fill(ph.Fight, "parts", joined)
+}
+
+// fightPeople 是一镜里的人物：焦点、站位里的人和发起者（判断打击目标、反应主语是不是人）。
+func fightPeople(sh *Shot) []string {
+	people := []string{}
+	add := func(name string) {
+		if name = strings.TrimSpace(name); name != "" && !slices.Contains(people, name) {
+			people = append(people, name)
+		}
+	}
+	add(sh.Focus)
+	for _, b := range sh.Blocking {
+		add(b.Who)
+	}
+	if sh.Fight != nil {
+		add(sh.Fight.Initiator)
+	}
+	return people
 }
 
 type mergedPhase struct {
@@ -264,7 +297,7 @@ func ExpandArc(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseE
 		parts = append(parts, seg)
 		t += m.dur
 	}
-	text := strings.Join(parts, "；")
+	text := joinNonEmpty(parts, "；")
 	if intensity == "hidden7" {
 		text += cp.Expression.Hidden7Tail
 	}
@@ -451,7 +484,7 @@ func LightFullText(l Light, cp *CompileProfile) string {
 			parts = append(parts, fill(lp.Item, "label", kv[1], "value", kv[0]))
 		}
 	}
-	return strings.Join(parts, "；")
+	return joinNonEmpty(parts, "；")
 }
 
 func positionsText(sh *Shot, cp *CompileProfile) string {
@@ -476,7 +509,7 @@ func positionsText(sh *Shot, cp *CompileProfile) string {
 	if sh.CameraSide != "" {
 		bits = append(bits, fill(ph.PositionCamera, "side", sh.CameraSide))
 	}
-	return strings.Join(bits, "；")
+	return joinNonEmpty(bits, "；")
 }
 
 func dedupeStrings(items []string) []string {
@@ -571,7 +604,7 @@ func motionText(sh *Shot, cp *CompileProfile) string {
 			bits = append(bits, fill(cp.Shot.MotionChange, "from", sh.StartState, "to", sh.EndState))
 		}
 	}
-	return strings.Join(bits, "；")
+	return joinNonEmpty(bits, "；")
 }
 
 func vfxText(v VfxRef, vocab *Vocab, cp *CompileProfile) string {
@@ -602,7 +635,7 @@ func vfxText(v VfxRef, vocab *Vocab, cp *CompileProfile) string {
 	if s := string(v.Seconds); s != "" && s != "0" {
 		seconds = fill(cp.Shot.VfxSeconds, "seconds", pyNumber(s))
 	}
-	return fill(cp.Shot.Vfx, "name", name, "items", strings.Join(bits, "，"), "seconds", seconds)
+	return fill(cp.Shot.Vfx, "name", name, "items", joinNonEmpty(bits, "，"), "seconds", seconds)
 }
 
 // shotText 是一镜的画面句：动作 + 动作模式 + 表情 / 表演 + 状态 + 光 + 灯光七项 + 动作单元 + 流派 + 特效。
@@ -638,7 +671,7 @@ func shotText(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEn
 		text += fill(ph.LightFull, "text", lf)
 	}
 	if sh.Fight.truthy() {
-		text += fightText(sh.Fight, cp)
+		text += fightText(sh.Fight, fightPeople(sh), cp)
 	}
 	if sh.Fight != nil && len(sh.Fight.MartialIDs) > 0 && vocab != nil {
 		var names []string
@@ -1269,7 +1302,8 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		voices = voices[:*lim]
 	}
 	last := shots[len(shots)-1]
-	rules := strings.TrimSpace(last.EndState)
+	// 结束状态末尾的标点去掉再接视线，模板负责收句（不出「。；」）。
+	rules := strings.TrimRight(strings.TrimSpace(last.EndState), "。；;，,！!？? ")
 	var gaze []string
 	for _, b := range last.Blocking {
 		if b.Facing == "" {
@@ -1278,14 +1312,11 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		if gazePrefix.MatchString(b.Facing) {
 			gaze = append(gaze, b.Who+b.Facing)
 		} else {
-			gaze = append(gaze, b.Who+"："+b.Facing)
+			gaze = append(gaze, fill(cp.Segment.GazeToward, "who", b.Who, "target", b.Facing))
 		}
 	}
-	if len(gaze) > 0 {
-		if rules != "" {
-			rules += "；"
-		}
-		rules += fill(cp.Segment.Gaze, "gaze", strings.Join(gaze, "；"))
+	if g := joinNonEmpty(gaze, "；"); g != "" {
+		rules = joinNonEmpty([]string{rules, fill(cp.Segment.Gaze, "gaze", g)}, "；")
 	}
 	if rules != "" {
 		// 这是段末连戏状态，不是开场状态；编译稿放在风格块之后。

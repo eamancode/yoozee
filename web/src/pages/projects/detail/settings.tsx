@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { App, Button, Input, Modal } from "antd";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { App, Button, Input, InputNumber, Modal } from "antd";
 import { useBlocker } from "react-router";
 import { Select } from "@/components/ui/base/select";
 import { Archive, Check, Eye, FolderOpen, Image as ImageIcon, Palette, Pencil, Save, ShieldAlert, Trash2 } from "lucide-react";
@@ -11,13 +11,14 @@ import { ModelPicker } from "@/components/model-picker";
 import { createStyleProfileSnapshot, parseStyleProfile, resolveStyleExecutionPlan, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import { listProjectAssetsPage, updateProject } from "@/services/api/projects";
-import { getDramaProgress, type DramaAuthMode } from "@/services/api/drama";
+import { getDramaBrief, getDramaProgress, putDramaBrief, type DramaAuthMode } from "@/services/api/drama";
 import { uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { modelDisplayName, resolveModelRequestConfig, useEffectiveConfig } from "@/stores/use-config-store";
 
 import type { ProjectDetailViewProps } from "./shared";
 import { DRAMA_AUTH_OPTIONS, dramaModelOptions, findDramaModel, useDramaChannelFamilies, useDramaModels } from "../drama-model";
+import { briefEpisodeSeconds, dramaBriefKey, EPISODE_SECONDS_RANGE, withEpisodeSeconds } from "./drama-brief";
 
 export default function ProjectSettingsView({ detail, refreshProject }: ProjectDetailViewProps) {
     const { message, modal } = App.useApp();
@@ -40,6 +41,13 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     const savedGenerationModel = project.generationModel || dramaModels.data?.default || "";
     const selectedDramaModel = findDramaModel(dramaModels.data, generationModel || savedGenerationModel);
     const dramaProgressQuery = useQuery({ queryKey: ["project", project.id, "drama", "progress"], queryFn: async ({ signal }) => (await getDramaProgress(project.id, signal)).progress });
+    // 每集时长存在需求文档里（不是项目字段）：读需求文档，保存设置时一并写回。
+    const queryClient = useQueryClient();
+    const briefQuery = useQuery({ queryKey: dramaBriefKey(project.id), queryFn: async () => (await getDramaBrief(project.id)).document });
+    const savedEpisodeSeconds = briefEpisodeSeconds(briefQuery.data) ?? null;
+    const [episodeSeconds, setEpisodeSeconds] = useState<number | null>(savedEpisodeSeconds);
+    useEffect(() => { setEpisodeSeconds(savedEpisodeSeconds); }, [savedEpisodeSeconds]);
+    const episodeSecondsDirty = briefQuery.isSuccess && (episodeSeconds ?? null) !== savedEpisodeSeconds;
     const overLimitSegments = selectedDramaModel ? (dramaProgressQuery.data?.segments || []).filter((segment) => segment.durationMs > selectedDramaModel.duration.max * 1000) : [];
     const [styleDetail, setStyleDetail] = useState<CanvasStylePreset | null>(null);
     const [stylePickerOpen, setStylePickerOpen] = useState(false);
@@ -55,7 +63,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     });
     const projectCoverAssets = coverAssetsQuery.data?.assets || [];
     useEffect(() => { setName(project.name); setDescription(project.description || ""); setAspectRatio(project.aspectRatio); setSourceType(project.sourceType); setStylePresetId(project.stylePresetId || ""); setStyleProfileJson(project.styleProfileJson || ""); setDefaultImageModel(project.defaultImageModel || ""); setDefaultVideoModel(project.defaultVideoModel || ""); setGenerationModel(project.generationModel || ""); setAuthMode(project.authMode === "full" ? "full" : "step"); }, [project]);
-    const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || aspectRatio !== project.aspectRatio || sourceType !== project.sourceType || stylePresetId !== (project.stylePresetId || "") || styleProfileJson !== (project.styleProfileJson || "") || defaultImageModel !== (project.defaultImageModel || "") || defaultVideoModel !== (project.defaultVideoModel || "") || (generationModel !== "" && generationModel !== savedGenerationModel) || authMode !== (project.authMode === "full" ? "full" : "step"), [aspectRatio, authMode, defaultImageModel, defaultVideoModel, description, generationModel, name, project, savedGenerationModel, sourceType, stylePresetId, styleProfileJson]);
+    const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || aspectRatio !== project.aspectRatio || sourceType !== project.sourceType || stylePresetId !== (project.stylePresetId || "") || styleProfileJson !== (project.styleProfileJson || "") || defaultImageModel !== (project.defaultImageModel || "") || defaultVideoModel !== (project.defaultVideoModel || "") || (generationModel !== "" && generationModel !== savedGenerationModel) || authMode !== (project.authMode === "full" ? "full" : "step") || episodeSecondsDirty, [aspectRatio, authMode, defaultImageModel, defaultVideoModel, description, episodeSecondsDirty, generationModel, name, project, savedGenerationModel, sourceType, stylePresetId, styleProfileJson]);
     const selectedStyle = useMemo(() => resolveProjectCanvasStyle(stylePresetId, styleProfileJson), [stylePresetId, styleProfileJson]);
     const styleProfile = useMemo(() => parseStyleProfile(styleProfileJson) || selectedStyle?.profile || (selectedStyle ? createStyleProfileSnapshot(selectedStyle) : null), [selectedStyle, styleProfileJson]);
     const enabledStyleAssets = styleProfile?.assets.filter((asset) => asset.enabled !== false) || [];
@@ -106,7 +114,18 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
         for (const [itemId, resourceId] of coverResourceByItemId) coverResourceByItemIdRef.current.set(itemId, resourceId);
     }, [coverResourceByItemId]);
     const currentCoverItemId = coverPickerItems.find((item) => coverResourceByItemId.get(item.id) === project.coverResourceId)?.id;
-    const saveMutation = useMutation({ mutationFn: () => updateProject(project.id, { name: name.trim(), description, aspectRatio, sourceType, stylePresetId, styleProfileJson, defaultImageModel, defaultVideoModel, authMode, ...(generationModel ? { generationModel } : {}) }), onSuccess: () => { refreshProject(); void dramaProgressQuery.refetch(); message.success("项目设置已保存"); }, onError: (error) => message.error(error instanceof Error ? error.message : "项目设置保存失败") });
+    const saveMutation = useMutation({
+        mutationFn: async () => {
+            await updateProject(project.id, { name: name.trim(), description, aspectRatio, sourceType, stylePresetId, styleProfileJson, defaultImageModel, defaultVideoModel, authMode, ...(generationModel ? { generationModel } : {}) });
+            // 项目字段先存：需求文档写回时不带生成模型和授权档位，不会把刚存的项目字段改回去。
+            if (episodeSecondsDirty && briefQuery.data) {
+                const { document } = await putDramaBrief(project.id, withEpisodeSeconds(briefQuery.data, episodeSeconds));
+                queryClient.setQueryData(dramaBriefKey(project.id), document);
+            }
+        },
+        onSuccess: () => { refreshProject(); void dramaProgressQuery.refetch(); message.success("项目设置已保存"); },
+        onError: (error) => message.error(error instanceof Error ? error.message : "项目设置保存失败"),
+    });
     // 选了画风、改了模型却没点「保存设置」就离开，改动会静默丢失；路由跳转和关闭标签页都要先问一句。
     const unsaved = dirty && !saveMutation.isPending;
     const blocker = useBlocker(unsaved);
@@ -153,7 +172,9 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                 <div className="grid gap-4 md:grid-cols-2">
                     <Field label="生成模型"><Select className="w-full" loading={dramaModels.isLoading} value={generationModel || savedGenerationModel || undefined} options={dramaModelOptions(dramaModels.data, dramaFamilies)} onChange={setGenerationModel} /></Field>
                     <Field label="授权档位"><Select className="w-full" value={authMode} options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} onChange={setAuthMode} /></Field>
+                    <Field label="每集时长（秒）"><InputNumber className="w-full" min={EPISODE_SECONDS_RANGE.min} max={EPISODE_SECONDS_RANGE.max} step={10} precision={0} value={episodeSeconds} disabled={!briefQuery.isSuccess} placeholder="不限" onChange={(value) => setEpisodeSeconds(typeof value === "number" ? value : null)} /></Field>
                 </div>
+                <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">每集时长写进生成分镜的提示词（镜头估时合计不超过它的 1.1 倍），保存分镜时按它检查分段合计；不填就不限。</p>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_AUTH_OPTIONS.find((item) => item.value === authMode)?.hint}{selectedDramaModel && !selectedDramaModel.calibrated ? "。该模型档案尚未用真实样片校准，首次使用请先跑一次校准。" : ""}</p>
                 {selectedDramaModel && dramaFamilies && !dramaFamilies.has(selectedDramaModel.id) ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">当前没有 {selectedDramaModel.label} 的视频渠道，分镜制作页无法按这个模型生成视频。请先配置渠道，或改用已有渠道的模型。</div> : null}
                 {overLimitSegments.length ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {selectedDramaModel?.label} 一段 {selectedDramaModel?.duration.max} 秒的上限（{overLimitSegments.slice(0, 6).map((segment) => segment.segmentId || segment.title).join("、")}{overLimitSegments.length > 6 ? " 等" : ""}）。保存后这些段不能生成视频，需要先拆分。</div> : null}

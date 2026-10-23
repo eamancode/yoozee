@@ -208,7 +208,8 @@ export type DramaShotlistView = {
     compileProfile?: DramaCompileProfileRef;
     updatedAt: string;
 };
-export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; notes: string[] };
+/** profile 是这章检查、装段用的风格档案及来由（按项目画风对照）。 */
+export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; notes: string[]; profile?: string };
 
 export function getDramaShotlist(projectId: string, unitId: string, signal?: AbortSignal) {
     return http.get<{ shotlist: DramaShotlistView | null }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist`, { signal });

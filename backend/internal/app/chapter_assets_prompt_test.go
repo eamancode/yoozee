@@ -19,6 +19,8 @@ func TestChapterAssetsPromptContract(t *testing.T) {
 		{`{"characters":[],"scenes":[],"props":[]}`, true},
 		{`{"characters":[]}`, false},
 		{`{"characters":[],"scenes":[{"name":"车站"}],"props":[]}`, false},
+		{`{"characters":[],"scenes":[{"name":"车站","description":"空旷站台","prompt":"夜间站台","anchors":["检票口","站台边缘"]}],"props":[]}`, true},
+		{`{"characters":[],"scenes":[{"name":"车站","description":"空旷站台","prompt":"夜间站台","anchors":"检票口"}],"props":[]}`, false},
 		{`{"characters":[{"name":"张三"}],"scenes":[],"props":[]}`, false},
 	} {
 		err := validatePromptTemplateResult(promptOperationChapterAssetsExtract, map[string]interface{}{"text": tc.text})

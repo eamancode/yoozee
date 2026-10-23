@@ -500,6 +500,11 @@ export function unlinkProjectAsset(projectId: string, assetId: string) {
     return http.delete<{ id: string }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`);
 }
 
+/** 场景资产的空间锚点：原地写进主版本设定的 anchors（不建新版本），分镜提示词和镜头表检查读它。传空数组清空。 */
+export function updateProjectSceneAnchors(projectId: string, assetId: string, anchors: string[], signal?: AbortSignal) {
+    return http.patch<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, { anchors }, { signal });
+}
+
 export function updateProjectAssetCategory(projectId: string, assetId: string, category: AssetCategory, signal?: AbortSignal) {
     return http.patch<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, { category }, { signal });
 }

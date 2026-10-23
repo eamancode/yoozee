@@ -136,7 +136,7 @@ def action_text(sh):
     if pat:
         txt += pat
     if sh.get("fight"):
-        txt += PK.fight_text(sh["fight"])
+        txt += PK.fight_text(sh["fight"], PK.fight_people(sh))
     return txt
 
 

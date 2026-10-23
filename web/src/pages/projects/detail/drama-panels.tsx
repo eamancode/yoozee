@@ -18,11 +18,10 @@ import { dramaAuthLabel } from "../drama-model";
 import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
 import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
 import { editSubShot, mergeWithNext, moveEdgeShot, segmentLacksReferences, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
-import { applyBriefFacts, bibleSummary, BRIEF_FACTS, BRIEF_STATUSES, briefConfirmedCount, briefFactsFromDocument, parseDocumentJson, type BriefFactDraft, type BriefFactKey } from "./drama-brief";
+import { applyBriefFacts, bibleSummary, BRIEF_FACTS, BRIEF_STATUSES, briefConfirmedCount, briefFactsFromDocument, dramaBriefKey, parseDocumentJson, type BriefFactDraft, type BriefFactKey } from "./drama-brief";
 
 export const dramaProgressKey = (projectId: string) => ["project", projectId, "drama", "progress"] as const;
 export const dramaEvidenceKey = (projectId: string) => ["project", projectId, "drama", "evidence"] as const;
-export const dramaBriefKey = (projectId: string) => ["project", projectId, "drama", "brief"] as const;
 export const dramaSegmentsKey = (projectId: string, unitId: string) => ["project", projectId, "drama", "segments", unitId] as const;
 
 export function useDramaProgress(projectId: string) {

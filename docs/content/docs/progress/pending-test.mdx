@@ -5,6 +5,31 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M4.1 第三期：项目画风进视频提示词、每集时长、场景锚点、单场参考、打斗句式
+
+线上复测剩下的问题。设计见 `yoozee-skills/DESIGN-M4.1-线上修复.md` 第 3 节（第 3.4 分镜脚本下载、3.5 按场生成本期不做）。
+
+- 项目画风：`backend/internal/drama/style_map.json` 是柚子画风 → yoozee 风格档案的对照表（真人实拍 → `live-realism`；3D 动漫、3D 卡通、国漫 2D、水墨 → `anime-3d`；自定义画风按标题、标签里的「3D / 动漫 / 真人 / 实拍」等词；都对不上用 `live-realism`），需求文档 `style_profile` 可手动指定。写镜头表的检查、装段按对照出的档案取配额和光线政策，返回的 `profile` 写明用了哪份档案、为什么（生成分镜成功提示里显示）。视频提示词的风格段改用项目画风执行规范（编译档案 `blocks.project_style`：取「视觉媒介」「叙事气质」「项目色彩与光影」三节，合计 ≤ 300 字），档案 `style_block` 只在项目没选画风时兜底。
+- 每集时长：项目设置「短剧生成」加「每集时长（秒）」，存进需求文档 `episode_seconds`；生成分镜的提示词加「【本集时长】本集目标 N 秒，镜头 est 合计不超过 N×1.1 秒」；写镜头表装段后按它查 R-SEG-008（warn），本机 `check.py` 同序读取。
+- 场景锚点：章节资产提取契约升到 `chapter-assets/v2`，场景要写 `anchors`；资产预览里场景多一节「空间锚点」，铅笔按钮编辑（顿号分隔），`PATCH /api/projects/:id/assets/:assetId { anchors }` 原地写主版本设定；生成分镜的资产清单在场景行后带「；锚点：…」，并要求站位只用锚点名；镜头表检查把场标题对上的场景资产锚点当空间图（R-SHOT-012）。
+- 单场参考：段的场景参考只取本段 `spec.scene` 对应的场景资产，一镜写了两个场景以本场为准（一场里走进别的房间的镜头也挂本场场景，要分开请在剧本里另起一场）。
+- 打斗句式与标点（编译档案内置默认 + `pack.py` 同步）：不再出现「没有接触；无直接接触」、目标不是人时的「对方…」、路径已写到目标后的「打向…」、「本段结束时：…。；」、「视线：林小满：电梯门」（改「林小满看向电梯门」）；段末规则统一以「。」收句。编译档案里把片段模板（如 `shot.fight_contact.none`）设成空串即去掉这一片，拼接跳过空片段，不再留「；；」（线上验收档案「去掉没有接触」时 S04、S05 出现过）。黄金对照（`testdata/golden/online-*-pack-*`、`tests/sample/剧本/分段.json`、`tests/expected/storyboard-sample-E01.md`）随之更新，`tests/expected/segment-*` 与 `kb-dialects/models.json` 未动。
+
+自动化覆盖：
+
+- [x] `internal/drama`：`TestProjectStyleBlockTakesListedSectionsWithinLimit`、`TestCompileUsesProjectStyleAsStyleBlock`、`TestStyleMapCoversProjectStylePresets`、`TestEpisodeTargetSecondsAndSegmentTotal`、`TestFightTextAvoidsRepeatsAndStrayDuifang`、`TestSegmentEndRulesReadable`、`TestEmptiedProfilePiecesLeaveNoDoubleSeparators`；`TestOnlineOutputEndToEnd`、`TestPackMatchesPythonSample` 与新黄金逐字一致。
+- [x] `internal/app`：`TestShotlistSegmentKeepsOnlyItsSceneLocation`（on3，第二场段首镜头另写了病房走廊，2.5 / 2.0 每段只有本场一个场景参考，桥也不带别场的）、`TestShotlistSceneAnchorsFeedBlockingCheck`、`TestShotlistSegmentTotalUsesEpisodeSeconds`、`TestProjectDramaContextMapsStyleToProfile`、`TestCompileProjectShotUsesProjectStyle`、`TestUpdateProjectAssetSceneAnchors`、`TestChapterAssetsPromptContract`（anchors）。
+- [x] `yoozee-skills/tests/*.py` 全过（`pack.py`、`check.py`、`storyboard_md.py` 同步改）。
+- [x] 前端 `bun test`：章节分镜提示词（锚点、本集时长）、资产提取解析（anchors）、需求文档每集时长读写。
+- [ ] 浏览器验收（未做）：项目设置填每集时长后保存、刷新仍在；资产预览编辑场景锚点；生成分镜任务的提示词里有【本集时长】和「锚点：」。
+
+仍需线上验收：
+
+- [ ] 「悬疑犯罪·暗黑诡谲·真人实拍」项目重新生成一章，分镜制作页编译出的提示词「整体风格：」后是画风执行规范（视觉媒介、叙事气质、色彩与光影），不再是真人剧档案的风格块。
+- [ ] 七床第二场的段只挂电梯口一个场景参考。
+- [ ] 每集时长设 90 秒时，第一章（约 123 秒）保存后检查里有 R-SEG-008 提醒。
+- [ ] 只存了预设 ID、没有画风快照的老项目：档案按 ID 里的媒介对照，风格段仍用档案 `style_block`（需要在项目设置里重新保存一次画风）。
+
 ## M5 第三项：评测重跑（视频提示词阶段）与重新装段
 
 选一个阶段的候选版本，与基线版本在评测集上各跑一遍，上游复用已存结果、只重跑该阶段和下游，出指标表。本期做视频提示词阶段：已存分镜行 → 检查 → 装段 → 编译，不调模型。生成分段阶段（技能版本）的评测见设计文档第 3 节，后续做。

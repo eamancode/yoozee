@@ -39,9 +39,11 @@ import {
     updateProjectAssetCategory,
     updateProjectAssetFolder,
     updateProjectCharacter,
+    updateProjectSceneAnchors,
     type ProjectAsset,
     type ProjectAssetFolder,
 } from "@/services/api/projects";
+import { sceneAnchorList } from "@/lib/canvas/chapter-asset-breakdown";
 import { listGenerationTasks } from "@/services/api/task-center";
 import { loadAssetsForUse, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { useAssetStore, type Asset, type AssetCategory, type AssetStatus, type EntityAsset, type ImageAsset } from "@/stores/use-asset-store";
@@ -573,7 +575,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     await addMutation.mutateAsync({ ids, nextFolderId: folderId === ALL_FOLDERS ? undefined : folderId });
                 }}
             />
-            <ProjectAssetPreviewModal asset={previewAsset} personalAsset={previewAsset && !previewAsset.visual ? personalAssets.find((item) => item.id === previewAsset.id) : undefined} onClose={() => setPreviewAsset(null)} onDownload={() => previewAsset && downloadPreviewAsset(previewAsset)} onReplaceImage={() => { if (!previewAsset || (!previewAsset.visual && previewAsset.category !== "character")) return; setPreviewAsset(null); openImages(previewAsset); }} />
+            <ProjectAssetPreviewModal projectId={detail.project.id} asset={previewAsset} onAssetUpdated={(next) => { setPreviewAsset(next); void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }); }} personalAsset={previewAsset && !previewAsset.visual ? personalAssets.find((item) => item.id === previewAsset.id) : undefined} onClose={() => setPreviewAsset(null)} onDownload={() => previewAsset && downloadPreviewAsset(previewAsset)} onReplaceImage={() => { if (!previewAsset || (!previewAsset.visual && previewAsset.category !== "character")) return; setPreviewAsset(null); openImages(previewAsset); }} />
             <CharacterEditorModal open={Boolean(editorAsset)} editing={editorAsset !== "new"} form={form} loading={saveCharacter.isPending} onClose={() => setEditorAsset(null)} onSave={() => form.validateFields().then((values) => saveCharacter.mutate(values))} />
             <Modal className="workspace-modal workspace-modal-compact" title={folderEditor?.folder ? "重命名文件夹" : "新建文件夹"} open={Boolean(folderEditor)} okText={folderEditor?.folder ? "保存" : "创建"} cancelText="取消" okButtonProps={{ loading: createFolderMutation.isPending || renameFolderMutation.isPending }} onCancel={() => { setFolderEditor(null); setFolderName(""); }} onOk={saveFolder}>
                 <div className="grid gap-2"><span className="text-[var(--fs-label)] text-foreground/48">位置：{folderEditor ? projectAssetFolderParentLabel(assetFolders, folderEditor.parentId) : ""}</span><Input autoFocus maxLength={60} value={folderName} placeholder="输入文件夹名称" onChange={(event) => setFolderName(event.target.value)} onPressEnter={saveFolder} /></div>
@@ -802,7 +804,7 @@ function ProjectAssetMedia({ asset, personalAsset }: { asset: ProjectAsset; pers
     return <div className="grid h-full place-items-center text-foreground/25"><MediaIcon kind={asset.mediaType} /></div>;
 }
 
-function ProjectAssetPreviewModal({ asset, personalAsset, onClose, onDownload, onReplaceImage }: { asset: ProjectAsset | null; personalAsset?: Asset; onClose: () => void; onDownload: () => void; onReplaceImage: () => void }) {
+function ProjectAssetPreviewModal({ projectId, asset, personalAsset, onClose, onDownload, onReplaceImage, onAssetUpdated }: { projectId: string; asset: ProjectAsset | null; personalAsset?: Asset; onClose: () => void; onDownload: () => void; onReplaceImage: () => void; onAssetUpdated: (asset: ProjectAsset) => void }) {
     const characterCover = projectCharacterCover(asset?.character?.representations);
     const remoteUrl = asset ? projectAssetRemoteUrl(asset) : "";
     const canDownload = Boolean(personalAsset && ["image", "video", "audio", "model"].includes(personalAsset.kind)) || Boolean(characterCover) || Boolean(remoteUrl);
@@ -818,11 +820,35 @@ function ProjectAssetPreviewModal({ asset, personalAsset, onClose, onDownload, o
                     <div className="project-asset-preview-eyebrow">{asset.category === "character" ? "角色卡" : asset.visual ? `${categoryLabel(asset.category)} · ${asset.visual.status === "ready" ? "图片已就绪" : "待生成图片"}` : mediaLabel(asset.mediaType)}</div>
                     <h3 className="project-asset-preview-title">{asset.title}</h3>
                     <p className="project-asset-preview-meta">更新于 {formatTime(asset.updatedAt)}</p>
-                    {asset.visual ? <div className="project-asset-preview-sections"><section><span>资产描述</span><p>{textValue(asset.visual.definition.description) || "未填写"}</p></section><section><span>生图提示词</span><p>{textValue(asset.visual.definition.prompt) || "未填写"}</p></section></div> : null}
+                    {asset.visual ? <div className="project-asset-preview-sections"><section><span>资产描述</span><p>{textValue(asset.visual.definition.description) || "未填写"}</p></section><section><span>生图提示词</span><p>{textValue(asset.visual.definition.prompt) || "未填写"}</p></section>{asset.category === "environment" ? <SceneAnchorsSection key={asset.id} projectId={projectId} asset={asset} onSaved={onAssetUpdated} /> : null}</div> : null}
                     {asset.character ? <div className="project-asset-preview-sections"><section><span>剧情定位</span><p>{textValue(asset.character.definition.role) || "未填写"}</p></section><section><span>外观设定</span><p>{textValue(asset.character.definition.appearance) || textValue(asset.character.definition.consistencyPrompt) || "未填写"}</p></section><div className="project-asset-preview-status">形象：{asset.character.visualStatus === "ready" ? "已绑定" : "待完善"} · 声音：{asset.character.voiceStatus === "ready" ? "已绑定" : "未绑定"}</div></div> : <div className="project-asset-preview-facts"><span>版本 <strong>v{Math.max(1, asset.versionCount)}</strong></span><span>{asset.usages.length} 处引用</span></div>}
                 </aside>
             </div> : null}
         </Modal>
+    );
+}
+
+/** 场景的空间锚点：人物能站、能走到的位置。生成分镜时跟在场景行后，镜头表检查（R-SHOT-012）拿它当空间图。 */
+function SceneAnchorsSection({ projectId, asset, onSaved }: { projectId: string; asset: ProjectAsset; onSaved: (asset: ProjectAsset) => void }) {
+    const { message } = App.useApp();
+    const anchors = sceneAnchorList(asset.visual?.definition.anchors);
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState("");
+    const saveMutation = useMutation({
+        mutationFn: () => updateProjectSceneAnchors(projectId, asset.id, sceneAnchorList(draft)),
+        onSuccess: ({ asset: next }) => { setEditing(false); onSaved(next); message.success("场景锚点已保存"); },
+        onError: (error) => message.error(error instanceof Error ? error.message : "场景锚点保存失败"),
+    });
+    return (
+        <section>
+            <span className="flex items-center justify-between gap-2">空间锚点{editing ? null : <Button type="text" size="small" icon={<Pencil className="size-3.5" />} aria-label={`编辑${asset.title}的空间锚点`} onClick={() => { setDraft(anchors.join("、")); setEditing(true); }} />}</span>
+            {editing ? (
+                <div className="grid gap-2">
+                    <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} value={draft} maxLength={400} placeholder="用顿号分隔，如：电梯门前、护士站柜台、楼梯间防火门" onChange={(event) => setDraft(event.target.value)} />
+                    <div className="flex justify-end gap-2"><Button size="small" onClick={() => setEditing(false)}>取消</Button><Button size="small" type="primary" loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>保存</Button></div>
+                </div>
+            ) : <p>{anchors.length ? anchors.join("、") : "未填写（分镜站位会按镜头文字猜位置）"}</p>}
+        </section>
     );
 }
 

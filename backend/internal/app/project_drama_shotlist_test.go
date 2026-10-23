@@ -245,7 +245,7 @@ func TestShotlistSameNamedScenesKeepTheirOwnCast(t *testing.T) {
 	for _, a := range assets {
 		imaged[a.ID] = true
 	}
-	plan, err := planDramaShotlist(rows, &script, assets, imaged, m, nil)
+	plan, err := planDramaShotlist(rows, &script, assets, imaged, m, nil, dramaProjectContext{})
 	if err != nil {
 		t.Fatalf("on3 应能保存：%v", err)
 	}
@@ -344,7 +344,7 @@ func loadOn3(t *testing.T) ([]shotlistRow, []ProjectAssetSummary, drama.Script) 
 func TestShotlistImagelessAssetsCompileWithoutPictures(t *testing.T) {
 	rows, assets, script := loadOn3(t)
 	m, _ := drama.ModelByID("seedance-2.5")
-	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{}, m, nil)
+	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{}, m, nil, dramaProjectContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestShotlistImagedAndImagelessAssetsMix(t *testing.T) {
 	rows, assets, script := loadOn3(t)
 	m, _ := drama.ModelByID("seedance-2.5")
 	// 只有林小满有三视图：她挂参考，不写声明；其他人写声明；场景、道具都没图。
-	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{"char-1": true}, m, nil)
+	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{"char-1": true}, m, nil, dramaProjectContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,9 +447,9 @@ func TestAttachRefsHintsKeepsOneLocationPerShot(t *testing.T) {
 	for _, sh := range shots {
 		got = append(got, strings.Join(sh.RefsHint, "|"))
 	}
-	want := []string{"病房走廊（夜）", "七床病房（夜）|病历夹", "病房走廊（夜）", "林小满|电梯口（夜）"}
+	want := []string{"病房走廊（夜）", "病房走廊（夜）|病历夹", "病房走廊（夜）", "林小满|电梯口（夜）"}
 	if strings.Join(got, " / ") != strings.Join(want, " / ") {
-		t.Fatalf("一镜只留一个场景，优先本场标题里的地点；一场里换了地方的镜头保留新地方：got %v want %v", got, want)
+		t.Fatalf("一镜只留一个场景，并且只认本场标题里的地点（spec.scene 为准）：got %v want %v", got, want)
 	}
 }
 
@@ -461,7 +461,7 @@ func TestCompileDropsImagelessRefsFromStoredSegments(t *testing.T) {
 	for _, a := range assets {
 		imaged[a.ID] = true // 模拟旧逻辑：所有有主版本的资产都当成有图，装出带参考的段
 	}
-	plan, err := planDramaShotlist(rows, &script, assets, imaged, m, nil)
+	plan, err := planDramaShotlist(rows, &script, assets, imaged, m, nil, dramaProjectContext{})
 	if err != nil {
 		t.Fatal(err)
 	}

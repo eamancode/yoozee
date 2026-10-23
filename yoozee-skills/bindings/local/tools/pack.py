@@ -48,27 +48,41 @@ CONTACT_ZH = {"hit": "命中", "graze": "擦过", "blocked": "被挡下", "miss"
 _NIL = {"", "无", "——", "-", "none", "None"}
 
 
-def fight_text(f):
+def fight_text(f, people=()):
     """因果动作单元写成一句话：发起 → 路径 → 反应 → 接触 → 力的传递 → 结束姿态；空项和「无」不写。
-    纯反应镜 / 空镜（没有发起者）只写接触判定与结束姿态。"""
+    纯反应镜 / 空镜（没有发起者）只写接触判定与结束姿态。路径已写到目标就不写「打向」；
+    「对方」只在目标是镜头里的人物、反应又没自带主语时写；接触判定与反应、力的传递重复时不写判定。"""
     def ok(k):
         v = (f.get(k) or "").strip()
         return v if v not in _NIL else ""
+    person = lambda text: bool(text) and any(p and text.startswith(p) for p in people)
     parts = []
     if ok("initiator"):
-        parts.append(ok("initiator") + "发起" + (f"，{ok('path')}" if ok("path") else "") + (f"，打向{ok('target')}" if ok("target") else ""))
+        parts.append(ok("initiator") + "发起" + (f"，{ok('path')}" if ok("path") else "")
+                     + (f"，打向{ok('target')}" if ok("target") and ok("target") not in ok("path") else ""))
     elif ok("path"):
         parts.append(ok("path"))
     if ok("response"):
-        parts.append("对方" + ok("response") if ok("initiator") else ok("response"))
+        parts.append("对方" + ok("response") if ok("initiator") and person(ok("target")) and not person(ok("response")) else ok("response"))
     c = CONTACT_ZH.get(f.get("contact"))
-    if c:
+    said = ok("response") + ok("force_transfer")
+    if c and c not in said and not (f.get("contact") in ("none", "miss") and "接触" in said):
         parts.append(c)
     if ok("force_transfer"):
         parts.append(ok("force_transfer"))
     if ok("end_pose"):
         parts.append("结束在：" + ok("end_pose"))
     return ("动作：" + "；".join(parts) + "。") if parts else ""
+
+
+def fight_people(sh):
+    """一镜里的人物：焦点、站位里的人和发起者。"""
+    out = []
+    for name in [sh.get("focus")] + [b.get("who") for b in sh.get("blocking", [])] + [(sh.get("fight") or {}).get("initiator")]:
+        name = (name or "").strip()
+        if name and name not in out:
+            out.append(name)
+    return out
 
 
 ARCS = None
@@ -392,7 +406,7 @@ def shot_text(sh, est=None, profile=None, prev_phase_end=None):
         text += lf + "。"
     f = sh.get("fight")
     if f:
-        text += fight_text(f)
+        text += fight_text(f, fight_people(sh))
     if f and f.get("martial_ids"):
         names = [martial_name(i) for i in f["martial_ids"] if martial_name(i)]
         if names:
@@ -706,12 +720,12 @@ def build_segment(seg_id, scene_id, scene, shots, ests, bible, lines_by_id, mode
     if lim.get("audios") is not None:
         voices = voices[:lim["audios"]]
     last = shots[-1]
-    rules = (last.get("end_state") or "").strip()
-    gaze = "；".join(f"{b['who']}{b['facing']}" if re.search(r"^(面向|背对|转|看|正面|被|退|面朝|朝|侧)", b["facing"]) else f"{b['who']}：{b['facing']}" for b in last.get("blocking", []) if b.get("facing"))
+    rules = (last.get("end_state") or "").strip().rstrip("。；;，,！!？? ")  # 末尾标点去掉再接视线，收句由下面统一加
+    gaze = "；".join(f"{b['who']}{b['facing']}" if re.search(r"^(面向|背对|转|看|正面|被|退|面朝|朝|侧)", b["facing"]) else f"{b['who']}看向{b['facing']}" for b in last.get("blocking", []) if b.get("facing"))
     if gaze:
         rules += ("；" if rules else "") + "视线：" + gaze
     if rules:
-        rules = "本段结束时：" + rules  # 这是段末连戏状态，不是开场状态；编译稿放在风格块之后
+        rules = "本段结束时：" + rules + "。"  # 这是段末连戏状态，不是开场状态；编译稿放在风格块之后
     seg = {"id": seg_id, "scene": scene_id, "title": shots[0].get("purpose", "")[:40], "dur": dur, "mode": "lock_identity" if refs else "text_only",
            "shots": seg_shots, "shot_ids": [s["id"] for s in shots], "profile": profile_id}
     jm = jimeng_block(scene, shots, bible, seg_shots)
