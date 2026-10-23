@@ -2,7 +2,7 @@
 // 「检查 → 装段 → 编译」，输出 Markdown 指标表。不连数据库、不调模型；线上项目用后台的 POST /api/admin/drama/eval。
 //
 //	go run ./cmd/drama-eval -fixture internal/drama/testdata/online-qichuang-on3 \
-//	  -chapter internal/drama/testdata/online-qichuang/chapter.md -model seedance-2.5 -candidate candidate.json
+//	  -chapter internal/drama/testdata/online-qichuang/chapter.md -model seedance-2.5 -candidate candidate.json [-imaged all]
 package main
 
 import (
@@ -26,14 +26,15 @@ func main() {
 	candidatePath := flag.String("candidate", "", "候选编译档案 JSON（只写要改的项）；不给时为内置默认")
 	baselinePath := flag.String("baseline", "", "基线编译档案 JSON；不给时为内置默认")
 	jsonOut := flag.String("json", "", "把完整结果（含逐段提示词）写到这个 JSON 文件")
+	imaged := flag.String("imaged", "", "哪些资产有图（能挂参考）：all、逗号分隔的资产 id；不给表示都没图（人物写外貌声明，场景、道具写进镜头描述）")
 	flag.Parse()
-	if err := run(*fixture, *chapter, *title, *modelID, *candidatePath, *baselinePath, *jsonOut); err != nil {
+	if err := run(*fixture, *chapter, *title, *modelID, *candidatePath, *baselinePath, *jsonOut, *imaged); err != nil {
 		fmt.Fprintln(os.Stderr, "drama-eval:", err)
 		os.Exit(1)
 	}
 }
 
-func run(fixture, chapter, title, modelID, candidatePath, baselinePath, jsonOut string) error {
+func run(fixture, chapter, title, modelID, candidatePath, baselinePath, jsonOut, imagedFlag string) error {
 	if fixture == "" {
 		return fmt.Errorf("需要 -fixture 目录")
 	}
@@ -64,7 +65,16 @@ func run(fixture, chapter, title, modelID, candidatePath, baselinePath, jsonOut 
 	if err != nil {
 		return err
 	}
-	input := service.DramaEvalInput{Label: title, Rows: rows, ChapterText: string(text), Title: title, Assets: assets}
+	imaged := map[string]bool{}
+	for _, a := range assets {
+		imaged[a.ID] = imagedFlag == "all"
+	}
+	for _, id := range strings.Split(imagedFlag, ",") {
+		if id = strings.TrimSpace(id); id != "" && id != "all" {
+			imaged[id] = true
+		}
+	}
+	input := service.DramaEvalInput{Label: title, Rows: rows, ChapterText: string(text), Title: title, Assets: assets, Imaged: imaged}
 	result, err := service.EvalDramaCompile([]service.DramaEvalInput{input}, m, candidate, baseline)
 	if err != nil {
 		return err
@@ -98,7 +108,7 @@ func readRows(path string) ([]json.RawMessage, error) {
 	return doc.Rows, nil
 }
 
-// readAssets 读夹具的资产清单（项目资产的 id、标题、分类）；资产主版本写成「id-v1」，与后端用例一致。
+// readAssets 读夹具的资产清单（项目资产的 id、标题、分类、文字设定 prompt）；资产主版本写成「id-v1」，与后端用例一致。
 func readAssets(path string) ([]service.ProjectAssetSummary, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -111,13 +121,14 @@ func readAssets(path string) ([]service.ProjectAssetSummary, error) {
 		ID       string              `json:"id"`
 		Title    string              `json:"title"`
 		Category model.AssetCategory `json:"category"`
+		Prompt   string              `json:"prompt"`
 	}
 	if err := json.Unmarshal(raw, &stub); err != nil {
 		return nil, fmt.Errorf("%s 格式无效: %w", path, err)
 	}
 	out := make([]service.ProjectAssetSummary, 0, len(stub))
 	for _, a := range stub {
-		out = append(out, service.ProjectAssetSummary{ID: a.ID, Title: a.Title, Category: a.Category, PrimaryVersionID: a.ID + "-v1"})
+		out = append(out, service.ProjectAssetSummary{ID: a.ID, Title: a.Title, Category: a.Category, PrimaryVersionID: a.ID + "-v1", PreviewText: a.Prompt})
 	}
 	return out, nil
 }

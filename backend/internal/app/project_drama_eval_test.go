@@ -150,3 +150,52 @@ func TestEvalDramaCompileOnOnlineFixture(t *testing.T) {
 		}
 	}
 }
+
+// 老镜头表（没有分镜行原文）的反推与原文重放逐段一致，包括 #11 的情形：没图的人物写外貌声明、没图的场景写进镜头描述、只有部分资产有图。
+func TestEvalStoredShotlistMatchesRowsReplayWithImagelessAssets(t *testing.T) {
+	rows, assets, script := loadOn3(t)
+	raw, err := os.ReadFile("../drama/testdata/online-qichuang-on3/rows.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Rows []json.RawMessage `json:"rows"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	all := map[string]bool{}
+	for _, a := range assets {
+		all[a.ID] = true
+	}
+	def, _ := drama.DefaultCompileProfile()
+	for name, imaged := range map[string]map[string]bool{"none": {}, "lin": {"char-1": true}, "all": all} {
+		for _, model := range []string{"seedance-2.5", "seedance-2.0", "minimax-h3"} {
+			m, _ := drama.ModelByID(model)
+			stored, err := planDramaShotlist(rows, &script, assets, imaged, m, def)
+			if err != nil {
+				t.Fatal(err)
+			}
+			chapter, _ := os.ReadFile(onlineQichuangDir + "/chapter.md")
+			replay, err := EvalDramaCompile([]DramaEvalInput{{Label: "on3", Rows: doc.Rows, ChapterText: string(chapter), Title: "七床", Assets: assets, Imaged: imaged}}, m, def, def)
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacy, err := EvalDramaCompile([]DramaEvalInput{{Label: "on3", Shotlist: &stored.Shotlist, Segments: stored.Segments, ChapterText: string(chapter), Title: "七床", Assets: assets, Imaged: imaged}}, m, def, def)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if legacy.Rows[0].Source != "shotlist" || len(legacy.Segments) != len(replay.Segments) {
+				t.Fatalf("%s/%s：段数 %d vs %d", name, model, len(legacy.Segments), len(replay.Segments))
+			}
+			for i, seg := range legacy.Segments {
+				if seg.Baseline != replay.Segments[i].Baseline {
+					t.Fatalf("%s/%s %s 反推的提示词与原文重放不一致：\n%s\n----\n%s", name, model, seg.Segment, seg.Baseline, replay.Segments[i].Baseline)
+				}
+				if name == "none" && strings.Contains(seg.Baseline, "@图片") {
+					t.Fatalf("%s/%s %s 没图的资产不该编译成 @图片", name, model, seg.Segment)
+				}
+			}
+		}
+	}
+}

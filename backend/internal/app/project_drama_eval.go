@@ -32,8 +32,10 @@ type DramaEvalInput struct {
 	ChapterText string
 	Title       string
 	Assets      []ProjectAssetSummary
-	Shotlist    *drama.Shotlist
-	Segments    []drama.Segment
+	// Imaged 是有图可挂的资产 ID（见 dramaImagedAssets）：没图的资产不成参考，人物写外貌声明，场景、道具写进镜头描述。
+	Imaged   map[string]bool
+	Shotlist *drama.Shotlist
+	Segments []drama.Segment
 }
 
 // DramaEvalRow 是指标表的一行（一个版本 × 一章）。SpecRate 为 -1 表示没有分镜行原文、算不出来。
@@ -140,14 +142,14 @@ func evalDramaUnit(in DramaEvalInput, m drama.Model, phrases *drama.CompileProfi
 		if rows, err = parseShotlistRows(in.Rows); err != nil {
 			return out, err
 		}
-		plan, err = planDramaShotlist(rows, script, in.Assets, m, phrases)
+		plan, err = planDramaShotlist(rows, script, in.Assets, in.Imaged, m, phrases)
 		out.row.Rows = plan.Stats.Rows
 		if plan.Stats.Rows > 0 {
 			out.row.SpecRate = float64(plan.Stats.Rows-plan.Stats.NoSpec) / float64(plan.Stats.Rows)
 		}
 	} else if in.Shotlist != nil {
 		out.row.Source = "shotlist"
-		plan, err = planStoredDramaShotlist(*in.Shotlist, script, in.Segments, m, phrases)
+		plan, err = planStoredDramaShotlist(*in.Shotlist, script, in.Segments, in.Assets, in.Imaged, m, phrases)
 		out.row.Rows = len(in.Shotlist.Shots)
 	} else {
 		return out, fmt.Errorf("%s 没有镜头表", in.Label)
@@ -201,8 +203,10 @@ func evalDramaUnit(in DramaEvalInput, m drama.Model, phrases *drama.CompileProfi
 	return out, nil
 }
 
-// planStoredDramaShotlist 给没有分镜行原文的老镜头表用：检查已存镜头表，参考绑定从已存段反推（段里每个参考挂回它包含的镜头）。
-func planStoredDramaShotlist(shotlist drama.Shotlist, script *drama.Script, segments []drama.Segment, m drama.Model, phrases *drama.CompileProfile) (dramaShotlistPlan, error) {
+// planStoredDramaShotlist 给没有分镜行原文的老镜头表用：检查已存镜头表，每镜绑定的资产从已存段反推，再走与写镜头表相同的装段。
+// 反推来源：段参考的文件（资产、主版本或人物卡版本）、段的人物声明（没图的人物），以及镜头描述里装段写下的「场景·X：」「道具·X：」（没图的场景、道具）。
+// 人物只挂到这一镜在场（焦点、站位）的镜头上；有图的场景、道具挂到 refs_hint 写了它的镜头（都没写就挂整段）；没图的挂回描述所在的那一镜。
+func planStoredDramaShotlist(shotlist drama.Shotlist, script *drama.Script, segments []drama.Segment, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, phrases *drama.CompileProfile) (dramaShotlistPlan, error) {
 	plan := dramaShotlistPlan{Shotlist: shotlist}
 	ctx, profile, err := dramaCheckContext(script)
 	if err != nil {
@@ -212,59 +216,95 @@ func planStoredDramaShotlist(shotlist drama.Shotlist, script *drama.Script, segm
 	if plan.Report.HasErrors() {
 		return plan, shotlistCheckFailed(plan.Report, plan.Stats)
 	}
-	bible := &drama.Bible{}
-	seen := map[string]bool{}
-	hints := map[string][]string{}
+	byFile := map[string]ProjectAssetSummary{}
+	byTitle := map[string]ProjectAssetSummary{}
+	for _, a := range assets {
+		if a.PrimaryVersionID == "" {
+			continue
+		}
+		byFile[a.ID], byFile[a.PrimaryVersionID] = a, a
+		if a.Character != nil && a.Character.VersionID != "" {
+			byFile[a.Character.VersionID] = a
+		}
+		byTitle[strings.TrimSpace(a.Title)] = a
+	}
+	bound := map[string][]ProjectAssetSummary{}
+	bind := func(shotID string, a ProjectAssetSummary) {
+		if !slices.ContainsFunc(bound[shotID], func(b ProjectAssetSummary) bool { return b.ID == a.ID }) {
+			bound[shotID] = append(bound[shotID], a)
+		}
+	}
+	hinted := map[string]map[string]bool{}
+	for _, sh := range shotlist.Shots {
+		hinted[sh.ID] = map[string]bool{}
+		for _, h := range sh.RefsHint {
+			name, _, _ := strings.Cut(h, "·")
+			hinted[sh.ID][strings.TrimSpace(name)] = true
+		}
+	}
 	for _, seg := range segments {
+		var found []ProjectAssetSummary
 		for _, r := range seg.Refs {
-			name := strings.SplitN(strings.SplitN(r.Note, "，", 2)[0], "（", 2)[0]
-			if name == "" || r.Role == "motion" {
-				continue
+			if a, ok := byFile[r.File]; ok && r.Role != "motion" {
+				found = append(found, a)
 			}
-			if !seen[name] {
-				seen[name] = true
-				switch r.Role {
-				case "identity":
-					bible.Characters = append(bible.Characters, drama.BibleCharacter{Name: name, Variants: []drama.BibleVariant{{Kind: "base", Sheet: r.File}}})
-				case "prop":
-					bible.Props = append(bible.Props, drama.BibleProp{Name: name, Image: r.File})
-				default:
-					bible.Locations = append(bible.Locations, drama.BibleLocation{Name: name, Plate: r.File})
+		}
+		for _, c := range seg.Cast {
+			if a, ok := byTitle[strings.TrimSpace(c.Name)]; ok {
+				found = append(found, a)
+			}
+		}
+		for _, a := range found {
+			// 场景、道具挂到 refs_hint 写了它的镜头（都没写就挂整段），参考的先后顺序跟着镜头走。
+			title := strings.TrimSpace(a.Title)
+			targets := seg.ShotIDs
+			if dramaRefRole(a.Category) != "identity" {
+				if own := slices.DeleteFunc(slices.Clone(seg.ShotIDs), func(id string) bool { return !hinted[id][title] }); len(own) > 0 {
+					targets = own
 				}
 			}
-			for _, id := range seg.ShotIDs {
-				if !slices.Contains(hints[id], name) {
-					hints[id] = append(hints[id], name)
+			for _, id := range targets {
+				bind(id, a)
+			}
+		}
+		// 没图的场景、道具：装段把描述写在段里第一个用到它的镜头上，就挂回那一镜。
+		for _, sub := range seg.Shots {
+			for _, a := range assets {
+				kind := map[string]string{"location": "场景", "prop": "道具"}[dramaRefRole(a.Category)]
+				if kind != "" && sub.ShotID != "" && strings.Contains(sub.Text, kind+"·"+strings.TrimSpace(a.Title)+"：") {
+					bind(sub.ShotID, a)
 				}
 			}
 		}
 	}
 	shots := slices.Clone(shotlist.Shots)
+	rows := make([]shotlistRow, len(shots))
 	for i := range shots {
-		hs := slices.Clone([]string(shots[i].RefsHint))
+		hints := slices.Clone([]string(shots[i].RefsHint))
 		named := map[string]bool{}
-		for _, h := range hs {
-			named[strings.SplitN(h, "·", 2)[0]] = true
+		for _, h := range hints {
+			name, _, _ := strings.Cut(h, "·")
+			named[name] = true
 		}
 		present := map[string]bool{shots[i].Focus: true}
 		for _, b := range shots[i].Blocking {
 			present[b.Who] = true
 		}
-		for _, name := range hints[shots[i].ID] {
-			isCharacter := slices.ContainsFunc(bible.Characters, func(c drama.BibleCharacter) bool { return c.Name == name })
-			if named[name] || (isCharacter && !present[name]) {
+		for _, a := range bound[shots[i].ID] {
+			title := strings.TrimSpace(a.Title)
+			if dramaRefRole(a.Category) == "identity" && !present[title] {
 				continue
 			}
-			named[name] = true
-			hs = append(hs, name)
+			rows[i].AssetBindings = append(rows[i].AssetBindings, drama.RowAssetBinding{NodeID: a.ID})
+			if !named[title] {
+				named[title] = true
+				hints = append(hints, title)
+			}
 		}
-		shots[i].RefsHint = hs
+		shots[i].RefsHint = hints
 	}
-	plan.Segments, plan.Problems = drama.Pack(drama.PackInput{
-		Shotlist: drama.Shotlist{Profile: shotlist.Profile, Episode: shotlist.Episode, Shots: shots},
-		Script:   script, Bible: bible, Model: m, Profile: profile, ProfileID: shotlist.Profile, Vocab: ctx.Vocab,
-		FileExists: func(string) bool { return true }, Phrases: phrases,
-	})
+	// 已存段的参考已经按「一镜一个场景」收过，这里不再收（再收会把段尾换了地方的场景丢掉）。
+	plan.Segments, plan.Problems = packHintedShots(shotlist, shots, rows, script, assets, imaged, m, profile, ctx.Vocab, phrases)
 	return plan, nil
 }
 
@@ -353,9 +393,13 @@ func (s *Service) AdminDramaEval(actor *model.User, req DramaEvalRequest) (*Dram
 	if err != nil {
 		return nil, err
 	}
+	imaged, err := s.dramaImagedAssets(assets)
+	if err != nil {
+		return nil, err
+	}
 	inputs := make([]DramaEvalInput, 0, len(unitIDs))
 	for _, unitID := range unitIDs {
-		in, err := s.dramaEvalInput(project, unitID, assets)
+		in, err := s.dramaEvalInput(project, unitID, assets, imaged)
 		if err != nil {
 			return nil, err
 		}
@@ -410,7 +454,7 @@ func (s *Service) dramaEvalUnits(projectID string, requested []string) ([]string
 	return nil, BadAuthRequest("这个项目还没有镜头表（先在章节里生成分段）")
 }
 
-func (s *Service) dramaEvalInput(project *model.Project, unitID string, assets []ProjectAssetSummary) (DramaEvalInput, error) {
+func (s *Service) dramaEvalInput(project *model.Project, unitID string, assets []ProjectAssetSummary, imaged map[string]bool) (DramaEvalInput, error) {
 	unit, err := s.repo.ProjectUnit(project.ID, unitID)
 	if err != nil {
 		return DramaEvalInput{}, err
@@ -419,7 +463,7 @@ func (s *Service) dramaEvalInput(project *model.Project, unitID string, assets [
 	if err != nil {
 		return DramaEvalInput{}, err
 	}
-	in := DramaEvalInput{Label: unit.Title, ChapterText: chapterPlainText(unit.SourceText), Title: unit.Title, Assets: assets}
+	in := DramaEvalInput{Label: unit.Title, ChapterText: chapterPlainText(unit.SourceText), Title: unit.Title, Assets: assets, Imaged: imaged}
 	if strings.TrimSpace(record.RowsJSON) != "" {
 		if err := json.Unmarshal([]byte(record.RowsJSON), &in.Rows); err != nil {
 			return in, fmt.Errorf("镜头表分镜行原文损坏: %w", err)
