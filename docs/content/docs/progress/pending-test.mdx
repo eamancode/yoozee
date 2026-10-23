@@ -49,6 +49,7 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 - [x] 黄金不变（`go test ./internal/drama/`）：`TestCompileMatchesSkillPackageGoldens`（`tests/expected/segment-*`）、`TestCompile21MatchesSkillPackageGoldens`（`seg25-*`）、`TestPackMatchesPythonSample`、`TestOnlineOutputEndToEnd` 在默认档案下全过。
 - [x] 重构前后逐字对照（本机一次性对照，不入库）：`.local/yoozee-test` 五个测试项目（打斗、分手、科幻、七床、悬疑）× Seedance 2.0 / 2.5 / MiniMax-H3 × 参考图有 / 无，装段 + 编译的 JSON 共 30 份，加首帧模式、音色参考、运镜参考、画外音、非中文台词、H3 参考状态、荷兰角等合成用例 1 份，重构前后逐字节一致。
+- [x] 合入 main 的 #11（没图的资产不进参考、人物改写外貌声明、一镜只留一个场景）后再对照（本机一次性，不入库）：on3 夹具 × Seedance 2.5 / 2.0 / MiniMax-H3 × 资产都没图 / 只有林小满有图 / 都有图，装段、编译、编译兜底（去掉没图的参考）共 9 份，与 main 逐字节一致，含「人物·X」外貌声明和「场景·X：」描述。没图人物的外貌声明条数改取档案 `cast.lock_max`（默认 6，与 #11 一致）。
 - [x] `compile_profile_test.go`：默认档案序列化后严格解析再编译逐字一致（含风格块填满的「解析后默认」）；只改文字不改结构（分秒行数、参考清单、时长不变）；中文风格块覆盖不串到英文块；校验拒绝未知占位符、缺必需占位符、未知字段、`lock_max` 越界、空风险文案、非对象；装段按档案写灯光标签、续段再锚点、人物状态。
 - [x] `internal/app`（本机 cgo sqlite）：`TestDramaCompileProfileVersionsDriveShotlistAndCompile`（默认 v0 装段编译 → 新建并启用 v1 后编译立即换约束句、重新装段换灯光标签、镜头表记 v1、`rows_json` 存原文；只保存的 v2 不生效；启用 v2；回退到内置默认；启用中的不能删、停用后能删；非管理员和坏模板被拒）。
 - [x] 前端：`bun run typecheck`、`eslint`、`bun test test/*drama*`。
