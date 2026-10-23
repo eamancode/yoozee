@@ -113,9 +113,86 @@ func shotlistCheckFailed(report drama.CheckReport, stats drama.RowsStats) error 
 	return err
 }
 
-// dramaShotlistBible 用分镜行绑定的项目资产拼一份最小资产圣经：资产标题即人物 / 场景 / 道具名，文件是资产主版本 ID。
+// dramaAssetDescription 是资产的文字设定（与前端资产清单同一来源）：预览文字，没有就取设定里的描述类字段。
+func dramaAssetDescription(a ProjectAssetSummary) string {
+	if text := strings.Join(strings.Fields(a.PreviewText), " "); text != "" {
+		return text
+	}
+	var definition map[string]any
+	if a.Character != nil {
+		definition = a.Character.Definition
+	} else if a.Visual != nil {
+		definition = a.Visual.Definition
+	}
+	for _, key := range []string{"appearance", "外貌", "外观", "description", "描述", "prompt"} {
+		if text, ok := definition[key].(string); ok && strings.TrimSpace(text) != "" {
+			return strings.Join(strings.Fields(text), " ")
+		}
+	}
+	return ""
+}
+
+var dramaLockSplit = regexp.MustCompile(`[，,；;。、\n]+`)
+
+// dramaLockCard 把文字设定拆成外貌声明的短句，最多 lockMax 条（编译档案 cast.lock_max，默认 6，与 pack.py 的 cast 取 lock_card 前 6 条一致）。
+func dramaLockCard(description string, lockMax int) []string {
+	var out []string
+	for _, part := range dramaLockSplit.Split(description, -1) {
+		if part = strings.TrimSpace(part); part != "" && len(out) < lockMax {
+			out = append(out, string([]rune(part)[:min(40, len([]rune(part)))]))
+		}
+	}
+	return out
+}
+
+// dramaImagedAssets 是有图可挂的资产：资产主版本绑了图片表示（三视图、正面、主图），人物卡有图，或资产本身是上传的图片。
+// 只有它们能成为段的参考（编译成 @图片N）；只有文字设定的人物写外貌声明，场景、道具写进镜头描述。与前端提交视频时取参考图的规则一致。
+func (s *Service) dramaImagedAssets(assets []ProjectAssetSummary) (map[string]bool, error) {
+	versions := make([]string, 0, len(assets))
+	for _, a := range assets {
+		if a.PrimaryVersionID != "" {
+			versions = append(versions, a.PrimaryVersionID)
+		}
+	}
+	representations, err := s.repo.AssetRepresentationsByVersionIDs(versions)
+	if err != nil {
+		return nil, err
+	}
+	imagedVersions := map[string]bool{}
+	for _, r := range representations {
+		if r.ResourceID != "" && strings.HasPrefix(r.MediaType, "image") {
+			imagedVersions[r.AssetVersionID] = true
+		}
+	}
+	out := make(map[string]bool, len(assets))
+	for _, a := range assets {
+		out[a.ID] = dramaAssetHasImage(a, imagedVersions[a.PrimaryVersionID])
+	}
+	return out, nil
+}
+
+func dramaAssetHasImage(a ProjectAssetSummary, versionHasImage bool) bool {
+	if a.PrimaryVersionID == "" {
+		return false
+	}
+	if versionHasImage || (a.MediaType == "image" && strings.TrimSpace(a.StorageKey) != "") {
+		return true
+	}
+	if a.Character != nil {
+		for _, r := range a.Character.Representations {
+			if r.ResourceID != "" && strings.HasPrefix(r.MediaType, "image") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// dramaShotlistBible 用分镜行绑定的项目资产拼一份最小资产圣经：资产标题即人物 / 场景 / 道具名，有图的资产文件是主版本 ID，
 // 镜头 refs_hint 里写的「名称·变体」也挂到同一个版本上，装段按 refs_hint 取参考时就能落到柚子资产。
-func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []ProjectAssetSummary) *drama.Bible {
+// 没图的人物照样进圣经但不给文件，锁定卡取文字设定：装段就不挂参考，改写「人物·X」外貌声明（pack.py 身份图缺失时同样处理）；
+// 没图的场景、道具不进圣经，由 describeTextOnlyAssets 写进镜头描述。
+func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []ProjectAssetSummary, imaged map[string]bool, lockMax int) *drama.Bible {
 	byID := make(map[string]ProjectAssetSummary, len(assets))
 	for _, a := range assets {
 		byID[a.ID] = a
@@ -136,62 +213,205 @@ func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []Project
 			if !ok || a.PrimaryVersionID == "" || added[a.Title] || strings.TrimSpace(a.Title) == "" {
 				continue
 			}
-			added[a.Title] = true
+			file := ""
+			if imaged[a.ID] {
+				file = a.PrimaryVersionID
+			}
 			switch dramaRefRole(a.Category) {
 			case "identity":
-				ch := drama.BibleCharacter{Name: a.Title, Variants: []drama.BibleVariant{{Kind: "base", Sheet: a.PrimaryVersionID}}}
+				lock := dramaLockCard(dramaAssetDescription(a), lockMax)
+				ch := drama.BibleCharacter{Name: a.Title, Variants: []drama.BibleVariant{{Kind: "base", Sheet: file, LockCard: lock}}}
 				for _, v := range variants[a.Title] {
-					ch.Variants = append(ch.Variants, drama.BibleVariant{Label: v, Kind: "state", Sheet: a.PrimaryVersionID})
+					ch.Variants = append(ch.Variants, drama.BibleVariant{Label: v, Kind: "state", Sheet: file, LockCard: lock})
 				}
 				bible.Characters = append(bible.Characters, ch)
 			case "location":
-				bible.Locations = append(bible.Locations, drama.BibleLocation{Name: a.Title, Plate: a.PrimaryVersionID})
+				if file == "" {
+					continue
+				}
+				bible.Locations = append(bible.Locations, drama.BibleLocation{Name: a.Title, Plate: file})
 			case "prop":
-				bible.Props = append(bible.Props, drama.BibleProp{Name: a.Title, Image: a.PrimaryVersionID})
+				if file == "" {
+					continue
+				}
+				bible.Props = append(bible.Props, drama.BibleProp{Name: a.Title, Image: file})
+			default:
+				continue
 			}
+			added[a.Title] = true
 		}
 	}
 	return bible
 }
 
+// describeTextOnlyAssets 把没图的场景、道具写进段里第一个用到它的镜头描述（「场景·电梯口（夜）：…。」），每段每个资产一次。
+func describeTextOnlyAssets(segments []drama.Segment, shots []drama.Shot, assets []ProjectAssetSummary, imaged map[string]bool) {
+	type textAsset struct{ kind, text string }
+	byTitle := map[string]textAsset{}
+	for _, a := range assets {
+		if imaged[a.ID] || strings.TrimSpace(a.Title) == "" {
+			continue
+		}
+		kind := map[string]string{"location": "场景", "prop": "道具"}[dramaRefRole(a.Category)]
+		if desc := dramaAssetDescription(a); kind != "" && desc != "" {
+			byTitle[strings.TrimSpace(a.Title)] = textAsset{kind, string([]rune(desc)[:min(80, len([]rune(desc)))])}
+		}
+	}
+	hintsByShot := make(map[string][]string, len(shots))
+	for _, sh := range shots {
+		hintsByShot[sh.ID] = sh.RefsHint
+	}
+	for si := range segments {
+		described := map[string]bool{}
+		for k := range segments[si].Shots {
+			sub := &segments[si].Shots[k]
+			var add []string
+			for _, hint := range hintsByShot[sub.ShotID] {
+				name, _, _ := strings.Cut(hint, "·")
+				if t, ok := byTitle[name]; ok && !described[name] {
+					described[name] = true
+					add = append(add, t.kind+"·"+name+"："+strings.TrimRight(t.text, "。")+"。")
+				}
+			}
+			if len(add) > 0 {
+				text := strings.TrimSpace(sub.Text)
+				if text != "" && !strings.HasSuffix(text, "。") {
+					text += "。"
+				}
+				sub.Text = text + strings.Join(add, "")
+			}
+		}
+	}
+}
+
+// dramaLocationKey 去掉括注（「电梯口（夜）」→「电梯口」）再比场景名。
+func dramaLocationKey(name string) string {
+	if i := strings.IndexAny(name, "（("); i > 0 {
+		name = name[:i]
+	}
+	return strings.TrimSpace(name)
+}
+
+// sceneOwnLocations 是每场自己的场景资产：剧本场标题（「内·电梯口·夜」）里写的地点能对上资产名就用它，
+// 对不上就取这场镜头里列得最多的场景（平手取先出现的）。
+func sceneOwnLocations(shots []drama.Shot, hints [][]string, isLocation func(string) bool, script *drama.Script) map[string]string {
+	counts := map[string]map[string]int{}
+	order := map[string][]string{}
+	for i, sh := range shots {
+		for _, h := range hints[i] {
+			name, _, _ := strings.Cut(h, "·")
+			if !isLocation(name) {
+				continue
+			}
+			if counts[sh.Scene] == nil {
+				counts[sh.Scene] = map[string]int{}
+			}
+			if counts[sh.Scene][name] == 0 {
+				order[sh.Scene] = append(order[sh.Scene], name)
+			}
+			counts[sh.Scene][name]++
+		}
+	}
+	out := map[string]string{}
+	for scene, names := range order {
+		if script != nil {
+			for _, sc := range script.Scenes {
+				if sc.ID != scene {
+					continue
+				}
+				for _, part := range strings.Split(sc.Heading, "·") {
+					for _, name := range names {
+						if key := dramaLocationKey(name); key != "" && dramaLocationKey(part) == key {
+							out[scene] = name
+						}
+					}
+				}
+			}
+		}
+		if out[scene] != "" {
+			continue
+		}
+		best := names[0]
+		for _, name := range names {
+			if counts[scene][name] > counts[scene][best] {
+				best = name
+			}
+		}
+		out[scene] = best
+	}
+	return out
+}
+
 // attachRefsHints 让每镜的 refs_hint 带上这一行绑定的资产名：模型写的提示保留（「病历夹·掉在地上」进装段的状态句），
-// 绑定了但没写进提示的资产补在后面，装段时一起挂成参考。人物资产只补这一镜真在场的（站位、焦点、分镜行人物里有他），
-// 免得同一场景资产串起来的两场戏互相带人（对话场挂上只在打斗场出现的人）。
-func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAssetSummary) {
+// 绑定了但没写进提示的资产补在后面，装段时一起挂成参考。
+//   - 人物资产只补这一镜真在场的（站位、焦点、分镜行人物里有他），免得同一场景资产串起来的两场戏互相带人。
+//   - 一镜只留一个场景：这一镜列了本场自己的场景（见 sceneOwnLocations）就留它，否则留这一镜列的第一个。
+//     场景参考是整段生成的背景，一镜里顺口提到的别处（电梯口的戏里写到「身后是病房走廊」）不该再挂一张背景图；
+//     一场里真的换了地方（走廊走进病房）的镜头只列新地方，照样挂得上。
+func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAssetSummary, script *drama.Script) {
 	type boundAsset struct {
 		title     string
 		character bool
 	}
 	byID := make(map[string]boundAsset, len(assets))
+	locations := map[string]bool{}
 	for _, a := range assets {
-		if a.PrimaryVersionID != "" {
-			byID[a.ID] = boundAsset{strings.TrimSpace(a.Title), dramaRefRole(a.Category) == "identity"}
+		if a.PrimaryVersionID == "" {
+			continue
+		}
+		title := strings.TrimSpace(a.Title)
+		byID[a.ID] = boundAsset{title, dramaRefRole(a.Category) == "identity"}
+		if dramaRefRole(a.Category) == "location" {
+			locations[title] = true
 		}
 	}
+	all := make([][]string, len(shots))
 	for i := range shots {
-		if i >= len(rows) {
-			break
-		}
 		hints := slices.Clone([]string(shots[i].RefsHint))
-		named := map[string]bool{}
-		for _, h := range hints {
+		if i < len(rows) {
+			named := map[string]bool{}
+			for _, h := range hints {
+				name, _, _ := strings.Cut(h, "·")
+				named[name] = true
+			}
+			present := map[string]bool{shots[i].Focus: true}
+			for _, b := range shots[i].Blocking {
+				present[b.Who] = true
+			}
+			for _, c := range rows[i].Characters {
+				present[strings.TrimSpace(c.CharacterName)] = true
+			}
+			for _, id := range rows[i].assetIDs() {
+				a := byID[id]
+				if a.title == "" || named[a.title] || (a.character && !present[a.title]) {
+					continue
+				}
+				named[a.title] = true
+				hints = append(hints, a.title)
+			}
+		}
+		all[i] = hints
+	}
+	isLocation := func(name string) bool { return locations[name] }
+	own := sceneOwnLocations(shots, all, isLocation, script)
+	for i := range shots {
+		keep := ""
+		for _, h := range all[i] {
 			name, _, _ := strings.Cut(h, "·")
-			named[name] = true
-		}
-		present := map[string]bool{shots[i].Focus: true}
-		for _, b := range shots[i].Blocking {
-			present[b.Who] = true
-		}
-		for _, c := range rows[i].Characters {
-			present[strings.TrimSpace(c.CharacterName)] = true
-		}
-		for _, id := range rows[i].assetIDs() {
-			a := byID[id]
-			if a.title == "" || named[a.title] || (a.character && !present[a.title]) {
+			if !isLocation(name) {
 				continue
 			}
-			named[a.title] = true
-			hints = append(hints, a.title)
+			if keep == "" || name == own[shots[i].Scene] {
+				keep = name
+			}
+		}
+		hints := all[i][:0:0]
+		for _, h := range all[i] {
+			name, _, _ := strings.Cut(h, "·")
+			if isLocation(name) && name != keep {
+				continue
+			}
+			hints = append(hints, h)
 		}
 		shots[i].RefsHint = hints
 	}
@@ -270,7 +490,11 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	plan, err := planDramaShotlist(rows, script, assets, m, phrases)
+	imaged, err := s.dramaImagedAssets(assets)
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
+	plan, err := planDramaShotlist(rows, script, assets, imaged, m, phrases)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
@@ -337,7 +561,13 @@ type dramaShotlistPlan struct {
 
 // planDramaShotlist 是写镜头表不碰数据库的部分：分镜行 → 镜头表 → 检查（有 error 返回 shotlist_check_failed）→ 按场装段。
 // 场按镜头表的 scene（E01S01…）分，不按绑定的场景资产分：两场戏用同一个场景资产时各装各的段，参考取各自镜头。
-func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, m drama.Model, phrases *drama.CompileProfile) (dramaShotlistPlan, error) {
+func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, phrases *drama.CompileProfile) (dramaShotlistPlan, error) {
+	if phrases == nil {
+		var err error
+		if phrases, err = drama.DefaultCompileProfile(); err != nil {
+			return dramaShotlistPlan{}, err
+		}
+	}
 	storyRows := make([]drama.StoryboardRow, 0, len(rows))
 	for _, row := range rows {
 		storyRows = append(storyRows, row.StoryboardRow)
@@ -354,13 +584,14 @@ func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []Projec
 		return plan, shotlistCheckFailed(plan.Report, converted.Stats)
 	}
 	packShots := slices.Clone(plan.Shotlist.Shots)
-	attachRefsHints(packShots, rows, assets)
-	bible := dramaShotlistBible(packShots, rows, assets)
+	attachRefsHints(packShots, rows, assets, script)
+	bible := dramaShotlistBible(packShots, rows, assets, imaged, phrases.Cast.LockMax)
 	plan.Segments, plan.Problems = drama.Pack(drama.PackInput{
 		Shotlist: drama.Shotlist{Profile: plan.Shotlist.Profile, Episode: plan.Shotlist.Episode, Shots: packShots},
 		Script:   script, Bible: bible, Model: m, Profile: profile, ProfileID: plan.Shotlist.Profile, Vocab: ctx.Vocab,
 		FileExists: func(string) bool { return true }, Phrases: phrases,
 	})
+	describeTextOnlyAssets(plan.Segments, packShots, assets, imaged)
 	return plan, nil
 }
 
@@ -443,4 +674,91 @@ func (s *Service) DramaShotlist(userID string, projectID string, unitID string) 
 		_ = json.Unmarshal([]byte(record.CheckJSON), &view.Check)
 	}
 	return view, nil
+}
+
+// dramaRefAsset 是段参考文件对应的项目资产：known=false 表示认不出（Agent 手写的文件名等），这种参考原样保留。
+type dramaRefAsset struct {
+	asset    ProjectAssetSummary
+	known    bool
+	hasImage bool
+}
+
+// dropImagelessRefs 去掉段里指向没图资产的参考：编译成「@图片N」却没有文件，提交时会缺图或错号。
+// 去掉的人物改写「人物·X」外貌声明（文字设定拆成短句），场景、道具只靠镜头文字；一张参考都不剩时改成 text_only。
+// 镜头表装段已经不会挂没图的资产，这里兜住旧段、前端装段和 Agent 写的段。
+func dropImagelessRefs(seg drama.Segment, lookup func(file string) dramaRefAsset, lockMax int) (drama.Segment, []drama.Issue) {
+	var issues []drama.Issue
+	var kept []drama.Ref
+	dropped := map[string]bool{}
+	for _, r := range seg.Refs {
+		info := lookup(r.File)
+		if !info.known || info.hasImage || r.Role == "motion" {
+			kept = append(kept, r)
+			continue
+		}
+		dropped[r.File] = true
+		title := firstNonEmpty(strings.TrimSpace(info.asset.Title), r.File)
+		if r.Role == "identity" {
+			lock := dramaLockCard(dramaAssetDescription(info.asset), lockMax)
+			if len(lock) > 0 && !slices.ContainsFunc(seg.Cast, func(c drama.CastLine) bool { return c.Name == title }) {
+				seg.Cast = append(seg.Cast, drama.CastLine{Name: title, Lock: lock})
+			}
+			issues = append(issues, drama.Issue{Level: "warn", Message: fmt.Sprintf("%s 的人物「%s」还没有图，按文字外貌声明生成", seg.ID, title)})
+		} else {
+			issues = append(issues, drama.Issue{Level: "warn", Message: fmt.Sprintf("%s 的「%s」还没有图，不挂参考，只按镜头文字生成", seg.ID, title)})
+		}
+	}
+	if len(dropped) == 0 {
+		return seg, nil
+	}
+	seg.Refs = kept
+	if b := seg.ContinuityBridge; b != nil {
+		bridge := *b
+		bridge.SharedRefs = slices.DeleteFunc(slices.Clone(bridge.SharedRefs), func(f string) bool { return dropped[f] })
+		seg.ContinuityBridge = &bridge
+	}
+	if seg.Mode == drama.ModeLockIdentity && len(seg.Refs) == 0 && len(seg.Voices) == 0 {
+		seg.Mode = drama.ModeTextOnly
+	}
+	return seg, issues
+}
+
+// dramaRefLookup 按资产 ID、主版本 ID 或人物卡版本 ID 认出段参考指向的项目资产，并判断这个版本有没有图。
+func (s *Service) dramaRefLookup(userID string, projectID string, seg drama.Segment) (func(string) dramaRefAsset, error) {
+	assets, err := s.ProjectAssets(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	byFile := map[string]ProjectAssetSummary{}
+	versions := []string{}
+	for _, a := range assets {
+		byFile[a.ID] = a
+		if a.PrimaryVersionID != "" {
+			byFile[a.PrimaryVersionID] = a
+			versions = append(versions, a.PrimaryVersionID)
+		}
+		if a.Character != nil && a.Character.VersionID != "" {
+			byFile[a.Character.VersionID] = a
+		}
+	}
+	for _, r := range seg.Refs {
+		versions = append(versions, r.File)
+	}
+	representations, err := s.repo.AssetRepresentationsByVersionIDs(versions)
+	if err != nil {
+		return nil, err
+	}
+	imagedVersions := map[string]bool{}
+	for _, r := range representations {
+		if r.ResourceID != "" && strings.HasPrefix(r.MediaType, "image") {
+			imagedVersions[r.AssetVersionID] = true
+		}
+	}
+	return func(file string) dramaRefAsset {
+		a, ok := byFile[file]
+		if !ok {
+			return dramaRefAsset{}
+		}
+		return dramaRefAsset{asset: a, known: true, hasImage: imagedVersions[file] || dramaAssetHasImage(a, imagedVersions[a.PrimaryVersionID])}
+	}, nil
 }

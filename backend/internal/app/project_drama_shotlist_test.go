@@ -35,11 +35,11 @@ func TestShotlistRefsResolveToBoundProjectAssets(t *testing.T) {
 	}
 	rows := []shotlistRow{{StoryboardRow: drama.StoryboardRow{AssetBindings: []drama.RowAssetBinding{{NodeID: "char-1"}, {NodeID: "loc-1"}, {NodeID: "prop-1"}, {NodeID: "draft-1"}}}}}
 	shots := []drama.Shot{{ID: "E01S01-01", Scene: "E01S01", Subject: "person", Size: "全景", Cam: drama.Cam{Z: "Z7", Y: "Y4", X: "X2"}, Move: []string{"fixed"}, Action: "林小满走来", RefsHint: []string{"林小满·夜班", "病历夹·夹在腋下", "七床门牌"}, StartState: "a", EndState: "b"}}
-	attachRefsHints(shots, rows, assets)
+	attachRefsHints(shots, rows, assets, nil)
 	if got := strings.Join(shots[0].RefsHint, "|"); got != "林小满·夜班|病历夹·夹在腋下|七床门牌|病房走廊" {
 		t.Fatalf("模型写的 refs_hint 保留，绑定了但没写的资产补在后面：%s", got)
 	}
-	bible := dramaShotlistBible(shots, rows, assets)
+	bible := dramaShotlistBible(shots, rows, assets, map[string]bool{"char-1": true, "loc-1": true, "prop-1": true}, 6)
 	m, _ := drama.ModelByID("seedance-2.5")
 	segs, problems := drama.Pack(drama.PackInput{Shotlist: drama.Shotlist{Profile: "live-realism", Shots: shots}, Bible: bible, Model: m, ProfileID: "live-realism", FileExists: func(string) bool { return true }})
 	if len(problems) > 0 || len(segs) != 1 {
@@ -122,6 +122,10 @@ func TestWriteDramaShotlistChecksPacksAndStores(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// 只有林小满有三视图；周岸、病房走廊只有文字设定，不能成参考。
+	if err := db.Create(&model.AssetRepresentation{ID: newID(), AssetVersionID: "char-1-v1", ResourceID: "res-char-1", MediaType: "image", Role: "turnaround_sheet", MetadataJSON: "{}", CreatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
 	rows := loadOnlineRowsRaw(t)
 	result, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows})
 	if err != nil {
@@ -139,6 +143,13 @@ func TestWriteDramaShotlistChecksPacksAndStores(t *testing.T) {
 	}
 	if len(first.Spec.Refs) == 0 || first.Spec.Refs[0].File != "char-1-v1" {
 		t.Fatalf("参考取分镜行绑定的项目资产：%+v", first.Spec.Refs)
+	}
+	for _, view := range result.Segments {
+		for _, r := range view.Spec.Refs {
+			if r.File != "char-1-v1" {
+				t.Fatalf("%s 挂了没有图的资产 %s：%+v", view.Spec.ID, r.File, view.Spec.Refs)
+			}
+		}
 	}
 	compiled, err := service.CompileProjectShot("user-1", project.ID, first.ShotID, CompileProjectShotRequest{})
 	if err != nil || drama.HasError(compiled.Result.Issues) || !strings.Contains(compiled.Result.Prompt, "灯光只用场景内实际存在的光源") {
@@ -230,7 +241,11 @@ func TestShotlistSameNamedScenesKeepTheirOwnCast(t *testing.T) {
 		t.Fatalf("夹具前提：第二、三场同名，得到 %q / %q", script.Scenes[1].Heading, script.Scenes[2].Heading)
 	}
 	m, _ := drama.ModelByID("seedance-2.5")
-	plan, err := planDramaShotlist(rows, &script, assets, m, nil)
+	imaged := map[string]bool{}
+	for _, a := range assets {
+		imaged[a.ID] = true
+	}
+	plan, err := planDramaShotlist(rows, &script, assets, imaged, m, nil)
 	if err != nil {
 		t.Fatalf("on3 应能保存：%v", err)
 	}
@@ -271,14 +286,224 @@ func TestAttachRefsHintsSkipsBoundCharacterNotInShot(t *testing.T) {
 	}
 	rows := []shotlistRow{{StoryboardRow: drama.StoryboardRow{AssetBindings: []drama.RowAssetBinding{{NodeID: "char-3"}, {NodeID: "loc-2"}}}}}
 	shots := []drama.Shot{{ID: "E01S02-03", Focus: "林小满", Blocking: []drama.Blocking{{Who: "林小满", At: "电梯口"}}}}
-	attachRefsHints(shots, rows, assets)
+	attachRefsHints(shots, rows, assets, nil)
 	if got := strings.Join(shots[0].RefsHint, "|"); got != "电梯口" {
 		t.Fatalf("绑定了但这一镜不在场的人物不挂，场景照挂：%s", got)
 	}
 	shots[0].Blocking = append(shots[0].Blocking, drama.Blocking{Who: "阿坤", At: "楼梯间"})
 	shots[0].RefsHint = nil
-	attachRefsHints(shots, rows, assets)
+	attachRefsHints(shots, rows, assets, nil)
 	if got := strings.Join(shots[0].RefsHint, "|"); got != "阿坤|电梯口" {
 		t.Fatalf("站位里有他就挂：%s", got)
+	}
+}
+
+func loadOn3(t *testing.T) ([]shotlistRow, []ProjectAssetSummary, drama.Script) {
+	t.Helper()
+	const dir = "../drama/testdata/online-qichuang-on3"
+	var doc struct {
+		Rows []json.RawMessage `json:"rows"`
+	}
+	raw, err := os.ReadFile(dir + "/rows.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := parseShotlistRows(doc.Rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stub []struct {
+		ID       string              `json:"id"`
+		Title    string              `json:"title"`
+		Category model.AssetCategory `json:"category"`
+		Prompt   string              `json:"prompt"`
+	}
+	if raw, err = os.ReadFile(dir + "/assets.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &stub); err != nil {
+		t.Fatal(err)
+	}
+	assets := make([]ProjectAssetSummary, 0, len(stub))
+	for _, a := range stub {
+		// 线上实测的资产都是只有文字设定的实体（mediaType entity）：有主版本、没有图。
+		assets = append(assets, ProjectAssetSummary{ID: a.ID, Title: a.Title, Category: a.Category, MediaType: "entity", PrimaryVersionID: a.ID + "-v1", PreviewText: a.Prompt})
+	}
+	body, err := os.ReadFile(onlineQichuangDir + "/chapter.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows, assets, drama.ScriptFromText(string(body), "七床")
+}
+
+// 线上复测：资产都只有文字设定时，段参考里不能有它们（编译出 @图片N 却没有文件，提交会错号或缺文件）；
+// 人物改写「人物·X」外貌声明，场景、道具写进镜头描述，段是 text_only。
+func TestShotlistImagelessAssetsCompileWithoutPictures(t *testing.T) {
+	rows, assets, script := loadOn3(t)
+	m, _ := drama.ModelByID("seedance-2.5")
+	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{}, m, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := drama.BuiltinProfile(drama.DefaultProfileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	declared, described := 0, 0
+	for _, seg := range plan.Segments {
+		if len(seg.Refs) != 0 || seg.Mode != drama.ModeTextOnly {
+			t.Fatalf("%s 没图的资产不该成参考：mode=%s refs=%+v", seg.ID, seg.Mode, seg.Refs)
+		}
+		if seg.ContinuityBridge != nil && len(seg.ContinuityBridge.SharedRefs) != 0 {
+			t.Fatalf("%s 的一致性桥不该带参考：%+v", seg.ID, seg.ContinuityBridge)
+		}
+		input, err := dramaSegmentShotInput(seg, map[string]shotlistRow{})
+		if err != nil || len(input.AssetVersionIDs) != 0 {
+			t.Fatalf("%s 段镜头不绑没图的资产版本：%v %v", seg.ID, err, input.AssetVersionIDs)
+		}
+		res, err := drama.CompileWithProfile(seg, m, nil, nil, profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(res.Prompt, "@图片") || len(res.Files) != 0 {
+			t.Fatalf("%s 编译稿不该有 @图片：%v", seg.ID, res.Files)
+		}
+		if len(seg.Cast) == 0 {
+			t.Fatalf("%s 有人物在场却没有外貌声明", seg.ID)
+		}
+		for _, c := range seg.Cast {
+			if !strings.Contains(res.Prompt, "人物·"+c.Name+"：") {
+				t.Fatalf("%s 编译稿缺「人物·%s」声明", seg.ID, c.Name)
+			}
+			declared++
+		}
+		if strings.Contains(res.Prompt, "人物外貌全程与开头的人物声明一致") {
+			described++
+		}
+		if seg.Scene == "E01S02" || seg.Scene == "E01S01" {
+			for _, c := range seg.Cast {
+				if c.Name == "阿坤" {
+					t.Fatalf("%s 阿坤出场前的段不该声明阿坤", seg.ID)
+				}
+			}
+		}
+	}
+	if declared == 0 || described != len(plan.Segments) {
+		t.Fatalf("每段都应写人物声明并改用声明约束：%d %d/%d", declared, described, len(plan.Segments))
+	}
+	var allText strings.Builder
+	for _, seg := range plan.Segments {
+		for _, sh := range seg.Shots {
+			allText.WriteString(sh.Text)
+		}
+	}
+	for _, want := range []string{"场景·电梯口：", "场景·病房走廊："} {
+		if !strings.Contains(allText.String(), want) {
+			t.Fatalf("没图的场景、道具应写进镜头描述：缺「%s」", want)
+		}
+	}
+}
+
+func TestShotlistImagedAndImagelessAssetsMix(t *testing.T) {
+	rows, assets, script := loadOn3(t)
+	m, _ := drama.ModelByID("seedance-2.5")
+	// 只有林小满有三视图：她挂参考，不写声明；其他人写声明；场景、道具都没图。
+	plan, err := planDramaShotlist(rows, &script, assets, map[string]bool{"char-1": true}, m, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, seg := range plan.Segments {
+		for _, r := range seg.Refs {
+			if r.File != "char-1-v1" {
+				t.Fatalf("%s 只有林小满有图，却挂了 %s", seg.ID, r.File)
+			}
+		}
+		for _, c := range seg.Cast {
+			if c.Name == "林小满" {
+				t.Fatalf("%s 有参考图的林小满不该再写外貌声明", seg.ID)
+			}
+		}
+	}
+}
+
+func TestAttachRefsHintsKeepsOneLocationPerShot(t *testing.T) {
+	assets := []ProjectAssetSummary{
+		{ID: "loc-1", Title: "病房走廊（夜）", Category: model.AssetCategoryEnvironment, PrimaryVersionID: "loc-1-v1"},
+		{ID: "loc-2", Title: "电梯口（夜）", Category: model.AssetCategoryEnvironment, PrimaryVersionID: "loc-2-v1"},
+		{ID: "loc-3", Title: "七床病房（夜）", Category: model.AssetCategoryEnvironment, PrimaryVersionID: "loc-3-v1"},
+	}
+	script := &drama.Script{Scenes: []drama.ScriptScene{{ID: "E01S01", Heading: "内·病房走廊·夜"}, {ID: "E01S02", Heading: "内·电梯口·夜"}}}
+	shots := []drama.Shot{
+		{ID: "E01S01-01", Scene: "E01S01", RefsHint: []string{"病房走廊（夜）"}},
+		{ID: "E01S01-05", Scene: "E01S01", RefsHint: []string{"七床病房（夜）", "病历夹"}},
+		{ID: "E01S01-11", Scene: "E01S01", RefsHint: []string{"七床病房（夜）", "病房走廊（夜）"}},
+		{ID: "E01S02-03", Scene: "E01S02", RefsHint: []string{"林小满", "病房走廊（夜）", "电梯口（夜）"}},
+	}
+	attachRefsHints(shots, nil, assets, script)
+	got := []string{}
+	for _, sh := range shots {
+		got = append(got, strings.Join(sh.RefsHint, "|"))
+	}
+	want := []string{"病房走廊（夜）", "七床病房（夜）|病历夹", "病房走廊（夜）", "林小满|电梯口（夜）"}
+	if strings.Join(got, " / ") != strings.Join(want, " / ") {
+		t.Fatalf("一镜只留一个场景，优先本场标题里的地点；一场里换了地方的镜头保留新地方：got %v want %v", got, want)
+	}
+}
+
+// 线上已存的段（第二期上线时装出的）参考全指向没图的资产：编译时兜住，不出 @图片，人物改写声明。
+func TestCompileDropsImagelessRefsFromStoredSegments(t *testing.T) {
+	rows, assets, script := loadOn3(t)
+	m, _ := drama.ModelByID("seedance-2.5")
+	imaged := map[string]bool{}
+	for _, a := range assets {
+		imaged[a.ID] = true // 模拟旧逻辑：所有有主版本的资产都当成有图，装出带参考的段
+	}
+	plan, err := planDramaShotlist(rows, &script, assets, imaged, m, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byFile := map[string]ProjectAssetSummary{}
+	for _, a := range assets {
+		byFile[a.PrimaryVersionID] = a
+	}
+	lookup := func(file string) dramaRefAsset {
+		a, ok := byFile[file]
+		return dramaRefAsset{asset: a, known: ok, hasImage: false}
+	}
+	profile, _ := drama.BuiltinProfile(drama.DefaultProfileID)
+	for _, stored := range plan.Segments {
+		if len(stored.Refs) == 0 {
+			t.Fatalf("%s 夹具前提：旧段带参考", stored.ID)
+		}
+		seg, issues := dropImagelessRefs(stored, lookup, 6)
+		if len(seg.Refs) != 0 || seg.Mode != drama.ModeTextOnly || len(issues) == 0 {
+			t.Fatalf("%s 去掉没图的参考后应是 text_only：%+v %v", seg.ID, seg.Refs, issues)
+		}
+		if b := seg.ContinuityBridge; b != nil && len(b.SharedRefs) != 0 {
+			t.Fatalf("%s 桥里也去掉没图的参考：%v", seg.ID, b.SharedRefs)
+		}
+		res, err := drama.CompileWithProfile(seg, m, nil, nil, profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(res.Prompt, "@图片") || len(res.Files) != 0 {
+			t.Fatalf("%s 编译稿不该有 @图片：%v", seg.ID, res.Files)
+		}
+		for _, r := range stored.Refs {
+			if r.Role == "identity" && !strings.Contains(res.Prompt, "人物·"+byFile[r.File].Title+"：") {
+				t.Fatalf("%s 去掉的人物参考「%s」应改写外貌声明", seg.ID, byFile[r.File].Title)
+			}
+		}
+	}
+	// 有图的、认不出的参考原样保留
+	seg := drama.Segment{ID: "S01", Scene: "E01S01", Dur: 5, Mode: drama.ModeLockIdentity, Shots: []drama.SubShot{{At: 0, Text: "x"}}, Refs: []drama.Ref{{File: "has-image", Role: "identity"}, {File: "agent-file", Role: "location"}}}
+	kept, issues := dropImagelessRefs(seg, func(file string) dramaRefAsset {
+		return dramaRefAsset{known: file == "has-image", hasImage: true}
+	}, 6)
+	if len(kept.Refs) != 2 || kept.Mode != drama.ModeLockIdentity || issues != nil {
+		t.Fatalf("有图和认不出的参考不动：%+v %v", kept, issues)
 	}
 }
