@@ -181,6 +181,11 @@ func retryableVideoPollError(ctx context.Context, err error) (retry bool, notFou
 	if errors.As(err, &downloadError) {
 		return false, false
 	}
+	// 保存阶段失败由任务级恢复按检查点退避；在轮询循环里重查会重建检查点、绕过次数限制。
+	var deliveryFailure *mediaRecoveryError
+	if errors.As(err, &deliveryFailure) {
+		return false, false
+	}
 	if code, _ := ChannelSlotFailureDetails(err); code != "" {
 		return true, false
 	}

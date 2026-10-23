@@ -12,7 +12,9 @@ import (
 	"yingce/backend/internal/model"
 )
 
-// A deleted canvas/project must not be resurrected by an old download worker.
+// mediaTaskProject 解析作品登记的项目归属。规则与创建任务时的 ensureTaskProjectActive 一致：
+// 只在浏览器缓存、尚未同步到服务端的画布也能创建任务，找不到画布或项目时按无项目归属保存到
+// 用户名下，不重建已删除的画布或项目；上游已生成并计费的作品不能因此丢弃。归档项目仍然拒绝。
 func (s *Service) mediaTaskProject(task *model.Task) (string, error) {
 	id := task.ProjectID
 	if id == "" {
@@ -29,7 +31,7 @@ func (s *Service) mediaTaskProject(task *model.Task) (string, error) {
 	}
 	project, err := s.repo.ProjectForUser(task.UserID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return "", NotFound("任务所属画布或项目已不存在")
+		return "", nil
 	}
 	if err != nil {
 		return "", err

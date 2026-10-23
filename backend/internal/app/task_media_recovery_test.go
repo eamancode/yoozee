@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,12 @@ func newMediaRecoveryTestService(t *testing.T) (*Service, *gorm.DB) {
 	if err := database.MigrateSchema(db); err != nil {
 		t.Fatal(err)
 	}
-	return &Service{repo: repository.New(db), dataDir: t.TempDir(), activeCancels: make(map[string]context.CancelFunc)}, db
+	dataDir := t.TempDir()
+	// 预置加密密钥：这里测保存恢复而不是密钥发布，Windows 上目录 fsync 会被拒绝。
+	if err := os.WriteFile(filepath.Join(dataDir, ".settings-key"), bytes.Repeat([]byte{7}, 32), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return &Service{repo: repository.New(db), dataDir: dataDir, activeCancels: make(map[string]context.CancelFunc)}, db
 }
 
 func mediaTestPNG(t *testing.T) []byte {
@@ -320,7 +326,7 @@ func TestMediaRecoveryTerminalStagesLimitsAndPublicList(t *testing.T) {
 }
 
 func TestMediaRecoveryManualGuardsDoNotChangeBilling(t *testing.T) {
-	for _, name := range []string{"refunded", "wrong-owner", "limit", "cooldown", "deleted-project"} {
+	for _, name := range []string{"refunded", "wrong-owner", "limit", "cooldown", "archived-project"} {
 		t.Run(name, func(t *testing.T) {
 			s, db := newMediaRecoveryTestService(t)
 			task := seedMediaTask(t, db, providerConfig{})
@@ -335,8 +341,12 @@ func TestMediaRecoveryManualGuardsDoNotChangeBilling(t *testing.T) {
 				checkpoint.ManualAttempts = 3
 			case "cooldown":
 				checkpoint.LastManualAt = time.Now()
-			case "deleted-project":
-				task.ProjectID = "deleted-project"
+			case "archived-project":
+				project := model.Project{ID: newID(), UserID: task.UserID, Name: "archived", Status: model.ProjectStatusArchived}
+				if err := db.Create(&project).Error; err != nil {
+					t.Fatal(err)
+				}
+				task.ProjectID = project.ID
 			}
 			if err := db.Create(&order).Error; err != nil {
 				t.Fatal(err)
@@ -441,5 +451,72 @@ func TestMediaRecoveryAudioKeepsAllReturnedResults(t *testing.T) {
 	}
 	if _, ok := result["audio"]; !ok {
 		t.Fatal("legacy singular audio result missing")
+	}
+}
+
+func TestMediaRecoveryVideoTrustsContainerOverGenericContentType(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	s, _ := newMediaRecoveryTestService(t)
+	mp4 := append([]byte{0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 2, 0, 'i', 's', 'o', 'm', 'i', 's', 'o', '2'}, bytes.Repeat([]byte{1}, 64)...)
+	mov := append([]byte{0, 0, 0, 0x14, 'f', 't', 'y', 'p', 'q', 't', ' ', ' ', 0, 0, 2, 0, 'q', 't', ' ', ' '}, bytes.Repeat([]byte{1}, 64)...)
+	for _, tc := range []struct {
+		name, contentType string
+		body              []byte
+		want              string
+	}{
+		{"binary-octet-stream", "binary/octet-stream", mp4, "video/mp4"},
+		{"application-mp4", "application/mp4", mp4, "video/mp4"},
+		{"quicktime-without-type", "application/octet-stream", mov, "video/quicktime"},
+		{"declared-video", "video/mp4", mp4, "video/mp4"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				_, _ = w.Write(tc.body)
+			}))
+			defer server.Close()
+			name, mimeType, err := s.downloadTaskMedia(context.Background(), providerConfig{}, " "+server.URL+"/result.mp4\n", "video")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mimeType != tc.want || s.mediaTempPath(name) == "" {
+				t.Fatalf("mime=%s name=%s", mimeType, name)
+			}
+		})
+	}
+}
+
+func TestMediaRecoveryErrorExplainsCauseWithoutUpstreamURL(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	s, _ := newMediaRecoveryTestService(t)
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{"expired-signature", http.StatusForbidden, "denied", "HTTP 403"},
+		{"html-error-page", http.StatusOK, "<!doctype html><html><body>error</body></html>", "不是有效的video媒体"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			_, _, err := s.downloadTaskMedia(context.Background(), providerConfig{}, server.URL+"/result.mp4?X-Signature=private-test-token", "video")
+			if err == nil {
+				t.Fatal("invalid result accepted")
+			}
+			message := (&mediaRecoveryError{stage: "download", cause: err}).Error()
+			if !strings.Contains(message, "下载结果失败") || !strings.Contains(message, tc.want) || strings.Contains(message, "private-test-token") || strings.Contains(message, server.URL) {
+				t.Fatalf("message=%s", message)
+			}
+		})
+	}
+	unreachable := (&mediaRecoveryError{stage: "download", cause: &url.Error{Op: "Get", URL: "https://cdn.example/result.mp4?X-Signature=private-test-token", Err: errors.New("connection refused")}}).Error()
+	if strings.Contains(unreachable, "private-test-token") || !strings.Contains(unreachable, "无法连接结果地址") {
+		t.Fatalf("message=%s", unreachable)
 	}
 }

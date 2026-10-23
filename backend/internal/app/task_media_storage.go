@@ -57,7 +57,7 @@ func (s *Service) newMediaTemp(limit int64) (*os.File, error) {
 		used += info.Size()
 	}
 	if limit <= 0 || limit > mediaStagingBudget || used > mediaStagingBudget-limit {
-		return nil, errors.New("作品暂存空间不足，请稍后重试保存")
+		return nil, mediaDownloadContentError("作品暂存空间不足，请稍后重试保存")
 	}
 	file, err := os.CreateTemp(dir, "result-*")
 	if err != nil {
@@ -100,6 +100,7 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 		return "", "", err
 	}
 	limit := min(megabytes(policy.Resource.GeneratedFileMB), mediaStagingBudget)
+	url = strings.TrimSpace(url)
 	downloadCtx, cancel := context.WithTimeout(withProviderRequestKind(ctx, "download"), 3*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, url, nil)
@@ -118,7 +119,7 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 		logged.URL = &redactedURL
 		var safeErr error
 		if err != nil {
-			safeErr = errors.New("结果下载失败")
+			safeErr = errors.New(defaultString(mediaFailureDetail(err), "结果下载失败"))
 		}
 		recordProviderRequest(logged, started, statusCode, nil, safeErr)
 	}()
@@ -161,7 +162,7 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 		return "", "", providerHTTPError{StatusCode: statusCode, Status: response.Status, RetryAfter: parseRetryAfter(response.Header.Get("Retry-After"), time.Now())}
 	}
 	if response.ContentLength > limit {
-		return "", "", errors.New("生成文件超过大小限制")
+		return "", "", mediaDownloadContentError("生成文件超过大小限制")
 	}
 	if response.ContentLength > 0 {
 		limit = response.ContentLength
@@ -181,7 +182,7 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 		return "", "", err
 	}
 	if size == 0 || size > limit {
-		return "", "", errors.New("生成文件为空或超过大小限制")
+		return "", "", mediaDownloadContentError("生成文件为空或超过大小限制")
 	}
 	if response.ContentLength >= 0 && size != response.ContentLength {
 		return "", "", io.ErrUnexpectedEOF
@@ -196,12 +197,9 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 	if _, err = io.ReadFull(file, head); err != nil {
 		return "", "", err
 	}
-	mimeType = normalizedMediaMimeType(response.Header.Get("Content-Type"), head)
-	if mode == "audio" && mimeType == "application/ogg" {
-		mimeType = "audio/ogg"
-	}
+	mimeType = taskMediaMimeType(response.Header.Get("Content-Type"), head, mode)
 	if !strings.HasPrefix(mimeType, mode+"/") {
-		return "", "", errors.New("上游返回的内容不是有效的" + mode + "媒体")
+		return "", "", mediaDownloadContentError("上游返回的内容不是有效的" + mode + "媒体（" + mimeType + "）")
 	}
 	if err = file.Sync(); err != nil {
 		return "", "", err
@@ -245,7 +243,7 @@ func (s *Service) downloadTaskMediaWithWget(ctx context.Context, url, mode strin
 		return "", "", err
 	}
 	if size == 0 || size > limit {
-		return "", "", errors.New("生成文件为空或超过大小限制")
+		return "", "", mediaDownloadContentError("生成文件为空或超过大小限制")
 	}
 	if err = file.Truncate(size); err != nil {
 		return "", "", err
@@ -257,12 +255,9 @@ func (s *Service) downloadTaskMediaWithWget(ctx context.Context, url, mode strin
 	if _, err = io.ReadFull(file, head); err != nil {
 		return "", "", err
 	}
-	mimeType = normalizedMediaMimeType("", head)
-	if mode == "audio" && mimeType == "application/ogg" {
-		mimeType = "audio/ogg"
-	}
+	mimeType = taskMediaMimeType("", head, mode)
 	if !strings.HasPrefix(mimeType, mode+"/") {
-		return "", "", errors.New("上游返回的内容不是有效的" + mode + "媒体（" + mimeType + "）")
+		return "", "", mediaDownloadContentError("上游返回的内容不是有效的" + mode + "媒体（" + mimeType + "）")
 	}
 	if err = file.Sync(); err != nil {
 		return "", "", err
@@ -271,6 +266,43 @@ func (s *Service) downloadTaskMediaWithWget(ctx context.Context, url, mode strin
 		return "", "", err
 	}
 	return filepath.Base(file.Name()), mimeType, nil
+}
+
+// mediaDownloadContentError 是下载阶段自己产生、不含上游地址的错误，可以原样展示给用户。
+type mediaDownloadContentError string
+
+func (e mediaDownloadContentError) Error() string { return string(e) }
+
+// taskMediaMimeType 以文件内容为准：对象存储常把结果标成 binary/octet-stream、
+// application/mp4 等通用类型，只要嗅探出的真实容器属于本次模式就接受；HTML 错误页等仍被拒绝。
+func taskMediaMimeType(declared string, head []byte, mode string) string {
+	mimeType := normalizedMediaMimeType(declared, head)
+	if mode == "audio" && mimeType == "application/ogg" {
+		return "audio/ogg"
+	}
+	if strings.HasPrefix(mimeType, mode+"/") {
+		return mimeType
+	}
+	sniffed := strings.TrimSpace(strings.Split(http.DetectContentType(head), ";")[0])
+	if mode == "audio" && sniffed == "application/ogg" {
+		return "audio/ogg"
+	}
+	if strings.HasPrefix(sniffed, mode+"/") {
+		return sniffed
+	}
+	// http.DetectContentType 只认 mp4 品牌，QuickTime、M4V、3GP 等 ISO-BMFF 容器需要按 ftyp 盒判断。
+	if len(head) >= 12 && string(head[4:8]) == "ftyp" {
+		brand := string(head[8:12])
+		switch {
+		case mode == "video" && brand == "qt  ":
+			return "video/quicktime"
+		case mode == "video":
+			return "video/mp4"
+		case mode == "audio":
+			return "audio/mp4"
+		}
+	}
+	return mimeType
 }
 
 func mediaUploadKey(taskID string, index int) *string {
