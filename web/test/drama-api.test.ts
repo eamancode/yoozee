@@ -195,3 +195,24 @@ describe("证据指标解析", () => {
         expect((drama.parseEvidenceMetrics(evidence("[1,2]")) as { cer?: number }).cer).toBeUndefined();
     });
 });
+
+describe("短剧流程步骤（M6）", () => {
+    test("生成分段只发「对这一章跑这一步」：路径带步骤 ID，body 只有文本模型选择", async () => {
+        transport.responses["/projects/p%201/units/u1/drama/steps/chapter.shots/run"] = { task: { id: "t1" }, usage: { step: "chapter.shots" } };
+        const result = await drama.runDramaStep("p 1", "u1", "chapter.shots", { model: "deepseek", config: { model: "deepseek" } });
+        expect(result.task.id).toBe("t1");
+        expect(lastCall()).toEqual({ method: "post", url: "/projects/p%201/units/u1/drama/steps/chapter.shots/run", body: { model: "deepseek", config: { model: "deepseek" } } });
+        await drama.getDramaStepUsage("p1", "chapter.shots");
+        expect(lastCall()).toMatchObject({ method: "get", url: "/projects/p1/drama/steps/chapter.shots" });
+    });
+
+    test("风格档案按后端画风对照表推荐，与 StyleMap.ProfileFor 同一规则", () => {
+        const styleMap = JSON.parse(readFileSync(new URL("../../backend/internal/drama/style_map.json", import.meta.url), "utf8"));
+        expect(drama.recommendDramaStyleProfile(styleMap, { selection: { world: "suspense", medium: "live-action" }, title: "悬疑犯罪 · 暗黑诡谲 · 真人实拍", tags: [] })).toBe("live-realism");
+        expect(drama.recommendDramaStyleProfile(styleMap, { selection: { world: "xianxia", medium: "3d-anime" }, title: "仙侠", tags: [] })).toBe("anime-3d");
+        expect(drama.recommendDramaStyleProfile(styleMap, { selection: { medium: "ink" } })).toBe("anime-3d");
+        expect(drama.recommendDramaStyleProfile(styleMap, { title: "我的国漫风", tags: [] })).toBe("anime-3d");
+        expect(drama.recommendDramaStyleProfile(styleMap, { title: "自定义", tags: ["写实"] })).toBe("live-realism");
+        expect(drama.recommendDramaStyleProfile(styleMap, undefined)).toBe(styleMap.default);
+    });
+});

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/repository"
 
@@ -27,6 +28,8 @@ type CreateProjectRequest struct {
 	GenerationModel string `json:"generationModel"`
 	// AuthMode：step 每步确认；full 全权。空则为每步确认。
 	AuthMode string `json:"authMode"`
+	// StyleProfile 是 yoozee 风格档案（五选一）；空则按画风对照表推荐。
+	StyleProfile string `json:"styleProfile"`
 }
 
 type UpdateProjectRequest struct {
@@ -42,6 +45,7 @@ type UpdateProjectRequest struct {
 	DefaultVideoModel *string `json:"defaultVideoModel"`
 	GenerationModel   *string `json:"generationModel"`
 	AuthMode          *string `json:"authMode"`
+	StyleProfile      *string `json:"styleProfile"`
 	Status            string  `json:"status"`
 }
 
@@ -269,7 +273,13 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 	if err := checkProjectVideoModelFamily(generationModel, defaultVideoModel); err != nil {
 		return model.Project{}, err
 	}
-	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel, GenerationModel: generationModel, AuthMode: authMode, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	styleProfile := strings.TrimSpace(req.StyleProfile)
+	if styleProfile == "" {
+		styleProfile, _ = drama.RecommendProfile(stylePresetID, styleProfileJSON, "")
+	} else if !drama.ValidProfileID(styleProfile) {
+		return model.Project{}, BadAuthRequest("不支持的风格档案")
+	}
+	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel, GenerationModel: generationModel, AuthMode: authMode, StyleProfile: styleProfile, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
 	if err := s.repo.CreateProject(&project); err != nil {
 		if errors.Is(err, repository.ErrProjectNameConflict) {
 			// 项目名称冲突需要明确返回 409，页面才能按已有逻辑换一个名称重试。
@@ -356,6 +366,13 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 			return model.Project{}, modeErr
 		}
 		project.AuthMode = authMode
+	}
+	if req.StyleProfile != nil {
+		styleProfile := strings.TrimSpace(*req.StyleProfile)
+		if !drama.ValidProfileID(styleProfile) {
+			return model.Project{}, BadAuthRequest("不支持的风格档案")
+		}
+		project.StyleProfile = styleProfile
 	}
 	if req.GenerationModel != nil || req.DefaultVideoModel != nil {
 		generationModel, modelErr := normalizeProjectGenerationModel(project.GenerationModel)

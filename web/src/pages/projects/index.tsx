@@ -25,9 +25,9 @@ import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store"
 import { sourceTypeLabel } from "./detail/shared";
 import { Select } from "@/components/ui/base/select";
 import type { DramaAuthMode } from "@/services/api/drama";
-import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, dramaModelOptions, findDramaModel, preferredDramaModel, useDramaChannelFamilies, useDramaModels } from "./drama-model";
+import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, DRAMA_STYLE_PROFILE_HINT, dramaModelOptions, dramaStyleProfileOptions, findDramaModel, preferredDramaModel, recommendedDramaStyleProfile, useDramaChannelFamilies, useDramaModels, useDramaStyleProfiles } from "./drama-model";
 
-type ProjectForm = { name: string; aspectRatio: string; sourceType: string; generationModel: string; authMode: DramaAuthMode };
+type ProjectForm = { name: string; aspectRatio: string; sourceType: string; generationModel: string; authMode: DramaAuthMode; styleProfile: string };
 
 export default function ProjectsPage() {
     const navigate = useNavigate();
@@ -59,6 +59,9 @@ export default function ProjectsPage() {
     const createModelId = Form.useWatch("generationModel", createForm);
     const createModel = findDramaModel(dramaModels.data, createModelId);
     const createAuth = Form.useWatch("authMode", createForm);
+    // 风格档案默认按所选画风推荐；用户在下拉里改过就不再跟着画风变。
+    const styleProfiles = useDramaStyleProfiles();
+    const recommendedProfile = recommendedDramaStyleProfile(styleProfiles.data, selectedStyle ? selectedStyle.profile || createStyleProfileSnapshot(selectedStyle) : undefined);
     const [generating, setGenerating] = useState(false);
     const [generationStatus, setGenerationStatus] = useState("");
     const [generationPreview, setGenerationPreview] = useState("");
@@ -83,6 +86,9 @@ export default function ProjectsPage() {
             authMode: launcherAuth,
         });
     }, [createForm, createOpen, createSource, storyDraft, launcherModel, launcherAuth, defaultDramaModel]);
+    useEffect(() => {
+        if (createOpen && recommendedProfile && !createForm.isFieldTouched("styleProfile")) createForm.setFieldValue("styleProfile", recommendedProfile);
+    }, [createForm, createOpen, recommendedProfile]);
 
     const generateStory = async () => {
         const story = storyDraft.trim();
@@ -298,6 +304,7 @@ export default function ProjectsPage() {
                         <Form.Item name="authMode" label="授权档位" extra={DRAMA_AUTH_OPTIONS.find((item) => item.value === createAuth)?.hint}><Select options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} /></Form.Item>
                     </div>
                     <Form.Item label="项目画风"><button type="button" className="app-story-modal-style" onClick={() => setStylePickerOpen(true)}>{selectedStyle ? <><img src={selectedStyle.imageUrl} alt="" /><span>{selectedStyle.title}</span><em>更换</em></> : <><Palette className="size-4" /><span>选择项目画风（生成分镜前必选）</span></>}</button></Form.Item>
+                    <Form.Item name="styleProfile" label="风格档案" rules={[{ required: true, message: "请选择风格档案" }]} extra={DRAMA_STYLE_PROFILE_HINT + "建项后可在项目设置里改。"}><Select loading={styleProfiles.isLoading} options={dramaStyleProfileOptions(styleProfiles.data, recommendedProfile)} /></Form.Item>
                     <p className="-mt-1 mb-5 text-xs leading-5 text-foreground/48">创建后先进入项目概览。章节和参考资产可以逐步补充；画风可以晚点选，但生成分镜前必须选好。</p>
                     <div className="flex justify-end gap-2"><Button onClick={() => setCreateOpen(false)}>取消</Button><Button type="primary" htmlType="submit" loading={mutation.isPending}>创建项目</Button></div>
                 </Form>

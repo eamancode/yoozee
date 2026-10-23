@@ -1,0 +1,535 @@
+[
+ {
+  "id": "a-小满",
+  "title": "小满",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-小满",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，很长的外貌描写，",
+    "clothing": "  白色   护士服\n左胸工牌 ",
+    "physique": "瘦",
+    "props": "病历夹",
+    "consistencyPrompt": "低马尾",
+    "aliases": [
+     "阿满"
+    ]
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-老周",
+  "title": "老周",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-老周",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "prompt": "  只有一段角色提示词，  没有分项。 "
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-阿青",
+  "title": "阿青",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-阿青",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "短发",
+    "aliases": [
+     "青青",
+     3,
+     ""
+    ]
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-没卡的人",
+  "title": "没卡的人",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-没卡的人",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "",
+   "version": 1,
+   "definition": {},
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-归档的人",
+  "title": "归档的人",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "archived",
+  "primaryVersionId": "pv-归档的人",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "归档了但卡还在"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-无名设定",
+  "title": "无名设定",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-无名设定",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": null,
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演0",
+  "title": "群演0",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演0",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演1",
+  "title": "群演1",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演2",
+  "title": "群演2",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演2",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演3",
+  "title": "群演3",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演3",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演4",
+  "title": "群演4",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演4",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演5",
+  "title": "群演5",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演5",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演6",
+  "title": "群演6",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演6",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演7",
+  "title": "群演7",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演7",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演8",
+  "title": "群演8",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演8",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "a-群演9",
+  "title": "群演9",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "pv-群演9",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "character": {
+   "versionId": "cv-x",
+   "version": 1,
+   "definition": {
+    "appearance": "群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌群演外貌",
+    "clothing": "群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装群演服装"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "s-1",
+  "title": "病房",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "sv-1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 1,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "previewText": "{\"prompt\":\"JSON 样的预览\"}",
+  "visual": {
+   "definition": {
+    "anchors": "门、窗，床；柜\n灯、门"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "s-2",
+  "title": "走廊",
+  "mediaType": "image",
+  "category": "scene",
+  "status": "confirmed",
+  "primaryVersionId": "sv-2",
+  "versionCount": 1,
+  "usages": [],
+  "position": 2,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "previewText": "  长长的\n走廊，  日光灯一盏接一盏，地面反光，尽头是电梯和防火门，护士站在左手边，台灯亮着暖光。 ",
+  "visual": {
+   "definition": {
+    "anchors": [
+     " 门 ",
+     "",
+     "窗",
+     "门",
+     "点0",
+     "点1",
+     "点2",
+     "点3",
+     "点4",
+     "点5",
+     "点6",
+     "点7",
+     "点8",
+     "点9",
+     "点10",
+     "点11",
+     "点12",
+     "点13",
+     "点14"
+    ]
+   },
+   "status": "ready"
+  }
+ },
+ {
+  "id": "s-3",
+  "title": "楼顶",
+  "mediaType": "image",
+  "category": "location",
+  "status": "confirmed",
+  "primaryVersionId": "sv-3",
+  "versionCount": 1,
+  "usages": [],
+  "position": 3,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "previewText": "楼顶",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "水箱"
+    ]
+   },
+   "status": "ready"
+  }
+ },
+ {
+  "id": "p-1",
+  "title": "刀",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "versionCount": 0,
+  "usages": [],
+  "position": 4,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "visual": {
+   "definition": {
+    "prompt": "刀"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "p-2",
+  "title": "外套",
+  "mediaType": "image",
+  "category": "wardrobe",
+  "status": "confirmed",
+  "primaryVersionId": "pv-2",
+  "versionCount": 1,
+  "usages": [],
+  "position": 5,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "previewText": "",
+  "visual": {
+   "definition": {},
+   "status": "ready"
+  }
+ },
+ {
+  "id": "p-3",
+  "title": "  空格标题 ",
+  "mediaType": "image",
+  "category": "material",
+  "status": "confirmed",
+  "primaryVersionId": "pv-3",
+  "versionCount": 1,
+  "usages": [],
+  "position": 6,
+  "updatedAt": "2026-10-23T00:00:00Z"
+ },
+ {
+  "id": "t-1",
+  "title": "文本素材",
+  "mediaType": "text",
+  "category": "other",
+  "status": "confirmed",
+  "primaryVersionId": "tv-1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 7,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "previewText": "不进清单"
+ },
+ {
+  "id": "e-1",
+  "title": "实体素材",
+  "mediaType": "entity",
+  "category": "material",
+  "status": "confirmed",
+  "primaryVersionId": "ev-1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 8,
+  "updatedAt": "2026-10-23T00:00:00Z"
+ },
+ {
+  "id": "v-1",
+  "title": "视频参考",
+  "mediaType": "video",
+  "category": "other",
+  "status": "draft",
+  "primaryVersionId": "vv-1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 9,
+  "updatedAt": "2026-10-23T00:00:00Z",
+  "previewText": "视频参考"
+ }
+]

@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -125,27 +124,7 @@ func (s *Service) loadSkillPackageSnapshot(userID string, skillID string) (*skil
 	if err != nil {
 		return nil, err
 	}
-	version, err := s.repo.SkillVersion(skill.CurrentVersionID)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return legacySkillPackageSnapshot(skill)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if version.SkillID != skill.ID {
-		return nil, fmt.Errorf("技能 %s 当前版本归属不一致", skill.ID)
-	}
-	files, err := s.repo.SkillFiles(version.ID)
-	if err != nil {
-		return nil, err
-	}
-	if len(files) == 0 {
-		return legacySkillPackageSnapshot(skill)
-	}
-	if err := validateSkillPackageSnapshot(s, skill, version, files); err != nil {
-		return nil, err
-	}
-	return &skillPackageSnapshot{skill: skill, version: version, files: files}, nil
+	return s.currentSkillSnapshot(skill)
 }
 
 func (s *Service) readSkillPackageSnapshotEntry(snapshot *skillPackageSnapshot, filePath string) ([]byte, error) {

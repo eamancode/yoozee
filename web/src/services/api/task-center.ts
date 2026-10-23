@@ -128,13 +128,16 @@ export type CreateTaskInput = {
     input?: Record<string, unknown>;
 };
 export function createGenerationTask(input: CreateTaskInput) {
-    return http.post<GenerationTask>("/tasks", input).then((task) => {
-        recordDiagnosticEvent({ level: "info", category: "task", message: "任务已创建", taskId: task.id, projectId: task.projectId });
-        notifyCanvasTaskCreated(task);
-        // 创建任务时积分已被预占，不能等任务结束后才刷新可用余额。
-        window.dispatchEvent(new CustomEvent("wallet:updated"));
-        return task;
-    });
+    return http.post<GenerationTask>("/tasks", input).then(announceCreatedGenerationTask);
+}
+
+/** 任务建好后的统一通知：诊断记录、画布任务订阅、钱包余额。由别的接口代建任务（如短剧流程步骤）时也要调用。 */
+export function announceCreatedGenerationTask(task: GenerationTask) {
+    recordDiagnosticEvent({ level: "info", category: "task", message: "任务已创建", taskId: task.id, projectId: task.projectId });
+    notifyCanvasTaskCreated(task);
+    // 创建任务时积分已被预占，不能等任务结束后才刷新可用余额。
+    window.dispatchEvent(new CustomEvent("wallet:updated"));
+    return task;
 }
 
 export type GenerationTaskPageRequest = {
