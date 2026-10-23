@@ -649,7 +649,12 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 		return DramaCompileResult{}, err
 	}
 	seg, refIssues := dropImagelessRefs(seg, lookup, phrases.Cast.LockMax)
-	result, err := drama.CompileWith(seg, m, req.Style, req.Acting, profile, phrases)
+	// 风格段：请求里给了就用请求的；否则项目选了画风用画风执行规范（档案 style_block 只在没选画风时兜底）。
+	style := req.Style
+	if style == nil {
+		style = projectStyleOverride(phrases, projectDramaContext(project))
+	}
+	result, err := drama.CompileWith(seg, m, style, req.Acting, profile, phrases)
 	if err != nil {
 		return DramaCompileResult{}, err
 	}

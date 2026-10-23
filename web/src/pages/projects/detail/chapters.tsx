@@ -74,12 +74,13 @@ import {
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { putDramaShotlist, shotlistCheckFailure, type DramaCheckReport } from "@/services/api/drama";
+import { getDramaBrief, putDramaShotlist, shotlistCheckFailure, type DramaCheckReport } from "@/services/api/drama";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { bindStoryboardRowAssets, chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
 import { chapterDialogueCoverage, DEFAULT_SEGMENT_TARGET, segmentDurationRule, storyboardRowsToSegments } from "./chapter-segments";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
+import { briefEpisodeSeconds, dramaBriefKey } from "./drama-brief";
 import { appendProjectUnits } from "./project-cache";
 import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
 
@@ -434,7 +435,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 const notes = [...stored.notes];
                 if (stored.check.warnings) notes.push(`镜头表检查有 ${stored.check.warnings} 条提醒，可在分镜制作页按段查看`);
                 if (notes.length) message.warning(notes.join("；"), 10);
-                return { count: stored.segments.length, scenes: new Set(stored.segments.map((segment) => segment.spec.scene)).size };
+                return { count: stored.segments.length, scenes: new Set(stored.segments.map((segment) => segment.spec.scene)).size, profile: stored.profile };
             } catch (error) {
                 const check = shotlistCheckFailure(error);
                 if (!check) throw error;
@@ -534,6 +535,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         let regenerate = false;
         try {
             const assetDetail = await storyboardDetail();
+            const brief = await queryClient.fetchQuery({ queryKey: dramaBriefKey(detail.project.id), queryFn: async () => (await getDramaBrief(detail.project.id)).document });
             const result = await generateChapterStoryboard({
                 projectId: detail.project.id,
                 chapterId: unit.id,
@@ -550,9 +552,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 config,
                 skills: availableSkills,
                 selectedSkillIds,
+                episodeSeconds: briefEpisodeSeconds(brief),
             }, { onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task) });
             const stored = await storeGeneratedStoryboard(unit.id, result.rows, sourceText);
-            const summary = `已按 ${stored.scenes} 场生成 ${stored.count} 段（每段 ${segmentRule.label}）`;
+            const summary = `已按 ${stored.scenes} 场生成 ${stored.count} 段（每段 ${segmentRule.label}${"profile" in stored && stored.profile ? `，风格档案：${stored.profile}` : ""}）`;
             message.success(result.skillCount ? `${summary}，并应用 ${result.skillCount} 个技能` : summary);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/video`);
         } catch (error) {

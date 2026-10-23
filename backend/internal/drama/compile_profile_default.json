@@ -8,7 +8,12 @@
       "style": "",
       "acting": ""
     },
-    "profiles": {}
+    "profiles": {},
+    "project_style": {
+      "template": "{style}",
+      "sections": ["视觉媒介", "叙事气质", "项目色彩与光影"],
+      "max_chars": 300
+    }
   },
   "camera": {
     "x": {
@@ -127,8 +132,9 @@
     "change": "光线变化"
   },
   "segment": {
-    "end_state": "本段结束时：{rules}",
+    "end_state": "本段结束时：{rules}。",
     "gaze": "视线：{gaze}",
+    "gaze_toward": "{who}看向{target}",
     "reanchor": "人物形象、服装、光源方向与上一段完全一致。",
     "reanchor_with_prev": "承接上一段（{prev}）结尾：{state}；人物形象、服装、光源方向与上一段完全一致。"
   },

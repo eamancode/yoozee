@@ -36,6 +36,8 @@ type DramaEvalInput struct {
 	Imaged   map[string]bool
 	Shotlist *drama.Shotlist
 	Segments []drama.Segment
+	// project 是项目画风、每集时长（零值为默认档案、档案风格块、不查时长；离线评测文件没有项目时用零值）。
+	project dramaProjectContext
 }
 
 // DramaEvalRow 是指标表的一行（一个版本 × 一章）。SpecRate 为 -1 表示没有分镜行原文、算不出来。
@@ -142,14 +144,14 @@ func evalDramaUnit(in DramaEvalInput, m drama.Model, phrases *drama.CompileProfi
 		if rows, err = parseShotlistRows(in.Rows); err != nil {
 			return out, err
 		}
-		plan, err = planDramaShotlist(rows, script, in.Assets, in.Imaged, m, phrases)
+		plan, err = planDramaShotlist(rows, script, in.Assets, in.Imaged, m, phrases, in.project)
 		out.row.Rows = plan.Stats.Rows
 		if plan.Stats.Rows > 0 {
 			out.row.SpecRate = float64(plan.Stats.Rows-plan.Stats.NoSpec) / float64(plan.Stats.Rows)
 		}
 	} else if in.Shotlist != nil {
 		out.row.Source = "shotlist"
-		plan, err = planStoredDramaShotlist(*in.Shotlist, script, in.Segments, in.Assets, in.Imaged, m, phrases)
+		plan, err = planStoredDramaShotlist(*in.Shotlist, script, in.Segments, in.Assets, in.Imaged, m, phrases, in.project)
 		out.row.Rows = len(in.Shotlist.Shots)
 	} else {
 		return out, fmt.Errorf("%s 没有镜头表", in.Label)
@@ -177,7 +179,7 @@ func evalDramaUnit(in DramaEvalInput, m drama.Model, phrases *drama.CompileProfi
 				return out, err
 			}
 		}
-		res, err := drama.CompileWith(seg, m, nil, nil, style, phrases)
+		res, err := drama.CompileWith(seg, m, projectStyleOverride(phrases, in.project), nil, style, phrases)
 		if err != nil {
 			return out, err
 		}
@@ -206,9 +208,9 @@ func evalDramaUnit(in DramaEvalInput, m drama.Model, phrases *drama.CompileProfi
 // planStoredDramaShotlist 给没有分镜行原文的老镜头表用：检查已存镜头表，每镜绑定的资产从已存段反推，再走与写镜头表相同的装段。
 // 反推来源：段参考的文件（资产、主版本或人物卡版本）、段的人物声明（没图的人物），以及镜头描述里装段写下的「场景·X：」「道具·X：」（没图的场景、道具）。
 // 人物只挂到这一镜在场（焦点、站位）的镜头上；有图的场景、道具挂到 refs_hint 写了它的镜头（都没写就挂整段）；没图的挂回描述所在的那一镜。
-func planStoredDramaShotlist(shotlist drama.Shotlist, script *drama.Script, segments []drama.Segment, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, phrases *drama.CompileProfile) (dramaShotlistPlan, error) {
+func planStoredDramaShotlist(shotlist drama.Shotlist, script *drama.Script, segments []drama.Segment, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, phrases *drama.CompileProfile, pc dramaProjectContext) (dramaShotlistPlan, error) {
 	plan := dramaShotlistPlan{Shotlist: shotlist}
-	ctx, profile, err := dramaCheckContext(script)
+	ctx, profile, err := dramaCheckContext(script, pc, assets)
 	if err != nil {
 		return plan, err
 	}
@@ -303,8 +305,19 @@ func planStoredDramaShotlist(shotlist drama.Shotlist, script *drama.Script, segm
 		}
 		shots[i].RefsHint = hints
 	}
-	// 已存段的参考已经按「一镜一个场景」收过，这里不再收（再收会把段尾换了地方的场景丢掉）。
+	// 与写镜头表同一条规则把场景收成本场的一个：老段可能挂过两个场景，按现在的规则重装就只剩本场的。
+	locations := map[string]bool{}
+	for _, a := range assets {
+		if a.PrimaryVersionID != "" && dramaRefRole(a.Category) == "location" {
+			locations[strings.TrimSpace(a.Title)] = true
+		}
+	}
+	keepSceneLocations(shots, locations, script)
+	shotlist.Profile = pc.profileID() // 按现在的画风对照重装，段写的档案与检查用的一致
 	plan.Segments, plan.Problems = packHintedShots(shotlist, shots, rows, script, assets, imaged, m, profile, ctx.Vocab, phrases)
+	if err := checkDramaSegmentTotal(&plan.Report, plan.Segments, pc); err != nil {
+		return plan, err
+	}
 	return plan, nil
 }
 
@@ -463,7 +476,8 @@ func (s *Service) dramaEvalInput(project *model.Project, unitID string, assets [
 	if err != nil {
 		return DramaEvalInput{}, err
 	}
-	in := DramaEvalInput{Label: unit.Title, ChapterText: chapterPlainText(unit.SourceText), Title: unit.Title, Assets: assets, Imaged: imaged}
+	in := DramaEvalInput{Label: unit.Title, ChapterText: chapterPlainText(unit.SourceText), Title: unit.Title, Assets: assets, Imaged: imaged, project: projectDramaContext(project)}
+	in.project.Episode = s.dramaChapterEpisode(project.ID, unit)
 	if strings.TrimSpace(record.RowsJSON) != "" {
 		if err := json.Unmarshal([]byte(record.RowsJSON), &in.Rows); err != nil {
 			return in, fmt.Errorf("镜头表分镜行原文损坏: %w", err)

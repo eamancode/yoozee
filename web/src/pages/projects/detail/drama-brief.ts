@@ -12,6 +12,29 @@ export const BRIEF_FACTS = [
 
 export type BriefFactKey = (typeof BRIEF_FACTS)[number]["key"];
 
+export const dramaBriefKey = (projectId: string) => ["project", projectId, "drama", "brief"] as const;
+
+/** 每集时长（秒）存在需求文档的 episode_seconds：生成分镜的提示词和后端 R-SEG-008 都读它。 */
+export const EPISODE_SECONDS_RANGE = { min: 5, max: 3600 } as const;
+
+export function briefEpisodeSeconds(document: Record<string, unknown> | undefined) {
+    const value = document?.episode_seconds;
+    return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * 写回每集时长；空值去掉这一项。生成模型和授权档位以项目字段为准，不随需求文档写回：
+ * 读到的 video_model / auth_mode 可能比刚保存的项目设置旧，带着写回会把项目字段改回去。
+ */
+export function withEpisodeSeconds(document: Record<string, unknown>, seconds: number | null | undefined) {
+    const next: Record<string, unknown> = { ...document };
+    delete next.video_model;
+    delete next.auth_mode;
+    if (seconds && seconds > 0) next.episode_seconds = Math.round(seconds);
+    else delete next.episode_seconds;
+    return next;
+}
+
 /** 只有「已确认」「默认，已授权」能拿去花钱，见 backend/internal/drama/brief.go 的 BriefStatuses。 */
 export const BRIEF_STATUSES = ["已确认", "默认，待确认", "默认，已授权", "待答"] as const;
 

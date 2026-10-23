@@ -58,6 +58,8 @@ type DramaShotlistWriteResult struct {
 	Stats    drama.RowsStats    `json:"stats"`
 	// Notes 是装段说明：找不到合法切点的场、渠道时长等，给用户看。
 	Notes []string `json:"notes"`
+	// Profile 是这章检查、装段用的风格档案及来由（如「真人剧（默认）（真人实拍…）」）。
+	Profile string `json:"profile"`
 }
 
 // shotlistRow 是分镜行里服务端会读的字段（spec 之外的平铺字段只用来补段版本的备注）。
@@ -294,13 +296,13 @@ func dramaLocationKey(name string) string {
 
 // sceneOwnLocations 是每场自己的场景资产：剧本场标题（「内·电梯口·夜」）里写的地点能对上资产名就用它，
 // 对不上就取这场镜头里列得最多的场景（平手取先出现的）。
-func sceneOwnLocations(shots []drama.Shot, hints [][]string, isLocation func(string) bool, script *drama.Script) map[string]string {
+func sceneOwnLocations(shots []drama.Shot, hints [][]string, locationOf func(string) string, script *drama.Script) map[string]string {
 	counts := map[string]map[string]int{}
 	order := map[string][]string{}
 	for i, sh := range shots {
 		for _, h := range hints[i] {
-			name, _, _ := strings.Cut(h, "·")
-			if !isLocation(name) {
+			name := locationOf(h)
+			if name == "" {
 				continue
 			}
 			if counts[sh.Scene] == nil {
@@ -345,9 +347,9 @@ func sceneOwnLocations(shots []drama.Shot, hints [][]string, isLocation func(str
 // attachRefsHints 让每镜的 refs_hint 带上这一行绑定的资产名：模型写的提示保留（「病历夹·掉在地上」进装段的状态句），
 // 绑定了但没写进提示的资产补在后面，装段时一起挂成参考。
 //   - 人物资产只补这一镜真在场的（站位、焦点、分镜行人物里有他），免得同一场景资产串起来的两场戏互相带人。
-//   - 一镜只留一个场景：这一镜列了本场自己的场景（见 sceneOwnLocations）就留它，否则留这一镜列的第一个。
-//     场景参考是整段生成的背景，一镜里顺口提到的别处（电梯口的戏里写到「身后是病房走廊」）不该再挂一张背景图；
-//     一场里真的换了地方（走廊走进病房）的镜头只列新地方，照样挂得上。
+//   - 场景只认本场自己的（spec.scene 对应的场景资产，见 sceneOwnLocations）：一镜列了别的场景（段首镜头写到
+//     「身后是病房走廊」、同一镜写了两个场景）一律换成本场的，段的场景参考因此只有一个。场景参考是整段生成的背景，
+//     两张背景图会让模型在两处之间来回跳；一场里真换了地方，应在剧本里另起一场。本场认不出场景时才留这一镜列的第一个。
 func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAssetSummary, script *drama.Script) {
 	type boundAsset struct {
 		title     string
@@ -365,7 +367,6 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 			locations[title] = true
 		}
 	}
-	all := make([][]string, len(shots))
 	for i := range shots {
 		hints := slices.Clone([]string(shots[i].RefsHint))
 		if i < len(rows) {
@@ -390,28 +391,41 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 				hints = append(hints, a.title)
 			}
 		}
-		all[i] = hints
+		shots[i].RefsHint = hints
 	}
-	isLocation := func(name string) bool { return locations[name] }
-	own := sceneOwnLocations(shots, all, isLocation, script)
-	for i := range shots {
-		keep := ""
-		for _, h := range all[i] {
-			name, _, _ := strings.Cut(h, "·")
-			if !isLocation(name) {
-				continue
-			}
-			if keep == "" || name == own[shots[i].Scene] {
-				keep = name
-			}
+	keepSceneLocations(shots, locations, script)
+}
+
+// keepSceneLocations 把每镜 refs_hint 里的场景收成本场自己的一个（见 attachRefsHints）。locations 是有主版本的场景资产名；
+// 模型写的「电梯口（夜）」这类对不上资产名的提示原样留着（装段找不到它，不成参考）。
+func keepSceneLocations(shots []drama.Shot, locations map[string]bool, script *drama.Script) {
+	locationOf := func(hint string) string {
+		if name, _, _ := strings.Cut(hint, "·"); locations[name] {
+			return name
 		}
+		return ""
+	}
+	all := make([][]string, len(shots))
+	for i := range shots {
+		all[i] = shots[i].RefsHint
+	}
+	own := sceneOwnLocations(shots, all, locationOf, script)
+	for i := range shots {
+		keep := own[shots[i].Scene]
 		hints := all[i][:0:0]
+		placed := false
 		for _, h := range all[i] {
-			name, _, _ := strings.Cut(h, "·")
-			if isLocation(name) && name != keep {
-				continue
+			name := locationOf(h)
+			switch {
+			case name == "":
+				hints = append(hints, h)
+			case placed:
+			case keep == "" || name == keep:
+				// 本场认不出场景时留这一镜列的第一个；本场的场景原样保留（带变体）。
+				hints, placed = append(hints, h), true
+			default:
+				hints, placed = append(hints, keep), true
 			}
-			hints = append(hints, h)
 		}
 		shots[i].RefsHint = hints
 	}
@@ -437,8 +451,9 @@ func dramaShotlistModel(project *model.Project, rule *DramaShotlistRule) (drama.
 	return m, nil
 }
 
-func dramaCheckContext(script *drama.Script) (drama.CheckContext, *drama.Profile, error) {
-	profile, err := drama.BuiltinProfile(drama.DefaultProfileID)
+// dramaCheckContext 是检查用的剧本、资产圣经（场景锚点）、风格档案（按项目画风对照）、词库与规则级别。
+func dramaCheckContext(script *drama.Script, pc dramaProjectContext, assets []ProjectAssetSummary) (drama.CheckContext, *drama.Profile, error) {
+	profile, err := drama.BuiltinProfile(pc.profileID())
 	if err != nil {
 		return drama.CheckContext{}, nil, err
 	}
@@ -450,7 +465,8 @@ func dramaCheckContext(script *drama.Script) (drama.CheckContext, *drama.Profile
 	if err != nil {
 		return drama.CheckContext{}, nil, err
 	}
-	return drama.CheckContext{Script: script, Profile: profile, Vocab: vocab, Rules: rules}, profile, nil
+	checkScript, bible := dramaCheckScene(script, assets)
+	return drama.CheckContext{Script: checkScript, Bible: bible, Profile: profile, Vocab: vocab, Rules: rules}, profile, nil
 }
 
 // WriteDramaShotlist 把一章的分镜行转成镜头表、检查、装段并整章替换段：检查有 error 时整批拒绝，不落库。
@@ -494,7 +510,9 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	plan, err := planDramaShotlist(rows, script, assets, imaged, m, phrases)
+	pc := projectDramaContext(project)
+	pc.Episode = s.dramaChapterEpisode(projectID, unit)
+	plan, err := planDramaShotlist(rows, script, assets, imaged, m, phrases, pc)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
@@ -532,7 +550,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 		notes = append(notes, "章节正文为空，台词覆盖（R-SHOT-001）没有检查")
 	}
 	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, CompileProfile: compileProfileRef(phrases), UpdatedAt: record.UpdatedAt}
-	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: report, Stats: plan.Stats, Notes: notes}, nil
+	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: report, Stats: plan.Stats, Notes: notes, Profile: dramaProfileNote(pc)}, nil
 }
 
 func parseShotlistRows(raws []json.RawMessage) ([]shotlistRow, error) {
@@ -561,7 +579,8 @@ type dramaShotlistPlan struct {
 
 // planDramaShotlist 是写镜头表不碰数据库的部分：分镜行 → 镜头表 → 检查（有 error 返回 shotlist_check_failed）→ 按场装段。
 // 场按镜头表的 scene（E01S01…）分，不按绑定的场景资产分：两场戏用同一个场景资产时各装各的段，参考取各自镜头。
-func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, phrases *drama.CompileProfile) (dramaShotlistPlan, error) {
+// 风格档案按项目画风对照（pc），分段合计按每集目标时长查 R-SEG-008（warn，不拦保存）。
+func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, phrases *drama.CompileProfile, pc dramaProjectContext) (dramaShotlistPlan, error) {
 	if phrases == nil {
 		var err error
 		if phrases, err = drama.DefaultCompileProfile(); err != nil {
@@ -572,9 +591,9 @@ func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []Projec
 	for _, row := range rows {
 		storyRows = append(storyRows, row.StoryboardRow)
 	}
-	converted := drama.RowsToShotlist(storyRows, script, drama.DefaultProfileID)
+	converted := drama.RowsToShotlist(storyRows, script, pc.profileID())
 	plan := dramaShotlistPlan{Shotlist: converted.Shotlist, Stats: converted.Stats}
-	ctx, profile, err := dramaCheckContext(script)
+	ctx, profile, err := dramaCheckContext(script, pc, assets)
 	if err != nil {
 		return plan, err
 	}
@@ -584,7 +603,36 @@ func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []Projec
 		return plan, shotlistCheckFailed(plan.Report, converted.Stats)
 	}
 	plan.Segments, plan.Problems = packDramaShotlist(plan.Shotlist, rows, script, assets, imaged, m, profile, ctx.Vocab, phrases)
+	if err := checkDramaSegmentTotal(&plan.Report, plan.Segments, pc); err != nil {
+		return plan, err
+	}
 	return plan, nil
+}
+
+// checkDramaSegmentTotal 把 R-SEG-008（分段合计与每集目标片长比）记进镜头表检查结果。
+func checkDramaSegmentTotal(report *drama.CheckReport, segments []drama.Segment, pc dramaProjectContext) error {
+	rules, err := drama.BuiltinSegmentRules()
+	if err != nil {
+		return err
+	}
+	report.CheckSegmentTotal(segments, pc.targetSeconds(), rules)
+	return nil
+}
+
+// dramaProfileNote 说明这章按哪份风格档案检查、装段，从哪来。
+func dramaProfileNote(pc dramaProjectContext) string {
+	label := pc.profileID()
+	if p, err := drama.BuiltinProfile(label); err == nil && p.Label != "" {
+		label = p.Label
+	}
+	switch {
+	case pc.ProfileRule != "":
+		return label + "（" + pc.ProfileRule + "）"
+	case pc.HasStyle:
+		return label + "（项目画风没有对上对照表，用默认档案）"
+	default:
+		return label + "（项目没选画风，用默认档案）"
+	}
 }
 
 // packDramaShotlist 是检查通过后的装段：镜头挂上分镜行绑定的资产（rows 与镜头一一对应），拼资产圣经，按场装段，没图的场景、道具写进镜头描述。

@@ -110,16 +110,22 @@ func fightValue(v string) string {
 }
 
 // fightText 把因果动作单元写成一句话：发起 → 路径 → 反应 → 接触 → 力的传递 → 结束姿态。
-func fightText(f *Fight, cp *CompileProfile) string {
+// fightText 把因果动作单元写成一句：发起 → 路径 → 反应 → 接触 → 力的传递 → 结束姿态。
+// 路径已写到目标就不再写「打向」；反应前的「对方」只在目标是镜头里的人物、反应又没自带主语时写；
+// 接触判定与反应、力的传递重复（「擦过」「刀尖擦过袖口」，「没有接触」「无直接接触」）时不写判定。
+func fightText(f *Fight, people []string, cp *CompileProfile) string {
 	ph := cp.Shot
 	initiator, path, target, response := fightValue(f.Initiator), fightValue(f.Path), fightValue(f.Target), fightValue(f.Response)
+	startsWithPerson := func(text string) bool {
+		return text != "" && slices.ContainsFunc(people, func(p string) bool { return p != "" && strings.HasPrefix(text, p) })
+	}
 	var parts []string
 	if initiator != "" {
 		p := fill(ph.FightInitiator, "initiator", initiator)
 		if path != "" {
 			p += fill(ph.FightPath, "path", path)
 		}
-		if target != "" {
+		if target != "" && !strings.Contains(path, target) {
 			p += fill(ph.FightTarget, "target", target)
 		}
 		parts = append(parts, p)
@@ -127,16 +133,20 @@ func fightText(f *Fight, cp *CompileProfile) string {
 		parts = append(parts, path)
 	}
 	if response != "" {
-		if initiator != "" {
+		if initiator != "" && startsWithPerson(target) && !startsWithPerson(response) {
 			parts = append(parts, fill(ph.FightResponse, "response", response))
 		} else {
 			parts = append(parts, response)
 		}
 	}
+	ft := fightValue(f.ForceTransfer)
 	if c, ok := ph.FightContact[f.Contact]; ok {
-		parts = append(parts, c)
+		said := response + ft
+		if !strings.Contains(said, c) && !((f.Contact == "none" || f.Contact == "miss") && strings.Contains(said, "接触")) {
+			parts = append(parts, c)
+		}
 	}
-	if ft := fightValue(f.ForceTransfer); ft != "" {
+	if ft != "" {
 		parts = append(parts, ft)
 	}
 	if ep := fightValue(f.EndPose); ep != "" {
@@ -146,6 +156,24 @@ func fightText(f *Fight, cp *CompileProfile) string {
 		return ""
 	}
 	return fill(ph.Fight, "parts", strings.Join(parts, "；"))
+}
+
+// fightPeople 是一镜里的人物：焦点、站位里的人和发起者（判断打击目标、反应主语是不是人）。
+func fightPeople(sh *Shot) []string {
+	people := []string{}
+	add := func(name string) {
+		if name = strings.TrimSpace(name); name != "" && !slices.Contains(people, name) {
+			people = append(people, name)
+		}
+	}
+	add(sh.Focus)
+	for _, b := range sh.Blocking {
+		add(b.Who)
+	}
+	if sh.Fight != nil {
+		add(sh.Fight.Initiator)
+	}
+	return people
 }
 
 type mergedPhase struct {
@@ -638,7 +666,7 @@ func shotText(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEn
 		text += fill(ph.LightFull, "text", lf)
 	}
 	if sh.Fight.truthy() {
-		text += fightText(sh.Fight, cp)
+		text += fightText(sh.Fight, fightPeople(sh), cp)
 	}
 	if sh.Fight != nil && len(sh.Fight.MartialIDs) > 0 && vocab != nil {
 		var names []string
@@ -1269,7 +1297,8 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		voices = voices[:*lim]
 	}
 	last := shots[len(shots)-1]
-	rules := strings.TrimSpace(last.EndState)
+	// 结束状态末尾的标点去掉再接视线，模板负责收句（不出「。；」）。
+	rules := strings.TrimRight(strings.TrimSpace(last.EndState), "。；;，,！!？? ")
 	var gaze []string
 	for _, b := range last.Blocking {
 		if b.Facing == "" {
@@ -1278,7 +1307,7 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		if gazePrefix.MatchString(b.Facing) {
 			gaze = append(gaze, b.Who+b.Facing)
 		} else {
-			gaze = append(gaze, b.Who+"："+b.Facing)
+			gaze = append(gaze, fill(cp.Segment.GazeToward, "who", b.Who, "target", b.Facing))
 		}
 	}
 	if len(gaze) > 0 {

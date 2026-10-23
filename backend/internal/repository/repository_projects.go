@@ -560,6 +560,18 @@ func (r *Repository) UpdateAssetDomain(asset *model.Asset) error {
 	return r.db.Model(&model.Asset{}).Where("id = ? AND user_id = ?", asset.ID, asset.UserID).Updates(map[string]any{"category": asset.Category, "status": asset.Status, "primary_version_id": asset.PrimaryVersionID, "updated_at": asset.UpdatedAt}).Error
 }
 
+// UpdateAssetVersionDefinition 原地改一个版本的设定；只用于不改变出图结果的标注（场景锚点），出图相关的修改要建新版本。
+func (r *Repository) UpdateAssetVersionDefinition(assetID string, versionID string, definitionJSON string, now time.Time) error {
+	result := r.db.Model(&model.AssetVersion{}).Where("id = ? AND asset_id = ?", versionID, assetID).Updates(map[string]any{"definition_json": definitionJSON, "updated_at": now})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func (r *Repository) AssetVersions(assetID string) ([]model.AssetVersion, error) {
 	var versions []model.AssetVersion
 	err := r.db.Where("asset_id = ?", assetID).Order("version desc").Find(&versions).Error

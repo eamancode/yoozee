@@ -1,5 +1,6 @@
 import type { StoryboardAssetRole, StoryboardCharacterReference, StoryboardRow } from "@/types/canvas";
 import { assetCategoryLabel } from "@/lib/asset-category";
+import { sceneAnchorList } from "@/lib/canvas/chapter-asset-breakdown";
 import { withStoryboardOutputContract } from "@/lib/canvas/canvas-project-domain";
 import { normalizeStoryboardAssetBindings } from "@/lib/canvas/canvas-storyboard-assets";
 import { storyboardCharacterAppearancePrompt, storyboardStylePrompt } from "@/lib/canvas/canvas-storyboard-context";
@@ -16,6 +17,8 @@ export type ChapterStoryboardAsset = {
     category?: string;
     tags: string[];
     prompt: string;
+    /** 场景的空间锚点（资产设定 anchors），提示词里跟在场景行后，分镜站位只用这些名字。 */
+    anchors?: string[];
     characterAssetId?: string;
     characterVersionId?: string;
 };
@@ -73,6 +76,7 @@ export function chapterStoryboardAssets(detail: ProjectDetail): ChapterStoryboar
         if (!type || (type !== "character" && !asset.primaryVersionId)) return [];
         const characterVersionId = asset.character?.versionId;
         if (type === "character" && !characterVersionId) return [];
+        const anchors = SCENE_ASSET_CATEGORIES.has(asset.category || "") ? sceneAnchorList(asset.visual?.definition.anchors) : [];
         return [{
             id: asset.id,
             title: asset.title,
@@ -80,6 +84,7 @@ export function chapterStoryboardAssets(detail: ProjectDetail): ChapterStoryboar
             category: asset.category || undefined,
             tags: [],
             prompt: assetPrompt(asset.previewText, asset.character?.definition || asset.visual?.definition, asset.title),
+            ...(anchors.length ? { anchors } : {}),
             ...(type === "character" ? { characterAssetId: asset.id, characterVersionId } : {}),
         }];
     }).slice(0, 60);
@@ -100,10 +105,17 @@ const TEXT_FIELDS = ["imageGenerationPrompt", "plotDescription", "performanceBlo
  * 项目画风、已确认角色的外观和资产清单都只能写进提示词，各段自带字数上限；画风和角色放在输出契约前，
  * 资产清单带着 assets 字段要求跟在契约后。待确认角色的设定还没定稿，不写外观。
  */
-export function chapterStoryboardTaskPrompt(skillPrompt: string, context: { sourceText: string; projectStyle: { title: string; prompt: string }; characters: ChapterStoryboardCharacter[]; assets: ChapterStoryboardAsset[]; outputFields?: SkillOutputField[] }) {
+export function chapterStoryboardTaskPrompt(skillPrompt: string, context: { sourceText: string; projectStyle: { title: string; prompt: string }; characters: ChapterStoryboardCharacter[]; assets: ChapterStoryboardAsset[]; outputFields?: SkillOutputField[]; episodeSeconds?: number }) {
     const confirmed = context.characters.filter((character) => character.assetId && character.versionId);
-    const projectContext = [skillPrompt, storyboardStylePrompt(context.projectStyle), storyboardCharacterAppearancePrompt(confirmed, context.sourceText)].filter(Boolean).join("\n\n");
+    const projectContext = [skillPrompt, storyboardStylePrompt(context.projectStyle), storyboardCharacterAppearancePrompt(confirmed, context.sourceText), chapterEpisodeDurationPrompt(context.episodeSeconds)].filter(Boolean).join("\n\n");
     return [withStoryboardOutputContract(projectContext, { extraFields: context.outputFields }), chapterStoryboardAssetPrompt(context.assets)].filter(Boolean).join("\n\n");
+}
+
+/** 每集时长（项目设置，存在需求文档 brief_json.episode_seconds）：镜头估时合计留 10% 余量，后端 R-SEG-008 按同一个数检查分段合计。 */
+export function chapterEpisodeDurationPrompt(episodeSeconds?: number) {
+    if (!episodeSeconds || !Number.isFinite(episodeSeconds) || episodeSeconds <= 0) return "";
+    const seconds = Math.round(episodeSeconds);
+    return `【本集时长】本集目标 ${seconds} 秒，镜头 est 合计不超过 ${Math.round(seconds * 1.1)} 秒（${seconds}×1.1）；戏多时并镜或删掉不推进剧情的镜头，不靠压短单镜估时凑数。`;
 }
 
 /**
@@ -116,9 +128,11 @@ export function chapterStoryboardAssetPrompt(assets: ChapterStoryboardAsset[]) {
         "【项目已确认资产】",
         ...assets.map((asset) => {
             const brief = asset.prompt.trim().startsWith("{") ? "" : asset.prompt.replace(/\s+/g, " ").trim().slice(0, 40);
-            return `- ${asset.title}（${assetCategoryLabel(asset.type === "character" ? "character" : asset.category)}）${brief && brief !== asset.title ? `：${brief}` : ""}`;
+            const anchors = asset.anchors?.length ? `；锚点：${asset.anchors.slice(0, 12).join("、")}` : "";
+            return `- ${asset.title}（${assetCategoryLabel(asset.type === "character" ? "character" : asset.category)}）${brief && brief !== asset.title ? `：${brief}` : ""}${anchors}`;
         }),
         "- rows 每项再加 assets（字符串数组）：本镜画面里出现的上面这些角色、场景和道具，名称原样抄写，清单外的不写，没有就写空数组；角色同时写进 characters。镜头换了场景，assets 里就写新场景。",
+        ...(assets.some((asset) => asset.anchors?.length) ? ["- 场景写了锚点的，镜头 spec 的 blocking.at 只用该场景的锚点名，不另起位置名。"] : []),
     ].join("\n");
 }
 

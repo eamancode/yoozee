@@ -5,6 +5,7 @@ import { compileCanvasStylePreset } from "@/lib/canvas/canvas-style-system";
 import { segmentDurationRule, storyboardRowsToSegments } from "@/pages/projects/detail/chapter-segments";
 import {
     bindStoryboardRowAssets,
+    chapterEpisodeDurationPrompt,
     chapterStoryboardAssetPrompt,
     chapterStoryboardAssets,
     chapterStoryboardCharacters,
@@ -63,6 +64,26 @@ describe("章节分镜写入分镜制作", () => {
         expect(prompt).toContain("- 旧信封（道具）：泛黄的旧信封");
         expect(prompt).toContain("rows 每项再加 assets");
         expect(chapterStoryboardAssetPrompt([])).toBe("");
+    });
+
+    test("场景资产的锚点跟在场景行后，并要求站位只用锚点名", () => {
+        const assets = chapterStoryboardAssets(projectDetail());
+        const scene = { id: "scene-1", title: "电梯口", type: "entity" as const, category: "environment", tags: [], prompt: "不锈钢电梯门，楼层灯亮红色", anchors: ["电梯门前", "楼梯间防火门", "灭火器箱"] };
+        const prompt = chapterStoryboardAssetPrompt([...assets, scene]);
+        expect(prompt).toContain("- 电梯口（场景）：不锈钢电梯门，楼层灯亮红色；锚点：电梯门前、楼梯间防火门、灭火器箱");
+        expect(prompt).toContain("blocking.at 只用该场景的锚点名");
+        expect(chapterStoryboardAssetPrompt(assets)).not.toContain("锚点");
+    });
+
+    test("设了每集时长时，分镜任务提示词写本集目标和 1.1 倍上限", () => {
+        const detail = projectDetail();
+        const style = compileCanvasStylePreset({ world: "suspense", tone: "dark", medium: "live-action", character: "realistic" });
+        const context = { sourceText: "林默推门进入旧屋。", projectStyle: { title: style.title, prompt: style.prompt }, characters: chapterStoryboardCharacters(detail, "chapter-1"), assets: chapterStoryboardAssets(detail) };
+        const prompt = chapterStoryboardTaskPrompt("【用户任务】", { ...context, episodeSeconds: 90 });
+        expect(prompt).toContain("【本集时长】本集目标 90 秒，镜头 est 合计不超过 99 秒（90×1.1）");
+        expect(prompt.indexOf("【本集时长】")).toBeLessThan(prompt.indexOf("【受保护输出契约】"));
+        expect(chapterStoryboardTaskPrompt("【用户任务】", context)).not.toContain("【本集时长】");
+        expect(chapterEpisodeDurationPrompt(0)).toBe("");
     });
 
     test("分镜任务提示词带上项目画风和已确认角色外观，待确认角色不写外观", () => {

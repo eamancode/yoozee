@@ -172,7 +172,7 @@ func TestEvalStoredShotlistMatchesRowsReplayWithImagelessAssets(t *testing.T) {
 	for name, imaged := range map[string]map[string]bool{"none": {}, "lin": {"char-1": true}, "all": all} {
 		for _, model := range []string{"seedance-2.5", "seedance-2.0", "minimax-h3"} {
 			m, _ := drama.ModelByID(model)
-			stored, err := planDramaShotlist(rows, &script, assets, imaged, m, def)
+			stored, err := planDramaShotlist(rows, &script, assets, imaged, m, def, dramaProjectContext{})
 			if err != nil {
 				t.Fatal(err)
 			}

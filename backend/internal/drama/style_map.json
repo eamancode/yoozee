@@ -1,0 +1,10 @@
+{
+  "default": "live-realism",
+  "rules": [
+    {"label": "真人实拍（悬疑犯罪、当代都市、古装历史、仙侠、科幻、乡野）", "medium": ["live-action"], "profile": "live-realism"},
+    {"label": "3D 动漫、3D 卡通", "medium": ["3d-anime", "3d-cartoon"], "profile": "anime-3d"},
+    {"label": "国漫 2D、水墨动画（非真人媒介：动机光，表演读秒）", "medium": ["2d-guoman", "ink"], "profile": "anime-3d"},
+    {"label": "自定义画风：标题或标签写了 3D、动漫、卡通、国漫、二次元、水墨、动画", "keywords": ["3D", "3d", "动漫", "卡通", "国漫", "二次元", "水墨", "动画"], "profile": "anime-3d"},
+    {"label": "自定义画风：标题或标签写了真人、实拍、写实", "keywords": ["真人", "实拍", "写实"], "profile": "live-realism"}
+  ]
+}

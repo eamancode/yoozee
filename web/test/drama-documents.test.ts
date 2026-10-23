@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { applyBriefFacts, bibleSummary, briefConfirmedCount, briefFactsFromDocument, parseDocumentJson } from "../src/pages/projects/detail/drama-brief";
+import { applyBriefFacts, bibleSummary, briefConfirmedCount, briefEpisodeSeconds, briefFactsFromDocument, parseDocumentJson, withEpisodeSeconds } from "../src/pages/projects/detail/drama-brief";
 
 describe("需求文档与连戏表的前端入口", () => {
     test("六项事实读成表单，旧的字符串写法回落为默认待确认", () => {
@@ -20,6 +20,15 @@ describe("需求文档与连戏表的前端入口", () => {
         expect(next.budget).toBeUndefined();
         expect(next.items).toEqual(document.items);
         expect(next.title).toBe("两江一城");
+    });
+
+    test("每集时长读写需求文档的 episode_seconds，写回不带生成模型和授权档位", () => {
+        const document = { title: "七床", video_model: "seedance-2.0", auth_mode: "step", duration: { value: "每集约 90 秒", status: "已确认" }, episode_seconds: 90 };
+        expect(briefEpisodeSeconds(document)).toBe(90);
+        expect(briefEpisodeSeconds({ episode_seconds: "90" })).toBeUndefined();
+        const next = withEpisodeSeconds(document, 120.4);
+        expect(next).toEqual({ title: "七床", duration: document.duration, episode_seconds: 120 });
+        expect(withEpisodeSeconds(document, null)).not.toHaveProperty("episode_seconds");
     });
 
     test("确认数只算已确认和默认已授权", () => {

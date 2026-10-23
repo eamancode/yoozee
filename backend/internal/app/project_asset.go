@@ -30,7 +30,14 @@ type LinkProjectAssetRequest struct {
 type UpdateProjectAssetRequest struct {
 	Category *string `json:"category"`
 	FolderID *string `json:"folderId"`
+	// Anchors 是场景资产的空间锚点（人物能站、能走到的位置）：写进主版本设定的 anchors，分镜提示词和镜头表检查 R-SHOT-012 读它。
+	Anchors *[]string `json:"anchors"`
 }
+
+const (
+	sceneAnchorMax    = 20
+	sceneAnchorMaxLen = 24
+)
 
 type CreateAssetVersionRequest struct {
 	Prompt         string `json:"prompt"`
@@ -312,10 +319,14 @@ func (s *Service) UpdateProjectAsset(userID string, projectID string, assetID st
 	if !linked {
 		return ProjectAssetSummary{}, BadAuthRequest("素材尚未加入当前项目")
 	}
-	if req.Category != nil && req.FolderID != nil {
-		return ProjectAssetSummary{}, BadAuthRequest("一次只能修改素材分类或所在文件夹")
+	if countSet(req.Category != nil, req.FolderID != nil, req.Anchors != nil) > 1 {
+		return ProjectAssetSummary{}, BadAuthRequest("一次只能修改素材分类、所在文件夹或场景锚点中的一项")
 	}
-	if req.Category != nil {
+	if req.Anchors != nil {
+		if err := s.updateSceneAnchors(projectID, asset, *req.Anchors); err != nil {
+			return ProjectAssetSummary{}, err
+		}
+	} else if req.Category != nil {
 		category := model.AssetCategory(strings.TrimSpace(*req.Category))
 		if !validAssetCategory(category) {
 			return ProjectAssetSummary{}, BadAuthRequest("不支持的资产业务分类")
@@ -344,6 +355,58 @@ func (s *Service) UpdateProjectAsset(userID string, projectID string, assetID st
 		return ProjectAssetSummary{}, BadAuthRequest("没有可更新的素材字段")
 	}
 	return s.projectAssetSummary(userID, projectID, asset)
+}
+
+func countSet(flags ...bool) int {
+	n := 0
+	for _, f := range flags {
+		if f {
+			n++
+		}
+	}
+	return n
+}
+
+// updateSceneAnchors 原地改场景主版本设定里的 anchors：锚点只描述空间，不影响已出的场景图，也不该让镜头引用的版本失效，所以不建新版本。
+func (s *Service) updateSceneAnchors(projectID string, asset *model.Asset, anchors []string) error {
+	if dramaRefRole(asset.Category) != "location" {
+		return BadAuthRequest("只有场景资产能写锚点")
+	}
+	if asset.PrimaryVersionID == "" {
+		return BadAuthRequest("场景资产还没有确认的版本")
+	}
+	cleaned := sceneAnchorList(anchors)
+	if len(cleaned) > sceneAnchorMax {
+		return BadAuthRequest(fmt.Sprintf("锚点最多 %d 个", sceneAnchorMax))
+	}
+	for _, a := range cleaned {
+		if len([]rune(a)) > sceneAnchorMaxLen {
+			return BadAuthRequest(fmt.Sprintf("锚点「%s」太长，写成 %d 字以内的位置名", a, sceneAnchorMaxLen))
+		}
+	}
+	version, err := s.repo.AssetVersion(asset.PrimaryVersionID)
+	if err != nil {
+		return err
+	}
+	definition := map[string]any{}
+	if strings.TrimSpace(version.DefinitionJSON) != "" {
+		if err := json.Unmarshal([]byte(version.DefinitionJSON), &definition); err != nil || definition == nil {
+			return BadAuthRequest("场景设定格式无效，不能写锚点")
+		}
+	}
+	if len(cleaned) == 0 {
+		delete(definition, "anchors")
+	} else {
+		definition["anchors"] = cleaned
+	}
+	encoded, err := json.Marshal(definition)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.UpdateAssetVersionDefinition(asset.ID, version.ID, string(encoded), time.Now()); err != nil {
+		return err
+	}
+	return s.repo.BumpProjectRevision(projectID)
 }
 
 func (s *Service) CreateProjectAssetVersion(userID string, projectID string, assetID string, req CreateAssetVersionRequest) (model.AssetVersion, error) {

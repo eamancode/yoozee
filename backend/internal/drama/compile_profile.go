@@ -73,6 +73,14 @@ type CompileBlocks struct {
 	Seedance DialectBlocks            `json:"seedance"`
 	H3       DialectBlocks            `json:"h3"`
 	Profiles map[string]ProfileBlocks `json:"profiles"`
+	// ProjectStyle 是项目选了画风时的风格段：取画风执行规范里 sections 列出的几节，合计不超过 max_chars 字，填进 template。
+	ProjectStyle ProjectStylePhrases `json:"project_style"`
+}
+
+type ProjectStylePhrases struct {
+	Template string   `json:"template" vars:"style" req:"style"`
+	Sections []string `json:"sections"`
+	MaxChars int      `json:"max_chars"`
 }
 
 type DialectBlocks struct {
@@ -155,6 +163,7 @@ type LightPhrases struct {
 type SegmentPhrases struct {
 	EndState         string `json:"end_state" vars:"rules" req:"rules"`
 	Gaze             string `json:"gaze" vars:"gaze" req:"gaze"`
+	GazeToward       string `json:"gaze_toward" vars:"who,target" req:"target"`
 	Reanchor         string `json:"reanchor"`
 	ReanchorWithPrev string `json:"reanchor_with_prev" vars:"prev,state" req:"state"`
 }
@@ -303,6 +312,9 @@ func (p *CompileProfile) Validate() error {
 	if p.Cast.LockMax < 1 || p.Cast.LockMax > 20 {
 		return fmt.Errorf("cast.lock_max 必须在 1 到 20 之间")
 	}
+	if p.Blocks.ProjectStyle.MaxChars < 40 || p.Blocks.ProjectStyle.MaxChars > 2000 {
+		return fmt.Errorf("blocks.project_style.max_chars 必须在 40 到 2000 之间")
+	}
 	for tag, text := range p.Risk {
 		if strings.TrimSpace(text) == "" {
 			return fmt.Errorf("risk.%s 不能为空（不想要这条提醒就别在镜头里写这个风险标签）", tag)
@@ -425,4 +437,72 @@ func ResolvedDefaultCompileProfile() (*CompileProfile, error) {
 		p.Blocks.Profiles[id] = ProfileBlocks{Style: prof.StyleBlock, Acting: prof.ActingBlock}
 	}
 	return p, nil
+}
+
+var (
+	styleSectionHeader = regexp.MustCompile(`【([^】]{1,20})】`)
+	styleSentenceEnd   = regexp.MustCompile(`[。！？；!?;]`)
+)
+
+// ProjectStyleBlock 把项目画风的执行规范写成视频提示词的风格段；spec 为空返回空串（调用方改用风格档案的 style_block）。
+// 规范按「【节名】正文」分节时只取 project_style.sections 列出的几节（按档案里的顺序），没分节就用全文；
+// 合计超过 max_chars 时整节舍去，第一节就超时截到最后一个句末标点。
+func (p *CompileProfile) ProjectStyleBlock(spec string) string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return ""
+	}
+	ps := mustCompileProfile(p).Blocks.ProjectStyle
+	var parts []string
+	if headers := styleSectionHeader.FindAllStringSubmatchIndex(spec, -1); len(headers) > 0 {
+		bodies := map[string]string{}
+		for i, h := range headers {
+			end := len(spec)
+			if i+1 < len(headers) {
+				end = headers[i+1][0]
+			}
+			bodies[spec[h[2]:h[3]]] = strings.Join(strings.Fields(spec[h[1]:end]), "")
+		}
+		for _, name := range ps.Sections {
+			if body := bodies[name]; body != "" {
+				parts = append(parts, body)
+			}
+		}
+		if len(parts) == 0 {
+			parts = []string{strings.Join(strings.Fields(styleSectionHeader.ReplaceAllString(spec, "")), "")}
+		}
+	} else {
+		parts = []string{strings.Join(strings.Fields(spec), " ")}
+	}
+	var text string
+	for i, part := range parts {
+		if !hasSentenceEnd(part) {
+			part += "。"
+		}
+		if len([]rune(text+part)) <= ps.MaxChars {
+			text += part
+			continue
+		}
+		if i == 0 {
+			text = truncateAtSentence(part, ps.MaxChars)
+		}
+		break
+	}
+	if text == "" {
+		return ""
+	}
+	return fill(ps.Template, "style", text)
+}
+
+// truncateAtSentence 截到 limit 字以内的最后一个句末标点；一句都放不下就硬截。
+func truncateAtSentence(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	head := string(runes[:limit])
+	if locs := styleSentenceEnd.FindAllStringIndex(head, -1); len(locs) > 0 {
+		return head[:locs[len(locs)-1][1]]
+	}
+	return head
 }

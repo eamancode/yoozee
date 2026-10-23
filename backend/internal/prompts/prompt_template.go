@@ -434,6 +434,21 @@ func validateChapterAssetsResult(jsonText string) error {
 			}
 		}
 	}
+	// 场景锚点可以缺（运营改过的老模板、模型漏写），写了就必须是字符串数组。
+	for _, scene := range *assets.Scenes {
+		if raw, ok := scene["anchors"]; ok && raw != nil {
+			list, isList := raw.([]interface{})
+			valid := isList
+			for _, item := range list {
+				if _, isText := item.(string); !isText {
+					valid = false
+				}
+			}
+			if !valid {
+				return errors.New("章节场景的 anchors 必须是字符串数组")
+			}
+		}
+	}
 	if len(*assets.Characters) > 0 {
 		return ValidatePromptTemplateResult(OperationCharacterExtract, map[string]interface{}{"text": jsonText})
 	}
