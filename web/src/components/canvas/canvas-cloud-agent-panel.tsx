@@ -88,6 +88,8 @@ type AgentPanelView = "chat" | "history" | "settings";
 // 画布视口提交、选区、拖拽都会让 project 页重渲染；memo 让面板只在自身 props 变化时更新。
 export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, selectedNodeIds, references, open, prefillRequest, onOpen, onCollapse, onFocusNode, canvasNodes, runningNodeId }: CloudAgentPanelProps) {
     const userId = useUserStore((state) => state.user?.id);
+    // 后台「技能展示」关闭时只隐藏技能入口；已挂载和默认技能照常随运行提交。
+    const skillContentVisible = useUserStore((state) => state.features.skillContentVisible);
     const theme = canvasThemes[useActiveTheme()];
     const config = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -341,8 +343,8 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel({ canva
     }, [prefillRequest]);
 
     useEffect(() => {
-        if (!open || view !== "chat") setSkillsOpen(false);
-    }, [open, view]);
+        if (!open || view !== "chat" || !skillContentVisible) setSkillsOpen(false);
+    }, [open, view, skillContentVisible]);
 
     const reloadProfile = useCallback(async () => {
         const requestId = ++profileRequestRef.current;
@@ -1036,6 +1038,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel({ canva
                                         onReloadProfile={reloadProfile}
                                         onSaveProfile={saveProfile}
                                         onContextToggle={(value) => setContextScope((current) => (current.includes(value) ? current.filter((item) => item !== value) : [...current, value]))}
+                                        skillsVisible={skillContentVisible}
                                         onSkillSearch={setSkillSearch}
                                         onSkillToggle={(id) => setSelectedSkillIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
                                         onSkillInstall={installSkill}
@@ -1104,7 +1107,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel({ canva
                                         approvalTargetGenerating={approval ? agentApprovalTargetGenerating(approval.detail, canvasNodes, runningNodeId) : undefined}
                                         nodeCount={nodeCount}
                                         approvalSubmitting={otherAgentRunning || approvalSubmitting || connectionStatus !== "connected"}
-                                        onChooseSkill={() => setSkillsOpen(true)}
+                                        onChooseSkill={skillContentVisible ? () => setSkillsOpen(true) : undefined}
                                         onDraftPrompt={(draft) => setPrompt((current) => (current.trim() ? `${current}\n\n${draft}` : draft))}
                                         onApprovalReasonChange={(reason) => setApproval((current) => (current ? { ...current, reason } : current))}
                                         onApprove={(settings) => void submitApproval("approve", settings)}
@@ -1125,7 +1128,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel({ canva
                                             onToggle={() => setPlanMinimized((value) => !value)}
                                         />
                                     ) : null}
-                                    {historyHydrated && !messages.some((message) => message.role === "user" || message.role === "assistant") && !run ? (
+                                    {skillContentVisible && historyHydrated && !messages.some((message) => message.role === "user" || message.role === "assistant") && !run ? (
                                         <AgentSceneCapsules
                                             buckets={sceneBuckets}
                                             installedIds={installedSkillIds}
@@ -1142,14 +1145,14 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel({ canva
                                         submitDisabled={otherAgentRunning || Boolean(run && connectionStatus !== "connected") || !historyHydrated || !pendingHydrated}
                                         sending={busy}
                                         running={running}
-                                        placeholder={running ? "运行中可直接插话，会在它下一步生效" : "输入操作指导；用 @ 引用画布节点，用 / 或 、 引用 Skills"}
+                                        placeholder={running ? "运行中可直接插话，会在它下一步生效" : skillContentVisible ? "输入操作指导；用 @ 引用画布节点，用 / 或 、 引用 Skills" : "输入操作指导；用 @ 引用画布节点"}
                                         theme={theme}
                                         onPromptChange={setPrompt}
                                         onSubmit={() => void submit()}
                                         onStop={!otherAgentRunning && run?.id && running ? stop : undefined}
                                         stopping={stopping}
                                         references={[...references, ...buildSkillMentionReferences(installedSkills)]}
-                                        slashSkills={installedSkills}
+                                        slashSkills={skillContentVisible ? installedSkills : []}
                                         includeAssetLibrary={false}
                                         submitAccessory={<AgentContextRing view={presentAgentContextUsage(contextUsage)} />}
                                         footer={connectorsVisible ? <AgentConnectorsBar onClose={() => setConnectorsVisible(false)} /> : null}
@@ -1162,7 +1165,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel({ canva
                                                 onModelChange={setModel}
                                                 onPermissionChange={setPermissionMode}
                                                 skillsOpen={skillsOpen}
-                                                onSkillsOpenChange={setSkillsOpen}
+                                                onSkillsOpenChange={skillContentVisible ? setSkillsOpen : undefined}
                                                 selectedSkillCount={selectedSkillIds.length}
                                             />
                                         }
@@ -1177,7 +1180,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel({ canva
                 curationState={curationState}
                 platformCategory={platformCategory}
                 onPlatformCategoryChange={(value) => { setPlatformCategory(value); setSkillTag("all"); }}
-                open={skillsOpen}
+                open={skillsOpen && skillContentVisible}
                 theme={theme}
                 installedSkills={installedSkills}
                 marketSkills={marketSkills}

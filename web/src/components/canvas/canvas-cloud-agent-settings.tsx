@@ -29,6 +29,8 @@ type AgentSettingsProps = {
     onSaveProfile: (input: { scope: AgentProfileScope; projectId?: string; canvasId?: string; content: string; revision: number }) => Promise<AgentProfileView>;
     contextScope: AgentContextKey[];
     nodeCount: number;
+    /** 后台关闭技能展示时隐藏 Skills 分区。 */
+    skillsVisible: boolean;
     installedSkills: Skill[];
     marketSkills: Skill[];
     selectedSkillIds: string[];
@@ -68,7 +70,9 @@ const reasoningOptions: Array<{ value: AgentReasoningMode; label: string; descri
 ];
 
 export function CanvasCloudAgentSettings(props: AgentSettingsProps) {
-    const [section, setSection] = useState<SettingsSection>("home");
+    const [sectionState, setSection] = useState<SettingsSection>("home");
+    // 停留在 Skills 分区时后台关闭了技能展示，回到设置首页而不是继续展示技能库。
+    const section = sectionState === "skills" && !props.skillsVisible ? "home" : sectionState;
     const [skillTab, setSkillTab] = useState<"installed" | "market">("installed");
     const { theme } = props;
     const title = section === "home" ? "Agent 设置" : sectionTitle(section);
@@ -129,7 +133,7 @@ function SettingsHome({ props, theme, onOpen }: { props: AgentSettingsProps; the
                     <SettingRow theme={theme} icon={<Cpu className="size-4" />} title="上下文" summary={`${props.nodeCount} 个节点 · ${props.contextScope.length} 个范围`} onClick={() => onOpen("context")} />
                     <SettingRow theme={theme} icon={<Sparkles className="size-4" />} title="长期偏好" summary={profileSummary(props.profileView)} onClick={() => onOpen("profile")} />
                     <SettingRow theme={theme} icon={<BookMarked className="size-4" />} title="个人记忆" summary="批准、添加、导出导入；只影响你的会话" onClick={() => onOpen("memories")} />
-                    <SettingRow theme={theme} icon={<Sparkles className="size-4" />} title="Skills · 用户技能库" summary={`${props.installedSkills.length} 个已安装 · 本轮启用 ${props.selectedSkillIds.length} 个`} onClick={() => onOpen("skills")} />
+                    {props.skillsVisible ? <SettingRow theme={theme} icon={<Sparkles className="size-4" />} title="Skills · 用户技能库" summary={`${props.installedSkills.length} 个已安装 · 本轮启用 ${props.selectedSkillIds.length} 个`} onClick={() => onOpen("skills")} /> : null}
                     <SettingRow theme={theme} icon={<Wrench className="size-4" />} title="工具与连接" summary="画布、技能参考文件、生成任务" onClick={() => onOpen("mcp")} />
                     <SettingRow theme={theme} icon={<Gauge className="size-4" />} title="预算" summary={`每轮最多 ${props.maxCredits || "未设置"} 积分 · 固定计价模型`} onClick={() => onOpen("budget")} />
                 </div>

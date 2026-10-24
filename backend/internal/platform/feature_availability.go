@@ -26,6 +26,7 @@ const (
 	FeatureTimelineTranscription = "timelineTranscription"
 	FeatureImageWorkbench        = "imageWorkbench"
 	FeatureVideoWorkbench        = "videoWorkbench"
+	FeatureSkillContent          = "skillContentVisible"
 )
 
 type FeatureAvailability struct {
@@ -41,6 +42,7 @@ type FeatureAvailability struct {
 	TimelineTranscriptionEnabled bool `json:"timelineTranscriptionEnabled"`
 	ImageWorkbenchEnabled        bool `json:"imageWorkbenchEnabled"`
 	VideoWorkbenchEnabled        bool `json:"videoWorkbenchEnabled"`
+	SkillContentVisible          bool `json:"skillContentVisible"`
 }
 
 type PublicFeatureAvailability struct {
@@ -65,6 +67,7 @@ func DefaultFeatureAvailability() FeatureAvailability {
 		TimelineTranscriptionEnabled: true,
 		ImageWorkbenchEnabled:        false,
 		VideoWorkbenchEnabled:        false,
+		SkillContentVisible:          true,
 	}
 }
 
@@ -136,6 +139,8 @@ func (s *Service) FeatureEnabled(feature string) (bool, error) {
 		return value.ImageWorkbenchEnabled, nil
 	case FeatureVideoWorkbench:
 		return value.VideoWorkbenchEnabled, nil
+	case FeatureSkillContent:
+		return value.SkillContentVisible, nil
 	default:
 		return false, errors.New("未知功能开放配置")
 	}
@@ -172,6 +177,8 @@ func (s *Service) RequireFeature(feature string) error {
 		return kernel.Forbidden("生图暂未开放")
 	case FeatureVideoWorkbench:
 		return kernel.Forbidden("视频暂未开放")
+	case FeatureSkillContent:
+		return kernel.Forbidden("技能详情暂未开放")
 	default:
 		return kernel.Forbidden("该功能暂未开放")
 	}
