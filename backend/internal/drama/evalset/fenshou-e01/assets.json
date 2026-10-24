@@ -1,0 +1,161 @@
+[
+ {
+  "id": "524cf35d964945c67c9e0afee211ae18",
+  "title": "许棠的手机",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "65c5a824eaef941d1cfabd8b686783f9",
+  "versionCount": 1,
+  "usages": [],
+  "position": 5,
+  "updatedAt": "2026-10-23T20:47:36.6798897-07:00",
+  "visual": {
+   "definition": {
+    "description": "电量剩 3%，屏幕上弹出一条消息；她的手机屏幕黑了",
+    "name": "许棠的手机",
+    "prompt": "电量剩 3%，屏幕上弹出一条消息；她的手机屏幕黑了"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "7bc9671eccf18669a32a1838fabfdb97",
+  "title": "灰围巾",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "22f9ba7bad7be3b094dce32102202a17",
+  "versionCount": 1,
+  "usages": [],
+  "position": 4,
+  "updatedAt": "2026-10-23T20:47:36.6778833-07:00",
+  "visual": {
+   "definition": {
+    "description": "解下自己的灰围巾，绕到她脖子上；叠成方块，放在腿上",
+    "name": "灰围巾",
+    "prompt": "解下自己的灰围巾，绕到她脖子上；叠成方块，放在腿上"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "3075a2734b118c70585001a40a044feb",
+  "title": "戒指盒",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "f8198c261fdc638d5d62e2990a1a2532",
+  "versionCount": 1,
+  "usages": [],
+  "position": 3,
+  "updatedAt": "2026-10-23T20:47:36.6778833-07:00",
+  "visual": {
+   "definition": {
+    "description": "一只深蓝绒面戒指盒；他把盒子拿起来，揣进自己外套口袋",
+    "name": "戒指盒",
+    "prompt": "一只深蓝绒面戒指盒；他把盒子拿起来，揣进自己外套口袋"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "a3d243a7e36203a219f8fcc0ba967352",
+  "title": "末班地铁车厢",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "58721212c09b79b1a3e80933af1378b9",
+  "versionCount": 1,
+  "usages": [],
+  "position": 2,
+  "updatedAt": "2026-10-23T20:47:36.6768822-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "长座椅",
+     "空座位",
+     "扶手杆",
+     "车门",
+     "对面车窗",
+     "贯通道",
+     "灯带",
+     "应急灯",
+     "车厢另一头"
+    ],
+    "description": "从车厢一侧的长座椅前方微微俯视看过去，眼前是一节约十九米长、不到三米宽的地铁车厢。地面是灰色防滑胶地板，中间一条浅灰导向线。正对面是一排银灰色不锈钢纵向长座椅，座椅中段有一个空着的座位，座椅尽头立着一根银色竖向扶手杆。座椅后方是两扇黑色大车窗，车窗外是一闪而过的隧道灯和黑色隧道壁，车窗玻璃里映出车厢内的灯。左手边是两扇对开的车门，门上方一盏小应急灯；右手边车厢一直延伸到尽头的贯通道折棚。顶上两条纵向灯带发冷白光，越往车厢尽头越暗。车厢里很空、很干净，只有座椅和扶手。",
+    "name": "末班地铁车厢",
+    "prompt": "从车厢一侧的长座椅前方微微俯视看过去，眼前是一节约十九米长、不到三米宽的地铁车厢。地面是灰色防滑胶地板，中间一条浅灰导向线。正对面是一排银灰色不锈钢纵向长座椅，座椅中段有一个空着的座位，座椅尽头立着一根银色竖向扶手杆。座椅后方是两扇黑色大车窗，车窗外是一闪而过的隧道灯和黑色隧道壁，车窗玻璃里映出车厢内的灯。左手边是两扇对开的车门，门上方一盏小应急灯；右手边车厢一直延伸到尽头的贯通道折棚。顶上两条纵向灯带发冷白光，越往车厢尽头越暗。车厢里很空、很干净，只有座椅和扶手。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "1cf494735773323a2a0ddcfb9f7bd665",
+  "title": "陈屿",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "96a94cac9ecff10ca8f6b9bc84b53ede",
+  "versionCount": 1,
+  "usages": [],
+  "position": 1,
+  "updatedAt": "2026-10-23T20:47:36.6758869-07:00",
+  "character": {
+   "versionId": "96a94cac9ecff10ca8f6b9bc84b53ede",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "寸头，长方脸，颧骨略高，胡茬，右手虎口一道浅疤",
+    "clothing": "藏青工装夹克，深灰连帽卫衣，黑色工装裤，黑色劳保鞋；E01 开场脖子上一条灰色针织围巾",
+    "consistencyPrompt": "寸头、长方脸颧骨略高、单眼皮眼神低、下巴胡茬、小麦色哑光皮肤、右手虎口浅疤、藏青工装夹克翻盖口袋、深灰连帽卫衣、黑色工装裤、黑色劳保鞋",
+    "multiViewPrompt": "陈屿，正面、侧面、背面三视图，纯色背景",
+    "name": "陈屿",
+    "personality": "29 岁左右，地铁车辆检修工（故事人物档），下班路上穿工装",
+    "physique": "",
+    "props": "陈屿的手机",
+    "role": "主角",
+    "voiceAge": "三十上下",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "低、略沙，胸腔音，不抬高"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "26388cdd5c56b7511457a1cd4cd2f077",
+  "title": "许棠",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "df6c556e4ca1b6551bdd3f86d0f2cfe1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T20:47:36.6758869-07:00",
+  "character": {
+   "versionId": "df6c556e4ca1b6551bdd3f86d0f2cfe1",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "齐肩黑直发别在耳后，鹅蛋脸，左耳垂一颗小黑痣",
+    "clothing": "驼色及膝长大衣，黑色高领毛衣，深灰直筒西裤，黑色短靴，无首饰",
+    "consistencyPrompt": "齐肩黑直发别在耳后、左耳垂小黑痣、鹅蛋脸下颌线清楚、内双眼尾略垂、冷白哑光皮肤、驼色及膝长大衣、黑色高领毛衣、深灰直筒西裤、黑色短靴、无首饰无戒指",
+    "multiViewPrompt": "许棠，正面、侧面、背面三视图，纯色背景",
+    "name": "许棠",
+    "personality": "27 岁左右，平面设计师（故事人物档），冬夜通勤装",
+    "physique": "",
+    "props": "许棠的手机",
+    "role": "主角",
+    "voiceAge": "二十七八",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "中音偏低，干净，不甜，略带气声"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ }
+]

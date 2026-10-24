@@ -127,10 +127,7 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step) (Drama
 	if err != nil {
 		return DramaStepUsage{}, drama.StepSkill{}, err
 	}
-	skill := drama.StepSkill{ID: pkg.SkillID, Name: pkg.Name, VersionID: pkg.VersionID, Version: pkg.Version, ContentHash: pkg.ContentHash}
-	for _, f := range pkg.Files {
-		skill.Files = append(skill.Files, drama.StepSkillFile{Path: f.Path, Kind: f.Kind, Binary: f.Binary, Content: f.Content, SHA256: f.SHA256})
-	}
+	skill := stepSkillOf(pkg)
 	usage := DramaStepUsage{
 		Step: step.ID, StepLabel: step.Label, Contract: step.Contract, Bound: bound,
 		Profile: dramaProfileRef(profileID),

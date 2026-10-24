@@ -42,6 +42,8 @@ const (
 	ReasonTextOutputTruncated = kernel.ReasonTextOutputTruncated
 	ReasonShotlistCheckFailed = kernel.ReasonShotlistCheckFailed
 	ReasonPackageCheckFailed  = kernel.ReasonPackageCheckFailed
+	// ReasonPackageEvalNotPassed 见 kernel。
+	ReasonPackageEvalNotPassed = kernel.ReasonPackageEvalNotPassed
 )
 
 func ReasonForStatus(status int) ErrorReason {

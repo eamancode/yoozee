@@ -132,18 +132,18 @@ func TestFlowPackageUploadChangesAssembledPrompt(t *testing.T) {
 		files["SKILL.md"] = []byte(strings.Replace(string(files["SKILL.md"]), "你是这一章的导演。", "你是这一章的总导演。", 1))
 		bumpManifest(t, files, func(m *drama.StepPackageManifest) { m.Version = "2.2.2" })
 	})
-	uploaded, err := svc.UploadFlowPackage(admin, packageFileHeader(t, data), "")
+	uploaded, err := svc.UploadFlowPackage(admin, packageFileHeader(t, data), "", DramaStepEvalModel{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if uploaded.Version.Active || uploaded.Version.VersionLabel != "2.2.2" || uploaded.Package.VersionCount != 2 {
+	if uploaded.Version.Active || uploaded.Version.VersionLabel != "2.2.2" || uploaded.Package.VersionCount != 2 || uploaded.Version.Eval != nil || uploaded.EvalError == "" {
 		t.Fatalf("上传结果：%+v", uploaded)
 	}
 	if got := promptNow(); got.Prompt != golden {
 		t.Fatal("未启用的版本不该影响提示词")
 	}
 
-	if _, err := svc.ActivateFlowPackageVersion(admin, "yz-chapter-shots", uploaded.Version.ID); err != nil {
+	if _, err := svc.ActivateFlowPackageVersion(admin, "yz-chapter-shots", uploaded.Version.ID, FlowPackageActivateRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	changed := promptNow()
@@ -151,7 +151,7 @@ func TestFlowPackageUploadChangesAssembledPrompt(t *testing.T) {
 		t.Fatalf("启用后提示词应只多这处改动和版本号：\n%s", firstDiff(golden, changed.Prompt))
 	}
 
-	if _, err := svc.ActivateFlowPackageVersion(admin, "yz-chapter-shots", original.ID); err != nil {
+	if _, err := svc.ActivateFlowPackageVersion(admin, "yz-chapter-shots", original.ID, FlowPackageActivateRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := promptNow(); got.Prompt != golden || got.Usage.Skill.Version != "2.2.1" {
@@ -177,7 +177,7 @@ func TestFlowPackageUploadChangesAssembledPrompt(t *testing.T) {
 			bumpManifest(t, files, func(m *drama.StepPackageManifest) { m.Version = "2.2.3" })
 		}, drama.PackageRuleBudget},
 	} {
-		_, err := svc.UploadFlowPackage(admin, packageFileHeader(t, chapterShotsPackageZip(t, c.edit)), "")
+		_, err := svc.UploadFlowPackage(admin, packageFileHeader(t, chapterShotsPackageZip(t, c.edit)), "", DramaStepEvalModel{})
 		var appErr *AppError
 		if !errors.As(err, &appErr) || appErr.Reason != ReasonPackageCheckFailed {
 			t.Fatalf("%s：应拒绝，得到 %v", name, err)

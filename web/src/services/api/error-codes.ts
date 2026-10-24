@@ -26,6 +26,8 @@ export const API_ERROR_REASON = {
     ShotlistCheckFailed: "shotlist_check_failed",
     /** 上传的流程技能包没过静态校验，没有保存；`ApiError.details.problems` 逐条列出原因。 */
     PackageCheckFailed: "package_check_failed",
+    /** 流程技能包版本的评测没通过或还没跑完，不能直接启用；强制启用要带 `force: true` 和原因。 */
+    PackageEvalNotPassed: "package_eval_not_passed",
 } as const;
 
 export type ApiErrorReason = (typeof API_ERROR_REASON)[keyof typeof API_ERROR_REASON];

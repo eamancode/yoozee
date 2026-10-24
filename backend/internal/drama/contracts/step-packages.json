@@ -6,7 +6,34 @@
       "id": "chapter.shots",
       "contract": "chapter.shots@2",
       "skillBudgetChars": 32000,
-      "skillLinkedFiles": 3
+      "skillLinkedFiles": 3,
+      "evalSet": [
+        {
+          "id": "qichuang-e01",
+          "profile": "live-realism",
+          "label": "《七床》第一集（悬疑·真人剧）"
+        },
+        {
+          "id": "dadou-e01",
+          "profile": "action-epic",
+          "label": "《擂台之下》第一集（打斗）"
+        },
+        {
+          "id": "kehuan-e01",
+          "profile": "anime-3d",
+          "label": "《第七层天幕》第一集（科幻奇观）"
+        },
+        {
+          "id": "fenshou-e01",
+          "profile": "duanju-shiga",
+          "label": "《最后一班地铁》第一集（分手情绪）"
+        },
+        {
+          "id": "xuanyi-e01",
+          "profile": "game-ip",
+          "label": "《第七病区》第一集（悬疑）"
+        }
+      ]
     }
   ],
   "profiles": [

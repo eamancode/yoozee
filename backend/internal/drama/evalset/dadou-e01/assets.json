@@ -1,0 +1,260 @@
+[
+ {
+  "id": "ada647fd11cd487fcd4679b6a2a605bf",
+  "title": "黑皮账本",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "ede6070b20a66ec364aa9f8da5a93324",
+  "versionCount": 1,
+  "usages": [],
+  "position": 9,
+  "updatedAt": "2026-10-23T20:47:34.76508-07:00",
+  "visual": {
+   "definition": {
+    "description": "腋下夹着一本黑皮账本；第一页密密麻麻都是红手印",
+    "name": "黑皮账本",
+    "prompt": "腋下夹着一本黑皮账本；第一页密密麻麻都是红手印"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "b9abfe80224d62b98099ab063655a9a9",
+  "title": "护膝",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "bcd2747072e4750221c8987529b1e6f5",
+  "versionCount": 1,
+  "usages": [],
+  "position": 8,
+  "updatedAt": "2026-10-23T20:47:34.7640356-07:00",
+  "visual": {
+   "definition": {
+    "description": "右膝缠着一圈发黄的旧护膝；护膝崩开",
+    "name": "护膝",
+    "prompt": "右膝缠着一圈发黄的旧护膝；护膝崩开"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "9de8a2356df760665025306aef48bbb7",
+  "title": "缠手绷带",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "114fe21480cce38c72205a8f769c9ab4",
+  "versionCount": 1,
+  "usages": [],
+  "position": 7,
+  "updatedAt": "2026-10-23T20:47:34.7635259-07:00",
+  "visual": {
+   "definition": {
+    "description": "掏出一卷白绷带，开始缠右手；绷带被血染红",
+    "name": "缠手绷带",
+    "prompt": "掏出一卷白绷带，开始缠右手；绷带被血染红"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "eb67f9dc9d1e10f659cd7dcbafa435f1",
+  "title": "红拳套",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "513101148470264800ec51eedf5524f1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 6,
+  "updatedAt": "2026-10-23T20:47:34.762487-07:00",
+  "visual": {
+   "definition": {
+    "description": "一只褪色的红拳套；内衬上用圆珠笔写着一个歪歪扭扭的字",
+    "name": "红拳套",
+    "prompt": "一只褪色的红拳套；内衬上用圆珠笔写着一个歪歪扭扭的字"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "369dd71d3e7c477070764b6227bd464d",
+  "title": "生死约",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "da50dc54731c800f861c60562d73d34f",
+  "versionCount": 1,
+  "usages": [],
+  "position": 5,
+  "updatedAt": "2026-10-23T20:47:34.7619561-07:00",
+  "visual": {
+   "definition": {
+    "description": "一张按着红手印的纸",
+    "name": "生死约",
+    "prompt": "一张按着红手印的纸"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "c7fc097b63017ade16ac8c536c7c3569",
+  "title": "地下擂台",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "9405497cbb2c2ed2b9d87f12900a7a17",
+  "versionCount": 1,
+  "usages": [],
+  "position": 4,
+  "updatedAt": "2026-10-23T20:47:34.760903-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "笼门",
+     "笼门外",
+     "笼心",
+     "东北角",
+     "西南角",
+     "北侧笼网",
+     "顶灯架",
+     "配电箱"
+    ],
+    "description": "从高处正面微俯看：废弃冷库大厅，屋顶是生锈的钢桁架，挂着一圈冷白顶灯照向中央。中央是一个六边形铁笼，直径六米，六根黑铁柱撑着铁丝笼网，地面是灰白帆布垫，垫上有洗不掉的旧血点。笼门在西南角，门外是一块空地；笼子四周是一圈阶梯式水泥看台，空着。西南墙角有一个灰色配电箱和一根老式电闸。",
+    "name": "地下擂台",
+    "prompt": "从高处正面微俯看：废弃冷库大厅，屋顶是生锈的钢桁架，挂着一圈冷白顶灯照向中央。中央是一个六边形铁笼，直径六米，六根黑铁柱撑着铁丝笼网，地面是灰白帆布垫，垫上有洗不掉的旧血点。笼门在西南角，门外是一块空地；笼子四周是一圈阶梯式水泥看台，空着。西南墙角有一个灰色配电箱和一根老式电闸。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "25ae2e4aaa44205e147ec234273fdbd0",
+  "title": "后台通道",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "4443987d6dadccfaf4f6b2384edef776",
+  "versionCount": 1,
+  "usages": [],
+  "position": 3,
+  "updatedAt": "2026-10-23T20:47:34.759902-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "铁柜",
+     "灯管",
+     "铁门",
+     "通道深处"
+    ],
+    "description": "一条一米半宽的水泥通道，地面湿，有排水沟。左边墙上一排掉漆的绿色铁柜，柜门半开；右边是斑驳的白瓷砖墙。头顶一根灯管一闪一闪。通道尽头是一扇厚重的灰铁门，门缝底下漏进一条白光。",
+    "name": "后台通道",
+    "prompt": "一条一米半宽的水泥通道，地面湿，有排水沟。左边墙上一排掉漆的绿色铁柜，柜门半开；右边是斑驳的白瓷砖墙。头顶一根灯管一闪一闪。通道尽头是一扇厚重的灰铁门，门缝底下漏进一条白光。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "7bbaec01c31f661b7b213400122966ca",
+  "title": "黑象",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "f970d099bcb4d7fc7434939bf55b7293",
+  "versionCount": 1,
+  "usages": [],
+  "position": 2,
+  "updatedAt": "2026-10-23T20:47:34.759902-07:00",
+  "character": {
+   "versionId": "f970d099bcb4d7fc7434939bf55b7293",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "寸头，方脸，扁鼻梁，深眼窝，左耳菜花耳；背上褪色象头纹身",
+    "clothing": "赤裸上身，红黑泰拳短裤，右膝一圈发黄旧护膝，颈挂黑绳护身符",
+    "consistencyPrompt": "寸头、深肤色、方脸扁鼻梁、左耳菜花耳、背上褪色象头纹身、赤裸上身、红黑泰拳短裤、右膝发黄旧护膝、颈挂黑绳护身符",
+    "multiViewPrompt": "黑象，正面、侧面、背面三视图，纯色背景",
+    "name": "黑象",
+    "personality": "32 岁上下泰拳手",
+    "physique": "",
+    "props": "护膝",
+    "role": "主角",
+    "voiceAge": "三十出头",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "粗、闷、带北方口音"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "c1be74b987f0b3830ad874a066972815",
+  "title": "雷九",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "fc974098b6f0fd825c091729289af67c",
+  "versionCount": 1,
+  "usages": [],
+  "position": 1,
+  "updatedAt": "2026-10-23T20:47:34.758901-07:00",
+  "character": {
+   "versionId": "fc974098b6f0fd825c091729289af67c",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "光头，宽方脸，细眼常眯，后脑一道横疤",
+    "clothing": "黑底红花短袖衬衫，外套敞开的黑皮夹克，黑西裤黑皮鞋，粗金链，右手方金戒",
+    "consistencyPrompt": "光头、宽方脸双下巴、细眼常眯、后脑横疤、粗金链、黑底红花短袖衬衫、敞开的黑皮夹克、右手方金戒、微腆肚",
+    "multiViewPrompt": "雷九，正面、侧面、背面三视图，纯色背景",
+    "name": "雷九",
+    "personality": "45 岁上下地下拳场老板",
+    "physique": "",
+    "props": "生死约、黑皮账本",
+    "role": "主角",
+    "voiceAge": "四十五上下",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "沙哑、带烟嗓、偏厚"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "5b8229528c5ff7d7a4800c1a789aa6fb",
+  "title": "沈烈",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "f4fe7109915346bf312aa2501fbff953",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T20:47:34.7579001-07:00",
+  "character": {
+   "versionId": "f4fe7109915346bf312aa2501fbff953",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "黑色齐耳短发，鬓角剃短，窄长脸，左眉骨一道旧白疤",
+    "clothing": "黑色运动背心，灰色宽松拳裤，赤脚，双手白色缠手绷带",
+    "consistencyPrompt": "黑色齐耳短发、鬓角剃短、窄长脸颧骨略高、单眼皮、左眉骨一道旧白疤、黑色运动背心、灰色宽松拳裤、赤脚、双手白色缠手绷带、精瘦结实肩背有线条",
+    "multiViewPrompt": "沈烈，正面、侧面、背面三视图，纯色背景",
+    "name": "沈烈",
+    "personality": "28 岁左右退役女拳手，三年没打比赛",
+    "physique": "",
+    "props": "缠手绷带",
+    "role": "主角",
+    "voiceAge": "二十八九",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "低、略沙、咬字硬"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ }
+]

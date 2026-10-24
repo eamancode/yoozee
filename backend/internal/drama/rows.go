@@ -55,6 +55,14 @@ type RowsResult struct {
 	Shotlist     Shotlist  `json:"shotlist"`
 	Stats        RowsStats `json:"stats"`
 	SchemaIssues []Issue   `json:"schemaIssues,omitempty"`
+	// Lines 是剧本台词的逐字覆盖（评测门槛用，不进接口）。
+	Lines LineCoverage `json:"-"`
+}
+
+// LineCoverage 是剧本里的台词有几句被镜头逐字写到（去掉空白和标点后相同，或只写了剧本里存在的 line_id）；模糊匹配不算。
+type LineCoverage struct {
+	Total int
+	Exact int
 }
 
 var rowDialoguePattern = regexp.MustCompile(`^[\s\p{Z}]*([^：:]{1,16})[：:][\s\p{Z}]*(.+)$`)
@@ -129,6 +137,7 @@ func RowsToShotlist(rows []StoryboardRow, script *Script, profile string) RowsRe
 		}
 	}
 	lines := newScriptLines(script)
+	exact := map[string]bool{}
 	stats := RowsStats{Rows: len(rows)}
 	var schema []Issue
 	shots := make([]Shot, 0, len(rows))
@@ -169,6 +178,7 @@ func RowsToShotlist(rows []StoryboardRow, script *Script, profile string) RowsRe
 					ln.Speaker = ""
 					outLines = append(outLines, ln)
 					stats.LineExact++
+					exact[ln.LineID] = true
 				}
 				continue
 			}
@@ -192,6 +202,7 @@ func RowsToShotlist(rows []StoryboardRow, script *Script, profile string) RowsRe
 				}
 			} else {
 				stats.LineExact++
+				exact[lid] = true
 			}
 			d := ln
 			d.Text, d.Speaker = "", ""
@@ -257,7 +268,7 @@ func RowsToShotlist(rows []StoryboardRow, script *Script, profile string) RowsRe
 	}
 	stats.Shots = len(shots)
 	episode := 1
-	return RowsResult{Shotlist: Shotlist{Profile: profile, Episode: &episode, Shots: shots}, Stats: stats, SchemaIssues: schema}
+	return RowsResult{Shotlist: Shotlist{Profile: profile, Episode: &episode, Shots: shots}, Stats: stats, SchemaIssues: schema, Lines: LineCoverage{Total: len(lines.order), Exact: len(exact)}}
 }
 
 func firstNonEmptyString(values ...string) string {

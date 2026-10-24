@@ -382,19 +382,36 @@ type DramaCompileProfile struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-// DramaEvalRun 是一次评测重跑（M5）：选一个阶段的候选版本与基线版本，在评测集上复用已存的上游产物重跑该阶段和下游，
-// result_json 是指标表与逐段提示词。
+// DramaEvalRun 是一次评测：M5 的「视频提示词」阶段（stage=compile）选编译档案的候选与基线版本，复用已存的上游产物重跑装段和编译；
+// M6 的流程步骤（stage 为步骤 ID，如 chapter.shots）在评测集上用文本模型真跑技能包的候选版本，按步骤门槛决定是否自动启用。
+// result_json 是指标表（逐章结果）与逐段提示词；步骤评测另记状态、门槛结论和启用记录。
 type DramaEvalRun struct {
-	ID               string    `json:"id" gorm:"primaryKey;size:36"`
-	Stage            string    `json:"stage" gorm:"size:24;index"`
-	ProjectID        string    `json:"projectId" gorm:"size:36;index"`
-	UnitIDsJSON      string    `json:"-" gorm:"type:text"`
-	Model            string    `json:"model" gorm:"size:64"`
-	CandidateVersion int       `json:"candidateVersion"`
-	BaselineVersion  int       `json:"baselineVersion"`
-	ResultJSON       string    `json:"-" gorm:"type:text"`
-	CreatedBy        string    `json:"createdBy" gorm:"size:36"`
-	CreatedAt        time.Time `json:"createdAt" gorm:"index"`
+	ID               string `json:"id" gorm:"primaryKey;size:36"`
+	Stage            string `json:"stage" gorm:"size:24;index"`
+	ProjectID        string `json:"projectId" gorm:"size:36;index"`
+	UnitIDsJSON      string `json:"-" gorm:"type:text"`
+	Model            string `json:"model" gorm:"size:64"`
+	CandidateVersion int    `json:"candidateVersion"`
+	BaselineVersion  int    `json:"baselineVersion"`
+	ResultJSON       string `json:"-" gorm:"type:text"`
+	// SkillID / SkillVersionID 是步骤评测的技能包与候选版本；BaselineSkillVersionID 是对照的启用版本（评测开始时的）。
+	SkillID                string `json:"skillId,omitempty" gorm:"size:36;index:idx_drama_eval_runs_skill_version,priority:1"`
+	SkillVersionID         string `json:"skillVersionId,omitempty" gorm:"size:36;index:idx_drama_eval_runs_skill_version,priority:2"`
+	BaselineSkillVersionID string `json:"baselineSkillVersionId,omitempty" gorm:"size:36"`
+	// Status 是步骤评测的进度：queued、running、passed、failed（未过门槛）、error（没跑完，可重跑）；compile 评测为空。
+	Status string `json:"status,omitempty" gorm:"size:16;index"`
+	// TasksJSON 是逐章的文本任务（章节、候选或对照、任务 ID）；GateJSON 是门槛结论。
+	TasksJSON string `json:"-" gorm:"type:text"`
+	GateJSON  string `json:"-" gorm:"type:text"`
+	Error     string `json:"error,omitempty" gorm:"type:text"`
+	// Activation 是评测后的启用记录：auto（过门槛自动启用）、forced（管理员强制启用，ActivationReason 写原因）；空表示没启用。
+	Activation       string     `json:"activation,omitempty" gorm:"size:16"`
+	ActivationReason string     `json:"activationReason,omitempty" gorm:"type:text"`
+	ActivatedBy      string     `json:"activatedBy,omitempty" gorm:"size:36"`
+	ActivatedAt      *time.Time `json:"activatedAt,omitempty"`
+	FinishedAt       *time.Time `json:"finishedAt,omitempty"`
+	CreatedBy        string     `json:"createdBy" gorm:"size:36"`
+	CreatedAt        time.Time  `json:"createdAt" gorm:"index"`
 }
 
 // DramaStepBinding 是「风格档案 × 步骤 → 技能」的一格（M6）：运行时按项目风格档案取这一格技能的当前版本；

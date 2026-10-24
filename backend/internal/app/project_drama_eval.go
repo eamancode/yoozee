@@ -90,6 +90,8 @@ type DramaEvalRun struct {
 	CreatedAt time.Time              `json:"createdAt"`
 }
 
+// DramaEvalRequest 是评测请求。stage=compile 评测编译档案（项目章节上重放已存产物）；stage 为流程步骤 ID（如 chapter.shots）时
+// 评测技能包的一个版本：在评测集上用 model / logicalModelId / config 选的文本模型真跑，异步出结果（见 drama_step_eval.go）。
 type DramaEvalRequest struct {
 	Stage            string   `json:"stage"`
 	ProjectID        string   `json:"projectId"`
@@ -97,6 +99,38 @@ type DramaEvalRequest struct {
 	CandidateVersion int      `json:"candidateVersion"`
 	BaselineVersion  *int     `json:"baselineVersion"`
 	Model            string   `json:"model"`
+	// SkillID / SkillVersionID / LogicalModelID / Config 只给步骤评测用。
+	SkillID        string         `json:"skillId"`
+	SkillVersionID string         `json:"skillVersionId"`
+	LogicalModelID string         `json:"logicalModelId"`
+	Config         map[string]any `json:"config"`
+}
+
+// IsDramaStepEval 是不是评测流程步骤（技能包版本）。
+func (r DramaEvalRequest) IsDramaStepEval() bool {
+	_, ok := drama.StepByID(strings.TrimSpace(r.Stage))
+	return ok
+}
+
+// AdminDramaStepEval 是 POST /admin/drama/eval 的步骤评测：对技能包的一个版本开始评测，返回排队中的评测。
+func (s *Service) AdminDramaStepEval(actor *model.User, req DramaEvalRequest) (*DramaStepEvalView, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return nil, err
+	}
+	version, err := s.repo.SkillVersion(strings.TrimSpace(req.SkillVersionID))
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, NotFound("技能包版本不存在")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if skillID := strings.TrimSpace(req.SkillID); skillID != "" && skillID != version.SkillID {
+		return nil, NotFound("这个技能包没有该版本")
+	}
+	if m, problems := drama.ParseStepPackageManifest([]byte(version.Manifest)); len(problems) == 0 && m.Step != strings.TrimSpace(req.Stage) {
+		return nil, BadAuthRequest(fmt.Sprintf("这个版本服务的步骤是 %s，不是 %s", m.Step, req.Stage))
+	}
+	return s.StartDramaStepEval(actor, version.SkillID, version.ID, DramaStepEvalModel{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config})
 }
 
 type dramaEvalOutcome struct {
@@ -372,7 +406,7 @@ func (s *Service) AdminDramaEval(actor *model.User, req DramaEvalRequest) (*Dram
 	}
 	stage := firstNonEmpty(strings.TrimSpace(req.Stage), DramaEvalStageCompile)
 	if stage != DramaEvalStageCompile {
-		return nil, BadAuthRequest("目前只支持视频提示词阶段（compile）的评测")
+		return nil, BadAuthRequest("评测阶段只能是视频提示词（compile）或流程步骤 ID（如 chapter.shots）")
 	}
 	project, err := s.repo.ProjectByID(strings.TrimSpace(req.ProjectID))
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -501,7 +535,7 @@ func (s *Service) dramaEvalInput(project *model.Project, unitID string, assets [
 	return in, nil
 }
 
-// AdminDramaEvalRuns 返回最近的评测记录。
+// AdminDramaEvalRuns 返回最近的视频提示词阶段评测记录。
 func (s *Service) AdminDramaEvalRuns(actor *model.User) ([]DramaEvalRun, error) {
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err
@@ -512,6 +546,10 @@ func (s *Service) AdminDramaEvalRuns(actor *model.User) ([]DramaEvalRun, error) 
 	}
 	out := make([]DramaEvalRun, 0, len(records))
 	for _, r := range records {
+		// 流程步骤（技能包）的评测在「流程技能」的版本列表里看。
+		if r.Stage != DramaEvalStageCompile {
+			continue
+		}
 		var run DramaEvalRun
 		if err := json.Unmarshal([]byte(r.ResultJSON), &run); err != nil {
 			continue

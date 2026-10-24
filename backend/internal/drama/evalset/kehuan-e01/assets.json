@@ -1,0 +1,274 @@
+[
+ {
+  "id": "08e85afa89f16aa065f6c0d6e5655473",
+  "title": "冷却液桶",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "f6c46c900c5355cbbce5497d88f5104b",
+  "versionCount": 1,
+  "usages": [],
+  "position": 9,
+  "updatedAt": "2026-10-23T20:47:35.7328756-07:00",
+  "visual": {
+   "definition": {
+    "description": "带够。三桶。",
+    "name": "冷却液桶",
+    "prompt": "带够。三桶。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "1780dd194272c24692e5b44bf46ceb14",
+  "title": "冷却液喷枪",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "2f98eb01448c3ac75ec14648f63d71a8",
+  "versionCount": 1,
+  "usages": [],
+  "position": 8,
+  "updatedAt": "2026-10-23T20:47:35.7328756-07:00",
+  "visual": {
+   "definition": {
+    "description": "抓起冷却液喷枪往外走；苏绛对着缝边喷冷却液",
+    "name": "冷却液喷枪",
+    "prompt": "抓起冷却液喷枪往外走；苏绛对着缝边喷冷却液"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "fd1da4e59e47a769bbe7f24ee6885b19",
+  "title": "饭盒",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "055fc5dcf6dc83e1b76e6b7e183051e5",
+  "versionCount": 1,
+  "usages": [],
+  "position": 7,
+  "updatedAt": "2026-10-23T20:47:35.731852-07:00",
+  "visual": {
+   "definition": {
+    "description": "苏绛把两个包子塞进饭盒，扣上盖子",
+    "name": "饭盒",
+    "prompt": "苏绛把两个包子塞进饭盒，扣上盖子"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "e182099b3a9203ed25ba83fa7064619e",
+  "title": "第七层天幕检修台",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "d8d514b3202e5fd4b24681d30b518776",
+  "versionCount": 1,
+  "usages": [],
+  "position": 6,
+  "updatedAt": "2026-10-23T20:47:35.7312976-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "钢格栅桥",
+     "检修平台",
+     "工具立柱",
+     "天幕裂缝",
+     "脚下城层",
+     "桥头梯笼口"
+    ],
+    "description": "从钢桥一端微微往下看，一条约两米宽、上百米长的钢格栅桥悬在半空，两侧是齐腰的细栏杆。桥下没有地面，只有往下一层层叠下去的六层城：每层是一圈环形的灯火平台，越往下越暗越小，中间被雾隔开。头顶几米处就是天幕的背面：一整块弧形的半透明蓝色膜，膜上布满六边形接缝，正中一道长裂缝发出刺眼白光，缝边跳着细碎的蓝色电弧。桥中段有一个检修平台，平台上立着一根挂工具的立柱。",
+    "name": "第七层天幕检修台",
+    "prompt": "从钢桥一端微微往下看，一条约两米宽、上百米长的钢格栅桥悬在半空，两侧是齐腰的细栏杆。桥下没有地面，只有往下一层层叠下去的六层城：每层是一圈环形的灯火平台，越往下越暗越小，中间被雾隔开。头顶几米处就是天幕的背面：一整块弧形的半透明蓝色膜，膜上布满六边形接缝，正中一道长裂缝发出刺眼白光，缝边跳着细碎的蓝色电弧。桥中段有一个检修平台，平台上立着一根挂工具的立柱。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "c53fc52a3b79a5a5d5be18759562f5f8",
+  "title": "检修井",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "c8ba81d8ab2c506bc434589a242017d1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 5,
+  "updatedAt": "2026-10-23T20:47:35.7307862-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "梯笼护栏",
+     "升降按钮盒",
+     "井壁层号灯",
+     "头顶井口",
+     "钢缆"
+    ],
+    "description": "从梯笼里平视，四周是一口方形窄井，井壁是铆钉密布的深灰钢板，离梯笼护栏不到半米。梯笼是敞口的钢架笼，脚下格栅地板，三面齐腰护栏，一面是升降按钮盒。井壁每隔一段嵌着一盏红色层号灯，往上看是越来越小的方形井口，井口外透进一点夜蓝光。两根粗钢缆从笼顶直通上去。",
+    "name": "检修井",
+    "prompt": "从梯笼里平视，四周是一口方形窄井，井壁是铆钉密布的深灰钢板，离梯笼护栏不到半米。梯笼是敞口的钢架笼，脚下格栅地板，三面齐腰护栏，一面是升降按钮盒。井壁每隔一段嵌着一盏红色层号灯，往上看是越来越小的方形井口，井口外透进一点夜蓝光。两根粗钢缆从笼顶直通上去。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "4f7e13847671c280619cb9f0c25d9312",
+  "title": "维修站",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "6340c34cb8915e85848ae410dba32eb4",
+  "versionCount": 1,
+  "usages": [],
+  "position": 4,
+  "updatedAt": "2026-10-23T20:47:35.7297558-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "维修终端",
+     "充电座",
+     "铁桌",
+     "工具墙",
+     "门口"
+    ],
+    "description": "站在维修站门口往里看，是一间约三十平方米的铁皮工作间，层高不到三米。正对门的墙上嵌着一台方形维修终端，屏幕边一圈红色警示灯；终端左下方贴墙是一个半人高的充电座，座上有两道金属卡槽；右手边是一张铁桌，桌上一只打开的饭盒。左墙挂满扳手、线缆和三只白色冷却液桶，地上画着黄黑斑马线。顶上一根日光灯管偏冷白。",
+    "name": "维修站",
+    "prompt": "站在维修站门口往里看，是一间约三十平方米的铁皮工作间，层高不到三米。正对门的墙上嵌着一台方形维修终端，屏幕边一圈红色警示灯；终端左下方贴墙是一个半人高的充电座，座上有两道金属卡槽；右手边是一张铁桌，桌上一只打开的饭盒。左墙挂满扳手、线缆和三只白色冷却液桶，地上画着黄黑斑马线。顶上一根日光灯管偏冷白。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "64cca06c0fb8147eabfb3216dcc79a42",
+  "title": "第一层集市",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "e56088467dd7da8f8eb06d7fcfe45cdf",
+  "versionCount": 1,
+  "usages": [],
+  "position": 3,
+  "updatedAt": "2026-10-23T20:47:35.7287197-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "面摊长板凳",
+     "竹蒸笼",
+     "鱼摊木台",
+     "集市中央石板路",
+     "杂货推车",
+     "头顶天幕"
+    ],
+    "description": "从集市街口微微往下看，眼前是一条约十五米宽的石板街，两侧是两三层高的旧铁皮楼，楼下一溜摊棚：左手边是面摊，摊前摆着两条长板凳，灶上一摞竹蒸笼冒白汽；中间是鱼摊的木台和一杆挂秤；右手边是杂货推车和堆起来的货箱。头顶很高的地方是一整块弧形天幕，发着均匀的夜蓝光，像一块发光的布盖住整条街。街的远端被更多铁皮楼夹住，楼顶架着交错的管道和晾衣绳。地面湿，反着摊棚灯泡的暖黄光。",
+    "name": "第一层集市",
+    "prompt": "从集市街口微微往下看，眼前是一条约十五米宽的石板街，两侧是两三层高的旧铁皮楼，楼下一溜摊棚：左手边是面摊，摊前摆着两条长板凳，灶上一摞竹蒸笼冒白汽；中间是鱼摊的木台和一杆挂秤；右手边是杂货推车和堆起来的货箱。头顶很高的地方是一整块弧形天幕，发着均匀的夜蓝光，像一块发光的布盖住整条街。街的远端被更多铁皮楼夹住，楼顶架着交错的管道和晾衣绳。地面湿，反着摊棚灯泡的暖黄光。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "cc6593568c482cb7ea0cbf3405cceaf2",
+  "title": "苏迟",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "9f71f8c5d5bbdaa0538db268bac013c0",
+  "versionCount": 1,
+  "usages": [],
+  "position": 2,
+  "updatedAt": "2026-10-23T20:47:35.7282061-07:00",
+  "character": {
+   "versionId": "9f71f8c5d5bbdaa0538db268bac013c0",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "蓬乱黑短发，圆脸尖下巴，门牙缺一颗",
+    "clothing": "大一号褪色橙色旧维修外套袖子卷三道，灰色短裤，旧帆布鞋",
+    "consistencyPrompt": "蓬乱黑短发、圆脸尖下巴、大眼、门牙缺一颗、褪色橙色旧维修外套过大、袖子卷三道、灰色短裤、旧帆布鞋",
+    "multiViewPrompt": "苏迟，正面、侧面、背面三视图，纯色背景",
+    "name": "苏迟",
+    "personality": "12 岁，苏绛的弟弟，住第一层",
+    "physique": "",
+    "props": "",
+    "role": "主角",
+    "voiceAge": "十二岁男孩",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "清亮童声，未变声"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "e41091bde81e3cb94121771f600d9f32",
+  "title": "灯芯",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "94114564af3b59c1eddcf3b285c38de1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 1,
+  "updatedAt": "2026-10-23T20:47:35.7271839-07:00",
+  "character": {
+   "versionId": "94114564af3b59c1eddcf3b285c38de1",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "无脸，单只圆形独眼镜头，琥珀色内圈光环，镜头圈一道斜划痕；外壳边角掉漆",
+    "clothing": "旧白色金属桶形外壳，胸口方形通讯屏，背后黄色线缆卷盘，右臂青色灯带，履带底座",
+    "consistencyPrompt": "单只圆形独眼镜头、琥珀色镜头光环、镜头圈一道斜划痕、旧白色桶形金属外壳、边角掉漆露灰底、两条三节机械臂、右臂青色灯带、胸口方形通讯屏、背后黄色线缆卷盘、履带底座",
+    "multiViewPrompt": "灯芯，正面、侧面、背面三视图，纯色背景",
+    "name": "灯芯",
+    "personality": "服役二十年的维修机器人，胸口有通讯屏（E02S01B01）",
+    "physique": "",
+    "props": "冷却液桶",
+    "role": "主角",
+    "voiceAge": "无年龄，旧机器",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "合成音，中性偏低，带轻微电流底噪与金属共鸣"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "7f26b23225c86f65db9736733e51feeb",
+  "title": "苏绛",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "c9a442c48763de3ef2c2b0cc889f0b6b",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T20:47:35.7261623-07:00",
+  "character": {
+   "versionId": "c9a442c48763de3ef2c2b0cc889f0b6b",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "齐耳黑短发，左侧黑色一字发卡，鹅蛋脸偏方下颌，右手腕一道浅褐色烫疤；鼻梁一点晒斑",
+    "clothing": "橙色维修连体服袖口卷到小臂，黑色工具腰带，灰色半指防护手套，黑色厚底工装靴，左胸方形工牌无可读文字",
+    "consistencyPrompt": "齐耳黑短发、左侧黑色一字发卡、鹅蛋脸偏方下颌、单眼皮细长眼、额头半透明护目面罩、橙色维修连体服袖口卷起、黑色工具腰带、灰色半指防护手套、黑色厚底工装靴、右手腕浅褐色烫疤",
+    "multiViewPrompt": "苏绛，正面、侧面、背面三视图，纯色背景",
+    "name": "苏绛",
+    "personality": "27 岁天幕维修工，干这行七年",
+    "physique": "",
+    "props": "饭盒、冷却液喷枪",
+    "role": "主角",
+    "voiceAge": "二十七八",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "中低音女声，略沙，干脆"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ }
+]
