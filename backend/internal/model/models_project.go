@@ -400,7 +400,9 @@ type DramaEvalRun struct {
 	BaselineSkillVersionID string `json:"baselineSkillVersionId,omitempty" gorm:"size:36"`
 	// Status 是步骤评测的进度：queued、running、passed、failed（未过门槛）、error（没跑完，可重跑）；compile 评测为空。
 	Status string `json:"status,omitempty" gorm:"size:16;index"`
-	// TasksJSON 是逐章的文本任务（章节、候选或对照、任务 ID）；GateJSON 是门槛结论。
+	// TasksJSON 是逐章的任务位（章节、候选或对照、任务 ID、重投记录）；GateJSON 是门槛结论。
+	// ModelJSON 是评测用的文本模型选择（任务按并发上限逐个投出时用），config 里的密钥按任务表同一规则加密。
+	ModelJSON string `json:"-" gorm:"type:text"`
 	TasksJSON string `json:"-" gorm:"type:text"`
 	GateJSON  string `json:"-" gorm:"type:text"`
 	Error     string `json:"error,omitempty" gorm:"type:text"`

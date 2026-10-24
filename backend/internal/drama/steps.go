@@ -12,6 +12,9 @@ const (
 	ContractChapterShots = "chapter.shots@2"
 )
 
+// StepEvalMaxConcurrency 是评测同时在跑的任务数上限（步骤表的 EvalConcurrency 超过它按它算）。
+const StepEvalMaxConcurrency = 2
+
 // StepInput 是代码负责组装进提示词的一项变量（技能只写怎么用，不写怎么取）。
 type StepInput struct {
 	Name string `json:"name"`
@@ -68,6 +71,8 @@ type Step struct {
 	Gate         StepGate `json:"gate"`
 	// EvalSet 是评测集，按风格档案配置：包覆盖的每个档案跑它的章节，再加包清单 eval 点名的章节。
 	EvalSet []StepEvalChapter `json:"evalSet"`
+	// EvalConcurrency 是这一步的评测全局同时在跑的任务数（所有正在进行的评测共用，不叠加），不超过 StepEvalMaxConcurrency。
+	EvalConcurrency int `json:"evalConcurrency"`
 	// TaskSource 是这一步文本任务 metadata.source（前端按它认出任务、刷新后恢复结果）。
 	TaskSource string `json:"taskSource"`
 
@@ -104,6 +109,8 @@ var steps = []Step{
 			MaxDurationRatio: 1.1,
 			MaxTruncated:     0,
 		},
+		// 评测任务一个一个投：线上文本渠道扛不住十个生成分段同时跑（多数在提交前 502）。
+		EvalConcurrency: 1,
 		// 真人剧用《七床》第一集；其余四个档案各用一类题材的测试章节（打斗、科幻奇观、分手情绪、悬疑）。
 		// game-ip 还没有专门的测试项目，暂用悬疑章节跑它的档案规则。
 		EvalSet: []StepEvalChapter{
