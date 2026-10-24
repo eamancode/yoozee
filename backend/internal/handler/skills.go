@@ -14,6 +14,26 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// requireSkillContent 在后台关闭「技能展示」时挡住浏览他人技能详情与内容。
+// 管理员不受限，否则关掉展示后无法维护技能；自己已加入或自建的技能也放行，
+// 否则自建技能没法编辑、画布生成也读不到要用的技能正文。
+func requireSkillContent(c *gin.Context, svc *service.Service, user *model.User, skillID string) bool {
+	if user != nil && user.Role == model.UserRoleAdmin {
+		return true
+	}
+	guardErr := svc.RequireFeature(service.FeatureSkillContent)
+	if guardErr == nil {
+		return true
+	}
+	if user != nil && skillID != "" {
+		if item, err := svc.SkillDetail(user.ID, skillID); err == nil && (item.IsOwner || item.IsAdded) {
+			return true
+		}
+	}
+	failService(c, guardErr)
+	return false
+}
+
 func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 	registerSkillCurationRoutes(r, svc)
 	registerBuiltinSkillVersionRoutes(r, svc)
@@ -179,6 +199,9 @@ func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
+		if !requireSkillContent(c, svc, user, c.Param("id")) {
+			return
+		}
 		skill, err := svc.SkillDetail(user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
@@ -212,6 +235,9 @@ func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
+		if !requireSkillContent(c, svc, user, c.Param("id")) {
+			return
+		}
 		files, err := svc.SkillPackageFiles(user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
@@ -226,6 +252,9 @@ func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
+		if !requireSkillContent(c, svc, user, c.Param("id")) {
+			return
+		}
 		file, err := svc.SkillPackageFile(user.ID, c.Param("id"), c.Query("path"))
 		if err != nil {
 			failService(c, err)
@@ -238,6 +267,9 @@ func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
+			return
+		}
+		if !requireSkillContent(c, svc, user, c.Param("id")) {
 			return
 		}
 		data, mimeType, fileName, err := svc.SkillPackageRawFile(user.ID, c.Param("id"), c.Query("path"))
@@ -258,6 +290,9 @@ func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
+		if !requireSkillContent(c, svc, user, c.Param("id")) {
+			return
+		}
 		bundle, err := svc.SkillPackageBundle(user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
@@ -271,6 +306,9 @@ func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
+			return
+		}
+		if !requireSkillContent(c, svc, user, c.Param("id")) {
 			return
 		}
 		results, err := svc.SearchSkillPackage(user.ID, c.Param("id"), c.Query("q"))

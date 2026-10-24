@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { App, Button, Skeleton } from "antd";
 import { Switch } from "@/pages/admin/ui/controls";
-import { AlertTriangle, Clapperboard, Coins, ListChecks, MonitorCog, PlugZap, RadioTower, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, BookOpenText, Clapperboard, Coins, ListChecks, MonitorCog, PlugZap, RadioTower, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { getAdminFeatureAvailability, updateAdminFeatureAvailability } from "@/services/api/auth";
@@ -9,7 +9,17 @@ import { useUserStore, type FeatureAvailability } from "@/stores/use-user-store"
 import { AdminStatusBadge } from "./admin-ui";
 
 type FeatureKey =
-    "shortDramaEnabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "inspirationSourcesVisible" | "frontendModelsEnabled" | "pluginCenterEnabled" | "systemPluginsVisibleToUsers" | "imageWorkbenchEnabled" | "videoWorkbenchEnabled";
+    | "shortDramaEnabled"
+    | "taskCenterEnabled"
+    | "creditsEnabled"
+    | "customChannelsEnabled"
+    | "inspirationSourcesVisible"
+    | "frontendModelsEnabled"
+    | "pluginCenterEnabled"
+    | "systemPluginsVisibleToUsers"
+    | "imageWorkbenchEnabled"
+    | "videoWorkbenchEnabled"
+    | "skillContentVisible";
 type FeatureRow = {
     key: FeatureKey;
     title: string;
@@ -29,6 +39,7 @@ const editableFeatureKeys: FeatureKey[] = [
     "frontendModelsEnabled",
     "pluginCenterEnabled",
     "systemPluginsVisibleToUsers",
+    "skillContentVisible",
 ];
 
 const workspaceFeatureRows: FeatureRow[] = [
@@ -101,7 +112,16 @@ const modelFeatureRows: FeatureRow[] = [
     },
 ];
 
-const allFeatureRows = [...workspaceFeatureRows, ...pluginFeatureRows, ...modelFeatureRows];
+const skillFeatureRows: FeatureRow[] = [
+    {
+        key: "skillContentVisible",
+        title: "技能展示",
+        description: "技能页点击技能卡打开详情，Agent 窗口显示技能入口与技能库；关闭后只保留技能列表，Agent 仍按已挂载技能工作。",
+        icon: <BookOpenText className="size-4" aria-hidden="true" />,
+    },
+];
+
+const allFeatureRows = [...workspaceFeatureRows, ...pluginFeatureRows, ...modelFeatureRows, ...skillFeatureRows];
 const featureByKey = new Map(allFeatureRows.map((item) => [item.key, item]));
 
 export default function FeatureAvailabilityPanel() {
@@ -212,7 +232,7 @@ export default function FeatureAvailabilityPanel() {
                     <Skeleton active title={{ width: 180 }} paragraph={false} />
                 </div>
                 <div className="admin-feature-board is-loading">
-                    {Array.from({ length: 3 }).map((_, index) => (
+                    {Array.from({ length: 4 }).map((_, index) => (
                         <div key={index} className="admin-feature-domain">
                             <Skeleton active title={{ width: 120 }} paragraph={{ rows: 3 }} />
                         </div>
@@ -299,6 +319,15 @@ export default function FeatureAvailabilityPanel() {
                     status={<AdminStatusBadge label={draftFeatures.frontendModelsEnabled ? "前台模型目录" : "系统渠道"} tone="info" />}
                 >
                     <FeatureSourceRow row={modelFeatureRows[0]} saved={savedFeatures} draft={draftFeatures} saving={saving} onChange={requestFeatureChange} />
+                </FeatureDomainPanel>
+
+                <FeatureDomainPanel
+                    title="4. 技能展示"
+                    description="决定用户能否查看技能详情和 Agent 窗口的技能入口"
+                    icon={<BookOpenText className="size-4" aria-hidden="true" />}
+                    status={<AdminStatusBadge label={draftFeatures.skillContentVisible ? "已展示" : "已隐藏"} tone={draftFeatures.skillContentVisible ? "success" : "neutral"} />}
+                >
+                    <FeatureSettingRow row={skillFeatureRows[0]} saved={savedFeatures} draft={draftFeatures} saving={saving} onChange={requestFeatureChange} />
                 </FeatureDomainPanel>
             </div>
         </div>
@@ -387,6 +416,7 @@ function toEditablePayload(features: FeatureAvailability) {
         frontendModelsEnabled: features.frontendModelsEnabled,
         pluginCenterEnabled: features.pluginCenterEnabled,
         systemPluginsVisibleToUsers: features.systemPluginsVisibleToUsers,
+        skillContentVisible: features.skillContentVisible,
     };
 }
 
@@ -412,6 +442,8 @@ function parseFeatureAvailability(value: unknown): FeatureAvailability {
         frontendModelsEnabled: record.frontendModelsEnabled as boolean,
         pluginCenterEnabled: record.pluginCenterEnabled as boolean,
         systemPluginsVisibleToUsers: record.systemPluginsVisibleToUsers as boolean,
+        // 默认展示：后端没返回该字段（旧后端 / 回滚）时不能静默把技能藏起来。
+        skillContentVisible: typeof record.skillContentVisible === "boolean" ? record.skillContentVisible : true,
         configured: typeof record.configured === "boolean" ? record.configured : undefined,
         updatedBy: typeof record.updatedBy === "string" ? record.updatedBy : undefined,
         updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : undefined,

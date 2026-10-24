@@ -454,7 +454,7 @@ export function AgentConversation({
     approvalTargetGenerating?: CanvasNodeData;
     approvalSubmitting: boolean;
     nodeCount: number;
-    onChooseSkill: () => void;
+    onChooseSkill?: () => void;
     onDraftPrompt: (prompt: string) => void;
     onFocusNode?: (nodeId: string) => void;
     onApprovalReasonChange: (reason: string) => void;
@@ -549,7 +549,8 @@ export function ComposerControls({
     onModelChange: (model: string) => void;
     onPermissionChange: (mode: AgentPermissionMode) => void;
     skillsOpen: boolean;
-    onSkillsOpenChange: (open: boolean) => void;
+    /** 未提供时隐藏 Skills 入口（后台关闭了技能展示）。 */
+    onSkillsOpenChange?: (open: boolean) => void;
     selectedSkillCount: number;
 }) {
     const permissionVisual = agentPermissionVisual(permissionMode);
@@ -580,19 +581,21 @@ export function ComposerControls({
                     <PermissionIcon className="size-3.5" style={{ color: permissionVisual.color }} aria-hidden="true" />
                 </button>
             </Dropdown>
-            <button
-                type="button"
-                className="flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/25"
-                style={{ color: selectedSkillCount ? theme.accent.primary : theme.node.muted, background: skillsOpen ? theme.node.fill : "transparent" }}
-                aria-label={`打开 Skills 技能库${selectedSkillCount ? `，已启用 ${selectedSkillCount} 个` : ""}`}
-                aria-expanded={skillsOpen}
-                aria-haspopup="dialog"
-                title="打开 Skills 技能库"
-                onClick={() => onSkillsOpenChange(true)}
-            >
-                <Sparkles className="size-3.5" />
-                <span className="max-w-28 truncate">Skills({selectedSkillCount})</span>
-            </button>
+            {onSkillsOpenChange ? (
+                <button
+                    type="button"
+                    className="flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/25"
+                    style={{ color: selectedSkillCount ? theme.accent.primary : theme.node.muted, background: skillsOpen ? theme.node.fill : "transparent" }}
+                    aria-label={`打开 Skills 技能库${selectedSkillCount ? `，已启用 ${selectedSkillCount} 个` : ""}`}
+                    aria-expanded={skillsOpen}
+                    aria-haspopup="dialog"
+                    title="打开 Skills 技能库"
+                    onClick={() => onSkillsOpenChange(true)}
+                >
+                    <Sparkles className="size-3.5" />
+                    <span className="max-w-28 truncate">Skills({selectedSkillCount})</span>
+                </button>
+            ) : null}
         </div>
     );
 }

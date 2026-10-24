@@ -443,7 +443,7 @@ export function getAdminFeatureAvailability() {
 }
 
 export function updateAdminFeatureAvailability(
-    features: Partial<Pick<FeatureAvailability, "welcomeEnabled" | "shortDramaEnabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "systemPluginsVisibleToUsers" | "inspirationSourcesVisible" | "imageWorkbenchEnabled" | "videoWorkbenchEnabled">>,
+    features: Partial<Pick<FeatureAvailability, "welcomeEnabled" | "shortDramaEnabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "systemPluginsVisibleToUsers" | "inspirationSourcesVisible" | "imageWorkbenchEnabled" | "videoWorkbenchEnabled" | "skillContentVisible">>,
 ) {
     return http.patch<{ features: FeatureAvailability }>("/admin/settings/features", features);
 }

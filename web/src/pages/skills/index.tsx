@@ -86,6 +86,7 @@ export default function SkillsPage() {
     const [installOpen, setInstallOpen] = useState(false);
     const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
     const isAdmin = useUserStore((state) => state.user?.role === "admin");
+    const skillContentVisible = useUserStore((state) => state.features.skillContentVisible);
     const isLibraryScope = scope === "mine" || scope === "created";
     const libraryCategoryScope = scope === "created" ? "created" : "mine";
 
@@ -153,6 +154,7 @@ export default function SkillsPage() {
     const resetFilters = useCallback(() => { setSearch(""); setTag("all"); setLibraryCategoryId("all"); setSort("popular"); setPage(1); }, []);
 
     const openSkill = async (skill: Skill) => {
+        if (!skillContentVisible) return;
         setActiveSkill(skill);
         setDetailLoading(true);
         try {
@@ -323,7 +325,7 @@ export default function SkillsPage() {
             canCategorize={isLibraryScope}
             loading={mutatingID === skill.skillId}
             style={{ animationDelay: `${Math.min(index, 5) * 30}ms` }}
-            onOpen={() => void openSkill(skill)}
+            onOpen={skillContentVisible ? () => void openSkill(skill) : undefined}
             onAdd={() => void toggleAdded(skill)}
             onLike={() => void toggleLiked(skill)}
             onEdit={() => void openEditor(skill)}
@@ -537,14 +539,14 @@ export default function SkillsPage() {
                     </div>
                 </div>
             </AppModal>
-            <SkillDetailModal skill={activeSkill} loading={detailLoading} mutating={Boolean(activeSkill && mutatingID === activeSkill.skillId)} categories={categories} onClose={() => setActiveSkill(null)} onAdd={(skill) => void toggleAdded(skill)} onLike={(skill) => void toggleLiked(skill)} onEdit={(skill) => void openEditor(skill)} onSync={(skill) => void synchronizeSkill(skill)} />
+            <SkillDetailModal skill={skillContentVisible ? activeSkill : null} loading={detailLoading} mutating={Boolean(activeSkill && mutatingID === activeSkill.skillId)} categories={categories} onClose={() => setActiveSkill(null)} onAdd={(skill) => void toggleAdded(skill)} onLike={(skill) => void toggleLiked(skill)} onEdit={(skill) => void openEditor(skill)} onSync={(skill) => void synchronizeSkill(skill)} />
             <SkillInstallModal open={installOpen} onClose={() => setInstallOpen(false)} onInstalled={(skill) => { setInstallOpen(false); setActiveSkill(skill); reload(); }} onManualCreate={() => { setInstallOpen(false); void openEditor(); }} />
             <SkillEditorDrawer open={editorOpen} skill={editingSkill} onClose={() => setEditorOpen(false)} onSaved={(skill) => { setEditorOpen(false); setEditingSkill(null); setActiveSkill(skill); reload(); }} />
         </>
     );
 }
 
-function SkillCard({ skill, rootLabel, categories, libraryCategories, canCategorize, loading, style, onOpen, onAdd, onLike, onEdit, onDelete, onSetLibraryCategory }: { skill: Skill; rootLabel?: string; categories: SkillCategory[]; libraryCategories: SkillLibraryCategory[]; canCategorize: boolean; loading: boolean; style?: CSSProperties; onOpen: () => void; onAdd: () => void; onLike: () => void; onEdit: () => void; onDelete: () => void; onSetLibraryCategory: (categoryId: string) => void }) {
+function SkillCard({ skill, rootLabel, categories, libraryCategories, canCategorize, loading, style, onOpen, onAdd, onLike, onEdit, onDelete, onSetLibraryCategory }: { skill: Skill; rootLabel?: string; categories: SkillCategory[]; libraryCategories: SkillLibraryCategory[]; canCategorize: boolean; loading: boolean; style?: CSSProperties; onOpen?: () => void; onAdd: () => void; onLike: () => void; onEdit: () => void; onDelete: () => void; onSetLibraryCategory: (categoryId: string) => void }) {
     const CategoryIcon = categoryIconOf(skill.tag);
     const currentLibraryCategory = libraryCategories.find((category) => category.id === skill.libraryCategoryId);
     const libraryCategoryLabel = currentLibraryCategory?.name || (skill.libraryCategoryId ? "已归类" : "未分类");
@@ -552,9 +554,16 @@ function SkillCard({ skill, rootLabel, categories, libraryCategories, canCategor
         <article style={style} className={`product-collection-card library-card library-card-surface skill-library-card group${skill.isAdded ? " is-added" : ""}`}>
             <div className="skill-card-top">
                 <span className="library-icon-tile skill-card-icon" aria-hidden="true"><CategoryIcon /></span>
-                <button type="button" className="skill-card-title-button" onClick={onOpen}>
-                    <h3>{skill.skillName}</h3>
-                </button>
+                {/* 技能展示关闭时卡片只读：不给可点击外观，也不打开详情。 */}
+                {onOpen ? (
+                    <button type="button" className="skill-card-title-button" onClick={onOpen}>
+                        <h3>{skill.skillName}</h3>
+                    </button>
+                ) : (
+                    <div className="skill-card-title-button">
+                        <h3>{skill.skillName}</h3>
+                    </div>
+                )}
                 {canCategorize ? (
                     <Tooltip title={`技能库分类：${libraryCategoryLabel}`}>
                         <Dropdown
@@ -591,9 +600,15 @@ function SkillCard({ skill, rootLabel, categories, libraryCategories, canCategor
                     </Dropdown>
                 ) : null}
             </div>
-            <button type="button" className="skill-card-description" onClick={onOpen}>
-                <p>{skill.description || "暂无技能简介"}</p>
-            </button>
+            {onOpen ? (
+                <button type="button" className="skill-card-description" onClick={onOpen}>
+                    <p>{skill.description || "暂无技能简介"}</p>
+                </button>
+            ) : (
+                <div className="skill-card-description">
+                    <p>{skill.description || "暂无技能简介"}</p>
+                </div>
+            )}
             <div className="skill-card-footer">
                 <button type="button" disabled={loading} className="skill-card-like" aria-label={skill.isLike ? "取消收藏" : "收藏"} onClick={onLike}>
                     <Heart className={`size-3.5 ${skill.isLike ? "fill-current text-rose-500" : ""}`} />

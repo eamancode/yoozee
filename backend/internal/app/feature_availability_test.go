@@ -23,7 +23,7 @@ func TestFeatureAvailabilityDefaultsToDisableFrontendModels(t *testing.T) {
 	if !setting.WelcomeEnabled {
 		t.Fatal("welcome should be enabled by default")
 	}
-	if setting.Configured || !setting.ShortDramaEnabled || !setting.TaskCenterEnabled || !setting.CreditsEnabled || !setting.CustomChannelsEnabled || setting.FrontendModelsEnabled || !setting.PluginCenterEnabled || !setting.SystemPluginsVisibleToUsers || !setting.InspirationSourcesVisible {
+	if setting.Configured || !setting.ShortDramaEnabled || !setting.TaskCenterEnabled || !setting.CreditsEnabled || !setting.CustomChannelsEnabled || setting.FrontendModelsEnabled || !setting.PluginCenterEnabled || !setting.SystemPluginsVisibleToUsers || !setting.InspirationSourcesVisible || !setting.SkillContentVisible {
 		t.Fatalf("FeatureAvailability() = %#v", setting)
 	}
 }
@@ -39,7 +39,7 @@ func TestFeatureAvailabilityLegacySettingKeepsCustomChannelsEnabled(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if setting.ShortDramaEnabled || !setting.CustomChannelsEnabled || setting.FrontendModelsEnabled || !setting.PluginCenterEnabled || !setting.SystemPluginsVisibleToUsers {
+	if setting.ShortDramaEnabled || !setting.CustomChannelsEnabled || setting.FrontendModelsEnabled || !setting.PluginCenterEnabled || !setting.SystemPluginsVisibleToUsers || !setting.SkillContentVisible {
 		t.Fatalf("FeatureAvailability() = %#v", setting)
 	}
 	if !setting.WelcomeEnabled {
@@ -75,7 +75,7 @@ func TestUpdateFeatureAvailabilityPersistsAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !setting.Configured || setting.ShortDramaEnabled || !setting.TaskCenterEnabled || setting.CreditsEnabled || !setting.CustomChannelsEnabled || setting.PluginCenterEnabled || setting.SystemPluginsVisibleToUsers || setting.InspirationSourcesVisible {
+	if !setting.Configured || setting.ShortDramaEnabled || !setting.TaskCenterEnabled || setting.CreditsEnabled || !setting.CustomChannelsEnabled || setting.PluginCenterEnabled || setting.SystemPluginsVisibleToUsers || setting.InspirationSourcesVisible || setting.SkillContentVisible {
 		t.Fatalf("UpdateFeatureAvailability() = %#v", setting)
 	}
 	if enabled, err := svc.FeatureEnabled(FeaturePluginCenter); err != nil || enabled {
