@@ -9,7 +9,17 @@ import { useUserStore, type FeatureAvailability } from "@/stores/use-user-store"
 import { AdminStatusBadge } from "./admin-ui";
 
 type FeatureKey =
-    "shortDramaEnabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "inspirationSourcesVisible" | "frontendModelsEnabled" | "pluginCenterEnabled" | "systemPluginsVisibleToUsers" | "imageWorkbenchEnabled" | "videoWorkbenchEnabled" | "skillContentVisible";
+    | "shortDramaEnabled"
+    | "taskCenterEnabled"
+    | "creditsEnabled"
+    | "customChannelsEnabled"
+    | "inspirationSourcesVisible"
+    | "frontendModelsEnabled"
+    | "pluginCenterEnabled"
+    | "systemPluginsVisibleToUsers"
+    | "imageWorkbenchEnabled"
+    | "videoWorkbenchEnabled"
+    | "skillContentVisible";
 type FeatureRow = {
     key: FeatureKey;
     title: string;
