@@ -3,8 +3,9 @@
 // 结果交给与章节页相同的解析器、资产绑定、镜头表检查和装段；再跟当前启用版本在同一组章节上的结果比，按步骤表里的门槛判定。
 // 全部达标就自动启用并记审计日志；不达标标「未通过」，保留指标对比与逐章结果，管理员可以写明原因强制启用。
 //
-// 评测任务在请求里同步建好（任务输入按任务表的规则加密，评测记录里不存渠道配置），之后由后台循环按任务状态推进、落定。
-// 记录在 drama_eval_runs（stage 为步骤 ID）。
+// 评测任务不一次投完：后台循环每 10 秒推进一次，全局同时在跑的评测任务不超过步骤表的 EvalConcurrency（多个评测排队共用），
+// 前一个结束再投下一个；还没提交上游就失败（5xx、连不上）的任务隔一段时间重投，最多两次。评测记录只存模型选择，
+// 其中的密钥按任务表同一规则加密。记录在 drama_eval_runs（stage 为步骤 ID）。
 
 package app
 
@@ -15,6 +16,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -43,15 +45,21 @@ const (
 	dramaStepEvalRoleCandidate = "candidate"
 	dramaStepEvalRoleBaseline  = "baseline"
 	dramaStepEvalTaskMissing   = "missing"
-	dramaStepEvalTick          = 10 * time.Second
-	dramaStepEvalTimeout       = 2 * time.Hour
-	dramaStepEvalLeaseScope    = "drama-step-eval"
+	// dramaStepEvalSlotPending 是还没投出（或等着重投）的任务位。
+	dramaStepEvalSlotPending = "pending"
+	dramaStepEvalTick        = 10 * time.Second
+	// dramaStepEvalTimeout 是整次评测的上限：任务一个一个跑，十个任务加重投要留够时间。
+	dramaStepEvalTimeout    = 6 * time.Hour
+	dramaStepEvalLeaseScope = "drama-step-eval"
 	// dramaStepEvalLookback 是找对照结果、版本最近评测时往回看的记录数。
 	dramaStepEvalLookback       = 60
 	dramaStepEvalReasonMaxRunes = 500
 )
 
 var dramaStepEvalInFlight = []string{DramaStepEvalQueued, DramaStepEvalRunning}
+
+// dramaStepEvalRetryDelays 是没提交上游就失败的任务第几次重投前等多久（次数即上限）；测试里改成 0。
+var dramaStepEvalRetryDelays = []time.Duration{30 * time.Second, 90 * time.Second}
 
 // DramaStepEvalModel 是评测用的文本模型（后台页面带上管理员设置里的默认文本模型，与章节页「生成分段」同一套字段）。
 type DramaStepEvalModel struct {
@@ -64,12 +72,17 @@ func (m DramaStepEvalModel) empty() bool {
 	return strings.TrimSpace(m.Model) == "" && strings.TrimSpace(m.LogicalModelID) == ""
 }
 
-// dramaStepEvalTask 是一章一个角色（候选 / 对照）的文本任务；Status 是后台循环最近一次看到的任务状态。
+// dramaStepEvalTask 是一章一个角色（候选 / 对照）的任务位：TaskID 为空、Status 为 pending 表示还没投出或在等重投；
+// Status 否则是后台循环最近一次看到的任务状态。Retries 是已经重投的次数，PreviousTaskIDs 是重投前失败的任务。
 type dramaStepEvalTask struct {
-	Chapter string `json:"chapter"`
-	Role    string `json:"role"`
-	TaskID  string `json:"taskId"`
-	Status  string `json:"status"`
+	Chapter         string     `json:"chapter"`
+	Role            string     `json:"role"`
+	TaskID          string     `json:"taskId"`
+	Status          string     `json:"status"`
+	Retries         int        `json:"retries,omitempty"`
+	RetryAt         *time.Time `json:"retryAt,omitempty"`
+	LastError       string     `json:"lastError,omitempty"`
+	PreviousTaskIDs []string   `json:"previousTaskIds,omitempty"`
 }
 
 // DramaStepEvalResult 是步骤评测的逐章结果（drama_eval_runs.result_json）。
@@ -93,16 +106,20 @@ type DramaStepEvalView struct {
 	Chapters               []drama.StepEvalChapter `json:"chapters"`
 	TasksDone              int                     `json:"tasksDone"`
 	TasksTotal             int                     `json:"tasksTotal"`
-	Gate                   *drama.StepGateVerdict  `json:"gate,omitempty"`
-	Result                 *DramaStepEvalResult    `json:"result,omitempty"`
-	Error                  string                  `json:"error,omitempty"`
-	Activation             string                  `json:"activation,omitempty"`
-	ActivationReason       string                  `json:"activationReason,omitempty"`
-	ActivatedBy            string                  `json:"activatedBy,omitempty"`
-	ActivatedAt            *time.Time              `json:"activatedAt,omitempty"`
-	CreatedBy              string                  `json:"createdBy"`
-	CreatedAt              time.Time               `json:"createdAt"`
-	FinishedAt             *time.Time              `json:"finishedAt,omitempty"`
+	// TasksRunning 是已经投出、还没结束的任务；TasksWaiting 是排队等投（或等重投）的任务位；Retries 是累计重投次数。
+	TasksRunning     int                    `json:"tasksRunning"`
+	TasksWaiting     int                    `json:"tasksWaiting"`
+	Retries          int                    `json:"retries"`
+	Gate             *drama.StepGateVerdict `json:"gate,omitempty"`
+	Result           *DramaStepEvalResult   `json:"result,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+	Activation       string                 `json:"activation,omitempty"`
+	ActivationReason string                 `json:"activationReason,omitempty"`
+	ActivatedBy      string                 `json:"activatedBy,omitempty"`
+	ActivatedAt      *time.Time             `json:"activatedAt,omitempty"`
+	CreatedBy        string                 `json:"createdBy"`
+	CreatedAt        time.Time              `json:"createdAt"`
+	FinishedAt       *time.Time             `json:"finishedAt,omitempty"`
 }
 
 // StartDramaStepEval 对技能包的一个版本开始评测（上传后自动开始，也可以在版本列表里重跑）。
@@ -175,17 +192,9 @@ func (s *Service) StartDramaStepEval(actor *model.User, skillID string, versionI
 			return nil, err
 		}
 	}
-	// 先把每章的提示词组装好（数据或技能有问题就在建任务前报错），再记评测、建任务。
-	type plannedTask struct {
-		chapter, role string
-		req           CreateTaskRequest
-	}
-	var planned []plannedTask
+	// 先把每章的提示词组装一遍（数据或技能有问题就在记评测前报错）；任务由后台循环按并发上限逐个投出，投时再组装。
+	var slots []dramaStepEvalTask
 	for _, c := range chapters {
-		in, err := loadDramaEvalChapter(c)
-		if err != nil {
-			return nil, err
-		}
 		for _, role := range []string{dramaStepEvalRoleCandidate, dramaStepEvalRoleBaseline} {
 			pkg := candidate
 			if role == dramaStepEvalRoleBaseline {
@@ -194,50 +203,86 @@ func (s *Service) StartDramaStepEval(actor *model.User, skillID string, versionI
 				}
 				pkg = baseline
 			}
-			skillRef := stepSkillOf(pkg)
-			usage := DramaStepUsage{
-				Step: step.ID, StepLabel: step.Label, Contract: step.Contract, Bound: true, Profile: dramaProfileRef(c.Profile),
-				Skill: DramaStepSkillRef{ID: skillRef.ID, Name: skillRef.Name, VersionID: skillRef.VersionID, Version: skillRef.Version, ContentHash: skillRef.ContentHash},
+			if _, err := dramaStepEvalTaskRequest(run.ID, step, c, role, pkg, sel); err != nil {
+				return nil, err
 			}
-			plan, err := chapterShotsPlan(in.project, in.unit, in.assets, usage, skillRef)
-			if err != nil {
-				return nil, fmt.Errorf("评测章节 %s 组装提示词：%w", c.ID, err)
-			}
-			req := dramaStepTaskRequest("", "", plan, DramaStepRunRequest{Model: sel.Model, LogicalModelID: sel.LogicalModelID, Config: sel.Config})
-			metadata := req.Input["metadata"].(map[string]any)
-			delete(metadata, "domainProjectId")
-			delete(metadata, "chapterId")
-			metadata["source"] = dramaStepEvalTaskSource
-			metadata["dramaStepEval"] = map[string]any{"runId": run.ID, "chapter": c.ID, "role": role}
-			planned = append(planned, plannedTask{chapter: c.ID, role: role, req: req})
+			slots = append(slots, dramaStepEvalTask{Chapter: c.ID, Role: role, Status: dramaStepEvalSlotPending})
 		}
 	}
+	modelJSON, err := s.protectedDramaStepEvalModel(sel)
+	if err != nil {
+		return nil, err
+	}
 	raw, _ := json.Marshal(result)
-	run.ResultJSON, run.TasksJSON = string(raw), "[]"
+	encoded, _ := json.Marshal(slots)
+	run.ResultJSON, run.TasksJSON, run.ModelJSON = string(raw), string(encoded), modelJSON
 	if err := s.repo.CreateDramaEvalRun(run); err != nil {
 		return nil, err
 	}
-	tasks := make([]dramaStepEvalTask, 0, len(planned))
-	for _, p := range planned {
-		task, err := s.CreateTask(actor.ID, p.req)
-		if err != nil {
-			encoded, _ := json.Marshal(tasks)
-			message := fmt.Sprintf("建评测任务失败（%s）：%s", p.chapter, err.Error())
-			now := time.Now()
-			if _, updateErr := s.repo.UpdateDramaEvalRunFrom(run.ID, dramaStepEvalInFlight, map[string]any{"status": DramaStepEvalError, "tasks_json": string(encoded), "error": truncateRunes(message, 1000), "finished_at": &now}); updateErr != nil {
-				return nil, errors.Join(err, updateErr)
-			}
-			return nil, err
-		}
-		tasks = append(tasks, dramaStepEvalTask{Chapter: p.chapter, Role: p.role, TaskID: task.ID, Status: string(task.Status)})
+	// 立刻推进一次：有空位就投出第一个任务，建任务失败（余额不足等）当场记进评测。
+	s.advanceDramaStepEvals(context.Background())
+	if latest, err := s.repo.DramaEvalRun(run.ID); err == nil {
+		run = latest
 	}
-	encoded, _ := json.Marshal(tasks)
-	if err := s.repo.UpdateDramaEvalRun(run.ID, map[string]any{"tasks_json": string(encoded)}); err != nil {
-		return nil, err
-	}
-	run.TasksJSON = string(encoded)
 	view := dramaStepEvalViewOf(*run)
 	return &view, nil
+}
+
+// dramaStepEvalTaskRequest 组装一个任务位的文本任务：与「生成分段」同一条提示词组装路径，metadata 标成评测任务。
+func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalChapter, role string, pkg *skills.StepPackage, sel DramaStepEvalModel) (CreateTaskRequest, error) {
+	in, err := loadDramaEvalChapter(c)
+	if err != nil {
+		return CreateTaskRequest{}, err
+	}
+	skillRef := stepSkillOf(pkg)
+	usage := DramaStepUsage{
+		Step: step.ID, StepLabel: step.Label, Contract: step.Contract, Bound: true, Profile: dramaProfileRef(c.Profile),
+		Skill: DramaStepSkillRef{ID: skillRef.ID, Name: skillRef.Name, VersionID: skillRef.VersionID, Version: skillRef.Version, ContentHash: skillRef.ContentHash},
+	}
+	plan, err := chapterShotsPlan(in.project, in.unit, in.assets, usage, skillRef)
+	if err != nil {
+		return CreateTaskRequest{}, fmt.Errorf("评测章节 %s 组装提示词：%w", c.ID, err)
+	}
+	req := dramaStepTaskRequest("", "", plan, DramaStepRunRequest{Model: sel.Model, LogicalModelID: sel.LogicalModelID, Config: sel.Config})
+	metadata := req.Input["metadata"].(map[string]any)
+	delete(metadata, "domainProjectId")
+	delete(metadata, "chapterId")
+	metadata["source"] = dramaStepEvalTaskSource
+	metadata["dramaStepEval"] = map[string]any{"runId": runID, "chapter": c.ID, "role": role}
+	return req, nil
+}
+
+// protectedDramaStepEvalModel 把模型选择存进评测记录：config 里的密钥按任务表同一规则加密。
+func (s *Service) protectedDramaStepEvalModel(sel DramaStepEvalModel) (string, error) {
+	raw, err := json.Marshal(sel)
+	if err != nil {
+		return "", err
+	}
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return "", err
+	}
+	if err := s.protectTaskSecrets(doc); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(doc)
+	return string(encoded), err
+}
+
+func (s *Service) dramaStepEvalModelOf(run *model.DramaEvalRun) (DramaStepEvalModel, error) {
+	var doc any
+	if err := json.Unmarshal([]byte(run.ModelJSON), &doc); err != nil {
+		return DramaStepEvalModel{}, fmt.Errorf("评测记录没有可用的模型选择：%w", err)
+	}
+	if err := s.decryptTaskSecrets(doc); err != nil {
+		return DramaStepEvalModel{}, err
+	}
+	raw, _ := json.Marshal(doc)
+	var sel DramaStepEvalModel
+	if err := json.Unmarshal(raw, &sel); err != nil || sel.empty() {
+		return DramaStepEvalModel{}, fmt.Errorf("评测记录没有可用的模型选择")
+	}
+	return sel, nil
 }
 
 // reusableDramaStepBaseline 找启用版本在同一模型、同一组章节上最近一次全部解析成功的结果（作为候选跑的，或一起跑的对照）。
@@ -330,7 +375,9 @@ func (s *Service) startDramaStepEvalLoop() {
 	})
 }
 
-// advanceDramaStepEvals 推进排队、运行中的步骤评测：多个实例时只有拿到租约的一个推进，落定用条件更新防重复。
+// advanceDramaStepEvals 推进排队、运行中的步骤评测：先按任务现状更新每个任务位（没提交上游就失败的排上重投），
+// 再按评测开始的先后在全局并发上限内投出等着的任务位，最后落定全部结束的评测。多个实例时只有拿到租约的一个推进，
+// 落定用条件更新防重复。
 func (s *Service) advanceDramaStepEvals(ctx context.Context) {
 	if s.coordinator != nil {
 		lease, acquired, err := s.coordinator.AcquireLease(ctx, dramaStepEvalLeaseScope, 1, time.Minute)
@@ -339,14 +386,59 @@ func (s *Service) advanceDramaStepEvals(ctx context.Context) {
 		}
 		defer lease.Release()
 	}
-	runs, err := s.repo.DramaEvalRunsWithStatus(dramaStepEvalInFlight, 20)
+	runs, err := s.repo.DramaEvalRunsWithStatus(dramaStepEvalInFlight, 50)
 	if err != nil {
 		log.Printf("drama step eval: %v", err)
 		return
 	}
+	now := time.Now()
+	type pass struct {
+		run     *model.DramaEvalRun
+		tasks   []dramaStepEvalTask
+		changed bool
+		failed  string
+	}
+	passes := make([]*pass, 0, len(runs))
+	active := 0
 	for i := range runs {
-		if err := s.advanceDramaStepEval(&runs[i]); err != nil {
-			log.Printf("drama step eval run=%s: %v", runs[i].ID, err)
+		p := &pass{run: &runs[i]}
+		_ = json.Unmarshal([]byte(p.run.TasksJSON), &p.tasks)
+		p.changed, err = s.refreshDramaStepEvalTasks(p.tasks, now)
+		if err != nil {
+			log.Printf("drama step eval run=%s: %v", p.run.ID, err)
+			continue
+		}
+		for _, t := range p.tasks {
+			if t.TaskID != "" && !dramaStepEvalTaskDone(t.Status) {
+				active++
+			}
+		}
+		passes = append(passes, p)
+	}
+	for _, p := range passes {
+		step, ok := drama.StepByID(p.run.Stage)
+		if !ok {
+			p.failed = fmt.Sprintf("步骤 %s 不在线上步骤表里", p.run.Stage)
+			continue
+		}
+		limit := dramaStepEvalConcurrency(step)
+		for i := range p.tasks {
+			t := &p.tasks[i]
+			if t.Status != dramaStepEvalSlotPending || (t.RetryAt != nil && t.RetryAt.After(now)) || active >= limit {
+				continue
+			}
+			taskID, err := s.dispatchDramaStepEvalTask(p.run, step, *t)
+			if err != nil {
+				p.failed = fmt.Sprintf("建评测任务失败（%s）：%s", t.Chapter, err.Error())
+				break
+			}
+			t.TaskID, t.Status, t.RetryAt, p.changed = taskID, string(model.TaskStatusQueued), nil, true
+			active++
+		}
+	}
+	for _, p := range passes {
+		if err := s.settleDramaStepEval(p.run, p.tasks, p.changed, p.failed, now); err != nil {
+			log.Printf("drama step eval run=%s: %v", p.run.ID, err)
 		}
 	}
 }
@@ -359,42 +451,106 @@ func dramaStepEvalTaskDone(status string) bool {
 	return false
 }
 
-func (s *Service) advanceDramaStepEval(run *model.DramaEvalRun) error {
-	var tasks []dramaStepEvalTask
-	_ = json.Unmarshal([]byte(run.TasksJSON), &tasks)
-	if len(tasks) == 0 {
-		// 建任务的请求还没写回任务清单（或中途退出）：等一会儿，太久就判出错。
-		if time.Since(run.CreatedAt) > 10*time.Minute {
-			return s.failDramaStepEval(run, tasks, "评测任务没有建出来，请重跑评测")
-		}
-		return nil
-	}
-	changed, started, done := false, false, true
+// dramaStepEvalConcurrency 是这一步评测全局同时在跑的任务数：步骤表的 EvalConcurrency，夹在 1～StepEvalMaxConcurrency。
+func dramaStepEvalConcurrency(step drama.Step) int {
+	return min(max(step.EvalConcurrency, 1), drama.StepEvalMaxConcurrency)
+}
+
+// refreshDramaStepEvalTasks 按任务现状更新任务位；没提交上游就因 5xx、连不上失败的任务排上重投（重投次数用尽才算这一章失败）。
+func (s *Service) refreshDramaStepEvalTasks(tasks []dramaStepEvalTask, now time.Time) (bool, error) {
+	changed := false
 	for i := range tasks {
-		if !dramaStepEvalTaskDone(tasks[i].Status) {
-			status := dramaStepEvalTaskMissing
-			task, err := s.repo.Task(tasks[i].TaskID)
-			switch {
-			case err == nil:
-				status = string(task.Status)
-			case !errors.Is(err, gorm.ErrRecordNotFound):
-				return err
-			}
-			if status != tasks[i].Status {
-				tasks[i].Status, changed = status, true
-			}
+		t := &tasks[i]
+		if t.TaskID == "" || dramaStepEvalTaskDone(t.Status) {
+			continue
 		}
-		if !dramaStepEvalTaskDone(tasks[i].Status) {
+		status := dramaStepEvalTaskMissing
+		task, err := s.repo.Task(t.TaskID)
+		switch {
+		case err == nil:
+			status = string(task.Status)
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			return changed, err
+		}
+		if status == string(model.TaskStatusFailed) && t.Retries < len(dramaStepEvalRetryDelays) && dramaStepEvalRetryable(task) {
+			at := now.Add(dramaStepEvalRetryDelays[t.Retries])
+			t.PreviousTaskIDs = append(t.PreviousTaskIDs, t.TaskID)
+			t.LastError = truncateRunes(task.Error, 300)
+			t.TaskID, t.Status, t.RetryAt = "", dramaStepEvalSlotPending, &at
+			t.Retries++
+			changed = true
+			continue
+		}
+		if status != t.Status {
+			t.Status, changed = status, true
+		}
+	}
+	return changed, nil
+}
+
+var dramaStepEvalRetryableError = regexp.MustCompile(`HTTP 5\d\d|连接模型服务失败|模型服务响应超时`)
+
+// dramaStepEvalRetryable 是失败的任务能不能重投：诊断说没提交上游，且原因是上游 5xx、连不上或超时（524 的说明里写着
+// 可能已在执行，不重投）。已经提交上游的不重投，免得重复计费。
+func dramaStepEvalRetryable(task *model.Task) bool {
+	diagnostic := taskExecutionDiagnostic(task)
+	if diagnostic == nil || diagnostic.TaskSubmitted || diagnostic.Code == string(ReasonTextOutputTruncated) {
+		return false
+	}
+	message := firstNonEmpty(task.Error, diagnostic.SafeMessage)
+	return !strings.Contains(message, "524") && dramaStepEvalRetryableError.MatchString(message)
+}
+
+// dispatchDramaStepEvalTask 投出一个任务位：按评测记录里的模型选择和版本重新组装提示词（与开始评测时校验过的一样）。
+func (s *Service) dispatchDramaStepEvalTask(run *model.DramaEvalRun, step drama.Step, slot dramaStepEvalTask) (string, error) {
+	c, ok := step.EvalChapter(slot.Chapter)
+	if !ok {
+		return "", fmt.Errorf("评测章节 %s 不在评测集里", slot.Chapter)
+	}
+	versionID := run.SkillVersionID
+	if slot.Role == dramaStepEvalRoleBaseline {
+		versionID = run.BaselineSkillVersionID
+	}
+	pkg, err := s.skillDomain().StepSkillPackageVersion(run.SkillID, versionID)
+	if err != nil {
+		return "", err
+	}
+	sel, err := s.dramaStepEvalModelOf(run)
+	if err != nil {
+		return "", err
+	}
+	req, err := dramaStepEvalTaskRequest(run.ID, step, c, slot.Role, pkg, sel)
+	if err != nil {
+		return "", err
+	}
+	task, err := s.CreateTask(run.CreatedBy, req)
+	if err != nil {
+		return "", err
+	}
+	return task.ID, nil
+}
+
+// settleDramaStepEval 写回任务位和状态；投任务失败就判出错，全部结束就落定。
+func (s *Service) settleDramaStepEval(run *model.DramaEvalRun, tasks []dramaStepEvalTask, changed bool, failed string, now time.Time) error {
+	if failed != "" {
+		return s.failDramaStepEval(run, tasks, failed)
+	}
+	done, started := true, false
+	for _, t := range tasks {
+		if !dramaStepEvalTaskDone(t.Status) {
 			done = false
 		}
-		if tasks[i].Status != string(model.TaskStatusQueued) {
+		if t.TaskID != "" && t.Status != string(model.TaskStatusQueued) || len(t.PreviousTaskIDs) > 0 {
 			started = true
 		}
+	}
+	if len(tasks) == 0 {
+		return s.failDramaStepEval(run, tasks, "评测没有任务，请重跑评测")
 	}
 	if done {
 		return s.finishDramaStepEval(run, tasks)
 	}
-	if time.Since(run.CreatedAt) > dramaStepEvalTimeout {
+	if now.Sub(run.CreatedAt) > dramaStepEvalTimeout {
 		return s.failDramaStepEval(run, tasks, fmt.Sprintf("评测超过 %d 小时没跑完", int(dramaStepEvalTimeout.Hours())))
 	}
 	status := DramaStepEvalQueued
@@ -700,8 +856,14 @@ func dramaStepEvalViewOf(r model.DramaEvalRun) DramaStepEvalView {
 	_ = json.Unmarshal([]byte(r.TasksJSON), &tasks)
 	view.TasksTotal = len(tasks)
 	for _, t := range tasks {
-		if dramaStepEvalTaskDone(t.Status) {
+		view.Retries += t.Retries
+		switch {
+		case dramaStepEvalTaskDone(t.Status):
 			view.TasksDone++
+		case t.TaskID == "":
+			view.TasksWaiting++
+		default:
+			view.TasksRunning++
 		}
 	}
 	if r.GateJSON != "" {

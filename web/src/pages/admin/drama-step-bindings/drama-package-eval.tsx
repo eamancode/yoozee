@@ -51,9 +51,12 @@ export function DramaPackageEvalCell({ version, onDetail }: { version: DramaPack
                 <AdminStatusBadge label={badge.label} tone={badge.tone} />
                 {evalInFlight(evaluation) ? (
                     <span className="text-foreground/55">
-                        {evaluation.tasksDone}/{evaluation.tasksTotal} 个任务
+                        {evaluation.tasksDone}/{evaluation.tasksTotal} 个任务完成
+                        {evaluation.tasksRunning ? `，${evaluation.tasksRunning} 个在跑` : ""}
+                        {evaluation.tasksWaiting ? `，${evaluation.tasksWaiting} 个排队` : ""}
                     </span>
                 ) : null}
+                {evaluation.retries ? <span className="text-foreground/55">自动重投 {evaluation.retries} 次</span> : null}
                 {evaluation.activation === "auto" ? <AdminStatusBadge label="已自动启用" tone="success" /> : null}
                 {evaluation.activation === "forced" ? <AdminStatusBadge label="强制启用" tone="warning" title={evaluation.activationReason} /> : null}
             </div>

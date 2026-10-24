@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -190,30 +191,85 @@ func newDramaStepEvalTestService(t *testing.T) (*Service, *gorm.DB, *model.User)
 
 var dramaStepEvalTestModel = DramaStepEvalModel{Model: "text-test", Config: map[string]any{"channelId": "channel", "model": "text-test"}}
 
-// completeDramaStepEvalTasks 把评测的任务按 output(章节, 角色) 写成结束状态（不调模型）。
-func completeDramaStepEvalTasks(t *testing.T, svc *Service, db *gorm.DB, evalID string, output func(chapter, role string) string) {
+// dramaStepEvalWorker 模拟任务执行：给一个已投出、还没结束的任务写结局。
+type dramaStepEvalWorker func(t *testing.T, task *model.Task, slot dramaStepEvalTask)
+
+// succeedWith 把任务写成成功，输出取 output(章节, 角色)。
+func succeedWith(db *gorm.DB, output func(chapter, role string) string) dramaStepEvalWorker {
+	return func(t *testing.T, task *model.Task, slot dramaStepEvalTask) {
+		t.Helper()
+		result, _ := json.Marshal(map[string]any{"mode": "text", "text": output(slot.Chapter, slot.Role)})
+		if err := db.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{"status": model.TaskStatusSucceeded, "result_json": string(result)}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// failUnsubmitted 把任务写成线上那种失败：上游 502、诊断说没提交上游（任务执行失败路径记下的同一套字段）。
+func failUnsubmitted(t *testing.T, db *gorm.DB, task *model.Task, submitted bool) {
 	t.Helper()
-	run, err := svc.repo.DramaEvalRun(evalID)
-	if err != nil {
+	cause := providerHTTPError{StatusCode: 502, Status: "502 Bad Gateway"}
+	task.Error = providerUserFacingErrorMessage(cause)
+	outcome := "unknown"
+	if submitted {
+		outcome = "accepted"
+	}
+	recordTaskDiagnostic(task, "execution", "provider_execution_failed", outcome, "reconcile_submission", cause)
+	if err := db.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{"status": model.TaskStatusFailed, "error": task.Error, "execution_diagnostic_json": task.ExecutionDiagnosticJSON}).Error; err != nil {
 		t.Fatal(err)
 	}
-	var tasks []dramaStepEvalTask
-	if err := json.Unmarshal([]byte(run.TasksJSON), &tasks); err != nil {
-		t.Fatal(err)
-	}
-	for _, task := range tasks {
-		stored, err := svc.repo.Task(task.TaskID)
+}
+
+// driveDramaStepEvals 一轮一轮地推进：每轮先让 worker 处理所有已投出、没结束的评测任务，再推进一次，直到 evalIDs 都落定。
+// 返回同一时刻在跑的评测任务最多几个（跨所有评测）。
+func driveDramaStepEvals(t *testing.T, svc *Service, worker dramaStepEvalWorker, evalIDs ...string) int {
+	t.Helper()
+	peak := 0
+	for round := 0; round < 50; round++ {
+		runs, err := svc.repo.DramaEvalRunsWithStatus(dramaStepEvalInFlight, 50)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(stored.InputJSON, dramaStepEvalTaskSource) && !strings.HasPrefix(stored.InputJSON, "enc:") {
-			t.Fatalf("评测任务要标 source：%s", stored.InputJSON)
+		active := 0
+		for _, run := range runs {
+			var slots []dramaStepEvalTask
+			_ = json.Unmarshal([]byte(run.TasksJSON), &slots)
+			for _, slot := range slots {
+				if slot.TaskID == "" {
+					continue
+				}
+				task, err := svc.repo.Task(slot.TaskID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if task.Status != model.TaskStatusQueued && task.Status != model.TaskStatusRunning {
+					continue
+				}
+				active++
+				if !strings.Contains(task.InputJSON, dramaStepEvalTaskSource) {
+					t.Fatalf("评测任务要标 source：%s", task.InputJSON)
+				}
+				worker(t, task, slot)
+			}
 		}
-		result, _ := json.Marshal(map[string]any{"mode": "text", "text": output(task.Chapter, task.Role)})
-		if err := db.Model(&model.Task{}).Where("id = ?", task.TaskID).Updates(map[string]any{"status": model.TaskStatusSucceeded, "result_json": string(result)}).Error; err != nil {
-			t.Fatal(err)
+		peak = max(peak, active)
+		svc.advanceDramaStepEvals(context.Background())
+		pending := false
+		for _, id := range evalIDs {
+			run, err := svc.repo.DramaEvalRun(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.Status == DramaStepEvalQueued || run.Status == DramaStepEvalRunning {
+				pending = true
+			}
+		}
+		if !pending {
+			return peak
 		}
 	}
+	t.Fatal("评测推进 50 轮还没落定")
+	return peak
 }
 
 func flowPackageEval(t *testing.T, svc *Service, admin *model.User, versionID string) *DramaStepEvalView {
@@ -236,6 +292,7 @@ func flowPackageEval(t *testing.T, svc *Service, admin *model.User, versionID st
 // 强制启用要写原因；再上传一个包时复用启用版本上次的结果作对照，不再跑对照任务。
 func TestDramaStepEvalGateAutoActivates(t *testing.T) {
 	svc, db, admin := newDramaStepEvalTestService(t)
+	noDramaStepEvalRetryDelay(t)
 	output := readTestdata(t, "model-output.txt")
 	// 线上真实输出估时偏长：按每集时长压到门槛内，其余不动（门槛判定本身另有单元测试）。
 	fitted := fitDramaEvalOutput(t, output, 95)
@@ -269,30 +326,27 @@ func TestDramaStepEvalGateAutoActivates(t *testing.T) {
 	good := upload("2.2.2", func(files map[string][]byte) {
 		files["SKILL.md"] = []byte(strings.Replace(string(files["SKILL.md"]), "你是这一章的导演。", "你是这一章的总导演。", 1))
 	})
-	if eval := good.Version.Eval; eval.TasksTotal != 2 || len(eval.Chapters) != 1 || eval.Chapters[0].ID != "qichuang-e01" || eval.BaselineSkillVersionID != seed {
-		t.Fatalf("真人剧一章，候选加对照两个任务：%+v", eval)
-	}
-	var evalTasks []dramaStepEvalTask
-	goodRun, _ := svc.repo.DramaEvalRun(good.Version.Eval.ID)
-	_ = json.Unmarshal([]byte(goodRun.TasksJSON), &evalTasks)
-	for _, et := range evalTasks {
-		task, err := svc.repo.Task(et.TaskID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(task.Prompt, "你是这一章的总导演。") != (et.Role == dramaStepEvalRoleCandidate) || !strings.Contains(task.Prompt, "林小满") || task.UserID != admin.ID || task.ProjectID != "" {
-			t.Fatalf("%s 任务的提示词用对应版本组装：%s…", et.Role, task.Prompt[:min(200, len(task.Prompt))])
-		}
+	if eval := good.Version.Eval; eval.TasksTotal != 2 || eval.TasksRunning != 1 || eval.TasksWaiting != 1 || len(eval.Chapters) != 1 || eval.Chapters[0].ID != "qichuang-e01" || eval.BaselineSkillVersionID != seed {
+		t.Fatalf("真人剧一章，候选加对照两个任务位，先投一个：%+v", eval)
 	}
 	if _, err := svc.StartDramaStepEval(admin, "yz-chapter-shots", good.Version.ID, dramaStepEvalTestModel); err == nil {
 		t.Fatal("同一版本正在评测时不能再开一次")
 	}
 	svc.advanceDramaStepEvals(context.Background())
-	if eval := flowPackageEval(t, svc, admin, good.Version.ID); eval.Status != DramaStepEvalQueued || eval.TasksDone != 0 {
-		t.Fatalf("任务没结束时还在排队：%+v", eval)
+	if eval := flowPackageEval(t, svc, admin, good.Version.ID); eval.Status != DramaStepEvalQueued || eval.TasksDone != 0 || eval.TasksRunning != 1 {
+		t.Fatalf("任务没结束时还在排队、不多投：%+v", eval)
 	}
-	completeDramaStepEvalTasks(t, svc, db, good.Version.Eval.ID, func(string, string) string { return fitted })
-	svc.advanceDramaStepEvals(context.Background())
+	checked := 0
+	peak := driveDramaStepEvals(t, svc, func(t *testing.T, task *model.Task, slot dramaStepEvalTask) {
+		if strings.Contains(task.Prompt, "你是这一章的总导演。") != (slot.Role == dramaStepEvalRoleCandidate) || !strings.Contains(task.Prompt, "林小满") || task.UserID != admin.ID || task.ProjectID != "" {
+			t.Fatalf("%s 任务的提示词用对应版本组装：%s…", slot.Role, task.Prompt[:min(200, len(task.Prompt))])
+		}
+		checked++
+		succeedWith(db, func(string, string) string { return fitted })(t, task, slot)
+	}, good.Version.Eval.ID)
+	if checked != 2 || peak != 1 {
+		t.Fatalf("候选、对照各跑一次，同时只跑一个：%d 个，最多 %d 个并发", checked, peak)
+	}
 	eval := flowPackageEval(t, svc, admin, good.Version.ID)
 	if eval.Status != DramaStepEvalPassed || eval.Activation != "auto" || eval.Gate == nil || !eval.Gate.Passed || eval.Result == nil || len(eval.Result.Baseline) != 1 {
 		t.Fatalf("过门槛应自动启用：%+v", eval)
@@ -319,8 +373,7 @@ func TestDramaStepEvalGateAutoActivates(t *testing.T) {
 		delete(row.(map[string]any), "spec")
 	}
 	noSpec, _ := json.Marshal(payload)
-	completeDramaStepEvalTasks(t, svc, db, bad.Version.Eval.ID, func(string, string) string { return string(noSpec) })
-	svc.advanceDramaStepEvals(context.Background())
+	driveDramaStepEvals(t, svc, succeedWith(db, func(string, string) string { return string(noSpec) }), bad.Version.Eval.ID)
 	eval = flowPackageEval(t, svc, admin, bad.Version.ID)
 	if eval.Status != DramaStepEvalFailed || eval.Activation != "" || gateCheck(*eval.Gate, drama.GateSpecRate).Passed || eval.Result.BaselineRunID != good.Version.Eval.ID {
 		t.Fatalf("缺 spec 的包未通过、不启用：%+v", eval)
@@ -348,15 +401,108 @@ func TestDramaStepEvalGateAutoActivates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var tasks []dramaStepEvalTask
-	run, _ := svc.repo.DramaEvalRun(retry.ID)
-	_ = json.Unmarshal([]byte(run.TasksJSON), &tasks)
-	for _, task := range tasks {
-		db.Model(&model.Task{}).Where("id = ?", task.TaskID).Updates(map[string]any{"status": model.TaskStatusFailed, "error": "上游 502"})
+	// 已经提交上游的失败不重投（免得重复计费），这一章失败、评测记出错。
+	driveDramaStepEvals(t, svc, func(t *testing.T, task *model.Task, _ dramaStepEvalTask) { failUnsubmitted(t, db, task, true) }, retry.ID)
+	if eval = flowPackageEval(t, svc, admin, bad.Version.ID); eval.Status != DramaStepEvalError || eval.Error == "" || eval.Retries != 0 {
+		t.Fatalf("提交后的上游失败算出错、不重投：%+v", eval)
 	}
-	svc.advanceDramaStepEvals(context.Background())
-	if eval = flowPackageEval(t, svc, admin, bad.Version.ID); eval.Status != DramaStepEvalError || eval.Error == "" {
-		t.Fatalf("上游失败算出错：%+v", eval)
+}
+
+func noDramaStepEvalRetryDelay(t *testing.T) {
+	t.Helper()
+	saved := dramaStepEvalRetryDelays
+	dramaStepEvalRetryDelays = []time.Duration{0, 0}
+	t.Cleanup(func() { dramaStepEvalRetryDelays = saved })
+}
+
+// 线上现象（2.2.1+bad.1 连跑两次）：十个评测任务一起投，渠道只扛得住一个，其余在提交前 502，评测判出错。
+// 模拟渠道只允许 1 个并发、前几次返回 502：连续上传两个包同时评测，全局同时只跑一个任务；提交前失败的任务重投，
+// 两个评测最终都跑完并给出门槛结论。重投次数用尽才算这一章失败。
+func TestDramaStepEvalThrottlesAndRetries(t *testing.T) {
+	svc, db, admin := newDramaStepEvalTestService(t)
+	noDramaStepEvalRetryDelay(t)
+	fitted := fitDramaEvalOutput(t, readTestdata(t, "model-output.txt"), 95)
+	upload := func(version string) *FlowPackageUploadResponse {
+		t.Helper()
+		data := chapterShotsPackageZip(t, func(files map[string][]byte) {
+			files["SKILL.md"] = append(files["SKILL.md"], []byte("\n<!-- "+version+" -->\n")...)
+			bumpManifest(t, files, func(m *drama.StepPackageManifest) {
+				m.Version, m.Profiles, m.Eval = version, []string{"live-realism"}, []string{}
+			})
+		})
+		res, err := svc.UploadFlowPackage(admin, packageFileHeader(t, data), "", dramaStepEvalTestModel)
+		if err != nil || res.EvalError != "" {
+			t.Fatalf("上传：%+v %v", res, err)
+		}
+		return res
+	}
+	first, second := upload("2.2.2"), upload("2.2.3")
+	if first.Version.Eval.TasksRunning != 1 || second.Version.Eval.TasksRunning != 0 || second.Version.Eval.TasksWaiting != 2 {
+		t.Fatalf("两个评测共用一个并发位：%+v / %+v", first.Version.Eval, second.Version.Eval)
+	}
+	// 渠道：第 1、2、4 次执行 502（没提交上游）——同一个任务位连着失败两次后第三次成功，另一个失败一次。
+	calls := 0
+	peak := driveDramaStepEvals(t, svc, func(t *testing.T, task *model.Task, slot dramaStepEvalTask) {
+		calls++
+		if calls == 1 || calls == 2 || calls == 4 {
+			failUnsubmitted(t, db, task, false)
+			return
+		}
+		succeedWith(db, func(string, string) string { return fitted })(t, task, slot)
+	}, first.Version.Eval.ID, second.Version.Eval.ID)
+	if peak != 1 {
+		t.Fatalf("全局同时最多跑一个评测任务，实际 %d", peak)
+	}
+	a, b := flowPackageEval(t, svc, admin, first.Version.ID), flowPackageEval(t, svc, admin, second.Version.ID)
+	if a.Status != DramaStepEvalPassed || a.Gate == nil || !a.Gate.Passed || a.Activation != "auto" || a.TasksDone != 2 {
+		t.Fatalf("第一个评测跑完、过门槛、自动启用：%+v", a)
+	}
+	if b.Status != DramaStepEvalPassed || b.Gate == nil || b.Activation != "" || !strings.Contains(b.Error, "启用版本已经换了") {
+		t.Fatalf("第二个评测也有门槛结论，启用版本换过就不自动启用：%+v", b)
+	}
+	if a.Retries+b.Retries != 3 || calls != 7 {
+		t.Fatalf("三次 502 各重投一次（都在第一个评测）：重投 %d+%d，执行 %d 次", a.Retries, b.Retries, calls)
+	}
+
+	// 一直 502：重投两次用尽，这一章失败，评测记出错（不是未通过）。
+	again, err := svc.StartDramaStepEval(admin, "yz-chapter-shots", second.Version.ID, dramaStepEvalTestModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driveDramaStepEvals(t, svc, func(t *testing.T, task *model.Task, _ dramaStepEvalTask) { failUnsubmitted(t, db, task, false) }, again.ID)
+	if eval := flowPackageEval(t, svc, admin, second.Version.ID); eval.Status != DramaStepEvalError || eval.Retries != len(dramaStepEvalRetryDelays) || !strings.Contains(eval.Error, "HTTP 502") {
+		t.Fatalf("重投用尽记出错：%+v", eval)
+	}
+}
+
+// 重投只给没提交上游的 5xx、连不上、超时；提交过的、524、截断、内容问题都不重投。
+func TestDramaStepEvalRetryable(t *testing.T) {
+	diag := func(submitted bool, code string) string {
+		raw, _ := json.Marshal(model.TaskExecutionDiagnostic{Code: code, TaskSubmitted: submitted})
+		return string(raw)
+	}
+	for _, c := range []struct {
+		err       string
+		submitted bool
+		code      string
+		want      bool
+	}{
+		{"模型服务暂时不可用（HTTP 502）", false, "provider_execution_failed", true},
+		{"模型服务暂时不可用（HTTP 503）：overloaded", false, "provider_execution_failed", true},
+		{"连接模型服务失败，请检查渠道地址和网络", false, "provider_execution_failed", true},
+		{"模型服务响应超时，请稍后重试", false, "provider_execution_failed", true},
+		{"模型服务暂时不可用（HTTP 502）", true, "provider_execution_failed", false},
+		{"上游网关超时（524）：模型请求可能仍在服务端执行并产生费用", false, "provider_execution_failed", false},
+		{"模型输出达到上限被截断", false, string(ReasonTextOutputTruncated), false},
+		{"模型服务拒绝了请求，请检查模型和参数", false, "provider_execution_failed", false},
+	} {
+		task := &model.Task{Status: model.TaskStatusFailed, Error: c.err, ExecutionDiagnosticJSON: diag(c.submitted, c.code)}
+		if got := dramaStepEvalRetryable(task); got != c.want {
+			t.Fatalf("%s（提交 %v）：重投 %v", c.err, c.submitted, got)
+		}
+	}
+	if dramaStepEvalRetryable(&model.Task{Status: model.TaskStatusFailed, Error: "模型服务暂时不可用（HTTP 502）"}) {
+		t.Fatal("没有诊断就不知道提交没提交，不重投")
 	}
 }
 

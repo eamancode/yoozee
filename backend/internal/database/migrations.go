@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 65
+const CurrentSchemaVersion int64 = 66
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -237,6 +237,10 @@ var schemaMigrations = []migration{
 	{version: 64, name: "drama_step_packages", checksum: "sha256:drama-step-packages-v64-20261023", apply: migrateDramaStepPackages},
 	// M6 第三期：流程技能包上传后真跑评测；drama_eval_runs 记技能包与候选、对照版本，评测状态、逐章任务、门槛结论和启用记录。
 	{version: 65, name: "drama_step_evals", checksum: "sha256:drama-step-evals-v65-20261023", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaEvalRun{})
+	}},
+	// M6 第三期修正：评测任务按并发上限逐个投出，drama_eval_runs 记下评测用的模型选择（密钥加密）。
+	{version: 66, name: "drama_step_eval_model", checksum: "sha256:drama-step-eval-model-v66-20261024", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaEvalRun{})
 	}},
 }

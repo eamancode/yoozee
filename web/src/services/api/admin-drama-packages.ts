@@ -52,6 +52,11 @@ export type DramaStepEval = {
     chapters: DramaEvalChapter[];
     tasksDone: number;
     tasksTotal: number;
+    /** 已投出没结束的任务、排队等投（或等重投）的任务位；评测任务全局一个一个投。 */
+    tasksRunning: number;
+    tasksWaiting: number;
+    /** 没提交上游就失败（5xx、连不上）后自动重投的累计次数。 */
+    retries: number;
     gate?: { passed: boolean; checks: DramaGateCheck[] };
     /** 逐章结果：candidate 是这个版本，baseline 是当时的启用版本（baselineRunId 非空表示复用了那次评测的结果）。 */
     result?: { candidate: DramaEvalChapterResult[]; baseline: DramaEvalChapterResult[]; baselineRunId?: string };
