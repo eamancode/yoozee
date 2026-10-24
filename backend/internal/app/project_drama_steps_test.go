@@ -49,7 +49,12 @@ type qichuangSeed struct {
 
 func readTestdata(t *testing.T, name string) string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(qichuangDir, name))
+	return readTestdataIn(t, qichuangDir, name)
+}
+
+func readTestdataIn(t *testing.T, dir string, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,8 +97,14 @@ func newChapterShotsTestService(t *testing.T) (*Service, *gorm.DB) {
 // 粘贴正文建章节、提取出的 3 个角色、3 个场景（带锚点）、8 个道具确认成资产，另留一个待确认角色。
 func seedQichuang(t *testing.T, svc *Service, db *gorm.DB) (model.Project, model.ProjectUnit) {
 	t.Helper()
+	return seedChapterShotsProject(t, svc, db, qichuangDir)
+}
+
+// seedChapterShotsProject 按 dir 里的 seed.json 与 chapter.txt 走真实用户路径建项目（七床与评测章节同一套）。
+func seedChapterShotsProject(t *testing.T, svc *Service, db *gorm.DB, dir string) (model.Project, model.ProjectUnit) {
+	t.Helper()
 	var seed qichuangSeed
-	if err := json.Unmarshal([]byte(readTestdata(t, "seed.json")), &seed); err != nil {
+	if err := json.Unmarshal([]byte(readTestdataIn(t, dir, "seed.json")), &seed); err != nil {
 		t.Fatal(err)
 	}
 	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: seed.Project.Name, SourceType: "text", StylePresetID: seed.Project.StylePresetID, StyleProfileJSON: seed.Project.StyleProfileJSON, GenerationModel: "seedance-2.5"})
@@ -104,7 +115,7 @@ func seedQichuang(t *testing.T, svc *Service, db *gorm.DB) (model.Project, model
 		t.Fatal(err)
 	}
 	project.BriefJSON = seed.Project.BriefJSON
-	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Kind: "chapter", Title: seed.Unit.Title, SourceText: plainTextToHTML(readTestdata(t, "chapter.txt"))})
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Kind: "chapter", Title: seed.Unit.Title, SourceText: plainTextToHTML(readTestdataIn(t, dir, "chapter.txt"))})
 	if err != nil {
 		t.Fatal(err)
 	}

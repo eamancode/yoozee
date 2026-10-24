@@ -5,6 +5,35 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M6 第三期：流程技能包的真跑评测与自动启用门槛
+
+设计见 `yoozee-skills/DESIGN-M6-流程与技能解耦.md` 第 2 节第 5～7 步、第 6 节第三期。
+
+- 评测集写在步骤表里（`backend/internal/drama/steps.go` 的 `EvalSet`），按风格档案配置：`live-realism` 用《七床》第一集 `qichuang-e01`；`action-epic` 打斗 `dadou-e01`（《擂台之下》）、`anime-3d` 科幻奇观 `kehuan-e01`（《第七层天幕》）、`duanju-shiga` 分手情绪 `fenshou-e01`（《最后一班地铁》）、`game-ip` 暂用悬疑 `xuanyi-e01`（《第七病区》，game-ip 还没有专门的测试项目）。一个包跑它覆盖的每个档案的章节，再加清单 `eval` 点名的章节；`eval` 点名评测集外的章节在静态校验就被拒（新规则 `eval`，`build.py` 同步）。
+- 评测数据 `backend/internal/drama/evalset/<id>/`（项目、章节、资产清单的接口 JSON）由 `TestDramaEvalSetFixtures -update-drama-evalset` 按真实用户路径建项目后导出；四个测试章节的种子 `backend/internal/app/testdata/drama-eval-seeds/` 由本机 `.local/yoozee-test/<项目>` 的剧本第 1 集与资产圣经转成（脚本在同目录），画风快照用前端预设编译器生成，每集 90 秒。
+- 上传（`POST /api/admin/drama/packages`）静态校验通过、存好版本后，用后台页面带的默认文本模型以上传管理员身份建评测任务（候选版本每章一个；启用版本在同模型、同组章节上没有可复用的结果时一起跑对照）。后台每 10 秒推进：任务都结束后按章节页的同一套规则解析、绑资产、检查、装段，按门槛判定；通过且启用版本没换过就自动启用、记审计 `drama_package.auto_activate`。
+- 门槛（`chapter.shots`）：解析成功率 100%、spec 写出率 100%、台词逐字覆盖 100%、检查 error 0、warn ≤ 启用版本 ×1.2、每章估时合计 ≤ 每集时长 ×1.1、截断 0。上游失败、超时记「出错」（可重跑），不算未通过。
+- 启用：评测没通过（或出错、没跑完）的版本要写明原因强制启用（`package_eval_not_passed`），记进评测记录和审计 `drama_package.force_activate`；没评测过的历史版本回退不用写原因。重跑评测 `POST .../versions/:vid/eval`；`POST /api/admin/drama/eval` 的 `stage` 为步骤 ID 时同样开始技能包评测。
+- 后台「流程技能」页：上传区下加「评测模型」（默认设置里的默认文本模型）；版本表加「评测与门槛」列（排队 / 评测中 x/y / 通过 / 未通过 / 出错、门槛逐项 ✓✗、自动启用或强制启用及原因）、「逐章对比」弹窗（这个版本与当时启用版本逐章指标和检查规则差异）、「评测 / 重跑评测」「强制启用（写原因）」按钮；有评测在跑时每 10 秒刷新。
+- 迁移 65：`drama_eval_runs` 加技能包、候选与对照版本、状态、任务、门槛结论、启用记录等列。
+
+需要留意：
+
+- 七床第一章的一份线上真实输出（`testdata/qichuang-chapter-shots/model-output.txt`）按这套规则算出：41 行、spec 41/41、台词 16/16、error 0、warn 37，**镜头估时合计 122 秒，是每集 90 秒的 1.36 倍，超过 1.1 倍门槛**。如果线上默认文本模型还是这样写，正常的小改动包也会因「估时合计」挡下，需要定一下：调技能让它按每集时长收镜头，或放宽这一项门槛。
+- warn 门槛按条数比：启用版本 warn 是 0 时，候选也必须是 0。
+
+本机验收（模拟模型输出，不是线上）：
+
+- [x] 只覆盖真人剧的小改动包上传即在七床第一章上评测（候选 + 对照两个任务，提示词分别用两个版本组装）；任务结束后通过门槛、自动启用、记审计。
+- [x] 删掉 SKILL.md 里 spec 说明、输出不带 spec 的坏包：对照复用上一次结果（只建候选任务），spec 写出率 0% 未通过，不启用；不写原因强制启用被拒，写了原因能启用并记下；回退到没评测过的种子版本不用原因；上游失败记「出错」。
+
+自动化覆盖：
+
+- [x] `internal/drama`：`TestChapterShotsGate`（七项门槛各自挡下、warn 缺对照、没设每集时长不比）、`TestStepEvalChapters`、`TestStoryboardRowsFromResult`、`TestStepPackageCases`（新增 `eval-known` / `eval-unknown`）、`TestStepPackageRulesExported`；`yoozee-skills/tests/test_package.py` 跑同一份样例（13 个）。
+- [x] `internal/app`：`TestDramaEvalSetFixtures`（五章都能读、档案对得上、七床评测数据组装的提示词与黄金文件逐字相同）、`TestDramaStepEvalChapterResultOnRealOutput`、`TestDramaStepEvalGateAutoActivates`、`TestFlowPackageUploadChangesAssembledPrompt`。
+- [ ] 浏览器验收（未做）：「流程技能」页评测模型选择、版本表评测列与轮询刷新、逐章对比弹窗、强制启用弹窗、明暗主题。
+- [ ] 线上验收（部署后）：故意上传一个坏包（删掉 spec 说明），评测后被门槛挡下、保持未启用；上传一个正常小改动，评测通过后自动启用（注意上面「估时合计」的问题）。首次上传时启用版本没有评测结果，会一起跑对照，任务数是章节数的两倍。
+
 ## M6 第二期：流程技能包（包格式、构建、上传、静态校验、版本列表、启用与回退）
 
 设计见 `yoozee-skills/DESIGN-M6-流程与技能解耦.md` 第 6 节第二期。

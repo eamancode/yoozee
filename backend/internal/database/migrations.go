@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 64
+const CurrentSchemaVersion int64 = 65
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -235,6 +235,10 @@ var schemaMigrations = []migration{
 	{version: 63, name: "drama_step_bindings", checksum: "sha256:drama-step-bindings-v63-20261023", apply: migrateDramaStepBindings},
 	// M6 第二期：流程技能包（skill_versions.origin=package，清单存 manifest）；步骤默认技能的当前版本标成第一个包版本。
 	{version: 64, name: "drama_step_packages", checksum: "sha256:drama-step-packages-v64-20261023", apply: migrateDramaStepPackages},
+	// M6 第三期：流程技能包上传后真跑评测；drama_eval_runs 记技能包与候选、对照版本，评测状态、逐章任务、门槛结论和启用记录。
+	{version: 65, name: "drama_step_evals", checksum: "sha256:drama-step-evals-v65-20261023", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaEvalRun{})
+	}},
 }
 
 // migrateDramaStepPackages 加 skill_versions.manifest，把每个步骤默认技能（现在只有 yz-chapter-shots）的当前版本标成第一个包版本：

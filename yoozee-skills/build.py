@@ -300,6 +300,11 @@ def check_step_package(m, files, rules):
     for pid in m["profiles"]:
         if pid not in rules["profiles"]:
             out.append(_problem("profiles", f"风格档案「{pid}」不存在（已知：{'、'.join(rules['profiles'])}）"))
+    if step is not None:
+        known = [c["id"] for c in step.get("evalSet", [])]
+        for e in m["eval"]:
+            if e not in known:
+                out.append(_problem("eval", f"eval 里的章节「{e}」不在这一步的评测集里（现有：{'、'.join(known)}）"))
     listed = set(m["files"])
     for f in m["files"]:
         if f not in files:

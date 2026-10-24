@@ -217,6 +217,62 @@
       ]
     },
     {
+      "name": "eval-known",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md"
+        ],
+        "eval": [
+          "qichuang-e01",
+          "dadou-e01"
+        ]
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": "# A\n",
+        "cards/b.md": "# B\n"
+      },
+      "expect": []
+    },
+    {
+      "name": "eval-unknown",
+      "manifest": {
+        "id": "yz-test",
+        "step": "chapter.shots",
+        "contract": "chapter.shots@2",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "1.0.0",
+        "files": [
+          "SKILL.md",
+          "cards/a.md",
+          "cards/b.md"
+        ],
+        "eval": [
+          "qichuang-e01",
+          "no-such-e01"
+        ]
+      },
+      "files": {
+        "SKILL.md": "---\nname: \"测试分镜\"\ndescription: \"测试用\"\nmetadata:\n  skillId: \"yz-test\"\n---\n\n# 测试\n\n开始前必须先读取 `cards/a.md`（硬规则）。\n\n写台词时可以看 `cards/b.md`。\n",
+        "cards/a.md": "# A\n",
+        "cards/b.md": "# B\n"
+      },
+      "expect": [
+        "eval"
+      ]
+    },
+    {
       "name": "files-mismatch",
       "manifest": {
         "id": "yz-test",

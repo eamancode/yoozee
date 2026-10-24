@@ -1,0 +1,347 @@
+[
+ {
+  "id": "ad0041b6c971a8eb0185b4ae245129ae",
+  "title": "黑尼龙夹克",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "338fa3fdf34d61e3c0be1d9794b1f02d",
+  "versionCount": 1,
+  "usages": [],
+  "position": 13,
+  "updatedAt": "2026-10-23T20:47:33.7621797-07:00",
+  "visual": {
+   "definition": {
+    "description": "敞开的黑色尼龙拉链夹克",
+    "name": "黑尼龙夹克",
+    "prompt": "敞开的黑色尼龙拉链夹克"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "007df1bb73e9e9b94ab35028e57e5dff",
+  "title": "灭火器箱",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "ee7b50f377285f2d8f60015d12f1e9ba",
+  "versionCount": 1,
+  "usages": [],
+  "position": 12,
+  "updatedAt": "2026-10-23T20:47:33.7611833-07:00",
+  "visual": {
+   "definition": {
+    "description": "墙角地面的红色灭火器箱",
+    "name": "灭火器箱",
+    "prompt": "墙角地面的红色灭火器箱"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "e25c9e657dbd0f817d11b140fd2974fb",
+  "title": "输液管",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "b0e75fb3516483c03ecd0ab8821d9936",
+  "versionCount": 1,
+  "usages": [],
+  "position": 11,
+  "updatedAt": "2026-10-23T20:47:33.7611833-07:00",
+  "visual": {
+   "definition": {
+    "description": "透明输液管，垂在地上还在滴",
+    "name": "输液管",
+    "prompt": "透明输液管，垂在地上还在滴"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "1f526c52320cb0b34aed38c9e03f9ced",
+  "title": "床头呼叫铃",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "ec4a9ad145c567e3cf5713661423b26c",
+  "versionCount": 1,
+  "usages": [],
+  "position": 10,
+  "updatedAt": "2026-10-23T20:47:33.7601622-07:00",
+  "visual": {
+   "definition": {
+    "description": "床头墙上的白色呼叫铃按钮",
+    "name": "床头呼叫铃",
+    "prompt": "床头墙上的白色呼叫铃按钮"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "b8237f1f17e2c97fb2e30e7913dad461",
+  "title": "白色工牌",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "565789d9f58ec785f223e1ffe278dba0",
+  "versionCount": 1,
+  "usages": [],
+  "position": 9,
+  "updatedAt": "2026-10-23T20:47:33.7596528-07:00",
+  "visual": {
+   "definition": {
+    "description": "白色长方形工牌，别在护士服左胸",
+    "name": "白色工牌",
+    "prompt": "白色长方形工牌，别在护士服左胸"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "22800d14058ca6f4a6c0d93b9ffcaef0",
+  "title": "留置针贴膏",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "b8d6182561e798965361cf033a287f6f",
+  "versionCount": 1,
+  "usages": [],
+  "position": 8,
+  "updatedAt": "2026-10-23T20:47:33.7586509-07:00",
+  "visual": {
+   "definition": {
+    "description": "方形肤色留置针贴膏，贴在右手腕背面",
+    "name": "留置针贴膏",
+    "prompt": "方形肤色留置针贴膏，贴在右手腕背面"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "210d935564c726bfa2353421b6e1f261",
+  "title": "折叠刀",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "b064ccf1e3d2ccd68a975932ac2a7fc1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 7,
+  "updatedAt": "2026-10-23T20:47:33.7586509-07:00",
+  "visual": {
+   "definition": {
+    "description": "黑柄折叠刀，刀刃约八厘米",
+    "name": "折叠刀",
+    "prompt": "黑柄折叠刀，刀刃约八厘米"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "f58def7daaa0550658e8b80a2870b75f",
+  "title": "病历夹",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "0688851a1918966194eb1a914ac0f4ae",
+  "versionCount": 1,
+  "usages": [],
+  "position": 6,
+  "updatedAt": "2026-10-23T20:47:33.7576545-07:00",
+  "visual": {
+   "definition": {
+    "description": "蓝色硬壳病历夹，夹着几页护理记录",
+    "name": "病历夹",
+    "prompt": "蓝色硬壳病历夹，夹着几页护理记录"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "5019c5a8e3b779fc14edcf2bbe0b5e1b",
+  "title": "电梯口",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "4d20210a5a722f51478c3504ff9fbaa1",
+  "versionCount": 1,
+  "usages": [],
+  "position": 5,
+  "updatedAt": "2026-10-23T20:47:33.7566464-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "电梯门",
+     "防火门",
+     "灭火器箱",
+     "指示灯",
+     "走廊尽头"
+    ],
+    "description": "站在走廊尽头往回看，正对面是两扇不锈钢电梯门，门上方的楼层指示灯亮着红色数字；电梯门左侧是一扇灰色楼梯间防火门，门上一条竖长的夹丝玻璃小窗。头顶一盏日光灯坏了在闪，光忽明忽暗，不锈钢门面上映着走廊的倒影。地面还是浅绿塑胶地板，墙角地面一个红色灭火器箱。",
+    "name": "电梯口",
+    "prompt": "站在走廊尽头往回看，正对面是两扇不锈钢电梯门，门上方的楼层指示灯亮着红色数字；电梯门左侧是一扇灰色楼梯间防火门，门上一条竖长的夹丝玻璃小窗。头顶一盏日光灯坏了在闪，光忽明忽暗，不锈钢门面上映着走廊的倒影。地面还是浅绿塑胶地板，墙角地面一个红色灭火器箱。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "88204eda5a8151ae2dd51b0f40316e1b",
+  "title": "七床病房",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "bb9580163804f8717e239cead464974c",
+  "versionCount": 1,
+  "usages": [],
+  "position": 4,
+  "updatedAt": "2026-10-23T20:47:33.7566464-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "病床",
+     "输液架",
+     "床头灯",
+     "床尾夹板",
+     "门"
+    ],
+    "description": "从门口往里看，单人病房。一张病床铺着白床单，床边一根空着的不锈钢输液架，床头柜上一盏小床头灯亮着，是屋里唯一的暖光；墙上一台关着的监护仪，床尾栏杆上挂着一块夹板，窗户拉着米色百叶，地面浅绿塑胶。两千年代的公立医院，干净。",
+    "name": "七床病房",
+    "prompt": "从门口往里看，单人病房。一张病床铺着白床单，床边一根空着的不锈钢输液架，床头柜上一盏小床头灯亮着，是屋里唯一的暖光；墙上一台关着的监护仪，床尾栏杆上挂着一块夹板，窗户拉着米色百叶，地面浅绿塑胶。两千年代的公立医院，干净。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "b6860aea0c4423dc924d6283960ed662",
+  "title": "病房走廊",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "99da11a044f86f9864e3950cfbc34862",
+  "versionCount": 1,
+  "usages": [],
+  "position": 3,
+  "updatedAt": "2026-10-23T20:47:33.75565-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "七床门",
+     "护士站柜台",
+     "台灯",
+     "走廊尽头",
+     "电梯门",
+     "七床病床",
+     "床头呼叫铃"
+    ],
+    "description": "站在走廊一端往里看，眼前是一条约三十米长的医院走廊，地面是浅绿色塑胶地板，反着头顶一排日光灯的冷白光。左手边隔四五米一扇病房门，门牌是蓝底白字的数字，最近的那扇虚掩着；右手边是护士站的矮柜台，柜台上一盏小台灯亮着暖光，摞着几本文件夹。再往里走廊变暗，尽头是两扇电梯门和旁边的楼梯间防火门。两千年代建的公立医院，干净但旧。",
+    "name": "病房走廊",
+    "prompt": "站在走廊一端往里看，眼前是一条约三十米长的医院走廊，地面是浅绿色塑胶地板，反着头顶一排日光灯的冷白光。左手边隔四五米一扇病房门，门牌是蓝底白字的数字，最近的那扇虚掩着；右手边是护士站的矮柜台，柜台上一盏小台灯亮着暖光，摞着几本文件夹。再往里走廊变暗，尽头是两扇电梯门和旁边的楼梯间防火门。两千年代建的公立医院，干净但旧。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "b7d5f35f36b3516dca471352b8e0806a",
+  "title": "阿坤",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "bb6926114fff6ba7825d6d759184abe7",
+  "versionCount": 1,
+  "usages": [],
+  "position": 2,
+  "updatedAt": "2026-10-23T20:47:33.7546475-07:00",
+  "character": {
+   "versionId": "bb6926114fff6ba7825d6d759184abe7",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "二十七八岁，175 cm，瘦长",
+    "clothing": "黑色连帽衫兜帽压到眉毛，黑布口罩，只露一双细长的眼；右手背一片深蓝刺青；黑工装裤黑低帮鞋",
+    "consistencyPrompt": "黑连帽衫兜帽压到眉毛、黑布口罩、细长的眼、右手背深蓝刺青、黑工装裤、黑低帮鞋",
+    "multiViewPrompt": "阿坤，正面、侧面、背面三视图，纯色背景",
+    "name": "阿坤",
+    "personality": "凶狠，寡言",
+    "physique": "",
+    "props": "折叠刀",
+    "role": "反派",
+    "voiceAge": "二十七八岁",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "粗、短促"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "b5d72b62c664b8ba144ab0d29c1ca385",
+  "title": "周岸",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "31808f4f6042b8c3a9e471eb28e777b8",
+  "versionCount": 1,
+  "usages": [],
+  "position": 1,
+  "updatedAt": "2026-10-23T20:47:33.7541352-07:00",
+  "character": {
+   "versionId": "31808f4f6042b8c3a9e471eb28e777b8",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "33 岁，180 cm，精瘦，寸头，方下巴，两天胡茬，眼皮厚、眼神平",
+    "clothing": "蓝白竖条病号服外套敞开的黑色尼龙夹克，灰色塑料拖鞋光脚，右手腕背面一块方形肤色留置针贴膏",
+    "consistencyPrompt": "寸头、方下巴、两天胡茬、左耳后一颗痣、蓝白竖条病号服、黑色尼龙拉链夹克敞开",
+    "multiViewPrompt": "周岸，正面、侧面、背面三视图，纯色背景",
+    "name": "周岸",
+    "personality": "话少，警惕",
+    "physique": "180 cm，精瘦",
+    "props": "",
+    "role": "男主",
+    "voiceAge": "三十出头",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "低沉、平"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "eaae9ce2f15c1d0fc3b550505c1654b9",
+  "title": "林小满",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "5678f06c6039b1b2109d8385c27faa0c",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T20:47:33.7525757-07:00",
+  "character": {
+   "versionId": "5678f06c6039b1b2109d8385c27faa0c",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "29 岁夜班护士，瓜子脸，黑色低马尾，右眉外端一道淡色小疤，眼下有淡淡黑眼圈，素颜",
+    "clothing": "浅蓝短袖护士服白领，左胸白色工牌，白护士鞋",
+    "consistencyPrompt": "黑色低马尾、右眉外端淡色小疤、瓜子脸、细长脖子、眼下淡黑眼圈，素颜、浅蓝短袖护士服白领",
+    "multiViewPrompt": "林小满，正面、侧面、背面三视图，纯色背景",
+    "name": "林小满",
+    "personality": "嘴硬心软，夜班护士",
+    "physique": "",
+    "props": "病历夹、白色工牌",
+    "role": "主角",
+    "voiceAge": "二十八九岁",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "清亮、略哑"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ }
+]

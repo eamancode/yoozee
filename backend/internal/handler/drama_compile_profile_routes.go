@@ -77,6 +77,16 @@ func registerDramaCompileProfileRoutes(r *gin.RouterGroup, svc *service.Service)
 			failService(c, service.BadAuthRequest("评测请求格式无效"))
 			return
 		}
+		// stage 为流程步骤 ID 时评测技能包版本（异步，返回排队中的评测）；compile 同步返回结果。
+		if req.IsDramaStepEval() {
+			eval, err := svc.AdminDramaStepEval(actor, req)
+			if err != nil {
+				failService(c, err)
+				return
+			}
+			ok(c, gin.H{"eval": eval})
+			return
+		}
 		run, err := svc.AdminDramaEval(actor, req)
 		if err != nil {
 			failService(c, err)

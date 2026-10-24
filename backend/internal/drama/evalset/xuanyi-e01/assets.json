@@ -1,0 +1,305 @@
+[
+ {
+  "id": "fb2744edb41259c581ccea27bf1c6c3f",
+  "title": "沈蔓的手机",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "52982319a47a225a320ead40fdc9bd41",
+  "versionCount": 1,
+  "usages": [],
+  "position": 11,
+  "updatedAt": "2026-10-23T20:47:37.6923061-07:00",
+  "visual": {
+   "definition": {
+    "description": "手机贴在耳边；背在身后的那只手攥着手机（E02S01B03）",
+    "name": "沈蔓的手机",
+    "prompt": "手机贴在耳边；背在身后的那只手攥着手机（E02S01B03）"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "33aeea45a697f7ca406bc508e7dd0e5d",
+  "title": "钥匙串",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "912a13351becc7eaa4a73aeaca3903e2",
+  "versionCount": 1,
+  "usages": [],
+  "position": 10,
+  "updatedAt": "2026-10-23T20:47:37.6912989-07:00",
+  "visual": {
+   "definition": {
+    "description": "她腰上一串钥匙晃了一下，其中一把挂着红色塑料牌；沈蔓摘下那把挂红牌的钥匙，插进锁孔（E03S01B03）",
+    "name": "钥匙串",
+    "prompt": "她腰上一串钥匙晃了一下，其中一把挂着红色塑料牌；沈蔓摘下那把挂红牌的钥匙，插进锁孔（E03S01B03）"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "f3dc625c95690730d67db09d5a086d5d",
+  "title": "住院一览表",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "0d2322878293975c3379988901bc22da",
+  "versionCount": 1,
+  "usages": [],
+  "position": 9,
+  "updatedAt": "2026-10-23T20:47:37.6912989-07:00",
+  "visual": {
+   "definition": {
+    "description": "另一只手按着桌上的住院一览表；手指停在一览表最后一行",
+    "name": "住院一览表",
+    "prompt": "另一只手按着桌上的住院一览表；手指停在一览表最后一行"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "60a3292257e63e087d29503b7e36b1a2",
+  "title": "陪护折叠床",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "f61cc7791fa09c7f93536334a989821e",
+  "versionCount": 1,
+  "usages": [],
+  "position": 8,
+  "updatedAt": "2026-10-23T20:47:37.6903005-07:00",
+  "visual": {
+   "definition": {
+    "description": "停在一张陪护折叠床上；陪护床不见了，地上只有四个浅浅的床脚印子（E01S03B01）",
+    "name": "陪护折叠床",
+    "prompt": "停在一张陪护折叠床上；陪护床不见了，地上只有四个浅浅的床脚印子（E01S03B01）"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "9caa9b77d92dd14562572addc68a90a3",
+  "title": "巡视记录板",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "ecd716889a9149cbbec345cb58fdb2f7",
+  "versionCount": 1,
+  "usages": [],
+  "position": 7,
+  "updatedAt": "2026-10-23T20:47:37.6897922-07:00",
+  "visual": {
+   "definition": {
+    "description": "左手夹着巡视记录板",
+    "name": "巡视记录板",
+    "prompt": "左手夹着巡视记录板"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "5e56ee096515e1e4a9a56c5f37a1b16f",
+  "title": "手电",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "f96cb10edc07ff6bc28992f4d18f9dad",
+  "versionCount": 1,
+  "usages": [],
+  "position": 6,
+  "updatedAt": "2026-10-23T20:47:37.6892844-07:00",
+  "visual": {
+   "definition": {
+    "description": "右手的手电光圈一张床一张床地挪",
+    "name": "手电",
+    "prompt": "右手的手电光圈一张床一张床地挪"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "38536c02ace794109456dd8ac6a14961",
+  "title": "腕带",
+  "mediaType": "entity",
+  "category": "prop",
+  "status": "confirmed",
+  "primaryVersionId": "d601e939c21ed5b62737c10153f8944a",
+  "versionCount": 1,
+  "usages": [],
+  "position": 5,
+  "updatedAt": "2026-10-23T20:47:37.6882766-07:00",
+  "visual": {
+   "definition": {
+    "description": "腕带上名字那一栏被刮花了，只剩一截条码；摸出一只腕带，名字那一栏刮花了（E01S03B03）",
+    "name": "腕带",
+    "prompt": "腕带上名字那一栏被刮花了，只剩一截条码；摸出一只腕带，名字那一栏刮花了（E01S03B03）"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "1b71d44136113eb235b37907f422b548",
+  "title": "护士站",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "9086ededaaa23aa02aef46c71034395d",
+  "versionCount": 1,
+  "usages": [],
+  "position": 4,
+  "updatedAt": "2026-10-23T20:47:37.6872796-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "柜台内侧",
+     "柜台外侧",
+     "台灯",
+     "显示器",
+     "病历柜",
+     "走廊口"
+    ],
+    "description": "从走廊上正对护士站看，一个开放式的 L 形木纹柜台，台面齐胸高，柜台外侧是走廊的米黄水磨石地面。柜台上从左到右是一盏绿罩台灯亮着暖光、一本摊开的住院一览表、一台旧电脑显示器和一把挂在支架上的扫码枪。柜台后面靠墙一排铁皮病历柜，柜顶一只圆挂钟，柜门上贴着排班表（只见格子，无可读文字）。柜台后一把转椅。左侧是通往病房的走廊口，右侧墙上一块深色玻璃宣传栏。",
+    "name": "护士站",
+    "prompt": "从走廊上正对护士站看，一个开放式的 L 形木纹柜台，台面齐胸高，柜台外侧是走廊的米黄水磨石地面。柜台上从左到右是一盏绿罩台灯亮着暖光、一本摊开的住院一览表、一台旧电脑显示器和一把挂在支架上的扫码枪。柜台后面靠墙一排铁皮病历柜，柜顶一只圆挂钟，柜门上贴着排班表（只见格子，无可读文字）。柜台后一把转椅。左侧是通往病房的走廊口，右侧墙上一块深色玻璃宣传栏。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "668ea1506e2938180f6ac8ff40dd4ab7",
+  "title": "三号病房",
+  "mediaType": "entity",
+  "category": "environment",
+  "status": "confirmed",
+  "primaryVersionId": "f6d69c751435db790851d46645b82fbe",
+  "versionCount": 1,
+  "usages": [],
+  "position": 3,
+  "updatedAt": "2026-10-23T20:47:37.6872796-07:00",
+  "visual": {
+   "definition": {
+    "anchors": [
+     "门",
+     "地脚灯",
+     "九床",
+     "十床",
+     "十一床",
+     "十二床",
+     "过道",
+     "窗",
+     "暖气片",
+     "窗边空地",
+     "床头灯"
+    ],
+    "description": "从门口往里看，一间约三十平米的四床病房。地面是磨旧的米黄水磨石。左手边靠墙两张铁架病床，右手边靠墙两张，床头朝墙、床尾对着中间的过道，床上铺白床单和蓝格子被子，被子隆起。正对面是一扇装了防护栏的窗，拉着半幅浅绿布帘，窗下一排老式铸铁暖气片，暖气片前一块空地。门边墙脚一盏地脚灯发着暗黄的光；窗边墙上一盏小床头灯关着。墙刷绿白两色，下半截墙裙是浅绿。九十年代的老楼，旧但干净。",
+    "name": "三号病房",
+    "prompt": "从门口往里看，一间约三十平米的四床病房。地面是磨旧的米黄水磨石。左手边靠墙两张铁架病床，右手边靠墙两张，床头朝墙、床尾对着中间的过道，床上铺白床单和蓝格子被子，被子隆起。正对面是一扇装了防护栏的窗，拉着半幅浅绿布帘，窗下一排老式铸铁暖气片，暖气片前一块空地。门边墙脚一盏地脚灯发着暗黄的光；窗边墙上一盏小床头灯关着。墙刷绿白两色，下半截墙裙是浅绿。九十年代的老楼，旧但干净。"
+   },
+   "status": "missing"
+  }
+ },
+ {
+  "id": "85435a81464c55c37b2f05ba275ea4de",
+  "title": "沈蔓",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "1605cd7951ede3ea42df0d08c87968b5",
+  "versionCount": 1,
+  "usages": [],
+  "position": 2,
+  "updatedAt": "2026-10-23T20:47:37.6862717-07:00",
+  "character": {
+   "versionId": "1605cd7951ede3ea42df0d08c87968b5",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "鹅蛋脸，齐耳短发用黑色一字发卡别在左耳后，左耳垂一颗小银钉",
+    "clothing": "白色短袖护士服，外套敞开的浅灰粗针开衫，白护士鞋；腰侧挂一串钥匙，其中一把系红色塑料牌",
+    "consistencyPrompt": "齐耳短发别在耳后、黑色一字发卡、鹅蛋脸、内双眼尾微垂、左耳垂小银钉、白色短袖护士服、浅灰粗针开衫敞开、腰侧一串钥匙、一把钥匙系红色塑料牌、白护士鞋",
+    "multiViewPrompt": "沈蔓，正面、侧面、背面三视图，纯色背景",
+    "name": "沈蔓",
+    "personality": "38 岁左右女性夜班护士，三年前签过十三床的转院单（E03S01L07）",
+    "physique": "",
+    "props": "沈蔓的手机",
+    "role": "主角",
+    "voiceAge": "三十八九",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "中音，平，略带鼻音"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "ee4290ef75703b95d077c77cd1a84486",
+  "title": "十三床",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "1c84728024d12fbe09be527302a3dcbe",
+  "versionCount": 1,
+  "usages": [],
+  "position": 1,
+  "updatedAt": "2026-10-23T20:47:37.6852712-07:00",
+  "character": {
+   "versionId": "1c84728024d12fbe09be527302a3dcbe",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "长方脸两颊微陷，花白头发向后梳整齐，长过耳，右手虎口褐色小痣；左腕刮花的白色腕带",
+    "clothing": "蓝白竖条旧棉布病号服上衣与长裤，扣子扣到最上面一颗，灰色塑料拖鞋光脚",
+    "consistencyPrompt": "花白头发向后梳整齐、长方脸两颊微陷、眼窝深、目光平直、苍白皮肤、法令纹深、蓝白竖条病号服、扣子扣到最上面一颗、左腕白色腕带名字栏刮花、右手虎口褐色小痣、灰色塑料拖鞋光脚",
+    "multiViewPrompt": "十三床，正面、侧面、背面三视图，纯色背景",
+    "name": "十三床",
+    "personality": "五十多岁男性；真名魏长林，三年前被登记转院，被关了三年：瘦、白、头发长过耳",
+    "physique": "",
+    "props": "",
+    "role": "主角",
+    "voiceAge": "五十出头",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "中低，清楚，带一点久不说话的涩"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ },
+ {
+  "id": "934fbaa8ac96c65d72588c6fe1dccfd0",
+  "title": "陈渡",
+  "mediaType": "entity",
+  "category": "character",
+  "status": "confirmed",
+  "primaryVersionId": "20d006be0615d6ec7310382f27a64383",
+  "versionCount": 1,
+  "usages": [],
+  "position": 0,
+  "updatedAt": "2026-10-23T20:47:37.68427-07:00",
+  "character": {
+   "versionId": "20d006be0615d6ec7310382f27a64383",
+   "version": 1,
+   "definition": {
+    "aliases": [],
+    "appearance": "窄长脸，很短的平头，单眼皮，左眉骨一道浅白旧疤；眼下发青",
+    "clothing": "深藏蓝 V 领短袖护工服与长裤，左胸口袋别一支黑色小手电，白色胸牌无可读文字，黑色软底鞋",
+    "consistencyPrompt": "很短的平头、窄长脸、单眼皮细长眼、左眉骨浅白旧疤、眼下发青、下巴青色胡茬、深藏蓝 V 领短袖护工服、左胸口袋别黑色小手电、白色胸牌无文字、黑色软底鞋",
+    "multiViewPrompt": "陈渡，正面、侧面、背面三视图，纯色背景",
+    "name": "陈渡",
+    "personality": "28 岁左右男性夜班护工，连着值了六个夜班（E01S03L03），眼下发青",
+    "physique": "",
+    "props": "手电、巡视记录板",
+    "role": "主角",
+    "voiceAge": "二十八九",
+    "voiceLanguage": "普通话",
+    "voiceTimbre": "偏低、干、有点哑，不亮"
+   },
+   "representations": [],
+   "visualStatus": "missing",
+   "voiceStatus": "missing"
+  }
+ }
+]

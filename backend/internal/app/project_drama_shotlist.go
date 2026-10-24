@@ -573,6 +573,8 @@ type dramaShotlistPlan struct {
 	Shotlist drama.Shotlist
 	Report   drama.CheckReport
 	Stats    drama.RowsStats
+	// Lines 是剧本台词的逐字覆盖（评测门槛用）。
+	Lines    drama.LineCoverage
 	Segments []drama.Segment
 	Problems []string
 }
@@ -592,7 +594,7 @@ func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []Projec
 		storyRows = append(storyRows, row.StoryboardRow)
 	}
 	converted := drama.RowsToShotlist(storyRows, script, pc.profileID())
-	plan := dramaShotlistPlan{Shotlist: converted.Shotlist, Stats: converted.Stats}
+	plan := dramaShotlistPlan{Shotlist: converted.Shotlist, Stats: converted.Stats, Lines: converted.Lines}
 	ctx, profile, err := dramaCheckContext(script, pc, assets)
 	if err != nil {
 		return plan, err

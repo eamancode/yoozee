@@ -34,6 +34,8 @@ const (
 	PackageRuleVersion      = "version"
 	PackageRuleHash         = "hash"
 	PackageRuleEntry        = "entry"
+	// PackageRuleEval 是清单 eval 点名了这一步评测集里没有的章节。
+	PackageRuleEval = "eval"
 	// PackageRuleArchive 是 zip 本身读不出来（不是 zip、路径越界、超过大小、缺 SKILL.md）。
 	PackageRuleArchive = "archive"
 )
@@ -47,7 +49,7 @@ type StepPackageManifest struct {
 	Version  string   `json:"version"`
 	// Files 是包里的全部文件（不含 package.json 自己）；SKILL.md 必须在内。
 	Files []string `json:"files"`
-	// Eval 是真跑评测用的章节（第三期用）。
+	// Eval 是除包覆盖的档案自带的评测章节外，另外要跑的章节（都要在步骤的评测集里）。
 	Eval []string `json:"eval"`
 }
 
@@ -73,10 +75,11 @@ type StepPackageRuleSet struct {
 }
 
 type StepPackageStepLimits struct {
-	ID               string `json:"id"`
-	Contract         string `json:"contract"`
-	SkillBudgetChars int    `json:"skillBudgetChars"`
-	SkillLinkedFiles int    `json:"skillLinkedFiles"`
+	ID               string            `json:"id"`
+	Contract         string            `json:"contract"`
+	SkillBudgetChars int               `json:"skillBudgetChars"`
+	SkillLinkedFiles int               `json:"skillLinkedFiles"`
+	EvalSet          []StepEvalChapter `json:"evalSet"`
 }
 
 var (
@@ -96,7 +99,7 @@ func StepPackageRules() StepPackageRuleSet {
 		ContractPattern: packageContractPattern.String(),
 	}
 	for _, s := range steps {
-		out.Steps = append(out.Steps, StepPackageStepLimits{ID: s.ID, Contract: s.Contract, SkillBudgetChars: s.SkillBudgetChars, SkillLinkedFiles: s.SkillLinkedFiles})
+		out.Steps = append(out.Steps, StepPackageStepLimits{ID: s.ID, Contract: s.Contract, SkillBudgetChars: s.SkillBudgetChars, SkillLinkedFiles: s.SkillLinkedFiles, EvalSet: slices.Clone(s.EvalSet)})
 	}
 	return out
 }
@@ -167,7 +170,7 @@ func ParseStepPackageManifest(raw []byte) (StepPackageManifest, []StepPackagePro
 }
 
 // CheckStepPackage 对照线上步骤表查一个包：step 存在、契约版本一致、风格档案已知、files 与包内文件一一对应、
-// SKILL.md 点名必读的卡都在 files 里、注入总字数不超过这一步的上限。files 是包里的文件（package.json 可有可无，不算进 files）。
+// eval 点名的章节在这一步的评测集里、SKILL.md 点名必读的卡都在 files 里、注入总字数不超过这一步的上限。files 是包里的文件（package.json 可有可无，不算进 files）。
 func CheckStepPackage(m StepPackageManifest, files map[string][]byte) []StepPackageProblem {
 	var out []StepPackageProblem
 	add := func(rule, p, format string, args ...any) {
@@ -186,6 +189,17 @@ func CheckStepPackage(m StepPackageManifest, files map[string][]byte) []StepPack
 	for _, id := range m.Profiles {
 		if !ValidProfileID(id) {
 			add(PackageRuleProfiles, "", "风格档案「%s」不存在（已知：%s）", id, strings.Join(BuiltinProfileIDs(), "、"))
+		}
+	}
+	if stepOK {
+		for _, id := range m.Eval {
+			if _, ok := step.EvalChapter(id); !ok {
+				known := make([]string, 0, len(step.EvalSet))
+				for _, c := range step.EvalSet {
+					known = append(known, c.ID)
+				}
+				add(PackageRuleEval, "", "eval 里的章节「%s」不在「%s」这一步的评测集里（现有：%s）", id, step.Label, strings.Join(known, "、"))
+			}
 		}
 	}
 	listed := map[string]bool{}

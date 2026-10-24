@@ -49,6 +49,8 @@ const (
 	ReasonShotlistCheckFailed ErrorReason = "shotlist_check_failed"
 	// ReasonPackageCheckFailed 是上传的流程技能包没过静态校验，没有保存；details.problems 逐条列出原因。
 	ReasonPackageCheckFailed ErrorReason = "package_check_failed"
+	// ReasonPackageEvalNotPassed 是流程技能包版本的评测没通过（或还没跑完），不能直接启用；要强制启用就带上原因。
+	ReasonPackageEvalNotPassed ErrorReason = "package_eval_not_passed"
 )
 
 func ReasonForStatus(status int) ErrorReason {

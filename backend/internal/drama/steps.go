@@ -21,7 +21,7 @@ type StepInput struct {
 	Source string `json:"source"`
 }
 
-// StepGate 是自动启用新版本技能的门槛（M6 第三期用；本期只定义）。比率都是 0～1。
+// StepGate 是包上传后真跑评测、自动启用新版本的门槛（M6 第三期）。比率都是 0～1。
 type StepGate struct {
 	// ParseRate 是评测章节里模型输出能解析出镜头行的比例。
 	ParseRate float64 `json:"parseRate"`
@@ -37,6 +37,15 @@ type StepGate struct {
 	MaxDurationRatio float64 `json:"maxDurationRatio"`
 	// MaxTruncated 是输出被截断的章节数上限。
 	MaxTruncated int `json:"maxTruncated"`
+}
+
+// StepEvalChapter 是一步的评测章节：包上传后在这些章节上用线上默认文本模型真跑这一步。
+// 数据（项目、章节、资产清单的接口 JSON）在 evalset/<id>/，由 app 测试按真实用户路径建项目后导出。
+type StepEvalChapter struct {
+	ID string `json:"id"`
+	// Profile 是这一章按哪个风格档案跑（包覆盖这个档案就要跑这一章）。
+	Profile string `json:"profile"`
+	Label   string `json:"label"`
 }
 
 // Step 是步骤表的一行。
@@ -57,6 +66,8 @@ type Step struct {
 	// DefaultSkill 是绑定表里没配时用的技能。
 	DefaultSkill string   `json:"defaultSkill"`
 	Gate         StepGate `json:"gate"`
+	// EvalSet 是评测集，按风格档案配置：包覆盖的每个档案跑它的章节，再加包清单 eval 点名的章节。
+	EvalSet []StepEvalChapter `json:"evalSet"`
 	// TaskSource 是这一步文本任务 metadata.source（前端按它认出任务、刷新后恢复结果）。
 	TaskSource string `json:"taskSource"`
 
@@ -93,11 +104,50 @@ var steps = []Step{
 			MaxDurationRatio: 1.1,
 			MaxTruncated:     0,
 		},
+		// 真人剧用《七床》第一集；其余四个档案各用一类题材的测试章节（打斗、科幻奇观、分手情绪、悬疑）。
+		// game-ip 还没有专门的测试项目，暂用悬疑章节跑它的档案规则。
+		EvalSet: []StepEvalChapter{
+			{ID: "qichuang-e01", Profile: "live-realism", Label: "《七床》第一集（悬疑·真人剧）"},
+			{ID: "dadou-e01", Profile: "action-epic", Label: "《擂台之下》第一集（打斗）"},
+			{ID: "kehuan-e01", Profile: "anime-3d", Label: "《第七层天幕》第一集（科幻奇观）"},
+			{ID: "fenshou-e01", Profile: "duanju-shiga", Label: "《最后一班地铁》第一集（分手情绪）"},
+			{ID: "xuanyi-e01", Profile: "game-ip", Label: "《第七病区》第一集（悬疑）"},
+		},
 		TaskSource: "short-drama-chapter-storyboard",
 		Rows:       RowsToShotlist,
 		Check:      CheckShots,
 		Pack:       Pack,
 	},
+}
+
+// EvalChapter 查这一步评测集里的一章。
+func (s Step) EvalChapter(id string) (StepEvalChapter, bool) {
+	for _, c := range s.EvalSet {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return StepEvalChapter{}, false
+}
+
+// EvalChapters 是一个包要跑的评测章节：先按评测集顺序取包覆盖的档案的章节，再补清单 eval 点名的（去重，不认识的跳过，
+// 静态校验已经拦下）。
+func (s Step) EvalChapters(profiles []string, named []string) []StepEvalChapter {
+	var out []StepEvalChapter
+	seen := map[string]bool{}
+	for _, c := range s.EvalSet {
+		if slices.Contains(profiles, c.Profile) && !seen[c.ID] {
+			seen[c.ID] = true
+			out = append(out, c)
+		}
+	}
+	for _, id := range named {
+		if c, ok := s.EvalChapter(id); ok && !seen[id] {
+			seen[id] = true
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // Steps 是步骤表（按流程顺序）。
