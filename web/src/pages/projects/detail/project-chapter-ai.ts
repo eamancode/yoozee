@@ -4,8 +4,10 @@ import { parseChapterAssetBreakdown, type ChapterAssetBreakdown } from "@/lib/ca
 import { parseCharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
 import { backendProviderConfig, parseBackendGenerationResult } from "@/services/api/generation-task";
 import { dramaRunProgressOf, dramaStepOutcomeOf, runDramaStep } from "@/services/api/drama";
-import { announceCreatedGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { announceCreatedGenerationTask, queryGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
+
+import { SHOT_TURN_MARKER } from "./chapter-shot-stream";
 
 type ChapterAnalysisInput = {
     projectId: string;
@@ -93,7 +95,20 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
 
 /** 订阅一个生成分段任务直到结束（刷新页面后接回正在跑的任务也用它）；失败时抛错，错误信息里有写到第几场。 */
 export function followChapterStoryboardTask(task: GenerationTask, options?: ChapterTaskOptions) {
-    return waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, timeoutMs: STORYBOARD_RUN_WAIT_MS, onTaskUpdate: options?.onTaskUpdate, onTextDelta: options?.onStreamText });
+    // 流结束时的 terminal 事件带的是结果正文（各场拼好的镜头行，没有回合标记），不能拿它盖掉按场分好的流。
+    let streamedMarkers = false;
+    const onTextDelta = options?.onStreamText && ((text: string) => {
+        const hasMarkers = text.includes(`"${SHOT_TURN_MARKER}"`);
+        if (streamedMarkers && !hasMarkers) return;
+        streamedMarkers ||= hasMarkers;
+        options.onStreamText?.(text);
+    });
+    return waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, timeoutMs: STORYBOARD_RUN_WAIT_MS, onTaskUpdate: options?.onTaskUpdate, onTextDelta }).catch(async (error: unknown) => {
+        // 通用错误文案会把「第 3 场生成失败，可从第 3 场继续：HTTP 503」概括成网络异常；任务失败时直接用服务端写的原因。
+        const latest = await queryGenerationTask(task.id).catch(() => undefined);
+        if (latest && (latest.status === "failed" || latest.status === "cancelled") && latest.error) throw new Error(latest.error);
+        throw error;
+    });
 }
 
 async function runProjectTextTask(input: ChapterAnalysisInput, operation: string, promptTemplateVariables: Record<string, string>, options?: ChapterTaskOptions) {

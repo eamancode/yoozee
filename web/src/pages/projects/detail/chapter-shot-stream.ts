@@ -29,7 +29,8 @@ export type ShotStreamState = {
     shotCount: number;
 };
 
-const TURN_MARKER = "@turn";
+/** 回合标记行的键（与后端 drama.ShotLinesMarkerKey 一致）。 */
+export const SHOT_TURN_MARKER = "@turn";
 
 function textOf(value: unknown): string {
     if (typeof value === "string") return value.trim();
@@ -47,6 +48,7 @@ export function parseShotStream(text: string): ShotStreamState {
     const state: ShotStreamState = { total: 0, scenes: [], current: 0, shotCount: 0 };
     const complete = text.slice(0, text.lastIndexOf("\n") + 1);
     let scene: StreamScene | undefined;
+    let markers = false;
     for (const raw of complete.split("\n")) {
         const line = raw.trim().replace(/,$/, "");
         if (!line.startsWith("{")) continue;
@@ -57,8 +59,9 @@ export function parseShotStream(text: string): ShotStreamState {
             continue;
         }
         if (!parsed) continue;
-        const marker = record(parsed[TURN_MARKER]);
+        const marker = record(parsed[SHOT_TURN_MARKER]);
         if (marker) {
+            markers = true;
             const index = Number(marker.index) || state.scenes.length + 1;
             state.total = Number(marker.total) || state.total;
             state.current = index;
@@ -71,12 +74,14 @@ export function parseShotStream(text: string): ShotStreamState {
         }
         const rows = Array.isArray(parsed.rows) ? parsed.rows.map(record).filter((row): row is Record<string, unknown> => Boolean(row)) : [parsed];
         for (const row of rows) {
-            if (!scene) {
-                scene = { index: 1, scene: "", heading: "", attempt: 1, shots: [] };
-                state.scenes.push(scene);
-                state.current = 1;
-            }
             const spec = record(row.spec);
+            const sceneId = textOf(spec?.scene);
+            // 没有回合标记（结果正文、模型没按场续写）时按镜头的 spec.scene 分场。
+            if (!scene || (!markers && sceneId && scene.scene !== sceneId)) {
+                scene = { index: state.scenes.length + 1, scene: sceneId, heading: "", attempt: 1, shots: [] };
+                state.scenes.push(scene);
+                state.current = scene.index;
+            }
             scene.shots.push({
                 shotNumber: Number(row.shotNumber) || scene.shots.length + 1,
                 id: textOf(spec?.id),
@@ -106,7 +111,7 @@ export function shotStreamFromResult(resultJson?: string): ShotStreamState {
     }
     const run = result.dramaRun || {};
     const total = Number(run.total) || 0;
-    const marker = (index: number, scene = "", heading = "") => JSON.stringify({ [TURN_MARKER]: { index, total, scene, heading, attempt: 1 } });
+    const marker = (index: number, scene = "", heading = "") => JSON.stringify({ [SHOT_TURN_MARKER]: { index, total, scene, heading, attempt: 1 } });
     const turns = (run.turns || []).filter((turn) => typeof turn.text === "string" && turn.text);
     if (turns.length) {
         return parseShotStream(turns.map((turn, i) => `${marker(turn.index || i + 1, turn.scene, turn.heading)}\n${String(turn.text).trim()}\n`).join(""));

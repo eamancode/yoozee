@@ -33,6 +33,12 @@ test("shotStreamFromResult 从结束的任务还原：失败任务按各场原�
     assert.deepEqual(succeeded.scenes.map((scene) => [scene.heading, scene.shots.length]), [["内·病房走廊·夜", 2], ["内·电梯口·夜", 1]]);
 });
 
+test("parseShotStream 没有回合标记时按镜头的 spec.scene 分场", () => {
+    const row = (n: number, scene: string) => JSON.stringify({ shotNumber: n, plotDescription: `镜${n}`, spec: { scene } });
+    const state = parseShotStream([row(1, "E01S01"), row(2, "E01S01"), row(3, "E01S02")].join("\n") + "\n");
+    assert.deepEqual(state.scenes.map((scene) => [scene.index, scene.scene, scene.shots.length]), [[1, "E01S01", 2], [2, "E01S02", 1]]);
+});
+
 test("parseShotStream 没有回合标记、坏行和代码块围栏也不报错", () => {
     const state = parseShotStream(["```json", shot(1, "推门"), "{坏行", "", "```"].join("\n") + "\n");
     assert.equal(state.scenes.length, 1);

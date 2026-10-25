@@ -204,10 +204,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         return { taskId: storyboardTaskDetail.id, from: progress.completed + 1, total: progress.total, error: storyboardTaskDetail.error };
     }, [storyboardTaskDetail]);
     const liveStoryboardStream = selectedUnitId ? storyboardStreams[selectedUnitId] : undefined;
-    const storyboardStreamState = useMemo(() => {
-        if (liveStoryboardStream && (!storyboardTaskDetail || liveStoryboardStream.taskId === storyboardTaskDetail.id || !liveStoryboardStream.taskId)) return parseShotStream(liveStoryboardStream.text);
-        return shotStreamFromResult(storyboardTaskDetail?.resultJson);
-    }, [liveStoryboardStream, storyboardTaskDetail]);
     // 台词覆盖率和超长段：拿本章正文里引号中的台词，对照各段 lines；超过项目模型上限的段要拆。
     const unitShots = useMemo(() => detail.shots.filter((shot) => shot.unitId === selectedUnit?.id), [detail.shots, selectedUnit?.id]);
     const dialogueCoverage = useMemo(() => chapterDialogueCoverage(stripHtml(draftHtml || selectedUnit?.sourceText || ""), unitShots, detail.shotRevisions), [detail.shotRevisions, draftHtml, selectedUnit?.sourceText, unitShots]);
@@ -236,6 +232,17 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const runningOperationCount = new Set([...Object.keys(chapterOperations), ...serverChapterOperations.keys()]).size;
     const characterOperation = selectedUnit ? chapterOperations[chapterOperationKey(selectedUnit.id, "characters")] || serverChapterOperations.get(chapterOperationKey(selectedUnit.id, "characters")) : undefined;
     const storyboardOperation = selectedUnit ? chapterOperations[chapterOperationKey(selectedUnit.id, "storyboard")] || serverChapterOperations.get(chapterOperationKey(selectedUnit.id, "storyboard")) : undefined;
+    const storyboardRunning = Boolean(storyboardOperation);
+    const storyboardStreamState = useMemo(() => {
+        const live = liveStoryboardStream ? parseShotStream(liveStoryboardStream.text) : undefined;
+        const previous = storyboardTaskDetail && storyboardTaskDetail.id !== liveStoryboardStream?.taskId ? shotStreamFromResult(storyboardTaskDetail.resultJson) : undefined;
+        if (!live || (!storyboardRunning && previous && liveStoryboardStream?.taskId)) return previous || live || parseShotStream("");
+        // 「从第 N 场继续」的新任务只写剩下的场：前面几场取上一次任务存下的，接在前面一起显示。
+        const first = live.scenes[0]?.index ?? Number.POSITIVE_INFINITY;
+        const carried = previous && first > 1 ? previous.scenes.filter((scene) => scene.index < first) : [];
+        if (!carried.length) return live;
+        return { ...live, scenes: [...carried, ...live.scenes], shotCount: live.shotCount + carried.reduce((sum, scene) => sum + scene.shots.length, 0) };
+    }, [liveStoryboardStream, storyboardRunning, storyboardTaskDetail]);
     const charactersGenerated = Boolean(selectedUnit && (completedChapterOperations[chapterOperationKey(selectedUnit.id, "characters")] || serverCompletedOperations.has(chapterOperationKey(selectedUnit.id, "characters")) || detail.assetCandidates.some((candidate) => candidate.unitId === selectedUnit.id && candidate.category === "character")));
     const storyboardGenerated = Boolean(selectedUnit && (completedChapterOperations[chapterOperationKey(selectedUnit.id, "storyboard")] || serverCompletedOperations.has(chapterOperationKey(selectedUnit.id, "storyboard")) || storyboardImpact.shotCount > 0));
     const visibleUnits = useMemo(() => {

@@ -46,7 +46,7 @@ export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running
                 <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 text-[var(--fs-tiny)] text-foreground/55" aria-live="polite">
                     {running ? (
                         <>
-                            <span className="font-medium text-foreground/80">{stream.total ? `正在写第 ${Math.max(1, stream.current)}/${stream.total} 场` : "等待模型开始输出"}</span>
+                            <span className="font-medium text-foreground/80">{stream.total ? `正在写第 ${Math.max(1, stream.current)}/${stream.total} 场` : stream.shotCount ? "正在收尾" : "等待模型开始输出"}</span>
                             <span>·</span>
                             <span>已出 {stream.shotCount} 镜</span>
                             {stage ? <><span>·</span><span>{stage}</span></> : null}
@@ -58,7 +58,7 @@ export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running
                     ) : (
                         <span>还没有生成记录</span>
                     )}
-                    {parse ? <span className="tabular-nums">· 解析 {parse.rows} 行{parse.rejected ? `，${parse.rejected} 行没解析出来` : ""}</span> : null}
+                    {parse && !running ? <span className="tabular-nums">· 解析 {parse.rows} 行{parse.rejected ? `，${parse.rejected} 行没解析出来` : ""}</span> : null}
                 </div>
 
                 {resume && !running ? (
