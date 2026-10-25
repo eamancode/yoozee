@@ -53,15 +53,20 @@ func (f *fakeShotsUpstream) handler(t *testing.T) http.HandlerFunc {
 		f.prompts = append(f.prompts, body.Messages[len(body.Messages)-1].Content)
 		f.mu.Unlock()
 		scene := history/2 + 1
+		var lines []string
+		garbage := false
 		if f.fail != nil {
-			if status := f.fail(call, scene); status != 0 {
+			switch status := f.fail(call, scene); {
+			case status < 0:
+				// 模型没按契约写：一段解释文字，解析不出镜头行。
+				lines, garbage = []string{"抱歉，我先说明一下这一场的拆法。"}, true
+			case status != 0:
 				w.WriteHeader(status)
 				fmt.Fprint(w, `{"error":{"message":"upstream unavailable"}}`)
 				return
 			}
 		}
-		var lines []string
-		for i := 1; i <= 2; i++ {
+		for i := 1; i <= 2 && !garbage; i++ {
 			row, _ := json.Marshal(map[string]any{"plotDescription": fmt.Sprintf("第%d场第%d镜", scene, i), "spec": map[string]any{"scene": fmt.Sprintf("E01S%02d", scene)}})
 			lines = append(lines, string(row))
 		}
@@ -105,7 +110,10 @@ func dramaRunCtx(task model.Task) context.Context {
 func TestDramaRunLoopsScenesInOneTask(t *testing.T) {
 	service, _, create := newDramaRunTestService(t)
 	upstream := &fakeShotsUpstream{fail: func(call int, scene int) int {
-		if call == 2 {
+		switch call {
+		case 1:
+			return -1
+		case 3:
 			return http.StatusBadGateway
 		}
 		return 0
@@ -118,21 +126,21 @@ func TestDramaRunLoopsScenesInOneTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if upstream.calls != 4 || fmt.Sprint(upstream.histories) != "[0 2 2 4]" {
-		t.Fatalf("三场四次调用（第二场重试一次），历史条数 %v", upstream.histories)
+	if upstream.calls != 5 || fmt.Sprint(upstream.histories) != "[0 0 2 2 4]" {
+		t.Fatalf("三场五次调用（第一场解析不出镜头行、第二场 502 各重试一次），历史条数 %v", upstream.histories)
 	}
 	if !strings.Contains(upstream.prompts[0], "整章提示词") || !strings.Contains(upstream.prompts[0], "【分回合输出】本章按正文的场景标题共 3 场") {
 		t.Fatalf("第一轮是整章提示词加分回合说明：%s", upstream.prompts[0])
 	}
-	if !strings.HasPrefix(upstream.prompts[3], "继续写第 3 场：「内·电梯口·夜」（从「防火门弹开") || !strings.Contains(upstream.prompts[3], "shotNumber 从 5 起") {
-		t.Fatalf("续写指令：%s", upstream.prompts[3])
+	if !strings.HasPrefix(upstream.prompts[4], "继续写第 3 场：「内·电梯口·夜」（从「防火门弹开") || !strings.Contains(upstream.prompts[4], "shotNumber 从 5 起") {
+		t.Fatalf("续写指令：%s", upstream.prompts[4])
 	}
 	rows, stats, err := drama.StoryboardRowsFromText(result["text"].(string))
 	if err != nil || len(rows) != 6 || stats.Rate != 1 || rows[4]["plotDescription"] != "第3场第1镜" {
 		t.Fatalf("结果文本是各场按顺序拼起来的镜头行：%v %d %+v", err, len(rows), stats)
 	}
 	progress := result["dramaRun"].(dramaRunProgress)
-	if progress.Completed != 3 || progress.Total != 3 || progress.Turns[1].Attempts != 2 || progress.Turns[0].Text != "" || progress.Turns[2].Scene != "E01S03" {
+	if progress.Completed != 3 || progress.Total != 3 || progress.Turns[0].Attempts != 2 || progress.Turns[1].Attempts != 2 || progress.Turns[0].Text != "" || progress.Turns[2].Scene != "E01S03" {
 		t.Fatalf("进度：%+v", progress)
 	}
 	saved, _ := service.repo.Task(task.ID)
@@ -147,7 +155,7 @@ func TestDramaRunLoopsScenesInOneTask(t *testing.T) {
 	for _, d := range replay.Deltas {
 		stream.WriteString(d.Content)
 	}
-	if got := strings.Count(stream.String(), `{"@turn":`); got != 4 {
+	if got := strings.Count(stream.String(), `{"@turn":`); got != 5 {
 		t.Fatalf("每次调用前一行回合标记（含重试）：%d\n%s", got, stream.String())
 	}
 	streamRows, streamStats, _ := drama.StoryboardRowsFromText(stream.String())

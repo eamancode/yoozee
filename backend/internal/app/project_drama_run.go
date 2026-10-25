@@ -295,15 +295,13 @@ func (s *Service) runDramaTurn(ctx context.Context, task model.Task, input canva
 		turnCtx, cancel := context.WithTimeout(ctx, turnTimeout)
 		result, err := runTextTask(turnCtx, input)
 		cancel()
-		text := ""
 		if err == nil {
-			text, _ = result["text"].(string)
-			if _, _, parseErr := drama.StoryboardRowsFromText(text); parseErr != nil {
-				err = errDramaTurnNoRows
+			text, _ := result["text"].(string)
+			rows, _, parseErr := drama.StoryboardRowsFromText(text)
+			if parseErr != nil {
+				lastErr = errDramaTurnNoRows
+				continue
 			}
-		}
-		if err == nil {
-			rows, _, _ := drama.StoryboardRowsFromText(text)
 			stream.finishTurn(text)
 			turn := dramaRunTurn{Index: marker.Index, Scene: marker.Scene, Heading: marker.Heading, Rows: len(rows), Attempts: attempt, Prompt: input.Prompt, Text: text}
 			if usage, ok := result["usage"].(map[string]any); ok {
