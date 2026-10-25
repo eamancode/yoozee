@@ -65,7 +65,6 @@ import {
     importProjectUnits,
     listProjectAssetCandidates,
     listProjectAssets,
-    replaceProjectUnitShots,
     reorderProjectUnits,
     updateProjectUnit,
     type ProjectDetail,
@@ -73,28 +72,24 @@ import {
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { getDramaStepUsage, putDramaShotlist, shotlistCheckFailure, type DramaCheckReport } from "@/services/api/drama";
+import { dramaRunProgressOf, dramaStepOutcomeOf, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure } from "@/services/api/drama";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
-import { bindStoryboardRowAssets, chapterStoryboardAssets, chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
-import { chapterDialogueCoverage, DEFAULT_SEGMENT_TARGET, segmentDurationRule, storyboardRowsToSegments } from "./chapter-segments";
+import { chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
+import { chapterDialogueCoverage, DEFAULT_SEGMENT_TARGET, segmentDurationRule } from "./chapter-segments";
+import { parseShotStream, shotStreamFromResult } from "./chapter-shot-stream";
+import { ChapterStoryboardRunPanel, type StoryboardResumePoint } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
-import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
+import { chapterAssetsFromGenerationTask, chapterTaskIdentity, extractChapterAssets, followChapterStoryboardTask, generateChapterStoryboard } from "./project-chapter-ai";
 
 const CHAPTER_ROW_HEIGHT = 62;
 const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
 type ChapterOperationKind = "characters" | "storyboard";
 // queued：任务还在排队（或刚提交、还没开始跑），按钮显示「排队中」而不是从 0 秒开始的「已运行」。
 type ChapterOperation = { startedAt: number; taskId?: string; queued?: boolean };
-type ShotlistCheckChoice = "regenerate" | "flat" | "cancel";
-
-/** 镜头表检查不过、用户选了「重新生成」：生成流程收到它就再跑一次，不当失败提示。 */
-class StoryboardRegenerateRequested extends Error {
-    constructor() {
-        super("镜头表检查未通过，重新生成分镜");
-    }
-}
+// 生成分段的文本流（各场输出与回合标记），按章节存，侧栏解析成按场分组的镜头。
+type StoryboardStream = { taskId: string; text: string };
 
 function formatChapterListCount(value: number) {
     if (value < 10_000) return formatCount(value);
@@ -123,6 +118,9 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const [chapterOperations, setChapterOperations] = useState<Record<string, ChapterOperation>>({});
     const [completedChapterOperations, setCompletedChapterOperations] = useState<Record<string, true>>({});
     const [operationNow, setOperationNow] = useState(() => Date.now());
+    const [storyboardStreams, setStoryboardStreams] = useState<Record<string, StoryboardStream>>({});
+    const [runPanelOpen, setRunPanelOpen] = useState(false);
+    const followedStoryboardTasksRef = useRef(new Set<string>());
     const [selectedTextModel, setSelectedTextModel] = useState("");
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
@@ -177,6 +175,39 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         enabled: storyboardOpen,
     });
     const storyboardStep = storyboardStepQuery.data;
+    // 镜头表由服务端在生成分段任务收尾时写：检查有 error 时只存草稿（draft），页面列出问题行并给「重新装段」。
+    const selectedUnitId = selectedUnit?.id || "";
+    const shotlistQuery = useQuery({
+        queryKey: ["project", detail.project.id, "drama-shotlist", selectedUnitId],
+        queryFn: ({ signal }) => getDramaShotlist(detail.project.id, selectedUnitId, signal).then((result) => result.shotlist),
+        enabled: Boolean(selectedUnitId),
+    });
+    const shotlist = shotlistQuery.data;
+    const latestStoryboardTask = useMemo(() => (chapterTasksQuery.data || []).find((task) => {
+        const identity = chapterTaskIdentity(task);
+        return identity?.kind === "storyboard" && identity.chapterId === selectedUnitId;
+    }), [chapterTasksQuery.data, selectedUnitId]);
+    const latestStoryboardTerminal = latestStoryboardTask && latestStoryboardTask.status !== "queued" && latestStoryboardTask.status !== "running" ? latestStoryboardTask : undefined;
+    // 结束了的任务读详情（带结果）：成功的取写库摘要，失败的取已写完几场，给「从第 N 场继续」。
+    const storyboardTaskDetailQuery = useQuery({
+        queryKey: ["generation-task", latestStoryboardTerminal?.id, latestStoryboardTerminal?.status],
+        queryFn: () => queryGenerationTask(latestStoryboardTerminal!.id),
+        enabled: Boolean(latestStoryboardTerminal),
+        staleTime: Infinity,
+    });
+    const storyboardTaskDetail = storyboardTaskDetailQuery.data;
+    const storyboardOutcome = storyboardTaskDetail?.status === "succeeded" ? dramaStepOutcomeOf(storyboardTaskDetail) : undefined;
+    const storyboardResume = useMemo<StoryboardResumePoint | undefined>(() => {
+        if (!storyboardTaskDetail || (storyboardTaskDetail.status !== "failed" && storyboardTaskDetail.status !== "cancelled")) return undefined;
+        const progress = dramaRunProgressOf(storyboardTaskDetail);
+        if (!progress || progress.completed < 1 || progress.completed >= progress.total) return undefined;
+        return { taskId: storyboardTaskDetail.id, from: progress.completed + 1, total: progress.total, error: storyboardTaskDetail.error };
+    }, [storyboardTaskDetail]);
+    const liveStoryboardStream = selectedUnitId ? storyboardStreams[selectedUnitId] : undefined;
+    const storyboardStreamState = useMemo(() => {
+        if (liveStoryboardStream && (!storyboardTaskDetail || liveStoryboardStream.taskId === storyboardTaskDetail.id || !liveStoryboardStream.taskId)) return parseShotStream(liveStoryboardStream.text);
+        return shotStreamFromResult(storyboardTaskDetail?.resultJson);
+    }, [liveStoryboardStream, storyboardTaskDetail]);
     // 台词覆盖率和超长段：拿本章正文里引号中的台词，对照各段 lines；超过项目模型上限的段要拆。
     const unitShots = useMemo(() => detail.shots.filter((shot) => shot.unitId === selectedUnit?.id), [detail.shots, selectedUnit?.id]);
     const dialogueCoverage = useMemo(() => chapterDialogueCoverage(stripHtml(draftHtml || selectedUnit?.sourceText || ""), unitShots, detail.shotRevisions), [detail.shotRevisions, draftHtml, selectedUnit?.sourceText, unitShots]);
@@ -409,88 +440,30 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         refreshProject();
         return created.candidates.length;
     };
-    const storyboardDetail = async (): Promise<ProjectDetail> => {
-        const assets = await queryClient.ensureQueryData({ queryKey: projectAssetsKey, queryFn: loadProjectAssets });
-        const projectIds = new Set(assets.map((asset) => asset.id));
-        return { ...detail, assets: [...assets, ...detail.assets.filter((asset) => !projectIds.has(asset.id))] };
+    const refreshStoryboardResult = async (unitId: string) => {
+        await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
+            queryClient.invalidateQueries({ queryKey: ["projects"] }),
+            queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", detail.project.id] }),
+        ]);
+        markChapterOperationCompleted(unitId, "storyboard");
     };
-    const storeGeneratedStoryboard = async (unitId: string, rows: ReturnType<typeof chapterStoryboardFromGenerationTask>["rows"], sourceText?: string) => {
-        const unit = detail.units.find((item) => item.id === unitId);
-        const assetDetail = await storyboardDetail();
-        // 模型按名称给的资产（或镜头文字里出现的资产名）先落成分镜行绑定，装段才能按场景切场、带上参考；
-        // 一个场景都没绑上时按正文的场景标题切场，所以正文要按行保留。
-        const boundRows = bindStoryboardRowAssets(rows, chapterStoryboardAssets(assetDetail));
-        const expectedShotIds = detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id);
-        const refresh = async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
-                queryClient.invalidateQueries({ queryKey: ["projects"] }),
-            ]);
-            markChapterOperationCompleted(unitId, "storyboard");
-        };
-        // 带镜头表 spec 的分镜行（yz-chapter-shots 技能）交给后端：转台词、转镜头表、检查、装段、写 2.1 段；
-        // 不带 spec 的（别的分镜技能）继续走前端装段。
-        if (boundRows.some((row) => row.spec && typeof row.spec === "object")) {
-            try {
-                const stored = await putDramaShotlist(detail.project.id, unitId, { rows: boundRows, rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, expectedShotIds });
-                await refresh();
-                const notes = [...stored.notes];
-                if (stored.check.warnings) notes.push(`镜头表检查有 ${stored.check.warnings} 条提醒，可在分镜制作页按段查看`);
-                if (notes.length) message.warning(notes.join("；"), 10);
-                return { count: stored.segments.length, scenes: new Set(stored.segments.map((segment) => segment.spec.scene)).size, profile: stored.profile };
-            } catch (error) {
-                const check = shotlistCheckFailure(error);
-                if (!check) throw error;
-                const choice = await askShotlistCheckChoice(check);
-                if (choice === "regenerate") throw new StoryboardRegenerateRequested();
-                if (choice === "cancel") throw new Error("镜头表检查未通过，分镜没有保存");
-            }
-        }
-        const plan = storyboardRowsToSegments(boundRows, assetDetail, { chapterTitle: unit?.title || "", sourceText: sourceText ?? htmlToPlainLines(unit?.sourceText || ""), rule: segmentRule, target: DEFAULT_SEGMENT_TARGET, maxRefs: dramaModel?.refs.images ?? undefined });
-        await replaceProjectUnitShots(detail.project.id, unitId, plan.shots, expectedShotIds);
-        await refresh();
-        if (plan.notes.length) message.warning(plan.notes.join("；"), 10);
-        return { count: plan.shots.length, scenes: new Set(plan.shots.map((shot) => String(shot.revision.spec?.scene || ""))).size };
-    };
-    /** 镜头表检查不过：列出 error 级规则项和对应镜头，让用户选重新生成、仍按平铺字段保存，或先不保存。 */
-    const askShotlistCheckChoice = (check: DramaCheckReport) => new Promise<ShotlistCheckChoice>((resolve) => {
-        const errors = check.items.filter((item) => item.level === "error");
-        let settled = false;
-        const settle = (choice: ShotlistCheckChoice) => {
-            if (settled) return;
-            settled = true;
-            instance.destroy();
-            resolve(choice);
-        };
-        const instance = modal.confirm({
-            title: `镜头表检查有 ${check.errors} 个问题，分镜还没有保存`,
-            width: 640,
-            centered: true,
-            closable: true,
-            content: (
-                <div className="space-y-3 text-sm leading-6 text-foreground/70">
-                    <p>这些问题会让生成的视频缺台词或违反画风规则。可以重新生成分镜，或者先按旧方式（只存剧情、台词、景别、机位等平铺字段）保存，镜头表里的情绪弧、灯光、站位、衔接不会保留。</p>
-                    <ul className="max-h-72 space-y-1.5 overflow-y-auto pl-0" aria-label="镜头表检查问题">
-                        {errors.map((item, index) => (
-                            <li key={`${item.rule}-${item.shotId || "all"}-${index}`} className="list-none rounded-md bg-surface-active px-3 py-2">
-                                <span className="font-medium text-foreground/85">{item.shotId || "整章"}</span>
-                                <span className="ml-2 font-mono text-xs text-foreground/50">{item.rule}</span>
-                                <div>{item.message}</div>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            ),
-            footer: (
-                <div className="mt-4 flex justify-end gap-2">
-                    <Button onClick={() => settle("flat")}>仍按平铺字段保存</Button>
-                    <Button type="primary" onClick={() => settle("regenerate")}>
-                        重新生成
-                    </Button>
-                </div>
-            ),
-            onCancel: () => settle("cancel"),
-        });
+    const appendStoryboardStream = (unitId: string, taskId: string, text?: string) => setStoryboardStreams((current) => {
+        const previous = current[unitId];
+        const sameTask = previous && (!previous.taskId || !taskId || previous.taskId === taskId);
+        return { ...current, [unitId]: { taskId: taskId || previous?.taskId || "", text: text ?? (sameTask ? previous.text : "") } };
+    });
+    const repackMutation = useMutation({
+        mutationFn: (unitId: string) => repackDramaShotlist(detail.project.id, unitId, { rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds } }),
+        onSuccess: async (result, unitId) => {
+            await refreshStoryboardResult(unitId);
+            message.success(`已重新装段：按 ${new Set(result.segments.map((segment) => segment.spec.scene)).size} 场装成 ${result.segments.length} 段`);
+        },
+        onError: (error) => {
+            const check = shotlistCheckFailure(error);
+            message.error(check ? `重新装段仍有 ${check.errors} 个问题，草稿没变；需要的话重新生成` : error instanceof Error ? error.message : "重新装段失败");
+            void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "drama-shotlist"] });
+        },
     });
     const extractCharacters = async () => {
         let operationUnitId = "";
@@ -514,7 +487,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             if (operationUnitId) finishChapterOperation(operationUnitId, "characters");
         }
     };
-    const createStoryboard = async (options: { replaceConfirmed?: boolean } = {}) => {
+    const createStoryboard = async (options: { replaceConfirmed?: boolean; resumeTaskId?: string } = {}) => {
         const unit = selectedUnit;
         if (!unit) return message.warning("章节正文尚未加载完成");
         if (dirty) return message.warning("请先保存当前章节，再生成分镜");
@@ -523,33 +496,43 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (!sourceText) return message.warning("当前章节没有可用于分镜的正文");
         if (projectStyleMissing) return message.warning("请先在项目设置中选择项目画风，再生成分镜");
         if (segmentRule.problem) return message.warning(`${segmentRule.problem}，先在项目设置里换默认视频模型或生成模型`);
-        const textModel = selectedTextModel;
+        const textModel = selectedTextModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
         const config = { ...effectiveConfig, model: textModel, textModel };
         if (!isAiConfigReady(config, textModel)) {
             navigateToSettings({ continueCreation: true });
             return;
         }
-        if (storyboardImpact.shotCount && !options.replaceConfirmed && !(await confirmStoryboardReplacement(storyboardImpact))) return;
+        if (!options.resumeTaskId && storyboardImpact.shotCount && !options.replaceConfirmed && !(await confirmStoryboardReplacement(storyboardImpact))) return;
         setStoryboardOpen(false);
         beginChapterOperation(unit.id, "storyboard");
-        message.info("分镜生成任务已开始，可继续编辑或切换章节");
-        let regenerate = false;
+        setStoryboardStreams((current) => ({ ...current, [unit.id]: { taskId: "", text: "" } }));
+        setRunPanelOpen(true);
+        message.info(options.resumeTaskId ? "从中断的那一场接着写，可继续编辑或切换章节" : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
         try {
-            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config }, { onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task) });
-            const stored = await storeGeneratedStoryboard(unit.id, result.rows, sourceText);
-            const summary = `已按 ${stored.scenes} 场生成 ${stored.count} 段（每段 ${segmentRule.label}${"profile" in stored && stored.profile ? `，风格档案：${stored.profile}` : ""}）`;
+            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, resumeTaskId: options.resumeTaskId }, {
+                onTaskUpdate: (task) => {
+                    followedStoryboardTasksRef.current.add(task.id);
+                    updateChapterOperation(unit.id, "storyboard", task);
+                    appendStoryboardStream(unit.id, task.id);
+                },
+                onStreamText: (text) => appendStoryboardStream(unit.id, "", text),
+            });
+            await refreshStoryboardResult(unit.id);
+            const outcome = result.outcome;
+            if (outcome?.status === "draft") {
+                message.warning(`镜头表检查有 ${outcome.errors} 个问题，已存为草稿，还没装段；在「生成分段」侧栏处理`, 10);
+                return;
+            }
+            const summary = outcome ? `已按 ${outcome.scenes} 场生成 ${outcome.segments} 段（每段 ${segmentRule.label}${outcome.profile ? `，风格档案：${outcome.profile}` : ""}）` : "分段已写入";
+            if (outcome?.notes?.length) message.warning(outcome.notes.join("；"), 10);
             message.success(`${summary}，技能：${result.usage.skill.name} ${result.usage.skill.version}`);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/video`);
         } catch (error) {
-            if (error instanceof StoryboardRegenerateRequested) {
-                regenerate = true;
-                return;
-            }
             refreshProject();
+            void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", detail.project.id] });
             message.error(error instanceof Error ? `章节分镜生成失败：${error.message}` : "章节分镜生成失败");
         } finally {
             finishChapterOperation(unit.id, "storyboard");
-            if (regenerate) window.setTimeout(() => void createStoryboard({ replaceConfirmed: true }), 0);
         }
     };
     const confirmStoryboardReplacement = (impact: ReturnType<typeof chapterStoryboardReplaceImpact>) => new Promise<boolean>((resolve) => {
@@ -585,26 +568,34 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 markChapterOperationCompleted(taskChapterId, kind);
                 continue;
             }
+            if (kind === "storyboard") {
+                // 分段由服务端在任务收尾时写好了，这里只刷新本章的段和镜头表。
+                recoveredTaskIdsRef.current.add(task.id);
+                void refreshStoryboardResult(taskChapterId);
+                continue;
+            }
             recoveringTaskIdsRef.current.add(task.id);
             void queryGenerationTask(task.id).then(async (completedTask) => {
-                if (kind === "characters") {
-                    await storeExtractedAssets(taskChapterId, chapterAssetsFromGenerationTask(completedTask));
-                    message.success("已恢复刷新前完成的章节资产提取结果");
-                } else {
-                    await storeGeneratedStoryboard(taskChapterId, chapterStoryboardFromGenerationTask(completedTask).rows);
-                    message.success("已恢复刷新前完成的章节分镜");
-                }
+                await storeExtractedAssets(taskChapterId, chapterAssetsFromGenerationTask(completedTask));
+                message.success("已恢复刷新前完成的章节资产提取结果");
                 recoveredTaskIdsRef.current.add(task.id);
             }).catch((error) => {
-                if (error instanceof StoryboardRegenerateRequested) {
-                    recoveredTaskIdsRef.current.add(task.id);
-                    message.info("请在章节页重新生成分镜");
-                    return;
-                }
                 message.error(error instanceof Error ? `任务结果恢复失败：${error.message}` : "任务结果恢复失败");
             }).finally(() => recoveringTaskIdsRef.current.delete(task.id));
         }
     }, [chapterTasksQuery.data, detail]);
+
+    // 刷新页面或别的标签页起的生成分段还在跑：打开侧栏时接上它的文本流（从头回放），结束后刷新本章。
+    useEffect(() => {
+        const task = latestStoryboardTask;
+        const unitId = selectedUnit?.id || "";
+        if (!runPanelOpen || !unitId || !task || (task.status !== "queued" && task.status !== "running") || followedStoryboardTasksRef.current.has(task.id)) return;
+        followedStoryboardTasksRef.current.add(task.id);
+        appendStoryboardStream(unitId, task.id, "");
+        void followChapterStoryboardTask(task, { onStreamText: (text) => appendStoryboardStream(unitId, task.id, text) })
+            .then(() => refreshStoryboardResult(unitId))
+            .catch(() => void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", detail.project.id] }));
+    }, [latestStoryboardTask, runPanelOpen, selectedUnit?.id]);
 
     const selectChapter = (unitId: string) => {
         if (unitId === selectedId) return;
@@ -712,11 +703,12 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                             <div className="min-w-0 flex-1">
                                 <div className="mb-1 text-[var(--fs-tiny)] font-medium tabular-nums text-foreground/38">第 {String(orderedUnits.findIndex((unit) => unit.id === selectedUnit.id) + 1).padStart(2, "0")} 章</div>
                                 <Input variant="borderless" value={draftTitle} disabled={!selectedUnit} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
-                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span>{unitShots.length ? <><span>·</span><span>{unitShots.length} 段</span></> : null}{dialogueCoverage.expected ? <><span>·</span><span className={dialogueCoverage.covered < dialogueCoverage.expected && unitShots.length ? "text-amber-600 dark:text-amber-400" : ""} title={dialogueCoverage.missing.length ? `没进分段的台词：${dialogueCoverage.missing.slice(0, 5).join(" / ")}` : undefined}>台词覆盖 {dialogueCoverage.covered}/{dialogueCoverage.expected}</span></> : null}{overLimitSegments.length ? <><span>·</span><span className="text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {segmentMaxSeconds} 秒，需拆分</span></> : null}</div>
+                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span>{unitShots.length ? <><span>·</span><span>{unitShots.length} 段</span></> : null}{dialogueCoverage.expected ? <><span>·</span><span className={dialogueCoverage.covered < dialogueCoverage.expected && unitShots.length ? "text-amber-600 dark:text-amber-400" : ""} title={dialogueCoverage.missing.length ? `没进分段的台词：${dialogueCoverage.missing.slice(0, 5).join(" / ")}` : undefined}>台词覆盖 {dialogueCoverage.covered}/{dialogueCoverage.expected}</span></> : null}{overLimitSegments.length ? <><span>·</span><span className="text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {segmentMaxSeconds} 秒，需拆分</span></> : null}{shotlist?.draft && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>镜头表有 {shotlist.check.errors} 个问题，还没装段</button></> : null}{storyboardResume && !storyboardOperation ? <><span>·</span><button type="button" className="text-amber-600 underline-offset-2 hover:underline dark:text-amber-400" onClick={() => setRunPanelOpen(true)}>分段停在第 {storyboardResume.from} 场</button></> : null}</div>
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                                 <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(characterOperation)} loading={Boolean(characterOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setCharacterExtractOpen(true); }} aria-label={characterOperation ? `提取角色、场景与道具，${chapterOperationLabel(characterOperation, operationNow)}` : "提取角色、场景与道具"}>{characterOperation ? `提取资产（${chapterOperationLabel(characterOperation, operationNow)}）` : charactersGenerated ? "提取资产（已生成）" : "提取角色、场景与道具"}</Button>
                                 <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button>
+                                {storyboardOperation || storyboardStreamState.shotCount || shotlist?.draft || storyboardResume ? <Button size="small" onClick={() => setRunPanelOpen(true)} aria-label="查看生成分段进度">进度</Button> : null}
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
@@ -742,6 +734,22 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     </label>
                 </div>
             </Modal>
+            <ChapterStoryboardRunPanel
+                open={runPanelOpen}
+                onClose={() => setRunPanelOpen(false)}
+                chapterTitle={selectedUnit?.title || ""}
+                running={Boolean(storyboardOperation)}
+                stage={latestStoryboardTask && (latestStoryboardTask.status === "running" || latestStoryboardTask.status === "queued") ? latestStoryboardTask.stage : undefined}
+                stream={storyboardStreamState}
+                outcome={storyboardOutcome}
+                shotlist={shotlist}
+                resume={storyboardResume}
+                onResume={() => { if (storyboardResume) void createStoryboard({ resumeTaskId: storyboardResume.taskId }); }}
+                onRepack={() => { if (selectedUnit) repackMutation.mutate(selectedUnit.id); }}
+                repacking={repackMutation.isPending}
+                onRegenerate={() => { setRunPanelOpen(false); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
+                onOpenProduction={() => { if (selectedUnit) navigate(`/projects/${detail.project.id}/workflow/${selectedUnit.id}/video`); }}
+            />
             <Modal className="library-modal" title="生成章节分段" open={storyboardOpen} width={560} okText={storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard()} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
                     {projectStyleMissing ? <Callout tone="warning" title="还没有项目画风" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去选画风</Button>}>分镜要按项目画风写画面和参考，先在项目设置里选一个画风并保存，再回来生成。</Callout> : null}
@@ -933,19 +941,6 @@ function plainTextToHtml(value: string) {
 
 function stripHtml(value: string) {
     return value.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
-}
-
-/** 章节 HTML 转纯文本时段落、标题和换行各占一行，装段才认得出单独成行的场景标题。 */
-function htmlToPlainLines(value: string) {
-    return value
-        .replace(/<br\s*\/?>/gi, "\n")
-        .replace(/<\/(?:p|h[1-6]|li|div|blockquote)>/gi, "\n")
-        .replace(/<[^>]+>/g, "")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&amp;/g, "&")
-        .trim();
 }
 
 function readStoredScroll(key: string) {

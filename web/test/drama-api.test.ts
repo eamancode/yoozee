@@ -126,13 +126,13 @@ describe("短剧接口请求合同", () => {
 });
 
 describe("镜头表接口", () => {
-    test("读写都打章节下的 drama/shotlist，写入把分镜行、段长规则和现有镜头 ID 原样交给后端", async () => {
+    test("只读镜头表和重新装段：镜头表由生成分段任务在服务端写，前端没有写镜头表的函数", async () => {
         await drama.getDramaShotlist("p1", "u 1");
         expect(lastCall()).toMatchObject({ method: "get", url: "/projects/p1/units/u%201/drama/shotlist" });
 
-        const rows = [{ shotNumber: 1, spec: { id: "E01S01-01" } }];
-        await drama.putDramaShotlist("p1", "u1", { rows, rule: { maxSeconds: 15, minSeconds: 4 }, expectedShotIds: ["s1"] });
-        expect(lastCall()).toMatchObject({ method: "put", url: "/projects/p1/units/u1/drama/shotlist", body: { rows, rule: { maxSeconds: 15, minSeconds: 4 }, expectedShotIds: ["s1"] } });
+        await drama.repackDramaShotlist("p1", "u1", { rule: { maxSeconds: 15, minSeconds: 4 } });
+        expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/units/u1/drama/shotlist/repack", body: { rule: { maxSeconds: 15, minSeconds: 4 } } });
+        expect("putDramaShotlist" in drama).toBe(false);
     });
 
     test("检查不过时从错误里取出规则项；别的错误不当成检查结果", () => {
@@ -204,6 +204,20 @@ describe("短剧流程步骤（M6）", () => {
         expect(lastCall()).toEqual({ method: "post", url: "/projects/p%201/units/u1/drama/steps/chapter.shots/run", body: { model: "deepseek", config: { model: "deepseek" } } });
         await drama.getDramaStepUsage("p1", "chapter.shots");
         expect(lastCall()).toMatchObject({ method: "get", url: "/projects/p1/drama/steps/chapter.shots" });
+
+        transport.responses["/projects/p1/units/u1/drama/steps/chapter.shots/run"] = { task: { id: "t2" }, usage: { step: "chapter.shots" } };
+        await drama.runDramaStep("p1", "u1", "chapter.shots", { model: "deepseek", config: {}, rule: { maxSeconds: 15, minSeconds: 4 }, resumeTaskId: "t1" });
+        expect(lastCall()).toMatchObject({ body: { rule: { maxSeconds: 15, minSeconds: 4 }, resumeTaskId: "t1" } });
+    });
+
+    test("从任务结果读逐场进度和写库摘要；结果不对时返回 undefined", () => {
+        const progress = { runId: "r1", total: 3, completed: 2, turns: [] };
+        const outcome = { step: "chapter.shots", status: "draft", unitId: "u1", parse: { lines: 2, rows: 2, rejected: 0, rate: 1 }, errors: 1, warnings: 0, shots: 2, segments: 0, scenes: 0, version: 2 };
+        const task = { resultJson: JSON.stringify({ mode: "text", dramaRun: progress, dramaStep: outcome }) };
+        expect(drama.dramaRunProgressOf(task)).toEqual(progress);
+        expect(drama.dramaStepOutcomeOf(task)?.status).toBe("draft");
+        expect(drama.dramaRunProgressOf({ resultJson: "not json" })).toBeUndefined();
+        expect(drama.dramaStepOutcomeOf({ resultJson: JSON.stringify({ dramaStep: { status: "other" } }) })).toBeUndefined();
     });
 
     test("风格档案按后端画风对照表推荐，与 StyleMap.ProfileFor 同一规则", () => {

@@ -1,10 +1,9 @@
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
 import { PromptTemplateOperation, promptTemplateTaskPlaceholder } from "@/lib/prompts";
-import { storyboardRowsFromTask } from "@/lib/canvas/canvas-project-domain";
 import { parseChapterAssetBreakdown, type ChapterAssetBreakdown } from "@/lib/canvas/chapter-asset-breakdown";
 import { parseCharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
 import { backendProviderConfig, parseBackendGenerationResult } from "@/services/api/generation-task";
-import { runDramaStep } from "@/services/api/drama";
+import { dramaRunProgressOf, dramaStepOutcomeOf, runDramaStep } from "@/services/api/drama";
 import { announceCreatedGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
 
@@ -20,6 +19,8 @@ type ChapterAnalysisInput = {
 
 type ChapterTaskOptions = {
     onTaskUpdate?: (task: GenerationTask) => void;
+    /** 任务文本流到目前为止的全文（各场输出与回合标记），给流式镜头视图用。 */
+    onStreamText?: (text: string) => void;
 };
 
 export type ChapterTaskKind = "characters" | "storyboard";
@@ -47,10 +48,6 @@ export function chapterAssetsFromGenerationTask(task: GenerationTask) {
     return parseChapterAssetBreakdown(result.text);
 }
 
-export function chapterStoryboardFromGenerationTask(task: GenerationTask) {
-    return storyboardRowsFromTask(task);
-}
-
 export async function extractChapterAssets(input: ChapterAnalysisInput, options?: ChapterTaskOptions): Promise<ChapterAssetBreakdown> {
     const result = await runProjectTextTask(input, "chapter_character_breakdown", {
         项目名称: input.projectName,
@@ -65,11 +62,18 @@ type ChapterStoryboardGenerationInput = {
     projectId: string;
     chapterId: string;
     config: AiConfig;
+    /** 视频渠道实际能提交的段长，服务端装段时只收紧。 */
+    rule?: { maxSeconds: number; minSeconds: number };
+    /** 「从第 N 场继续」：上一次没写完的任务。 */
+    resumeTaskId?: string;
 };
 
+// 逐场续写的任务在服务端按场计时（每场一次分镜超时），总时长随场数变；页面只是订阅，不替后端判超时。
+const STORYBOARD_RUN_WAIT_MS = 8 * 60 * 60 * 1000;
+
 /**
- * 生成分段（流程步骤 chapter.shots）：服务端按项目风格档案取绑定技能的当前版本，组装提示词（技能上下文、项目画风、
- * 已确认角色外观、资产清单与锚点、每集时长、按 schema 生成的契约）并建文本任务；这里只交文本模型选择，等任务结束后解析分镜行。
+ * 生成分段（流程步骤 chapter.shots）：服务端按项目风格档案取绑定技能的当前版本组装提示词，在一个任务里按场续写，
+ * 任务成功前解析、绑资产、写镜头表并装段。页面只订阅任务文本流显示进度，关掉页面也会写完。
  */
 export async function generateChapterStoryboard(input: ChapterStoryboardGenerationInput, options?: ChapterTaskOptions) {
     const model = input.config.textModel || input.config.model;
@@ -78,11 +82,18 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         model,
         ...(logicalModelIDForConfig(config) ? { logicalModelId: logicalModelIDForConfig(config) } : {}),
         config: backendProviderConfig(config, "text") as Record<string, unknown>,
+        ...(input.rule ? { rule: input.rule } : {}),
+        ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);
-    const completed = await waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, onTaskUpdate: options?.onTaskUpdate });
-    return { ...storyboardRowsFromTask(completed), usage };
+    const completed = await followChapterStoryboardTask(task, options);
+    return { task: completed, usage, outcome: dramaStepOutcomeOf(completed), progress: dramaRunProgressOf(completed) };
+}
+
+/** 订阅一个生成分段任务直到结束（刷新页面后接回正在跑的任务也用它）；失败时抛错，错误信息里有写到第几场。 */
+export function followChapterStoryboardTask(task: GenerationTask, options?: ChapterTaskOptions) {
+    return waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, timeoutMs: STORYBOARD_RUN_WAIT_MS, onTaskUpdate: options?.onTaskUpdate, onTextDelta: options?.onStreamText });
 }
 
 async function runProjectTextTask(input: ChapterAnalysisInput, operation: string, promptTemplateVariables: Record<string, string>, options?: ChapterTaskOptions) {
