@@ -178,10 +178,29 @@ func TestChapterShotsPromptQichuang(t *testing.T) {
 	}
 }
 
-// normalizeStepPrompt 抹掉两处有意的差异：技能上下文的开场说明（技能由档案绑定，不是用户选的），
-// 契约的字段清单（由 schema 生成，类型写法与折行不同；字段名和顺序要一致）。
+// normalizeStepPrompt 抹掉三处有意的差异：技能上下文的开场说明（技能由档案绑定，不是用户选的），
+// 契约 @3 一镜一行的格式句（换回 @2 整段 JSON 的写法），契约的字段清单（由 schema 生成，类型写法与折行不同；字段名和顺序要一致）。
 func normalizeStepPrompt(t *testing.T, prompt string) string {
 	t.Helper()
+	lines, err := drama.BuiltinContract(drama.ContractChapterShots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole, err := drama.BuiltinContract(drama.ContractCanvasStoryboard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := drama.ContractTextOptions{SkillShaped: true}
+	from, to := strings.Split(lines.Text(lines.DefaultRequirement(), opts), "\n"), strings.Split(whole.Text(whole.DefaultRequirement(), opts), "\n")
+	if len(from) != len(to) {
+		t.Fatalf("@3 与 @2 的契约文字行数不同")
+	}
+	for i := range from {
+		if from[i] != to[i] {
+			prompt = strings.Replace(prompt, from[i], to[i], 1)
+		}
+	}
+	prompt = strings.Replace(prompt, lines.FieldInstruction("assets"), whole.FieldInstruction("assets"), 1)
 	prompt = strings.Replace(prompt, "以下 skill-context 来自用户主动安装并在本轮明确选择的技能库。", "<skill-preamble>", 1)
 	prompt = strings.Replace(prompt, "以下 skill-context 来自本步骤按项目风格档案绑定的流程技能。", "<skill-preamble>", 1)
 	start := strings.Index(prompt, "不要省略字段：\n")
@@ -198,7 +217,7 @@ func normalizeStepPrompt(t *testing.T, prompt string) string {
 }
 
 // 与原先前端组装的提示词（frontend-prompt.txt：M6 之前的 chapterStoryboardTaskPrompt 在同一份接口数据上的输出）对照：
-// 只有两处有意的差异——技能上下文的开场说明（技能由档案绑定，不是用户选的），契约的字段清单由 schema 生成（类型写法与折行）。
+// 只有三处有意的差异——技能上下文的开场说明（技能由档案绑定，不是用户选的），契约 @3 改成一镜一行，契约的字段清单由 schema 生成（类型写法与折行）。
 // 技能、画风、角色、资产与锚点、每集时长逐字相同。
 func TestChapterShotsPromptMatchesFrontend(t *testing.T) {
 	server := readTestdata(t, "server-prompt.txt")
