@@ -37,6 +37,11 @@ type DramaShotlistWriteRequest struct {
 	Rows            []json.RawMessage  `json:"rows"`
 	Rule            *DramaShotlistRule `json:"rule,omitempty"`
 	ExpectedShotIDs []string           `json:"expectedShotIds,omitempty"`
+	// KeepDraft 为 true 时检查有 error 也不拒绝：分镜行、镜头表和检查结果照样写进镜头表记录（草稿），
+	// 但不装段、不动本章已有的段；用户处理完问题后用 repack 重新装段。生成分段的收尾用它。
+	KeepDraft bool `json:"-"`
+	// Parse 是服务端解析模型输出的统计，记进检查结果。
+	Parse *drama.ShotLinesStats `json:"-"`
 }
 
 // DramaShotlistView 是一章的镜头表、台词表与最近一次检查结果。
@@ -46,6 +51,8 @@ type DramaShotlistView struct {
 	Shotlist drama.Shotlist    `json:"shotlist"`
 	Script   *drama.Script     `json:"script,omitempty"`
 	Check    drama.CheckReport `json:"check"`
+	// Draft 表示这份镜头表检查有 error、还没装段（本章的段仍是上一次装出的）。
+	Draft bool `json:"draft"`
 	// CompileProfile 是装段用的编译档案版本（0 为内置默认）。
 	CompileProfile DramaCompileProfileRef `json:"compileProfile"`
 	UpdatedAt      time.Time              `json:"updatedAt"`
@@ -56,6 +63,8 @@ type DramaShotlistWriteResult struct {
 	Segments []DramaSegmentView `json:"segments"`
 	Check    drama.CheckReport  `json:"check"`
 	Stats    drama.RowsStats    `json:"stats"`
+	// Draft 表示检查有 error，只存了草稿，没有装段（Segments 是本章原有的段）。
+	Draft bool `json:"draft"`
 	// Notes 是装段说明：找不到合法切点的场、渠道时长等，给用户看。
 	Notes []string `json:"notes"`
 	// Profile 是这章检查、装段用的风格档案及来由（如「真人剧（默认）（真人实拍…）」）。
@@ -469,7 +478,8 @@ func dramaCheckContext(script *drama.Script, pc dramaProjectContext, assets []Pr
 	return drama.CheckContext{Script: checkScript, Bible: bible, Profile: profile, Vocab: vocab, Rules: rules}, profile, nil
 }
 
-// WriteDramaShotlist 把一章的分镜行转成镜头表、检查、装段并整章替换段：检查有 error 时整批拒绝，不落库。
+// WriteDramaShotlist 把一章的分镜行转成镜头表、检查、装段并整章替换段：检查有 error 时整批拒绝，不落库
+// （KeepDraft 时改为只存草稿，见 DramaShotlistWriteRequest）。
 func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID string, req DramaShotlistWriteRequest) (DramaShotlistWriteResult, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
@@ -490,7 +500,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	m, err := dramaShotlistModel(project, req.Rule)
+	m, err := dramaShotlistModel(project, briefSegmentRule(project.BriefJSON, req.Rule))
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
@@ -513,6 +523,11 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	pc := projectDramaContext(project)
 	pc.Episode = s.dramaChapterEpisode(projectID, unit)
 	plan, err := planDramaShotlist(rows, script, assets, imaged, m, phrases, pc)
+	plan.Report.Parse = req.Parse
+	var appErr *AppError
+	if err != nil && req.KeepDraft && errors.As(err, &appErr) && appErr.Reason == ReasonShotlistCheckFailed {
+		return s.writeDramaShotlistDraft(userID, projectID, unitID, req, plan, script, phrases, pc)
+	}
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
@@ -551,6 +566,51 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	}
 	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, CompileProfile: compileProfileRef(phrases), UpdatedAt: record.UpdatedAt}
 	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: report, Stats: plan.Stats, Notes: notes, Profile: dramaProfileNote(pc)}, nil
+}
+
+// writeDramaShotlistDraft 存检查没过的镜头表：分镜行、镜头表、台词表、检查结果写进镜头表记录，本章的段不动。
+func (s *Service) writeDramaShotlistDraft(userID string, projectID string, unitID string, req DramaShotlistWriteRequest, plan dramaShotlistPlan, script *drama.Script, phrases *drama.CompileProfile, pc dramaProjectContext) (DramaShotlistWriteResult, error) {
+	shotlistJSON, _ := json.Marshal(plan.Shotlist)
+	checkJSON, _ := json.Marshal(plan.Report)
+	rowsJSON, _ := json.Marshal(req.Rows)
+	now := time.Now()
+	record := &model.DramaShotlist{ID: newID(), ProjectID: projectID, UnitID: unitID, ShotlistJSON: string(shotlistJSON), CheckJSON: string(checkJSON), RowsJSON: string(rowsJSON),
+		CompileProfileVersion: phrases.Version(), CreatedBy: userID, CreatedAt: now, UpdatedAt: now}
+	if script != nil {
+		scriptJSON, _ := json.Marshal(script)
+		record.ScriptJSON = string(scriptJSON)
+	}
+	if err := s.repo.SaveDramaShotlist(record); err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
+	views, err := s.DramaSegments(userID, projectID, unitID)
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
+	notes := []string{fmt.Sprintf("镜头表检查有 %d 个 error，已存为草稿，没有装段；处理后重新装段", plan.Report.Errors)}
+	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: plan.Shotlist, Script: script, Check: plan.Report, Draft: true, CompileProfile: compileProfileRef(phrases), UpdatedAt: record.UpdatedAt}
+	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: plan.Report, Stats: plan.Stats, Draft: true, Notes: notes, Profile: dramaProfileNote(pc)}, nil
+}
+
+// briefSegmentRule 把需求文档的单段秒数（brief_json.segment_seconds，建项目时选的 15 / 30 秒）叠到段长规则上：
+// 取两者里更严的最长秒数；最终仍由 dramaShotlistModel 夹在项目生成模型的上限内（只收紧不放宽）。
+func briefSegmentRule(briefJSON string, rule *DramaShotlistRule) *DramaShotlistRule {
+	doc := map[string]any{}
+	if raw := strings.TrimSpace(briefJSON); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &doc)
+	}
+	seconds, _ := doc["segment_seconds"].(float64)
+	if seconds < 1 {
+		return rule
+	}
+	out := DramaShotlistRule{}
+	if rule != nil {
+		out = *rule
+	}
+	if out.MaxSeconds <= 0 || int(seconds) < out.MaxSeconds {
+		out.MaxSeconds = int(seconds)
+	}
+	return &out
 }
 
 func parseShotlistRows(raws []json.RawMessage) ([]shotlistRow, error) {
@@ -700,6 +760,7 @@ func dramaSegmentShotInput(seg drama.Segment, rowByShot map[string]shotlistRow) 
 }
 
 // DramaShotlistRepackRequest 是用已存镜头表重新装段的参数：rule 与写镜头表时一样，是渠道实际能提交的段长。
+// 镜头表是检查没过的草稿时，重装仍要过检查：还有 error 就和写镜头表一样报 shotlist_check_failed，草稿不变。
 type DramaShotlistRepackRequest struct {
 	Rule *DramaShotlistRule `json:"rule,omitempty"`
 }
@@ -733,7 +794,10 @@ func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID st
 	for _, v := range views {
 		expected = append(expected, v.ShotID)
 	}
-	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected})
+	// 解析统计只在生成分段收尾时有，重装沿用上一次的。
+	var previous drama.CheckReport
+	_ = json.Unmarshal([]byte(firstNonEmpty(record.CheckJSON, "{}")), &previous)
+	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, Parse: previous.Parse})
 }
 
 // DramaShotlist 读一章的镜头表、台词表与最近一次检查结果；这一章还没有镜头表时返回 nil。
@@ -771,6 +835,7 @@ func (s *Service) DramaShotlist(userID string, projectID string, unitID string) 
 	if strings.TrimSpace(record.CheckJSON) != "" {
 		_ = json.Unmarshal([]byte(record.CheckJSON), &view.Check)
 	}
+	view.Draft = view.Check.HasErrors()
 	return view, nil
 }
 

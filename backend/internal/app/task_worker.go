@@ -266,6 +266,9 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 	if err == nil {
 		_, err = s.finalizeCharacterTurnaroundTask(*task, result)
 	}
+	if err == nil {
+		_, err = s.finalizeDramaStepTask(*task, result)
+	}
 	if err != nil {
 		channelSlotFailedBeforeRequest := false
 		if code, _ := ChannelSlotFailureDetails(err); code != "" {

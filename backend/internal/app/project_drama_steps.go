@@ -49,8 +49,10 @@ type DramaStepRunRequest struct {
 	Model          string         `json:"model"`
 	LogicalModelID string         `json:"logicalModelId"`
 	Config         map[string]any `json:"config"`
-	TraceID        string         `json:"-"`
-	RequestID      string         `json:"-"`
+	// Rule 是视频渠道实际能提交的段长，收尾装段时叠在项目生成模型上限上（只收紧）。
+	Rule      *DramaShotlistRule `json:"rule,omitempty"`
+	TraceID   string             `json:"-"`
+	RequestID string             `json:"-"`
 }
 
 type DramaStepRunResult struct {
@@ -207,6 +209,7 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaChapterSho
 				"versionId":    plan.skill.VersionID,
 				"version":      plan.skill.Version,
 				"contentHash":  plan.skill.ContentHash,
+				"rule":         req.Rule,
 			},
 		},
 	}
@@ -227,6 +230,8 @@ type dramaStepTaskMeta struct {
 	StyleProfile string `json:"styleProfile"`
 	SkillID      string `json:"skillId"`
 	VersionID    string `json:"versionId"`
+	// Rule 是起任务时带的段长规则（渠道能力），收尾装段用。
+	Rule *DramaShotlistRule `json:"rule,omitempty"`
 }
 
 // taskDramaStep 从任务输入读 metadata.dramaStep；不是流程步骤任务返回 nil。metadata 不含密钥，不用解密。
