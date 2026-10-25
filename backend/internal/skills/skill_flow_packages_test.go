@@ -240,7 +240,7 @@ func TestFlowPackageUploadRejectsBrokenPackages(t *testing.T) {
 			})
 		}), []string{drama.PackageRuleRequiredCard}},
 		"契约版本不符": {buildPackageZip(t, seed, func(files map[string][]byte) {
-			setManifest(t, files, func(m *drama.StepPackageManifest) { bump(m); m.Contract = "chapter.shots@3" })
+			setManifest(t, files, func(m *drama.StepPackageManifest) { bump(m); m.Contract = drama.ContractCanvasStoryboard })
 		}), []string{drama.PackageRuleContract}},
 		"超出预算": {buildPackageZip(t, seed, func(files map[string][]byte) {
 			files["cards/镜头表规则速查.md"] = []byte(strings.Repeat("规则", 16000))
