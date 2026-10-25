@@ -220,6 +220,31 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaChapterSho
 	}
 }
 
+// dramaStepTaskMeta 是任务 metadata.dramaStep（dramaStepTaskRequest 写入）。
+type dramaStepTaskMeta struct {
+	Step         string `json:"step"`
+	Contract     string `json:"contract"`
+	StyleProfile string `json:"styleProfile"`
+	SkillID      string `json:"skillId"`
+	VersionID    string `json:"versionId"`
+}
+
+// taskDramaStep 从任务输入读 metadata.dramaStep；不是流程步骤任务返回 nil。metadata 不含密钥，不用解密。
+func taskDramaStep(inputJSON string) *dramaStepTaskMeta {
+	if !strings.Contains(inputJSON, `"dramaStep"`) {
+		return nil
+	}
+	var input struct {
+		Metadata struct {
+			DramaStep *dramaStepTaskMeta `json:"dramaStep"`
+		} `json:"metadata"`
+	}
+	if json.Unmarshal([]byte(inputJSON), &input) != nil || input.Metadata.DramaStep == nil || strings.TrimSpace(input.Metadata.DramaStep.Step) == "" {
+		return nil
+	}
+	return input.Metadata.DramaStep
+}
+
 // planDramaStep 读章节、画风、资产、需求文档和绑定技能，组装提示词。本期只有 chapter.shots。
 func (s *Service) planDramaStep(userID string, project *model.Project, unitID string, stepID string) (*dramaChapterShotsPlan, error) {
 	step, err := dramaStep(stepID)
