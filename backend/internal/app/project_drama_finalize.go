@@ -62,7 +62,8 @@ func taskDramaStepTarget(task model.Task) (dramaStepTaskTarget, error) {
 // 返回 false 表示不是流程步骤任务。写库失败（数据库、权限、解析不出镜头行）时任务按失败收尾。
 func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]interface{}) (bool, error) {
 	meta := taskDramaStep(task.InputJSON)
-	if meta == nil {
+	// 流程技能包评测的任务没有项目章节，指标由评测自己算，不写库。
+	if meta == nil || strings.Contains(task.InputJSON, `"dramaStepEval"`) {
 		return false, nil
 	}
 	switch meta.Step {

@@ -6,7 +6,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -30,7 +30,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -80,7 +80,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -109,7 +109,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -138,7 +138,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -168,7 +168,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "episode.story",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -194,7 +194,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism",
           "noir"
@@ -221,7 +221,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -248,7 +248,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -277,7 +277,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -306,7 +306,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "profiles": [
           "live-realism"
         ],
@@ -333,7 +333,7 @@
       "manifest": {
         "id": "yz-test",
         "step": "chapter.shots",
-        "contract": "chapter.shots@2",
+        "contract": "chapter.shots@3",
         "files": [
           "SKILL.md"
         ]

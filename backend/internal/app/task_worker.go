@@ -383,7 +383,7 @@ func taskExecutionTimeout(task *model.Task, policy RuntimeTaskPolicy) time.Durat
 		return time.Duration(policy.DefaultTimeoutMinutes) * time.Minute
 	}
 	if storyboardTextTask(task) {
-		return storyboardTurnTimeout(policy)
+		return storyboardTaskTimeout(task, policy)
 	}
 	return taskExecutionTimeoutWithPolicy(task.Type, policy)
 }

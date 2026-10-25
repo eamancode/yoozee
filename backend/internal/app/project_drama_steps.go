@@ -49,6 +49,8 @@ type DramaStepRunRequest struct {
 	Model          string         `json:"model"`
 	LogicalModelID string         `json:"logicalModelId"`
 	Config         map[string]any `json:"config"`
+	// ResumeTaskID 是「从第 N 场继续」：同一章上一次没跑完的生成分段任务，新任务带上它已写完的场接着写。
+	ResumeTaskID string `json:"resumeTaskId,omitempty"`
 	// Rule 是视频渠道实际能提交的段长，收尾装段时叠在项目生成模型上限上（只收紧）。
 	Rule      *DramaShotlistRule `json:"rule,omitempty"`
 	TraceID   string             `json:"-"`
@@ -90,6 +92,8 @@ type dramaChapterShotsPlan struct {
 	style      styleProfileDocument
 	assets     []dramaStepAssetRecord
 	characters []dramaStepCharacterRecord
+	// scenes 是逐场续写的场（正文按场次头切；不到两场为空，整章一轮）。
+	scenes []drama.ShotsScene
 }
 
 func dramaStep(stepID string) (drama.Step, error) {
@@ -169,7 +173,15 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}
-	task, err := s.CreateTask(userID, dramaStepTaskRequest(project.ID, unitID, plan, req))
+	run := newDramaRunMeta(plan, unitID)
+	if resumeID := strings.TrimSpace(req.ResumeTaskID); resumeID != "" {
+		if run, err = s.resumeDramaRun(userID, project.ID, unitID, plan, resumeID); err != nil {
+			return DramaStepRunResult{}, err
+		}
+	}
+	taskReq := dramaStepTaskRequest(project.ID, unitID, plan, req)
+	taskReq.Input["metadata"].(map[string]any)["dramaRun"] = run
+	task, err := s.CreateTask(userID, taskReq)
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}
@@ -310,7 +322,8 @@ func chapterShotsPlan(project *model.Project, unit *model.ProjectUnit, assets []
 	if err != nil {
 		return nil, err
 	}
-	return &dramaChapterShotsPlan{usage: usage, prompt: prompt, skill: skill, style: style, assets: assetRecords, characters: characterRecords}, nil
+	scenes := drama.ChapterShotsScenes(chapterPlainText(unit.SourceText), unit.Title)
+	return &dramaChapterShotsPlan{usage: usage, prompt: prompt, skill: skill, style: style, assets: assetRecords, characters: characterRecords, scenes: scenes}, nil
 }
 
 // briefEpisodeSeconds 是需求文档顶层的 episode_seconds（项目设置里的每集时长）；没设或不是正数返回 0。

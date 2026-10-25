@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -458,5 +459,48 @@ func TestChapterShotsPromptEdgesMatchFrontend(t *testing.T) {
 	}
 	if paths := []string{plan.prompt.Files[0].Path, plan.prompt.Files[1].Path, plan.prompt.Files[2].Path}; len(plan.prompt.Files) != 3 || paths[1] != "cards/long.md" || paths[2] != "cards/after.md" {
 		t.Fatalf("必读卡在前、预算用完就停：%+v", plan.prompt.Files)
+	}
+}
+
+// 运行这一步时按场次头切好场写进 metadata.dramaRun；「从第 N 场继续」只认本章没写完的失败任务，场次改过就不让接着写。
+func TestDramaRunMetaAndResume(t *testing.T) {
+	svc, db := newChapterShotsTestService(t)
+	project, unit := seedQichuang(t, svc, db)
+	plan, err := svc.planDramaStep("user-1", &project, unit.ID, drama.StepChapterShots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := newDramaRunMeta(plan, unit.ID)
+	if len(plan.scenes) < 2 || run.Turns != len(plan.scenes) || run.ResumeFrom != 1 || run.UnitID != unit.ID || run.RunID == "" {
+		t.Fatalf("按场切好：%+v", run)
+	}
+	if err := db.AutoMigrate(&model.Task{}); err != nil {
+		t.Fatal(err)
+	}
+	progress := dramaRunProgress{RunID: run.RunID, Total: run.Turns, Completed: 1, Turns: []dramaRunTurn{{Index: 1, Rows: 2, Prompt: "p", Text: "t", TaskID: "prev"}}}
+	input, _ := json.Marshal(map[string]any{"mode": "text", "metadata": map[string]any{"chapterId": unit.ID, "dramaStep": map[string]any{"step": drama.StepChapterShots}, "dramaRun": run}})
+	result, _ := json.Marshal(map[string]any{"mode": "text", "dramaRun": progress})
+	prev := model.Task{ID: "prev", UserID: "user-1", ProjectID: project.ID, Type: "canvas_text", Status: model.TaskStatusFailed, InputJSON: string(input), ResultJSON: string(result), CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := db.Create(&prev).Error; err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := svc.resumeDramaRun("user-1", project.ID, unit.ID, plan, "prev")
+	if err != nil || resumed.RunID != run.RunID || resumed.ResumeFrom != 2 || resumed.ResumeTaskID != "prev" {
+		t.Fatalf("从第 2 场继续：%v %+v", err, resumed)
+	}
+	if _, err := svc.resumeDramaRun("user-2", project.ID, unit.ID, plan, "prev"); err == nil {
+		t.Fatal("别人的任务不能接着写")
+	}
+	if _, err := svc.resumeDramaRun("user-1", project.ID, "other-unit", plan, "prev"); err == nil {
+		t.Fatal("别的章节不能接着写")
+	}
+	changed := *plan
+	changed.scenes = plan.scenes[1:]
+	if _, err := svc.resumeDramaRun("user-1", project.ID, unit.ID, &changed, "prev"); err == nil {
+		t.Fatal("场次改过不能接着写")
+	}
+	db.Model(&model.Task{}).Where("id = ?", "prev").Update("status", model.TaskStatusRunning)
+	if _, err := svc.resumeDramaRun("user-1", project.ID, unit.ID, plan, "prev"); err == nil {
+		t.Fatal("还在跑的任务不能接着写")
 	}
 }
