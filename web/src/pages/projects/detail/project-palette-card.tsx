@@ -17,6 +17,7 @@ const IMAGE_STATUS_LABELS: Record<ProjectAssetPalette["imageStatus"], string> = 
 };
 
 export function paletteImageStatusLabel(palette: ProjectAssetPalette) {
+    if (palette.sceneGone) return "场次已不存在";
     return IMAGE_STATUS_LABELS[palette.imageStatus] || palette.imageStatus;
 }
 
@@ -75,6 +76,7 @@ export function ProjectPaletteCard({
     const queued = generating || palette?.imageStatus === "queued";
     const check = palette?.check;
     const warn = Boolean(check && !check.passed);
+    const gone = Boolean(palette?.sceneGone);
     return (
         <AssetLibraryCard className="project-asset-library-card">
             <AssetLibraryCardMedia className="relative aspect-video overflow-hidden bg-foreground/[.05]">
@@ -96,8 +98,8 @@ export function ProjectPaletteCard({
                 <div className="pointer-events-none absolute inset-x-2 top-2 flex justify-between gap-2 text-[var(--fs-micro)] text-white">
                     <span className="rounded bg-black/60 px-1.5 py-0.5">色卡 · v{Math.max(1, asset.versionCount)}</span>
                     {palette ? (
-                        <span className={palette.imageStatus === "failed" || warn ? "rounded bg-[var(--status-error)] px-1.5 py-0.5" : "rounded bg-black/60 px-1.5 py-0.5"}>
-                            {warn && palette.imageStatus === "bound" ? "取色有偏差" : paletteImageStatusLabel(palette)}
+                        <span className={!gone && (palette.imageStatus === "failed" || warn) ? "rounded bg-[var(--status-error)] px-1.5 py-0.5" : "rounded bg-black/60 px-1.5 py-0.5"}>
+                            {!gone && warn && palette.imageStatus === "bound" ? "取色有偏差" : paletteImageStatusLabel(palette)}
                         </span>
                     ) : null}
                 </div>
@@ -108,6 +110,7 @@ export function ProjectPaletteCard({
                 </button>
                 {palette ? (
                     <>
+                        {gone ? <p className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-amber-600 dark:text-amber-400">当前剧集里已经没有这一场，色卡保留但不再出图、不计入「色卡齐了」；用不上可以移出项目。</p> : null}
                         <p className="mt-1 truncate text-[var(--fs-tiny)] text-foreground/50">{palette.design}</p>
                         <div className="mt-2">
                             <PaletteSwatches colors={colors} />
@@ -119,7 +122,7 @@ export function ProjectPaletteCard({
                     <p className="mt-2 text-[var(--fs-label)] text-foreground/55">色彩脚本没读到，请刷新</p>
                 )}
                 <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
-                    <Button size="small" icon={<Sparkles className="size-3.5" />} loading={queued} disabled={busy || !palette} onClick={onGenerate}>
+                    <Button size="small" icon={<Sparkles className="size-3.5" />} loading={queued} disabled={busy || !palette || gone} onClick={onGenerate}>
                         {palette?.imageStatus === "waiting" ? "继续出图" : resourceId ? "重新出图" : "出图"}
                     </Button>
                     <Dropdown trigger={["click"]} menu={{ selectedKeys: [asset.folderId || ""], items: folderItems, onClick: ({ key }) => onMove(key) }}>

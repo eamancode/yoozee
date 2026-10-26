@@ -456,7 +456,8 @@ export type DramaStyleBibleOutcome = {
     errors: number;
     warnings: number;
     items?: DramaCheckReport["items"];
-    palettes: { created: number; versioned: number };
+    /** retired 是这次运行范围内场次已不存在、标成过期的旧色卡（不删）。 */
+    palettes: { created: number; versioned: number; retired?: number };
     images: DramaPaletteQueueResult;
 };
 

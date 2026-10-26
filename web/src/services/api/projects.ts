@@ -96,6 +96,8 @@ export type ProjectAssetPalette = {
     design: string;
     /** 出图用的英文提示词（代码按模板拼，HEX 取自色彩脚本）。 */
     prompt: string;
+    /** 这一场在当前剧集里已不存在（重跑导演风格时标的）：色卡保留，不再出图，不计入「色卡齐了」。 */
+    sceneGone?: boolean;
     imageStatus: "none" | "waiting" | "queued" | "bound" | "stale" | "failed";
     taskId?: string;
     imageError?: string;
