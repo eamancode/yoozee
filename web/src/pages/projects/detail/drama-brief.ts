@@ -35,6 +35,20 @@ export function withEpisodeSeconds(document: Record<string, unknown>, seconds: n
     return next;
 }
 
+/** 单段最长秒数存在需求文档的 segment_seconds（建项目选 15 / 30）：装段时只收紧生成模型一段的上限。 */
+export function briefSegmentSeconds(document: Record<string, unknown> | undefined) {
+    const value = document?.segment_seconds;
+    return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** 本地副本里换上新的单段秒数（真正写库走 updateProject 的 segmentSeconds，后端按生成模型上限校验）。 */
+export function withSegmentSeconds(document: Record<string, unknown>, seconds: number | null | undefined) {
+    const next: Record<string, unknown> = { ...document };
+    if (seconds && seconds > 0) next.segment_seconds = Math.round(seconds);
+    else delete next.segment_seconds;
+    return next;
+}
+
 /** 只有「已确认」「默认，已授权」能拿去花钱，见 backend/internal/drama/brief.go 的 BriefStatuses。 */
 export const BRIEF_STATUSES = ["已确认", "默认，待确认", "默认，已授权", "待答"] as const;
 
