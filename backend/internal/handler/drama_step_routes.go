@@ -90,7 +90,7 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
-		var req service.DramaScriptAdaptRunRequest
+		var req service.DramaProjectStepRunRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			failService(c, service.BadAuthRequest("运行步骤的请求格式无效"))
 			return
@@ -98,6 +98,30 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 		req.TraceID = TraceID(c)
 		req.RequestID = RequestID(c)
 		result, err := svc.RunDramaProjectStep(user.ID, c.Param("id"), c.Param("step"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+	// 给色卡出图 / 重新出图：服务端按色彩脚本拼提示词、直接建资产出图任务（同时任务数满时剩下的排在后面）。
+	r.POST("/projects/:id/drama/palettes/images", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		policy, available := loadRuntimePolicy(c, svc)
+		if !available || !enforceRateLimit(c, "tasks:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req service.DramaPaletteImagesRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("色卡出图的请求格式无效"))
+			return
+		}
+		result, err := svc.QueueDramaPaletteImages(user.ID, c.Param("id"), req)
 		if err != nil {
 			failService(c, err)
 			return

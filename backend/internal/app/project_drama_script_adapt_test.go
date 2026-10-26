@@ -47,7 +47,7 @@ func seedNovelProject(t *testing.T, svc *Service, db *gorm.DB) (model.Project, [
 }
 
 // queueScriptAdaptTask 按 RunDramaProjectStep 的形状建一个剧本优化任务（自定义渠道指向假上游）。
-func queueScriptAdaptTask(t *testing.T, svc *Service, db *gorm.DB, project model.Project, upstream string, req DramaScriptAdaptRunRequest) *model.Task {
+func queueScriptAdaptTask(t *testing.T, svc *Service, db *gorm.DB, project model.Project, upstream string, req DramaProjectStepRunRequest) *model.Task {
 	t.Helper()
 	step, _ := drama.StepByID(drama.StepScriptAdapt)
 	plan, err := svc.planScriptAdapt(&project, step, req)
@@ -78,7 +78,7 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 	server := httptest.NewServer(upstream)
 	defer server.Close()
 
-	queueScriptAdaptTask(t, svc, db, project, server.URL, DramaScriptAdaptRunRequest{TargetEpisodes: 2})
+	queued := queueScriptAdaptTask(t, svc, db, project, server.URL, DramaProjectStepRunRequest{TargetEpisodes: 2})
 	done, err := runQueuedTask(t, svc)
 	if err != nil || done.Status != model.TaskStatusSucceeded {
 		t.Fatalf("剧本优化：%v %s %q", err, done.Status, done.Error)
@@ -93,6 +93,10 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome := result.DramaStep
+	// 写完剧集自动接着建导演风格任务（测试里没有计费用的渠道模型，建任务被拒，原因记在 chained 上，剧集照写）。
+	if outcome.Chained == nil || outcome.Chained.Step != drama.StepStyleBible || (outcome.Chained.TaskID == "" && outcome.Chained.Error == "") {
+		t.Fatalf("自动接着跑导演风格：%+v", outcome.Chained)
+	}
 	if outcome.Step != drama.StepScriptAdapt || outcome.Status != DramaStepOutcomeWritten || len(outcome.Episodes) != 2 || outcome.Errors != 0 {
 		t.Fatalf("outcome = %+v", outcome)
 	}
@@ -143,12 +147,31 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 		}
 	}
 
+	// 不计费时接着建的导演风格任务用同一文本模型，metadata.chainedFrom 指向剧本优化任务，定风格的是新写的两集。
+	if _, err := svc.UpdateFeatureAvailability(&model.User{ID: "admin", Role: "admin"}, FeatureAvailability{CustomChannelsEnabled: true, TaskCenterEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	chained := svc.chainStyleBibleAfterAdapt(*queued, project.ID)
+	if chained == nil || chained.TaskID == "" {
+		t.Fatalf("接着建导演风格任务：%+v", chained)
+	}
+	styleTask, err := svc.repo.Task(chained.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta := taskDramaStyle(styleTask.InputJSON); meta == nil || meta.ChainedFrom != queued.ID || len(meta.Episodes) != 2 || meta.Episodes[0].UnitID != ep1.ID || !strings.Contains(styleTask.InputJSON, `"chainedFrom":"`+queued.ID+`"`) {
+		t.Fatalf("导演风格任务：%s", styleTask.InputJSON)
+	}
+	if err := db.Delete(&model.Task{}, "id = ?", styleTask.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+
 	// 都改编过了：默认没有可选章节；点名第一章要先确认替换引用了它的第 1 集。
 	step, _ := drama.StepByID(drama.StepScriptAdapt)
-	if _, err := svc.planScriptAdapt(&project, step, DramaScriptAdaptRunRequest{}); err == nil || !strings.Contains(err.Error(), "没有还没改编的原文章节") {
+	if _, err := svc.planScriptAdapt(&project, step, DramaProjectStepRunRequest{}); err == nil || !strings.Contains(err.Error(), "没有还没改编的原文章节") {
 		t.Fatalf("默认来源：%v", err)
 	}
-	_, err = svc.planScriptAdapt(&project, step, DramaScriptAdaptRunRequest{SourceUnitIDs: []string{c1}})
+	_, err = svc.planScriptAdapt(&project, step, DramaProjectStepRunRequest{SourceUnitIDs: []string{c1}})
 	var appErr *AppError
 	if !errors.As(err, &appErr) || appErr.Reason != ReasonDramaEpisodesReplace {
 		t.Fatalf("重跑要确认：%v", err)
@@ -156,7 +179,7 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 	if impacts := appErr.Details["episodes"].([]DramaEpisodeImpact); len(impacts) != 1 || impacts[0].UnitID != ep1.ID {
 		t.Fatalf("影响面：%+v", appErr.Details)
 	}
-	if _, err := svc.planScriptAdapt(&project, step, DramaScriptAdaptRunRequest{SourceUnitIDs: []string{ep1.ID}}); err == nil || !strings.Contains(err.Error(), "不是原文章节") {
+	if _, err := svc.planScriptAdapt(&project, step, DramaProjectStepRunRequest{SourceUnitIDs: []string{ep1.ID}}); err == nil || !strings.Contains(err.Error(), "不是原文章节") {
 		t.Fatalf("小说转剧本只能选原文：%v", err)
 	}
 
@@ -166,7 +189,7 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 		"E01S01": episodeLines(1, "七床空了", "[]", "## 内·病房走廊·夜", "林小满：七床？人呢？"),
 		"E01S02": episodeLines(2, "现在信了", "[]", "## 内·电梯口·夜", "周岸：退后！"),
 	}
-	queueScriptAdaptTask(t, svc, db, project, server.URL, DramaScriptAdaptRunRequest{Mode: drama.ScriptAdaptModeRhythm})
+	queueScriptAdaptTask(t, svc, db, project, server.URL, DramaProjectStepRunRequest{Mode: drama.ScriptAdaptModeRhythm})
 	rhythm, err := runQueuedTask(t, svc)
 	if err != nil || rhythm.Status != model.TaskStatusSucceeded {
 		t.Fatalf("只调节奏：%v %s %q", err, rhythm.Status, rhythm.Error)

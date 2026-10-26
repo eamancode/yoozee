@@ -311,8 +311,12 @@ func TestDramaStepBindingsResolveAndAdminWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(matrix.Profiles) != 5 || len(matrix.Steps) != 2 || matrix.Steps[0].DefaultSkill != "yz-script-adapt" || matrix.Steps[1].DefaultSkill != "yz-chapter-shots" {
-		t.Fatalf("五个档案、两个步骤（剧本优化、生成分段）：%+v", matrix.Steps)
+	if len(matrix.Profiles) != 5 || len(matrix.Steps) != 3 || matrix.Steps[0].DefaultSkill != "yz-script-adapt" || matrix.Steps[1].DefaultSkill != "yz-style-bible" || matrix.Steps[2].DefaultSkill != "yz-chapter-shots" {
+		t.Fatalf("五个档案、三个步骤（剧本优化、导演风格、生成分段）：%+v", matrix.Steps)
+	}
+	// 导演风格没配绑定时五个档案都用默认技能 yz-style-bible，技能上下文里带色板设计卡。
+	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepStyleBible); err != nil || usage.Skill.ID != "yz-style-bible" || usage.Bound || usage.Contract != drama.ContractStyleBible {
+		t.Fatalf("导演风格默认技能：%v %+v", err, usage)
 	}
 	// 剧本优化没配绑定时五个档案都用默认技能 yz-script-adapt（内置种子首次安装就是流程技能包）。
 	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepScriptAdapt); err != nil || usage.Skill.ID != "yz-script-adapt" || usage.Bound || usage.Contract != drama.ContractScriptAdapt {

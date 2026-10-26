@@ -1,5 +1,6 @@
 // 短剧流程步骤（M6）：按项目风格档案查绑定、取技能当前版本，在服务端组装提示词（技能上下文 + 代码变量 + 按 schema 生成的契约），
-// 再创建文本任务；前端只说「对这一章跑这一步」（生成分段）或「对这个项目跑这一步」（剧本优化，见 project_drama_script_adapt.go）。
+// 再创建文本任务；前端只说「对这一章跑这一步」（生成分段）或「对这个项目跑这一步」（剧本优化、导演风格，见 project_drama_script_adapt.go、
+// project_drama_style_bible.go）。
 // 另有管理员读写「风格档案 × 步骤 → 技能」绑定表的接口。
 
 package app
@@ -96,6 +97,8 @@ type dramaStepPlan struct {
 	record map[string]any
 	// adapt 是剧本优化的运行参数（metadata.dramaAdapt），收尾按它写剧集。
 	adapt *dramaAdaptMeta
+	// style 是导演风格的运行参数（metadata.dramaStyle），收尾按它检查场次、排色卡出图。
+	style *dramaStyleMeta
 }
 
 func dramaStep(stepID string) (drama.Step, error) {
@@ -232,6 +235,9 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	}
 	if plan.adapt != nil {
 		metadata["dramaAdapt"] = plan.adapt
+	}
+	if plan.style != nil {
+		metadata["dramaStyle"] = plan.style
 	}
 	// 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
 	input := map[string]any{"mode": "text", "metadata": metadata}

@@ -63,6 +63,8 @@ type ProjectAssetSummary struct {
 	Source           string                     `json:"source,omitempty"`
 	Character        *CharacterCardSummary      `json:"character,omitempty"`
 	Visual           *ProjectAssetVisualSummary `json:"visual,omitempty"`
+	// Palette 是色卡（category=palette）的色彩脚本、出图状态和取色校验。
+	Palette *ProjectAssetPaletteSummary `json:"palette,omitempty"`
 }
 
 type ProjectAssetFilter struct {
@@ -143,6 +145,9 @@ func (s *Service) LinkProjectAsset(userID string, projectID string, req LinkProj
 	}
 	if !validAssetCategory(category) {
 		return ProjectAssetSummary{}, BadAuthRequest("不支持的资产业务分类")
+	}
+	if category == model.AssetCategoryPalette && asset.Category != model.AssetCategoryPalette {
+		return ProjectAssetSummary{}, BadAuthRequest("色卡由导演风格按色彩脚本生成，不能把上传的素材加成色卡")
 	}
 	folderID, err := s.resolveProjectAssetFolderID(projectID, req.FolderID)
 	if err != nil {
@@ -330,6 +335,10 @@ func (s *Service) UpdateProjectAsset(userID string, projectID string, assetID st
 		category := model.AssetCategory(strings.TrimSpace(*req.Category))
 		if !validAssetCategory(category) {
 			return ProjectAssetSummary{}, BadAuthRequest("不支持的资产业务分类")
+		}
+		// 色卡带着场编号和色彩脚本，改分类会让「色卡齐了」和重跑时的按场查找对不上。
+		if (category == model.AssetCategoryPalette) != (asset.Category == model.AssetCategoryPalette) {
+			return ProjectAssetSummary{}, BadAuthRequest("色卡和其他分类之间不能互改")
 		}
 		asset.Category = category
 		asset.UpdatedAt = time.Now()
@@ -617,7 +626,7 @@ func containsString(values []string, target string) bool {
 
 func validAssetCategory(category model.AssetCategory) bool {
 	switch category {
-	case model.AssetCategoryCharacter, model.AssetCategoryEnvironment, model.AssetCategoryProp, model.AssetCategoryMaterial, model.AssetCategoryOther:
+	case model.AssetCategoryCharacter, model.AssetCategoryEnvironment, model.AssetCategoryProp, model.AssetCategoryMaterial, model.AssetCategoryOther, model.AssetCategoryPalette:
 		return true
 	default:
 		return false
@@ -645,6 +654,9 @@ func (s *Service) projectAssetSummary(userID string, projectID string, asset *mo
 			return ProjectAssetSummary{}, cardErr
 		}
 		summary.Character = &card
+	}
+	if asset.Category == model.AssetCategoryPalette {
+		summary.Palette = s.paletteAssetSummary(userID, asset, versions)
 	}
 	if projectVisualCategory(asset.Category) && asset.PrimaryVersionID != "" {
 		for _, version := range versions {

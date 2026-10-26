@@ -1,5 +1,5 @@
 // 短剧流程步骤的逐轮续写（M7.2）：一个运行 = 一个任务。worker 领到任务后在进程内按轮循环调模型（生成分段一轮一场，
-// 剧本优化一轮一集；每一轮怎么说、怎么验由步骤表的 TurnPlan 定），每一轮带上前面各轮的 textHistory、各用一次分镜超时，
+// 剧本优化、导演风格一轮一集；每一轮怎么说、怎么验由步骤表的 TurnPlan 定），每一轮带上前面各轮的 textHistory、各用一次分镜超时，
 // 失败的那一轮自动重试（最多 2 次，指数退避）；所有轮次的输出追加到同一个任务的 text-events 流，前端只订阅一次。
 // 每写完一轮把它存进任务 result，任务失败也保留，「从第 N 场 / 集继续」用它接着跑。
 // 不建运行表：运行标识在 metadata.dramaRun，进度在 result.dramaRun。租约由 worker 的续租协程在整轮循环期间续着。
@@ -266,7 +266,11 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		if k <= len(run.Scenes) {
 			marker.Scene, marker.Heading = run.Scenes[k-1].ID, run.Scenes[k-1].Heading
 		}
-		turn, err := s.runDramaTurn(ctx, task, turnInput, marker, stream, turnTimeout, plan, run.Sources)
+		check := drama.TurnContext{Index: k, Sources: run.Sources, Prior: dramaRunPriorText(progress.Turns)}
+		if k <= len(run.Scenes) {
+			check.Turn = run.Scenes[k-1]
+		}
+		turn, err := s.runDramaTurn(ctx, task, turnInput, marker, stream, turnTimeout, plan, check)
 		if err != nil {
 			return nil, dramaRunTurnError(plan.Unit, marker, progress.Completed, turnTimeout, err)
 		}
@@ -291,6 +295,15 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 	return map[string]any{"mode": "text", "text": strings.Join(texts, "\n") + "\n", "dramaRun": progress}, nil
 }
 
+// dramaRunPriorText 是前面各轮的输出按顺序拼接（导演风格当轮校验承接色用）。
+func dramaRunPriorText(turns []dramaRunTurn) string {
+	texts := make([]string, 0, len(turns))
+	for _, t := range turns {
+		texts = append(texts, strings.TrimSpace(t.Text))
+	}
+	return strings.Join(texts, "\n")
+}
+
 // dramaRunHistory 是续写的对话历史：前面各轮的提示词和模型输出依次排好（接在任务原有的 textHistory 后面）。
 func dramaRunHistory(base []providerTextMessage, turns []dramaRunTurn) []providerTextMessage {
 	history := append([]providerTextMessage{}, base...)
@@ -302,7 +315,7 @@ func dramaRunHistory(base []providerTextMessage, turns []dramaRunTurn) []provide
 
 // runDramaTurn 写一轮：每次调用各用一次分镜超时；临时失败（网络、上游 5xx / 408 / 429、超时、输出解析不出来）
 // 按 5 秒、10 秒退避重试，最多 dramaTurnMaxAttempts 次。每次调用前往流里写回合标记。
-func (s *Service) runDramaTurn(ctx context.Context, task model.Task, input canvasGenerationInput, marker dramaTurnMarker, stream *dramaRunStream, turnTimeout time.Duration, plan drama.TurnPlan, sources []string) (dramaRunTurn, error) {
+func (s *Service) runDramaTurn(ctx context.Context, task model.Task, input canvasGenerationInput, marker dramaTurnMarker, stream *dramaRunStream, turnTimeout time.Duration, plan drama.TurnPlan, check drama.TurnContext) (dramaRunTurn, error) {
 	var lastErr error
 	for attempt := 1; attempt <= dramaTurnMaxAttempts; attempt++ {
 		if attempt > 1 {
@@ -321,7 +334,7 @@ func (s *Service) runDramaTurn(ctx context.Context, task model.Task, input canva
 		cancel()
 		if err == nil {
 			text, _ := result["text"].(string)
-			count, parseErr := plan.Count(text, sources)
+			count, parseErr := plan.Count(text, check)
 			if parseErr != nil {
 				lastErr = fmt.Errorf("%w：%v", errDramaTurnUnparsed, parseErr)
 				continue

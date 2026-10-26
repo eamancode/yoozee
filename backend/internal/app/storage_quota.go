@@ -119,8 +119,19 @@ func createTaskWithStorageQuotaRepository(repo *repository.Repository, task *mod
 	return repo.CreateTaskWithActiveLimit(task, policy.Task.ActiveTaskLimit)
 }
 
-// 任务完成会同时扩张任务历史和画布操作数据，必须在同一临界区核算并原子写入。
+// saveTaskCompletionWithinStorageQuota 落库任务成功，之后（已离开存储临界区）跑落库后的后续：色卡出图的取色校验和接着排下一张。
+// 后续要用落库前的任务输入（带着加密的图片模板），落库会把它换成去掉密钥的公开版本。
 func (s *Service) saveTaskCompletionWithinStorageQuota(task *model.Task, resultJSON []byte, opsJSON []byte, hasCanvasOps bool) error {
+	inputJSON := task.InputJSON
+	if err := s.commitTaskCompletionWithinStorageQuota(task, resultJSON, opsJSON, hasCanvasOps); err != nil {
+		return err
+	}
+	s.afterDramaPaletteImageTask(*task, inputJSON)
+	return nil
+}
+
+// 任务完成会同时扩张任务历史和画布操作数据，必须在同一临界区核算并原子写入。
+func (s *Service) commitTaskCompletionWithinStorageQuota(task *model.Task, resultJSON []byte, opsJSON []byte, hasCanvasOps bool) error {
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return err
