@@ -372,10 +372,24 @@ func dramaRunTurnError(unit string, marker dramaTurnMarker, completed int, turnT
 		kept = fmt.Sprintf("，已写完的 %d %s已保存，可从第 %d %s继续", completed, unit, completed+1, unit)
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%s生成超时（每%s %d 分钟）%s", scene, unit, int(turnTimeout.Minutes()), kept)
+		return fmt.Errorf("%s生成超时（每%s %d 分钟）%s。", scene, unit, int(turnTimeout.Minutes()), kept)
 	}
-	return fmt.Errorf("%s生成失败%s：%w", scene, kept, err)
+	return dramaSentenceError{fmt.Errorf("%s生成失败%s：%w", scene, kept, err)}
 }
+
+// dramaSentenceError 让失败原因以句号收尾：页面在原因后面还会接一句（「原文和已有剧集都没有改动。」），
+// 解析错误这类不带标点的原因直接连上去读不通。
+type dramaSentenceError struct{ err error }
+
+func (e dramaSentenceError) Error() string {
+	msg := e.err.Error()
+	if strings.HasSuffix(msg, "。") || strings.HasSuffix(msg, "！") || strings.HasSuffix(msg, "？") || strings.HasSuffix(msg, ".") {
+		return msg
+	}
+	return msg + "。"
+}
+
+func (e dramaSentenceError) Unwrap() error { return e.err }
 
 // dramaRunStream 把各轮输出和回合标记写进同一个任务的 text-events。模型不支持流式时，一轮结束后把整轮输出补写进去。
 type dramaRunStream struct {
