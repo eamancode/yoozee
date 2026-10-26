@@ -1,5 +1,6 @@
 import { compactApiParams, http } from "@/services/api/request";
 import { normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
+import type { DramaColorScriptEntry } from "@/services/api/drama";
 import type { GenerationTask } from "@/services/api/task-center";
 
 
@@ -80,7 +81,25 @@ export type ProjectAsset = {
     updatedAt: string;
     character?: CharacterCardSummary;
     visual?: { definition: Record<string, unknown>; status: "missing" | "ready" };
+    /** 色卡（category=palette）：这一场的色彩脚本、出图状态和取色校验。 */
+    palette?: ProjectAssetPalette;
     source?: string;
+};
+
+/** 色卡取色校验：每块取到的颜色与 HEX 的 ΔE2000；任一块超过阈值 passed=false（只是警告，图保留）。 */
+export type PaletteCheck = { blocks: Array<{ hex: string; sampled: string; deltaE: number }>; passed: boolean; threshold: number; note?: string };
+
+export type ProjectAssetPalette = {
+    code: string;
+    entry: DramaColorScriptEntry;
+    /** 《色卡提示词卡》【色板设计】的结构句。 */
+    design: string;
+    /** 出图用的英文提示词（代码按模板拼，HEX 取自色彩脚本）。 */
+    prompt: string;
+    imageStatus: "none" | "waiting" | "queued" | "bound" | "stale" | "failed";
+    taskId?: string;
+    imageError?: string;
+    check?: PaletteCheck;
 };
 
 export type ProjectAssetFolder = {

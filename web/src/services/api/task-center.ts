@@ -69,7 +69,7 @@ export type GenerationTask = {
         batchCount?: number;
         domainProjectId?: string;
         chapterId?: string;
-		chapterOperation?: "characters" | "storyboard" | "script-adapt";
+		chapterOperation?: "characters" | "storyboard" | "script-adapt" | "style-bible";
 		shotId?: string;
 		workflowStepId?: string;
 		artifactType?: string;

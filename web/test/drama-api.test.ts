@@ -238,6 +238,22 @@ describe("短剧流程步骤（M6）", () => {
         expect(drama.dramaStepOutcomeOf(task)).toBeUndefined();
     });
 
+    test("导演风格走项目级入口带色卡出图模板；色卡出图 / 重新出图；结果摘要按步骤区分", async () => {
+        transport.responses["/projects/p1/drama/steps/style.bible/run"] = { task: { id: "t4" }, usage: { step: "style.bible" } };
+        const imageTask = { model: "gpt-image-2", input: { mode: "image", config: { size: "16:9" } } };
+        await drama.runDramaProjectStep("p1", "style.bible", { model: "deepseek", config: {}, sourceUnitIds: ["e1"], paletteImages: imageTask });
+        expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/drama/steps/style.bible/run", body: { sourceUnitIds: ["e1"], paletteImages: imageTask } });
+        transport.responses["/projects/p1/drama/palettes/images"] = { queued: ["a1"], waiting: [], failed: [] };
+        await drama.queueDramaPaletteImages("p1", { assetIds: ["a1"], imageTask });
+        expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/drama/palettes/images", body: { assetIds: ["a1"], imageTask } });
+
+        const style = { step: "style.bible", status: "written", episodes: 2, scenes: 3, parse: { episodes: 2, scenes: 3, invalid: 0, anchor: true }, errors: 0, warnings: 0, palettes: { created: 3, versioned: 0 }, images: { queued: ["a1"], waiting: ["a2"], failed: [] } };
+        const task = { resultJson: JSON.stringify({ dramaStep: style }) };
+        expect(drama.dramaStyleBibleOutcomeOf(task)?.palettes.created).toBe(3);
+        expect(drama.dramaScriptAdaptOutcomeOf(task)).toBeUndefined();
+        expect(drama.dramaSceneCode(1, 2)).toBe("E01S02");
+    });
+
     test("风格档案按后端画风对照表推荐，与 StyleMap.ProfileFor 同一规则", () => {
         const styleMap = JSON.parse(readFileSync(new URL("../../backend/internal/drama/style_map.json", import.meta.url), "utf8"));
         expect(drama.recommendDramaStyleProfile(styleMap, { selection: { world: "suspense", medium: "live-action" }, title: "悬疑犯罪 · 暗黑诡谲 · 真人实拍", tags: [] })).toBe("live-realism");
