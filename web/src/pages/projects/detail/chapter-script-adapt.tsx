@@ -338,7 +338,9 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                                     <div>
                                         本步使用：<span className="font-medium text-foreground/85">{usage.skill.name}</span> {usage.skill.version}（{usage.profile.label}）
                                     </div>
-                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">技能由项目的风格档案决定，管理员在后台「流程技能」里绑定。原文章节保留，改编出的剧集排在章节之后。</div>
+                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">
+                                        技能由项目的风格档案决定，管理员在后台「流程技能」里绑定。{settings.mode === "rhythm" ? "所选剧集原地改写，集数不变。" : "原文章节保留，改编出的剧集排在章节之后。"}
+                                    </div>
                                 </>
                             ) : (
                                 "正在读取本步使用的技能…"

@@ -62,6 +62,7 @@ import {
     createProjectAssetCandidates,
     createProjectUnit,
     deleteProjectUnit,
+    getProjectUnit,
     importProjectUnits,
     listProjectAssetCandidates,
     listProjectAssets,
@@ -677,6 +678,20 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const showWrittenEpisodes = (outcome: DramaScriptAdaptOutcome) => {
         void queryClient.invalidateQueries({ queryKey: dramaEpisodesKey(detail.project.id) });
         setUnitView("episode");
+        // 只调节奏改写了正在打开的这一集：编辑器只在切换单元时装载正文，这里换成改写后的，免得保存时把改写盖回去。
+        const openUnit = selectedUnit;
+        if (outcome.mode === "rhythm" && openUnit && outcome.rewritten?.includes(openUnit.id)) {
+            if (dirty) {
+                message.warning("这一集有未保存的修改，编辑器里还是改写前的正文；保存会覆盖改写结果，不需要就切换一下剧集放弃修改", 10);
+                return;
+            }
+            void getProjectUnit(detail.project.id, openUnit.id).then(({ unit }) => {
+                editor?.commands.setContent(unit.sourceText || "", { emitUpdate: false });
+                setDraftHtml(unit.sourceText || "");
+                setDirty(false);
+            });
+            return;
+        }
         const first = outcome.episodes[0]?.unitId;
         if (first && !dirty) {
             setSelectedId(first);
@@ -802,13 +817,13 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 {selectedUnit ? (
                     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-lg border border-border/80 bg-background">
                         <header className="flex shrink-0 flex-wrap items-start gap-3 border-b border-border/70 px-4 py-3">
-                            <div className="min-w-0 flex-1">
+                            <div className="min-w-[12rem] flex-1">
                                 <div className="mb-1 text-[var(--fs-tiny)] font-medium tabular-nums text-foreground/38">{unitKind(selectedUnit) === "episode" ? "剧集" : "原文"} · 第 {String(chapterNumberById.get(selectedUnit.id) || 1).padStart(2, "0")} {unitKind(selectedUnit) === "episode" ? "集" : "章"}</div>
                                 <Input variant="borderless" value={draftTitle} disabled={!selectedUnit || originalLocked} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
                                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span>{unitShots.length ? <><span>·</span><span>{unitShots.length} 段</span></> : null}{dialogueCoverage.expected ? <><span>·</span><span className={dialogueCoverage.covered < dialogueCoverage.expected && unitShots.length ? "text-amber-600 dark:text-amber-400" : ""} title={dialogueCoverage.missing.length ? `没进分段的台词：${dialogueCoverage.missing.slice(0, 5).join(" / ")}` : undefined}>台词覆盖 {dialogueCoverage.covered}/{dialogueCoverage.expected}</span></> : null}{overLimitSegments.length ? <><span>·</span><span className="text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {segmentMaxSeconds} 秒，需拆分</span></> : null}{shotlist?.draft && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>镜头表有 {shotlist.check.errors} 个问题，还没装段</button></> : null}{storyboardResume && !storyboardOperation ? <><span>·</span><button type="button" className="text-amber-600 underline-offset-2 hover:underline dark:text-amber-400" onClick={() => setRunPanelOpen(true)}>分段停在第 {storyboardResume.from} 场</button></> : null}{storyboardStop?.kind === "failed" && storyboardStop.status === "failed" && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>上一次生成分段失败</button></> : null}</div>
                                 {unitLinks.length ? <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/45"><span>{unitKind(selectedUnit) === "episode" ? "改编自" : "已改编成"}</span>{unitLinks.map((link) => <button key={`${link.unitId}-${link.label}`} type="button" className="rounded bg-foreground/[.035] px-1.5 py-0.5 text-foreground/62 hover:text-[var(--workspace-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--workspace-accent)]" onClick={() => selectChapter(link.unitId)}>{link.label}</button>)}</div> : null}
                             </div>
-                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                            <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5">
                                 <ScriptAdaptControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} onWritten={showWrittenEpisodes} />
                                 <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(characterOperation)} loading={Boolean(characterOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setCharacterExtractOpen(true); }} aria-label={characterOperation ? `提取角色、场景与道具，${chapterOperationLabel(characterOperation, operationNow)}` : "提取角色、场景与道具"}>{characterOperation ? `提取资产（${chapterOperationLabel(characterOperation, operationNow)}）` : charactersGenerated ? "提取资产（已生成）" : "提取角色、场景与道具"}</Button>
                                 <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button>
@@ -816,7 +831,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending || originalLocked} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
-                        {originalLocked ? <div className="shrink-0 border-b border-border/70 px-4 py-2"><Callout tone="info" title="这一章已改编成剧集，原文只读" action={<Button size="small" onClick={() => switchUnitView("episode")}>看剧集</Button>}>改原文请改完后重新点「剧本优化」勾选这一章，新剧本会替换由它改编的剧集。</Callout></div> : null}
+                        {originalLocked ? <div className="shrink-0 border-b border-border/70 px-4 py-2"><Callout tone="info" title="这一章已改编成剧集，原文只读" action={<Button size="small" onClick={() => switchUnitView("episode")}>看剧集</Button>}>原文只作改编依据：要改剧情就改剧集；要按原文重来，点「剧本优化」勾选这一章重新改编，新剧本会替换由它改编的剧集。</Callout></div> : null}
                         <EditorToolbar editor={originalLocked ? null : editor} />
                         <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">
                             <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>

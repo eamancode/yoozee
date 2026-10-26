@@ -96,8 +96,9 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
 /** 剧本优化任务的 metadata.source（与后端步骤表 TaskSource 一致）。 */
 export const SCRIPT_ADAPT_TASK_SOURCE = "short-drama-script-adapt";
 
+/** 任务列表不带任务输入，靠服务端给的 clientContext（chapterOperation=script-adapt）认；带输入的任务详情按 metadata.source 认。 */
 export function isScriptAdaptTask(task: GenerationTask) {
-    return generationTaskMetadata(task.inputJson).source === SCRIPT_ADAPT_TASK_SOURCE;
+    return task.clientContext?.chapterOperation === "script-adapt" || generationTaskMetadata(task.inputJson).source === SCRIPT_ADAPT_TASK_SOURCE;
 }
 
 type ScriptAdaptInput = {

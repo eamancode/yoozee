@@ -124,6 +124,14 @@ func TestTaskClientContextPreservesCanvasNodeID(t *testing.T) {
 	}
 }
 
+// 剧本优化是项目级步骤：列表里带项目和 chapterOperation=script-adapt，章节页据此认出正在跑的任务。
+func TestTaskClientContextMarksScriptAdapt(t *testing.T) {
+	context := taskClientContext(`{"metadata":{"source":"short-drama-script-adapt","domainProjectId":"project-1"}}`)
+	if context == nil || context.ChapterOperation != "script-adapt" || context.DomainProjectID != "project-1" || context.ChapterID != "" {
+		t.Fatalf("context = %+v", context)
+	}
+}
+
 func TestTaskSummaryPreservesCanvasNodeWithoutExposingInput(t *testing.T) {
 	summary := taskSummaryForOutput(model.Task{
 		ID: "task-1", ProjectID: "project-1", Type: "canvas_image",
