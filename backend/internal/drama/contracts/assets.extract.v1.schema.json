@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "assets.extract@1",
+  "title": "资产设计（角色、场景、道具与外观提示词）",
+  "description": "资产设计这一步的模型输出：一集（或一章）里出现的角色、场景和道具，每个资产一行（JSON Lines），带中文外观描述和英文出图提示词，便于边流边解析、按场续写。收尾时按名字和别名与项目已有资产合并（已有的只补别名和缺的外观），其余直接建成已确认资产，再排出图任务（角色三视图，场景、道具概念图）。契约文字由 drama.Contract.Text 按本文件生成；assets 的 required 顺序就是契约里字段的顺序；顶层 assets 只描述逻辑形状，模型逐行输出资产对象。",
+  "type": "object",
+  "required": [
+    "assets"
+  ],
+  "x-contract": {
+    "heading": "【受保护输出契约】",
+    "layout": "lines",
+    "items": "assets",
+    "unit": "个资产",
+    "format": "逐行输出（JSON Lines）：一行就是一个资产的完整 JSON 对象，写完一个换行再写下一个；不要外层数组或 {\"assets\": …} 对象，对象内部不要换行，不要 Markdown、表格、代码块、注释或任何解释文字。",
+    "rowsIntro": "每行一个资产，按在剧本里第一次出现的先后排列；字段缺失时填空字符串或空数组，不要省略字段：",
+    "requirement": "每一场至少写一行这一场发生地的场景（environment）。",
+    "rules": [
+      "category 只能是 character（角色）、environment（场景）、prop（道具）。人·物·场分开：五官、发型、服装、饰品、伤疤写进角色的 appearance；能单独搬走、要单独制作的物件（武器、信物、容器、家具、载具）是道具；搬不走的空间结构（墙、地面、建筑骨架、地形、天光天气）是场景。",
+      "name 用剧本里最常用的叫法；同一个人或同一件物的别称、代称、昵称写进 aliases，不另起一行。",
+      "【项目已有资产】里列出的资产已经存在：它再出现时只写一行，category 照抄、name 照抄已有名字，aliases 只写这次新见到的叫法，appearance、prompt_en 留空字符串；已有资产标了「缺外观」的才补写 appearance 和 prompt_en。前面回合已经写过的资产同样不再重复外观。",
+      "appearance 是中文外观 / 结构描述，要能画出来、做出来、搭出来：角色写年龄、性别、肤色、发型发色、五官特征、服装；场景写空间结构、主要固定陈设、光线与时间；道具写形状、结构、材质、颜色、尺寸感和使用痕迹。原文没写的按身份、时代和地域合理推导，不与原文矛盾。",
+      "prompt_en 是英文出图提示词，不写人名和剧情：角色写成一张正面、侧面、背面三视图设定图的提示词（同一角色、同一服装、全身站立、中性姿势、纯净浅色背景）；场景写不出现人物的空场景概念图；道具写单个道具、简洁背景、不出现人物的概念图。画风与【全局风格锚】【项目画风】一致，不另起媒介。",
+      "first_scene 写这个资产第一次出现在本集第几场（【场次】里的场序，从 1 数）；只有一场时写 1。",
+      "anchors 只有场景写：这个场景里人物能站、能走到的具体位置，3～8 个短名词（如 电梯门前、护士站柜台、楼梯间防火门），分镜站位只用这些名字；正文看不出时只写能确定的几个，不编造正文没有的设施；角色和道具写空数组。",
+      "palette_hint 写这个资产用到的【本集色彩脚本】里的颜色（中文色名，多个用顿号分开，如「病号服蓝、呼叫铃红」）；本集没有色彩脚本或用不上时写空字符串。"
+    ]
+  },
+  "properties": {
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "category",
+          "name",
+          "aliases",
+          "appearance",
+          "prompt_en",
+          "first_scene",
+          "palette_hint"
+        ],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["character", "environment", "prop"],
+            "description": "character、environment 或 prop"
+          },
+          "name": {
+            "type": "string",
+            "description": "资产名，用剧本里最常用的叫法"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "别称、代称、昵称"
+          },
+          "appearance": {
+            "type": "string",
+            "description": "中文外观 / 结构描述；已有资产留空"
+          },
+          "prompt_en": {
+            "type": "string",
+            "description": "英文出图提示词：角色是三视图设定图，场景、道具是概念图；已有资产留空"
+          },
+          "first_scene": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "第一次出现在本集第几场，从 1 数"
+          },
+          "palette_hint": {
+            "type": "string",
+            "description": "用到的本集色彩脚本颜色名，可空"
+          },
+          "anchors": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "只有场景写：人物能站、能走到的位置"
+          }
+        }
+      }
+    }
+  }
+}

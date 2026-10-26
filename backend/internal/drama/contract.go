@@ -28,6 +28,7 @@ var contractFiles = map[string]string{
 	ContractChapterShots:     "contracts/chapter.shots.v3.schema.json",
 	ContractScriptAdapt:      "contracts/script.adapt.v1.schema.json",
 	ContractStyleBible:       "contracts/style.bible.v1.schema.json",
+	ContractAssetsExtract:    "contracts/assets.extract.v1.schema.json",
 }
 
 // ContractCanvasStoryboard 是画布拆镜的输出契约：整段一个 {"title", "rows"} JSON 对象（前端解析），不随生成分段升级。
@@ -40,9 +41,11 @@ const (
 )
 
 type contractProse struct {
-	Heading     string   `json:"heading"`
-	Layout      string   `json:"layout"`
-	Items       string   `json:"items"`
+	Heading string `json:"heading"`
+	Layout  string `json:"layout"`
+	Items   string `json:"items"`
+	// Unit 是逐行契约里一行是什么（「个镜头」「个资产」），默认「个镜头」。
+	Unit        string   `json:"unit"`
 	Format      string   `json:"format"`
 	RowsIntro   string   `json:"rowsIntro"`
 	Requirement string   `json:"requirement"`
@@ -187,7 +190,11 @@ func (c *Contract) Text(requirement string, opts ContractTextOptions) string {
 	shape := fmt.Sprintf("- 顶层固定为 %s，%s。%s", c.topLevelShape(), c.rowsMinText(), requirement)
 	switch {
 	case c.Lines():
-		shape = "- 至少输出 1 个镜头。" + requirement
+		unit := prose.Unit
+		if unit == "" {
+			unit = "个镜头"
+		}
+		shape = "- 至少输出 1 " + unit + "。" + requirement
 	case c.Blocks():
 		shape = "- 至少输出 1 项。" + requirement
 	}
