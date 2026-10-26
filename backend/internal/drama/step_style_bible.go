@@ -76,6 +76,8 @@ type ColorScriptEntry struct {
 	NewColors    []PaletteColor `json:"new_colors"`
 	Purpose      string         `json:"purpose,omitempty"`
 	References   string         `json:"references,omitempty"`
+	// UnitID 是写这一场时它所在的单元（剧集或原文章节），收尾时由服务端填；改编出剧集后，原文章节版同编号的条目靠它认出来。
+	UnitID string `json:"unit_id,omitempty"`
 }
 
 // SceneCode 是场编号 E01S02（第 1 集第 2 场）。

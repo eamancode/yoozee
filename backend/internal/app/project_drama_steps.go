@@ -1,5 +1,5 @@
 // 短剧流程步骤（M6）：按项目风格档案查绑定、取技能当前版本，在服务端组装提示词（技能上下文 + 代码变量 + 按 schema 生成的契约），
-// 再创建文本任务；前端只说「对这一章跑这一步」（生成分段）或「对这个项目跑这一步」（剧本优化、导演风格，见 project_drama_script_adapt.go、
+// 再创建文本任务；前端只说「对这一章跑这一步」（生成分段、资产设计，资产设计见 project_drama_assets.go）或「对这个项目跑这一步」（剧本优化、导演风格，见 project_drama_script_adapt.go、
 // project_drama_style_bible.go）。
 // 另有管理员读写「风格档案 × 步骤 → 技能」绑定表的接口。
 
@@ -54,9 +54,11 @@ type DramaStepRunRequest struct {
 	// ResumeTaskID 是「从第 N 场继续」：同一章上一次没跑完的生成分段任务，新任务带上它已写完的场接着写。
 	ResumeTaskID string `json:"resumeTaskId,omitempty"`
 	// Rule 是视频渠道实际能提交的段长，收尾装段时叠在项目生成模型上限上（只收紧）。
-	Rule      *DramaShotlistRule `json:"rule,omitempty"`
-	TraceID   string             `json:"-"`
-	RequestID string             `json:"-"`
+	Rule *DramaShotlistRule `json:"rule,omitempty"`
+	// ImageTask 是资产设计写完后给新资产出图用的图片任务模板（前端按图片模型组好）；不给时只建资产不出图。
+	ImageTask *DramaImageTaskTemplate `json:"imageTask,omitempty"`
+	TraceID   string                  `json:"-"`
+	RequestID string                  `json:"-"`
 }
 
 type DramaStepRunResult struct {
@@ -99,6 +101,8 @@ type dramaStepPlan struct {
 	adapt *dramaAdaptMeta
 	// style 是导演风格的运行参数（metadata.dramaStyle），收尾按它检查场次、排色卡出图。
 	style *dramaStyleMeta
+	// assets 是资产设计的运行参数（metadata.dramaAssets），收尾按它取本集色彩脚本、排资产出图。
+	assets *dramaAssetsMeta
 }
 
 func dramaStep(stepID string) (drama.Step, error) {
@@ -178,6 +182,9 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}
+	if plan.assets != nil {
+		plan.assets.Images = req.ImageTask.usable()
+	}
 	run := newDramaRunMeta(plan, unitID)
 	if resumeID := strings.TrimSpace(req.ResumeTaskID); resumeID != "" {
 		if run, err = s.resumeDramaRun(userID, project.ID, unitID, plan, resumeID); err != nil {
@@ -186,6 +193,10 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	}
 	taskReq := dramaStepTaskRequest(project.ID, unitID, plan, dramaStepTaskOptions{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config, Rule: req.Rule, TraceID: req.TraceID, RequestID: req.RequestID})
 	taskReq.Input["metadata"].(map[string]any)["dramaRun"] = run
+	if plan.assets != nil && plan.assets.Images {
+		// 模板带着渠道配置，和其余任务输入一样加密存，任务结束随密钥一起去掉。
+		taskReq.Input["assetImageTask"] = req.ImageTask
+	}
 	task, err := s.CreateTask(userID, taskReq)
 	if err != nil {
 		return DramaStepRunResult{}, err
@@ -239,6 +250,9 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	if plan.style != nil {
 		metadata["dramaStyle"] = plan.style
 	}
+	if plan.assets != nil {
+		metadata["dramaAssets"] = plan.assets
+	}
 	// 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
 	input := map[string]any{"mode": "text", "metadata": metadata}
 	for k, v := range plan.record {
@@ -281,7 +295,7 @@ func taskDramaStep(inputJSON string) *dramaStepTaskMeta {
 	return input.Metadata.DramaStep
 }
 
-// planDramaStep 读章节、画风、资产、需求文档和绑定技能，组装提示词。按单元跑的只有 chapter.shots（章节或剧集都行）。
+// planDramaStep 读章节、画风、资产、需求文档和绑定技能，组装提示词。按单元跑的是 chapter.shots 和 assets.extract（章节或剧集都行）。
 func (s *Service) planDramaStep(userID string, project *model.Project, unitID string, stepID string) (*dramaStepPlan, error) {
 	step, err := dramaStep(stepID)
 	if err != nil {
@@ -290,7 +304,7 @@ func (s *Service) planDramaStep(userID string, project *model.Project, unitID st
 	if step.Scope == drama.StepScopeProject {
 		return nil, BadAuthRequest(fmt.Sprintf("「%s」是项目级步骤，请用 POST /projects/:id/drama/steps/%s/run", step.Label, step.ID))
 	}
-	if step.ID != drama.StepChapterShots {
+	if step.ID != drama.StepChapterShots && step.ID != drama.StepAssetsExtract {
 		return nil, BadAuthRequest(fmt.Sprintf("步骤 %s 还不能在服务端运行", step.ID))
 	}
 	unit, err := s.repo.ProjectUnit(project.ID, strings.TrimSpace(unitID))
@@ -299,6 +313,13 @@ func (s *Service) planDramaStep(userID string, project *model.Project, unitID st
 	}
 	if err != nil {
 		return nil, err
+	}
+	if step.ID == drama.StepAssetsExtract {
+		usage, skill, err := s.dramaStepSkill(project, step)
+		if err != nil {
+			return nil, err
+		}
+		return s.planAssetsExtract(userID, project, unit, usage, skill)
 	}
 	if chapterEditorText(unit.SourceText) == "" {
 		return nil, BadAuthRequest("当前章节没有可用于分镜的正文")

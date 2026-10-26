@@ -935,6 +935,12 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 		return drama.Progress{}, err
 	}
 	input.StyleScenes, input.StyleFromChapters = styleBibleSceneRefs(units)
+	input.BibleJSON = currentColorScriptBible(project.BibleJSON, styleSceneTable(units))
+	assets, err := s.ProjectAssets(userID, projectID)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	input.Assets = projectAssetsProgress(assets)
 	for _, unit := range units {
 		if unit.Kind == model.ProjectUnitKindEpisode {
 			input.Episodes = append(input.Episodes, drama.EpisodeInput{ID: unit.ID, Title: unit.Title, WordCount: unit.WordCount})

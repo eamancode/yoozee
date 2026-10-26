@@ -119,7 +119,8 @@ func createTaskWithStorageQuotaRepository(repo *repository.Repository, task *mod
 	return repo.CreateTaskWithActiveLimit(task, policy.Task.ActiveTaskLimit)
 }
 
-// saveTaskCompletionWithinStorageQuota 落库任务成功，之后（已离开存储临界区）跑落库后的后续：色卡出图的取色校验和接着排下一张。
+// saveTaskCompletionWithinStorageQuota 落库任务成功，之后（已离开存储临界区）跑落库后的后续：色卡出图的取色校验和接着排下一张，
+// 资产设计出图记状态和接着排下一个。
 // 后续要用落库前的任务输入（带着加密的图片模板），落库会把它换成去掉密钥的公开版本。
 func (s *Service) saveTaskCompletionWithinStorageQuota(task *model.Task, resultJSON []byte, opsJSON []byte, hasCanvasOps bool) error {
 	inputJSON := task.InputJSON
@@ -127,6 +128,7 @@ func (s *Service) saveTaskCompletionWithinStorageQuota(task *model.Task, resultJ
 		return err
 	}
 	s.afterDramaPaletteImageTask(*task, inputJSON)
+	s.afterDramaAssetImageTask(*task, inputJSON)
 	return nil
 }
 

@@ -128,6 +128,30 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, result)
 	})
+	// 资产页「继续出图」：资产设计建的角色出三视图、场景和道具出概念图（同时任务数满时剩下的排在后面）。
+	r.POST("/projects/:id/drama/assets/images", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		policy, available := loadRuntimePolicy(c, svc)
+		if !available || !enforceRateLimit(c, "tasks:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req service.DramaAssetImagesRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("资产出图的请求格式无效"))
+			return
+		}
+		result, err := svc.QueueDramaAssetImages(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
 	r.GET("/projects/:id/drama/episodes", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

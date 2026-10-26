@@ -132,7 +132,7 @@ func TestStyleBibleWritesBibleAndPalettesThroughWorker(t *testing.T) {
 		byCode[a.Palette.Code] = a
 	}
 	second := byCode["E01S02"]
-	if second.Title != "E01S02 色卡 · 内·电梯口·夜" || second.Status != model.AssetVersionStatusConfirmed || second.Palette.ImageStatus != paletteImageNone || len(second.Palette.Entry.Colors()) != 3 {
+	if second.Title != "E01S02 色卡 · 内·电梯口·夜" || second.Status != model.AssetVersionStatusConfirmed || second.Palette.ImageStatus != dramaImageNone || len(second.Palette.Entry.Colors()) != 3 {
 		t.Fatalf("色卡：%+v %+v", second, second.Palette)
 	}
 	if !strings.Contains(second.Palette.Prompt, "1. Concrete Grey #6E6E6E") || !strings.Contains(second.Palette.Prompt, "/ EP01 / SC02 COLOR REFERENCE") || second.Palette.Design != "3色复合色板=1色跨段共享 + 2色本段新增（承接 E01S01）" {
@@ -290,7 +290,7 @@ func TestPaletteImageTaskAndColorCheck(t *testing.T) {
 	}
 	hexes := []string{"#E8ECEF", "#6E6E6E", "#5B7FA3"}
 	good := bind("task-good", hexes)
-	if good.MediaType != "image" || good.Palette.ImageStatus != paletteImageBound || good.Palette.Check == nil || !good.Palette.Check.Passed || len(good.Palette.Check.Blocks) != 3 {
+	if good.MediaType != "image" || good.Palette.ImageStatus != dramaImageBound || good.Palette.Check == nil || !good.Palette.Check.Passed || len(good.Palette.Check.Blocks) != 3 {
 		t.Fatalf("按 HEX 画的色卡取色通过：%+v %+v", good, good.Palette)
 	}
 	// 导演风格建的版本还没有图：出图绑到这一版，不另加版本。
@@ -322,7 +322,7 @@ func TestPaletteImageTaskAndColorCheck(t *testing.T) {
 		t.Fatalf("重跑导演风格：%v %q", err, again.Error)
 	}
 	rerun := bind("task-rerun", hexes)
-	if rerun.VersionCount != 3 || rerun.Palette.ImageStatus != paletteImageBound || !rerun.Palette.Check.Passed {
+	if rerun.VersionCount != 3 || rerun.Palette.ImageStatus != dramaImageBound || !rerun.Palette.Check.Passed {
 		t.Fatalf("重跑后出图只加一版：v%d %+v", rerun.VersionCount, rerun.Palette)
 	}
 	var imageless int64
@@ -337,7 +337,8 @@ func chapterStyleScene(n int) string {
 	return fmt.Sprintf(`{"episode": %d, "scene_no": 1, "scene": "第%d章", "inherits_from": "", "shared_colors": [{"name_zh": "日光灯白", "name_en": "Fluorescent White", "hex": "#E8ECEF", "usage": "顶灯"}], "new_colors": [{"name_zh": "水泥灰", "name_en": "Concrete Grey", "hex": "#6E6E6E", "usage": "墙面"}, {"name_zh": "护士蓝", "name_en": "Nurse Blue", "hex": "#5B7FA3", "usage": "制服"}]}`, n, n)
 }
 
-// 只有原文时按 3 章定风格（3 张色卡），再改编成 2 集 3 场：总览两个终态变未完成并写清缺哪场、多哪场；按剧集重跑后
+// 只有原文时按 3 章定风格（3 张色卡），再改编成 2 集 3 场：总览两个终态变未完成并写清缺哪场、多哪场（原文章节版同编号的
+// 色彩脚本不算剧集的场）；按剧集重跑后
 // 第 3 章那张色卡标成场次已不存在（不删、不加版本、不再出图），「色卡齐了」按当前 3 场算。
 func TestStyleBibleRetiresPalettesOfVanishedScenes(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
@@ -378,7 +379,7 @@ func TestStyleBibleRetiresPalettesOfVanishedScenes(t *testing.T) {
 	if s["style"].Done || s["palette"].Done {
 		t.Fatalf("改编成剧集后不该还算齐：%+v %+v", s["style"], s["palette"])
 	}
-	for _, want := range []string{"2/3 场有色彩脚本", "第 1 集第 2 场缺", "第 3 集第 1 场已不在当前剧集里"} {
+	for _, want := range []string{"0/3 场有色彩脚本", "第 1 集第 1 场、第 1 集第 2 场、第 2 集第 1 场缺", "第 3 集第 1 场已不在当前剧集里"} {
 		if !strings.Contains(s["palette"].Detail, want) || !strings.Contains(s["style"].Detail, want) {
 			t.Fatalf("detail 要写清（%s）：%q / %q", want, s["style"].Detail, s["palette"].Detail)
 		}
@@ -452,15 +453,27 @@ func drawPaletteCard(w, h int, hexes []string) *image.RGBA {
 	return img
 }
 
-// 合并时保留这次没重写的集；集号超过项目现在集数的（剧集删了、改编成更少的集）去掉。
-func TestKeptColorScriptDropsVanishedEpisodes(t *testing.T) {
-	script := []drama.ColorScriptEntry{{Episode: 1, SceneNo: 1}, {Episode: 2, SceneNo: 1}, {Episode: 3, SceneNo: 1}}
-	kept := keptColorScript(script, map[int]bool{1: true}, 2)
-	if len(kept) != 1 || kept[0].Code() != "E02S01" {
-		t.Fatalf("只留第 2 集：%+v", kept)
+// 合并时保留这次没重写的集；场次表里已经没有的场（集删了、改编成更少的集）去掉；剧集写出来以后，原文章节版同编号的条目
+// （记的单元是章节）去掉；没记单元的旧条目按场次头对。不知道场次表（评测）时只按运行范围筛。
+func TestKeptColorScriptMatchesCurrentScenes(t *testing.T) {
+	table := map[string]styleSceneSlot{
+		"E01S01": {UnitID: "ep1", Heading: "内·病房·夜"},
+		"E02S01": {UnitID: "ep2", Heading: "内·走廊·夜"},
+		"E02S02": {UnitID: "ep2", Heading: "外·天台·夜"},
 	}
-	if all := keptColorScript(script, map[int]bool{}, 0); len(all) != 3 {
-		t.Fatalf("不知道集数时不按集数筛：%+v", all)
+	script := []drama.ColorScriptEntry{
+		{Episode: 1, SceneNo: 1, UnitID: "ep1"},
+		{Episode: 2, SceneNo: 1, UnitID: "chapter2", Scene: "内·走廊·夜"},
+		{Episode: 2, SceneNo: 2, Scene: "外·天台·夜"},
+		{Episode: 3, SceneNo: 1, UnitID: "ep3"},
+		{Episode: 2, SceneNo: 3, Scene: "第二章"},
+	}
+	kept := keptColorScript(script, map[int]bool{1: true}, table)
+	if len(kept) != 1 || kept[0].Code() != "E02S02" {
+		t.Fatalf("只留第 2 集第 2 场（旧条目按场次头对上）：%+v", kept)
+	}
+	if all := keptColorScript(script, map[int]bool{}, nil); len(all) != 5 {
+		t.Fatalf("不知道场次表时不筛：%+v", all)
 	}
 }
 
@@ -490,7 +503,7 @@ func TestStyleBibleEvalResult(t *testing.T) {
 	if verdict := step.Gate.Evaluate([]drama.StepEvalChapterResult{styleBibleEvalResult(drama.StepEvalChapterResult{Chapter: c.ID}, in, full)}, nil); !verdict.Passed {
 		t.Fatalf("闸门只看解析率：%+v", verdict)
 	}
-	plan, err := styleBiblePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, DramaStepUsage{Step: step.ID}, drama.StepSkill{ID: "yz-style-bible", Files: []drama.StepSkillFile{{Path: "SKILL.md", Kind: "markdown", Content: "# 导演风格"}}})
+	plan, err := styleBiblePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, nil, DramaStepUsage{Step: step.ID}, drama.StepSkill{ID: "yz-style-bible", Files: []drama.StepSkillFile{{Path: "SKILL.md", Kind: "markdown", Content: "# 导演风格"}}})
 	if err != nil || len(plan.style.Episodes[0].Scenes) != 3 || !strings.Contains(plan.prompt.Text, "E01S03 场次头：内·电梯口·夜") {
 		t.Fatalf("评测章节组装提示词：%v %+v", err, plan)
 	}

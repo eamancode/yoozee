@@ -20,5 +20,7 @@ type (
 	DramaImageTaskTemplate     = app.DramaImageTaskTemplate
 	DramaStyleBibleOutcome     = app.DramaStyleBibleOutcome
 	DramaPaletteImagesRequest  = app.DramaPaletteImagesRequest
-	DramaPaletteQueueResult    = app.DramaPaletteQueueResult
+	DramaAssetImagesRequest    = app.DramaAssetImagesRequest
+	DramaAssetsExtractOutcome  = app.DramaAssetsExtractOutcome
+	DramaImageQueueResult      = app.DramaImageQueueResult
 )
