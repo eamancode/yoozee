@@ -425,7 +425,8 @@ CSV 使用中文表头、UTF-8 BOM、CRLF；金额按整数分精确转换为两
 
 「段」是生成单位：一个镜头记录（Shot）就是一段，一段 = 一次视频生成，段内可以有多个镜头。单段上限由项目的生成模型决定，数据来自 `backend/builtin/kb-dialects/models.json`（与 `yoozee-skills/` 源同步，测试校验两份一致）。
 
-- 项目字段：`POST /projects`、`PATCH /projects/:id` 接受 `generationModel`（`seedance-2.0` 默认 / `seedance-2.5` / `minimax-h3`）和 `authMode`（`step` 每步确认 / `full` 全权）。`defaultVideoModel` 能识别出模型族时必须与 `generationModel` 同族，否则 400。
+- 项目字段：`POST /projects`、`PATCH /projects/:id` 接受 `generationModel`（`seedance-2.0` 默认 / `seedance-2.5` / `minimax-h3`）和 `authMode`（`step` 每步确认 / `full` 全权）。`defaultVideoModel` 能识别出模型族时必须与 `generationModel` 同族，否则 400。`aspectRatio` 只能是 `9:16`（默认）/ `16:9` / `1:1` / `4:3`；`PATCH` 不改画幅时保留原值。
+- 单段最长秒数：`POST /projects` 的 `segmentSeconds`（建项目对话框的 15 / 30 秒）、`PATCH /projects/:id` 的 `segmentSeconds`（`0` 去掉）写进需求文档 `brief_json.segment_seconds`，其他字段原样保留；要求 1 ≤ 值 ≤ 项目生成模型一段的上限（`models.json` 的 `duration.max`），否则 400。`PATCH` 只换生成模型时，已存的单段秒数超过新模型上限也返回 400。装段时它只收紧模型上限，不放宽；改小后下次装段生效，已装好的段不重拆。需求文档契约 brief 同时认 `segment_seconds`（整数，1 到目录里最大的一段上限），`PUT /drama/brief` 可写，读取整理时不再挪进 `constraints`。建项目不传 `styleProfile` 时按画风对照表（`style_map.json`）推出；对话框里的「类型」只用来过滤画风，不发给后端。
 - 段长校验：新建、批量替换、保存镜头版本，以及带项目和镜头标识的视频任务，超过上限都返回 `segment_too_long`。改小生成模型不会改写已有段，超长段在进度里标出，生成前必须拆分。
 - 镜头版本可带 `spec`（契约 segment JSON）；保存后存为 `specJson`。新版本只让输入指纹（`inputHash`）变了的产物过期，旧产物没有指纹一律过期。
 - `GET /drama/models`：生成模型目录。

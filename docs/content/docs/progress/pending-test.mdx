@@ -19,6 +19,23 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [x] `internal/app`：`TestDramaStepEvalThrottlesAndRetries`（连续上传两个包同时评测，全局同时只跑一个任务；渠道前几次 502 没提交上游，重投后两个评测都跑完并给出门槛结论，第一个自动启用、第二个因启用版本换过不自动启用；一直 502 时重投两次用尽记出错）、`TestDramaStepEvalRetryable`、`TestDramaStepEvalGateAutoActivates`（改为逐个投任务，提交后的失败不重投）。
 - [ ] 线上验收（部署后）：重跑坏包 2.2.1+bad.1 的评测，任务一个一个跑、版本表能看出排队，评测跑完得出「未通过」（spec 写出率）而不是「出错」。
 
+## M7.2 第 2 阶段：建项目四项（类型、画幅 4:3、单段时长、导入小说）
+
+设计见 `yoozee-skills/DESIGN-M7.2-基于现状的短剧量产方案.md` §2.6、§8 第 2 阶段。
+
+- 建项目对话框第一步选「类型」：仿真人 / 3D 动漫 / 写实 CG / 2D 动漫。类型不落库，只按画风的媒介过滤画风中心：仿真人 → `live-action`，3D 动漫 → `3d-anime`、`3d-cartoon`，2D 动漫 → `2d-guoman`、`ink`，写实 CG 暂归 `live-action`（对照表 `web/src/lib/canvas/project-content-type.ts`）。认不出媒介的自定义画风在选了类型时不列出。换类型时已选画风不属于新类型就清空；在外面先选了画风再打开对话框会按画风带上类型。
+- 风格档案不再先选：按所选画风由对照表（`style_map.json`，与后端 `RecommendProfile` 同一张）推出并显示，点「修改」才出下拉；没改就不传，由后端推。对照表里 2D 动漫暂借 `anime-3d`、写实 CG 暂归 `live-realism`，标注「待补」。
+- 画幅加 4:3（建项目与项目设置；后端校验只认 9:16 / 16:9 / 1:1 / 4:3）。生成模型按已配置视频渠道的能力配置（`video.ratios`）判断是否支持所选画幅，不支持的置灰并注明；内置的 Seedance、MiniMax 渠道都支持 4:3，所以现在一般不会置灰。
+- 「单段最长时长」15 / 30 秒：选 30 秒时生成模型只列一段上限 ≥ 30 的（目前只有 Seedance 2.5）；当前模型不在范围里自动换成第一个可选的。创建时写进 `brief_json.segment_seconds`，后端校验 1 ≤ 值 ≤ 生成模型一段的上限。项目设置可改（含「不限」），改小时提示「下次装段生效」；换成上限更小的模型时单段时长自动降档。需求文档契约 brief 认 `segment_seconds`，读取整理时不再挪进 `constraints`（第 1 阶段装段读它）。
+- 选「导入小说」建项目：建完直接到章节页 `?import=1`，导入小说对话框自动打开，参数读一次就从地址栏去掉。
+
+自动化覆盖：
+
+- [x] `internal/app`：`TestProjectSetupAspectRatioAndSegmentSeconds`（21:9 拒绝；Seedance 2.0 + 30 秒拒绝；4:3 + Seedance 2.5 + 30 秒写进需求文档；设置里改单段秒数只改这一项；超过模型上限拒绝；0 去掉；只换成上限更小的模型时拒绝）。
+- [x] `internal/drama`：`TestBriefKeepsSegmentSeconds`（契约解析、整理时保留，0 和超范围拒绝）。
+- [ ] 浏览器验收（待用户确认）：建项目选 3D 动漫 → 画风中心只剩 3D 类；选 4:3；选 30 秒 → 生成模型只剩 Seedance 2.5；档案显示「3D 动漫（按画风推荐）」；选导入小说创建后章节页导入对话框自动打开；项目设置把 30 秒改成 15 秒出现「下次装段生效」，保存后需求文档 `segment_seconds` 为 15；明暗主题。
+- [ ] 线上验收：新建 30 秒项目跑一次生成分段，段长不超过 30 秒；改成 15 秒后重新装段，段长不超过 15 秒。
+
 ## 功能开放：技能展示开关
 
 - 「功能开放」新增第 4 组「技能展示」，对应 `feature_availability` JSON 的 `skillContentVisible`，缺省为开启；旧配置没有该字段时按开启读取。
