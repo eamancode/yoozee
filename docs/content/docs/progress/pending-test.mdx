@@ -19,8 +19,8 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 - [x] `internal/drama`：`TestScriptAdaptContractText`、`TestScriptAdaptEpisodesFromText`、`TestScriptAdaptNormalizesSkillFormat`、`TestCountScriptAdaptTurn`、`TestCheckScriptAdapt`、`TestEpisodeSourceTextRoundTrip`（写进剧集的正文按章节同一条路径切得出场、读得出台词）、`TestScriptAdaptEpisodeCountAndPrompts`、`TestStepGateMetrics`、`TestDeriveScriptEndStateByEpisodes`。
 - [x] `internal/app`：`TestScriptAdaptWritesEpisodesThroughWorker`（真实 worker 路径：三章两集两轮、收尾建两集、主要来源按段数、排在章节之后；剧集上生成分段按场切；重跑要确认替换；只调节奏原地改写、来源注释保留）；`TestDramaStepBindingsResolveAndAdminWrite`（剧本优化默认技能）。
-- [x] 前端：`script-adapt-stream.test.ts`（按集分组、重试清掉半截、从结果还原、保存时接回来源注释）、`drama-api.test.ts`（项目级入口、409 影响面、按步骤读摘要）。
-- [ ] 本机联调（独立数据目录 + 假的流式上游）：空项目导入 3 章小说，「剧本优化」写 2 集，侧栏按集出正文；在剧集上生成分段；sourceType=script 导入后只调节奏。
+- [x] 前端：`script-adapt-stream.test.ts`（按集分组、重试清掉半截、从结果还原、保存时接回来源注释）、`drama-api.test.ts`（项目级入口、409 影响面、按步骤读摘要）；`internal/app` 的 `TestTaskClientContextMarksScriptAdapt`（任务列表靠 `clientContext.chapterOperation = script-adapt` 认出剧本优化任务，列表不下发任务输入）。
+- [x] 本机联调（独立数据目录 + 假的流式上游）：导入 3 章小说的项目点「剧本优化」写 2 集，一个任务两轮，侧栏按集流出正文；完成后切到剧集视图，第 1 集「改编自 第一章 ¶1-10」、正文开头带来源注释、`parent_id` 指向第一章，第 2 集来源第二、三章、主要来源按段数取第二章；原文切过去只读并提示；第 1 集一轮输出没写 sources 时自动重试，三次都不对时任务失败、侧栏显示原因和「重新生成」，原文与剧集不动。在第 1 集上生成分段：按 3 个场次头逐场写 41 镜、装成 10 段。勾选第一章重跑返回 409 并列出第 1 集（10 段、有镜头表），确认替换后旧的第 1 集连同镜头表和段被删、新第 1 集仍排在第 2 集前面。「导入剧本」项目默认看剧集、对话框默认只调节奏，两集原地改写、集数不变。总览「剧本定了」显示「2 集剧本」。明暗主题下侧栏可读。
 - [ ] 部署后：线上真实模型把一章小说改编成一集，检查场次头、台词行是否都被台词表读出（侧栏提醒为 0）；剧集上生成分段的台词覆盖率。
 - [ ] 部署后：后台对 `yz-script-adapt` 1.0.0 跑一次评测（`qichuang-novel-c01`），解析率门槛是否合适。
 
