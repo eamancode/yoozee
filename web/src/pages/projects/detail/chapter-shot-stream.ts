@@ -40,7 +40,7 @@ function textOf(value: unknown): string {
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 /** 解析文本流里已经写完（以换行结尾）的行；最后一行没写完的不算。 */

@@ -376,7 +376,7 @@ export type DramaStepOutcome = {
 function taskResultRecord(task: Pick<GenerationTask, "resultJson">): Record<string, unknown> {
     try {
         const parsed = JSON.parse(task.resultJson || "{}") as unknown;
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
     } catch {
         return {};
     }
