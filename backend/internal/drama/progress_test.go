@@ -65,10 +65,18 @@ func TestDeriveMarksSegmentsOverTheProjectModelLimit(t *testing.T) {
 	}
 }
 
-func TestDeriveKeepsEightEndStates(t *testing.T) {
+func TestDeriveKeepsTenEndStates(t *testing.T) {
 	states := Derive(ProgressInput{Model: mustModel(t, "seedance-2.0"), AuthMode: AuthFull}).EndStates
-	if len(states) != 8 {
-		t.Fatalf("终态应有 8 个，得到 %d", len(states))
+	if len(states) != 10 {
+		t.Fatalf("终态应有 10 个，得到 %d", len(states))
+	}
+	keys := make([]string, 0, len(states))
+	for _, state := range states {
+		keys = append(keys, state.Key)
+	}
+	// 「风格定了」「色卡齐了」排在「剧本定了」之后、「参考齐了」之前。
+	if got := strings.Join(keys[:5], ","); got != "brief,script,style,palette,refs" {
+		t.Fatalf("终态顺序不对：%s", got)
 	}
 	seen := map[string]bool{}
 	for _, state := range states {
@@ -179,5 +187,33 @@ func TestCompileReportsOverLongSegmentAsError(t *testing.T) {
 	}
 	if ok.Duration != 20 {
 		t.Fatalf("编译结果要保留段长：%d", ok.Duration)
+	}
+}
+
+func TestDeriveStyleAndPaletteStates(t *testing.T) {
+	m := mustModel(t, "seedance-2.0")
+	bible := `{"characters":[{"name":"林小满"}],"style_anchor":{"medium":"真人实拍"},"color_script":[{"episode":1,"scene_no":1},{"episode":1,"scene_no":2}]}`
+	state := func(in ProgressInput) map[string]EndState {
+		out := map[string]EndState{}
+		for _, s := range Derive(in).EndStates {
+			out[s.Key] = s
+		}
+		return out
+	}
+	empty := state(ProgressInput{Model: m, AuthMode: AuthStep})
+	if empty["style"].Done || empty["palette"].Done {
+		t.Fatalf("空项目不该风格定了、色卡齐了：%+v %+v", empty["style"], empty["palette"])
+	}
+	partial := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: bible, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02"}}})
+	if !partial["style"].Done || partial["palette"].Done || !strings.Contains(partial["palette"].Detail, "1/2") {
+		t.Fatalf("风格锚写了、一张色卡没图：%+v %+v", partial["style"], partial["palette"])
+	}
+	full := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: bible, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02", Imaged: true}}})
+	if !full["palette"].Done {
+		t.Fatalf("每场都有出了图的色卡应算色卡齐了：%+v", full["palette"])
+	}
+	noAnchor := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: `{"style_anchor":{}}`})
+	if noAnchor["style"].Done {
+		t.Fatal("空的风格锚不算风格定了")
 	}
 }

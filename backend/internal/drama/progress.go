@@ -130,6 +130,14 @@ type ProgressInput struct {
 	Evidence  []EvidenceState
 	// Episodes 是项目里的剧集单元（kind=episode，按顺序）：「剧本定了」看它们。
 	Episodes []EpisodeInput
+	// Palettes 是项目里的色卡资产：「色卡齐了」看色彩脚本的每一场是否都有出了图的色卡。
+	Palettes []PaletteInput
+}
+
+// PaletteInput 是一张色卡资产：Code 是场编号（E01S02），Imaged 是已确认的主版本有图。
+type PaletteInput struct {
+	Code   string
+	Imaged bool
 }
 
 // EpisodeInput 是一集剧本：WordCount 是正文字数（来源注释不算）。
@@ -246,7 +254,7 @@ func bibleState(raw string) (hasCharacters bool, allChecked bool, unchecked int)
 	return len(doc.Characters) > 0, unchecked == 0, unchecked
 }
 
-// Derive 从生产数据推导进度表和八个终态（不读也不写任何状态机）。
+// Derive 从生产数据推导进度表和十个终态（不读也不写任何状态机）。
 func Derive(in ProgressInput) Progress {
 	out := Progress{Model: in.Model, AuthMode: in.AuthMode, Segments: []SegmentProgress{}}
 	var filmGate, filmDelivery, filmAcceptance *EvidenceState
@@ -347,6 +355,7 @@ func Derive(in ProgressInput) Progress {
 	}
 	hasCharacters, bibleChecked, unchecked := bibleState(in.BibleJSON)
 	scriptOK, scriptDetail := episodesWritten(in.Episodes)
+	styleOK, styleDetail, paletteOK, paletteDetail := styleBibleState(in.BibleJSON, in.Palettes)
 	refsOK := all(func(r SegmentProgress) bool { return r.Refs }) && bibleChecked && hasCharacters
 	reviewedOK := all(func(r SegmentProgress) bool { return r.Reviewed })
 	gateOK := filmGate != nil && passed(filmGate) && filmGate.CreatedAt.After(lastSelection)
@@ -370,6 +379,8 @@ func Derive(in ProgressInput) Progress {
 	out.EndStates = []EndState{
 		{"brief", "需求问透了", briefOK, briefDetail, "yz-brief"},
 		{"script", "剧本定了", scriptOK, scriptDetail, "yz-script-adapt"},
+		{"style", "风格定了", styleOK, styleDetail, "yz-style-bible"},
+		{"palette", "色卡齐了", paletteOK, paletteDetail, "yz-style-bible"},
 		{"refs", "参考齐了", refsOK, refsDetail, "yz-cast"},
 		{"review", "每段过审了", reviewedOK, fmt.Sprintf("%d/%d 段三项证据齐", c.Reviewed, c.Segments), "yz-shoot"},
 		{"gate", "成片过门禁了", gateOK, gateDetail, "yz-cut"},
@@ -385,6 +396,48 @@ func Derive(in ProgressInput) Progress {
 		}
 	}
 	return out
+}
+
+// styleBibleState 是「风格定了」（风格锚非空）和「色卡齐了」（色彩脚本的每一场都有色卡资产，且已确认的主版本有图）。
+func styleBibleState(bibleJSON string, palettes []PaletteInput) (bool, string, bool, string) {
+	var doc struct {
+		StyleAnchor *StyleAnchor `json:"style_anchor"`
+		ColorScript []struct {
+			Episode int `json:"episode"`
+			SceneNo int `json:"scene_no"`
+		} `json:"color_script"`
+	}
+	_ = json.Unmarshal([]byte(strings.TrimSpace(bibleJSON)), &doc)
+	styleOK := !doc.StyleAnchor.Empty()
+	styleDetail := "还没有全局风格锚：在章节页点「导演风格」"
+	if styleOK {
+		styleDetail = "全局风格锚已写"
+	}
+	if len(doc.ColorScript) == 0 {
+		return styleOK, styleDetail, false, "还没有色彩脚本"
+	}
+	imaged := map[string]bool{}
+	has := map[string]bool{}
+	for _, p := range palettes {
+		has[p.Code] = true
+		imaged[p.Code] = imaged[p.Code] || p.Imaged
+	}
+	done, missing := 0, 0
+	for _, e := range doc.ColorScript {
+		code := SceneCode(e.Episode, e.SceneNo)
+		switch {
+		case imaged[code]:
+			done++
+		case !has[code]:
+			missing++
+		}
+	}
+	total := len(doc.ColorScript)
+	detail := fmt.Sprintf("%d/%d 场色卡已出图", done, total)
+	if missing > 0 {
+		detail += fmt.Sprintf("；%d 场还没有色卡资产", missing)
+	}
+	return styleOK, styleDetail, done == total, detail
 }
 
 // episodesWritten 是「剧本定了」：至少一集剧本，每集都有正文（剧本优化写出，或导入剧本）。

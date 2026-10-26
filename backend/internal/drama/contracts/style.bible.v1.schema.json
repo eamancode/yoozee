@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "style.bible@1",
+  "title": "导演风格（风格锚 + 色彩脚本）",
+  "description": "导演风格这一步的模型输出：全局风格锚（画风 / 媒介、光线政策、镜头语言、调色倾向、禁用项）和逐场色彩脚本（每场的共享色、新增色、承接哪一场）。一集一块：先一行 JSON 头（episode、title），下面每场一行 JSON；第一集的头之前另起一行写风格锚，只写一次。便于边流边解析、按集续写。收尾时写进 bible_json.style_anchor 与 bible_json.color_script，每场再建一个色卡资产；色卡的英文出图提示词由代码按《色卡提示词卡》模板拼，HEX 只从这里取。契约文字由 drama.Contract.Text 按本文件生成。",
+  "type": "object",
+  "required": [
+    "style_anchor",
+    "color_script"
+  ],
+  "x-contract": {
+    "heading": "【受保护输出契约】",
+    "layout": "blocks",
+    "items": "color_script",
+    "format": "一集一块，按集号顺序输出：每集先单独一行写这一集的 JSON 头，形如 {\"episode\": 1, \"title\": \"集标题\"}；下一行起每场单独一行写这一场的色彩脚本（一个 JSON 对象），直到下一集的 JSON 头。全片第一个 JSON 头之前，先单独一行写全局风格锚 {\"style_anchor\": {…}}，整个对话只写一次。每个 JSON 对象写在同一行里，不要换行；不要 Markdown 代码块、表格、分析过程或任何解释文字。",
+    "rowsIntro": "每场一行，字段如下（episode、scene_no、scene 照抄【剧集场次】）：",
+    "requirement": "每一集的每一场都要写一行，不合并、不跳场。",
+    "rules": [
+      "style_anchor 是对象，字段：medium（画风 / 媒介，与【项目画风】一致）、art_style（美术风格）、lighting（光比与光线政策：主光方向、明暗比、实景光源、冷暖分区）、camera（镜头语言：景别倾向、焦段、运镜克制程度）、grading（调色倾向：整体色温、饱和度、对比、肤色处理）、forbidden（禁用项，字符串数组）；可另写 era（时代）、genre（类型）、render_quality（画质）。",
+      "每个颜色写成 {\"name_zh\": \"中文色名\", \"name_en\": \"English Color Name\", \"hex\": \"#RRGGBB\", \"usage\": \"用途\"}：hex 是 # 加 6 位十六进制；name_en 是两三个英文单词的色名；usage 写这个颜色用在哪个角色、道具、环境或光源上。",
+      "每场至少 3 个颜色（shared_colors 与 new_colors 合计），一般 5 到 10 个；每个颜色都要有明确的叙事或资产用途，不凑数。",
+      "inherits_from 写承接哪一场的色卡，用场编号，如 \"E01S02\"（第 1 集第 2 场）；只能是前面已经写过的场，或【已有色彩脚本】里的场；不承接写空字符串 \"\"。",
+      "承接时 shared_colors 是跨段共享色：从承接场的颜色里挑，name_zh、name_en、hex 与承接场一模一样，不得改动；new_colors 是本场新增色。不承接时 shared_colors 写这一场的场景基础色，new_colors 写本场关键色。",
+      "purpose 写这张色卡服务的场景功能、主要主体、背景或环境、是否承接上一场、是否给后面的角色 / 场景 / 道具提供色彩锚点；references 写 2 到 4 个视觉影视参考（角色或主体、场景环境、材质、整体色彩 / 摄影 / 调色），按剧本写，不照抄示例。"
+    ]
+  },
+  "properties": {
+    "style_anchor": {
+      "type": "object",
+      "description": "全局风格锚（bible_json.style_anchor）",
+      "properties": {
+        "medium": {"type": "string"},
+        "art_style": {"type": "string"},
+        "lighting": {"type": "string"},
+        "camera": {"type": "string"},
+        "grading": {"type": "string"},
+        "forbidden": {"type": "array", "items": {"type": "string"}},
+        "era": {"type": "string"},
+        "genre": {"type": "string"},
+        "render_quality": {"type": "string"}
+      }
+    },
+    "color_script": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "episode",
+          "scene_no",
+          "scene",
+          "inherits_from",
+          "shared_colors",
+          "new_colors"
+        ],
+        "properties": {
+          "episode": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "集号"
+          },
+          "scene_no": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "本集里的场序，从 1 数"
+          },
+          "scene": {
+            "type": "string",
+            "description": "场次头原文，不带「## 」"
+          },
+          "inherits_from": {
+            "type": "string",
+            "description": "承接哪一场的色卡，场编号如 E01S02；不承接写空字符串"
+          },
+          "shared_colors": {
+            "type": "array",
+            "description": "跨段共享色（承接时与承接场一致）或场景基础色",
+            "items": {"$ref": "#/$defs/color"}
+          },
+          "new_colors": {
+            "type": "array",
+            "description": "本场新增色",
+            "items": {"$ref": "#/$defs/color"}
+          },
+          "purpose": {
+            "type": "string",
+            "description": "色卡用途：场景功能、主体、环境、承接关系、是否给后续资产做锚点"
+          },
+          "references": {
+            "type": "string",
+            "description": "视觉影视参考预案，2 到 4 个"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "color": {
+      "type": "object",
+      "required": [
+        "name_zh",
+        "name_en",
+        "hex",
+        "usage"
+      ],
+      "properties": {
+        "name_zh": {"type": "string"},
+        "name_en": {"type": "string"},
+        "hex": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+        "usage": {"type": "string"}
+      }
+    }
+  }
+}

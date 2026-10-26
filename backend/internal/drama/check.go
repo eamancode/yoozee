@@ -19,6 +19,9 @@ type Bible struct {
 	Props       []BibleProp      `json:"props"`
 	SpatialMaps []SpatialMap     `json:"spatial_maps"`
 	Plants      []BiblePlant     `json:"plants"`
+	// StyleAnchor / ColorScript 是导演风格写的全局风格锚和逐场色彩脚本（装段、检查暂不读）。
+	StyleAnchor *StyleAnchor       `json:"style_anchor,omitempty"`
+	ColorScript []ColorScriptEntry `json:"color_script,omitempty"`
 }
 
 type BibleVariant struct {

@@ -27,6 +27,7 @@ var contractFiles = map[string]string{
 	ContractCanvasStoryboard: "contracts/chapter.shots.v2.schema.json",
 	ContractChapterShots:     "contracts/chapter.shots.v3.schema.json",
 	ContractScriptAdapt:      "contracts/script.adapt.v1.schema.json",
+	ContractStyleBible:       "contracts/style.bible.v1.schema.json",
 }
 
 // ContractCanvasStoryboard 是画布拆镜的输出契约：整段一个 {"title", "rows"} JSON 对象（前端解析），不随生成分段升级。

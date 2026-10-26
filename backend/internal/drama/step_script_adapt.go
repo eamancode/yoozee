@@ -163,6 +163,11 @@ func ScriptAdaptPlanPrompt(mode string, episodes int, episodeSeconds float64, se
 
 // StepBriefPrompt 是【项目需求】段：需求文档里写给编剧看的事实，按 1500 字截断；需求文档为空或读不出时不写。
 func StepBriefPrompt(briefJSON string) string {
+	return stepBriefPrompt(briefJSON, "【项目需求】改编时遵守下面的需求，与原文冲突时以原文事实为准。")
+}
+
+// stepBriefPrompt 是带指定引导句的【项目需求】段。
+func stepBriefPrompt(briefJSON string, intro string) string {
 	var brief Brief
 	if raw := strings.TrimSpace(briefJSON); raw == "" || json.Unmarshal([]byte(raw), &brief) != nil {
 		return ""
@@ -203,7 +208,7 @@ func StepBriefPrompt(briefJSON string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	out := "【项目需求】改编时遵守下面的需求，与原文冲突时以原文事实为准。"
+	out := intro
 	remaining := stepBriefPromptChars
 	for _, line := range lines {
 		n := jsLen(line)
