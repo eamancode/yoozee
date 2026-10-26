@@ -92,8 +92,15 @@ export default function ProjectsPage() {
         setCreateSource(source);
         setCreateOpen(true);
     };
+    // 每次打开只初始化一次：对话框里切换内容来源不能把已选的画幅、时长、模型重置掉。
+    const createInitializedRef = useRef(false);
     useEffect(() => {
-        if (!createOpen) return;
+        if (!createOpen) {
+            createInitializedRef.current = false;
+            return;
+        }
+        if (createInitializedRef.current) return;
+        createInitializedRef.current = true;
         createForm.setFieldsValue({
             name: storyDraft.trim().slice(0, 24) || "",
             sourceType: createSource,
@@ -103,6 +110,10 @@ export default function ProjectsPage() {
             authMode: launcherAuth,
         });
     }, [createForm, createOpen, createSource, storyDraft, launcherModel, launcherAuth, defaultDramaModel]);
+    // 模型目录晚于对话框读到时，没动过的生成模型跟着默认值走。
+    useEffect(() => {
+        if (createOpen && !createForm.isFieldTouched("generationModel")) createForm.setFieldValue("generationModel", launcherModel || defaultDramaModel);
+    }, [createForm, createOpen, launcherModel, defaultDramaModel]);
     // 在外面先选了画风再打开对话框：按画风的媒介把类型带上。
     useEffect(() => {
         if (!createOpen || createForm.getFieldValue("contentType") || !selectedStyle) return;
