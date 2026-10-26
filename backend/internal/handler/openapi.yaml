@@ -1811,25 +1811,6 @@ paths:
           description: "{ code: 0, data: { shotlist: DramaShotlistView | null } }"
         "404":
           $ref: "#/components/responses/Error"
-    put:
-      tags: [drama]
-      summary: 写一章的镜头表并整章重装段
-      description: >-
-        服务端依次把章节正文转成台词表、分镜行 spec 转成镜头表（台词按原文对回 line_id）、按 R-SHOT 规则检查、按场装段，
-        再把镜头表与段在同一事务里整章替换。检查有 error 时返回 400、reason=shotlist_check_failed，details.check 是检查结果
-        （每项带 rule、level、message、shotId），不落库；warn 不挡保存，随结果返回。
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/DramaShotlistWriteRequest" }
-      responses:
-        "200":
-          description: "{ code: 0, data: { shotlist: DramaShotlistView, segments, check, stats, notes } }"
-        "400":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
   /assets:
     get:
       tags: [assets]
@@ -1910,26 +1891,6 @@ components:
       in: cookie
       name: open_ai_canvas_session
   schemas:
-    DramaShotlistWriteRequest:
-      type: object
-      required: [rows]
-      properties:
-        rows:
-          type: array
-          minItems: 1
-          maxItems: 200
-          description: 分镜行（StoryboardRow）；spec 是镜头表的一镜（契约 shotlist 的 shot），不带 spec 的行用平铺字段兜底
-          items: { type: object, additionalProperties: true }
-        rule:
-          type: object
-          description: 渠道实际能提交的段长（秒），只能收紧项目生成模型的上限
-          properties:
-            maxSeconds: { type: integer, minimum: 1 }
-            minSeconds: { type: integer, minimum: 1 }
-        expectedShotIds:
-          type: array
-          items: { type: string }
-          description: 本章现有镜头 ID；与服务端不一致时拒绝（章节已被别处改过）
     DramaCheckReport:
       type: object
       properties:
@@ -1948,6 +1909,14 @@ components:
         skipped:
           type: array
           items: { type: object, properties: { rule: { type: string }, why: { type: string } } }
+        parse:
+          type: object
+          description: 生成分段收尾时模型输出的解析统计（一镜一行）；手写或 Agent 写入的镜头表没有
+          properties:
+            lines: { type: integer }
+            rows: { type: integer }
+            rejected: { type: integer }
+            rate: { type: number }
     DramaShotlistView:
       type: object
       properties:
@@ -1956,6 +1925,7 @@ components:
         shotlist: { type: object, additionalProperties: true, description: 契约 shotlist }
         script: { type: object, additionalProperties: true, description: 由章节正文转出的台词表（契约 script） }
         check: { $ref: "#/components/schemas/DramaCheckReport" }
+        draft: { type: boolean, description: 检查有 error、只存了草稿还没装段（本章的段仍是上一次装出的），用 shotlist/repack 重装 }
         updatedAt: { type: string, format: date-time }
     LoginLog:
       type: object

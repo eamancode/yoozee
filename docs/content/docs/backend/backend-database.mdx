@@ -68,6 +68,8 @@ Schema 45 新增 `upload_reservations`：`id`、`user_id`、`size`、`day`、`ex
 
 ### 云端 Agent 运行时
 
+短剧流程步骤（生成分段）的任务不另建表，运行状态都在 `tasks` 的 JSON 里：`input_json.metadata.dramaStep`（步骤、契约、风格档案、技能版本、段长规则 `rule`）、`input_json.metadata.dramaRun`（`runId`、`unitId`、按场次头切好的 `scenes`、轮数 `turns`、从第几轮开始 `resumeFrom`、「从第 N 场继续」所指的上一次任务 `resumeTaskId`）；`result_json.dramaRun` 是逐场进度（`total`、`completed`、每轮的场号、行数、调用次数、用量和所在任务，任务失败时每轮还带对话 `prompt / text`，供接着写），任务运行中每写完一场就写一次，失败收尾不清空；`result_json.dramaStep` 是收尾写库的摘要（`status` 为 `written` 或 `draft`、解析统计、检查条数、段数）。
+
 每轮 Agent 存为 `tasks` 中 `operation = cloud_agent` 的 `canvas_text` 任务，任务 `input_json.cloudAgent` 保存版本 1 的已校验请求、父轮 ID、请求指纹和技能快照；历史从服务端父轮结果构造。任务 ID 由用户与幂等键确定，利用现有主键、任务 admission 和积分预留事务防止重复提交重复扣费。Agent 的模型循环、工具调用、审批、子任务和事件写入 `cloud_agent_executions.state_json`，任务 Worker 只负责推进状态，不依赖浏览器连接。公共任务创建与重试接口禁止绕过 Agent admission；删除任务会影响该轮继续对话与回放。
 
 | 表 | 用途 | 关键边界 |
@@ -203,7 +205,7 @@ docker compose -f docker-compose.deploy.yml up -d backend web
 | `shot_asset_references` | 将镜头绑定到具体资产版本 | 修改引用时只使该镜头的下游产物过期，不影响其他镜头 |
 | `shot_artifacts` | 保存分镜图、动作预演、首尾帧、视频等版本化产物 | `selected` 表示当前采用版本；上游变化后状态转为 `stale`，历史资源继续保留。`input_hash` 是生成时依赖输入的指纹，保存新版本时只有指纹变了的产物才过期；为空的旧产物一律按过期处理 |
 | `shot_evidences` | 保存候选与成片的证据：抽帧、人脸、台词转写、选定理由、成片门禁 | `passed` 可空：人判项未判定时为空，算作缺；选定一个候选前，抽帧、人脸（有台词时加转写）都必须通过。按 `(project_id, artifact_id)` 建索引，删除项目时一并清理 |
-| `drama_shotlists` | 一章的镜头表（yoozee 契约 shotlist）：段由它装出，是段的来源 | `project_id`、`unit_id`（唯一）、`version`（每次整章重写加一）、`shotlist_json`（镜头表）、`script_json`（由章节正文转出的台词表，台词 id 如 `E01S01L01`）、`check_json`（最近一次检查结果，只存没有 error 的那次）、`rows_json`（这次写入的分镜行原文，评测重放装段用，不对外返回）、`compile_profile_version`（装段用的编译档案版本，0 为内置默认）、`created_by`、时间戳。镜头表与本章的段在同一事务里写入；删除项目或章节时一并清理 |
+| `drama_shotlists` | 一章的镜头表（yoozee 契约 shotlist）：段由它装出，是段的来源 | `project_id`、`unit_id`（唯一）、`version`（每次整章重写加一）、`shotlist_json`（镜头表）、`script_json`（由章节正文转出的台词表，台词 id 如 `E01S01L01`）、`check_json`（最近一次检查结果；生成分段收尾检查有 error 时也写入，此时这份镜头表是草稿：行、镜头表、检查结果落库但没装段，本章的段仍是上一次的，`errors > 0` 即草稿；`parse` 是收尾时模型输出的解析统计 `{ lines, rows, rejected, rate }`）、`rows_json`（这次写入的分镜行原文，评测重放装段用，不对外返回）、`compile_profile_version`（装段用的编译档案版本，0 为内置默认）、`created_by`、时间戳。镜头表与本章的段在同一事务里写入；删除项目或章节时一并清理 |
 | `drama_step_bindings` | 短剧流程「风格档案 × 步骤 → 技能」绑定（M6）：运行时按项目风格档案查这一格，取技能当前生效的版本 | `style_profile` + `step` 唯一（`step` 是步骤表 `internal/drama/steps.go` 的 ID，如 `chapter.shots`）、`skill_id`、`updated_by`、时间戳。没配的格子用步骤表里该步骤的默认技能；后台改绑只能选启用、公开、当前版本有 SKILL.md 的技能，删掉一格回到默认 |
 | `drama_eval_runs` | 评测记录：视频提示词阶段（M5）是候选与基线编译档案在项目章节上各跑一遍的指标表与逐段提示词；流程步骤（M6 第三期）是技能包候选版本在评测集上真跑、与启用版本对照、按门槛判定的结果 | `stage`（`compile` 或流程步骤 ID 如 `chapter.shots`）、`project_id`、`unit_ids_json`（compile 是章节 ID，步骤评测是评测章节 ID）、`model`、`candidate_version` / `baseline_version`（编译档案版本，0 为内置默认）、`result_json`（compile：指标表、Markdown、逐段提示词；步骤评测：逐章的候选与对照结果、复用对照时的来源评测 ID）、`skill_id` / `skill_version_id`（技能包与候选版本）、`baseline_skill_version_id`（评测开始时的启用版本）、`status`（`queued` / `running` / `passed` / `failed` / `error`，compile 为空）、`tasks_json`（逐章任务位：章节、候选或对照、任务 ID（没投出时为空）、最近状态、重投次数、下次重投时间、重投前失败的任务）、`model_json`（评测用的模型选择，密钥加密）、`gate_json`（门槛逐项结论）、`error`（出错原因，或通过了但没自动启用的说明）、`activation`（`auto` / `forced`）、`activation_reason`、`activated_by`、`activated_at`、`finished_at`、`created_by`、`created_at`。评测只读项目数据，不改镜头表和段；评测任务的渠道配置只在任务表里（按任务规则加密），不进评测记录 |
 | `drama_compile_profiles` | 编译档案的版本：装段与视频提示词里影响质量的文字（镜头画面句、表情链、灯光七项、台词四元、人物声明、参考声明、约束、⚠️ 风险文案、风格块与表演块、机位词表） | `version`（唯一，从 1 递增；0 是程序内置默认，不入库）、`name`、`content_json`（只写要改的项，读取时叠在内置默认上；未知字段、未知占位符、缺必需占位符在保存时拒绝）、`note`（改了什么）、`enabled`（同一时刻最多一个；没有启用的就用内置默认）、`created_by`、时间戳。启用中的版本不能删除 |

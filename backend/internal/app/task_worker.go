@@ -266,6 +266,9 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 	if err == nil {
 		_, err = s.finalizeCharacterTurnaroundTask(*task, result)
 	}
+	if err == nil {
+		_, err = s.finalizeDramaStepTask(*task, result)
+	}
 	if err != nil {
 		channelSlotFailedBeforeRequest := false
 		if code, _ := ChannelSlotFailureDetails(err); code != "" {
@@ -379,7 +382,27 @@ func taskExecutionTimeout(task *model.Task, policy RuntimeTaskPolicy) time.Durat
 	if task == nil {
 		return time.Duration(policy.DefaultTimeoutMinutes) * time.Minute
 	}
+	if storyboardTextTask(task) {
+		return storyboardTaskTimeout(task, policy)
+	}
 	return taskExecutionTimeoutWithPolicy(task.Type, policy)
+}
+
+// storyboardTextTask 是分镜文本任务：画布拆镜（operation=storyboard）和短剧流程步骤（metadata.dramaStep）。
+// 整章分镜一次输出 5～8 万 token，慢模型走不完文本任务的超时，按分镜任务超时（StoryboardTimeoutMinutes）算。
+func storyboardTextTask(task *model.Task) bool {
+	if task == nil || !strings.HasPrefix(task.Type, "canvas_text") {
+		return false
+	}
+	return task.Operation == "storyboard" || taskDramaStep(task.InputJSON) != nil
+}
+
+// storyboardTurnTimeout 是分镜一次模型调用的墙钟；没配分镜超时时沿用文本任务超时。
+func storyboardTurnTimeout(policy RuntimeTaskPolicy) time.Duration {
+	if policy.StoryboardTimeoutMinutes > 0 {
+		return time.Duration(policy.StoryboardTimeoutMinutes) * time.Minute
+	}
+	return time.Duration(policy.TextTimeoutMinutes) * time.Minute
 }
 
 func taskExecutionTimeoutWithPolicy(taskType string, policy RuntimeTaskPolicy) time.Duration {

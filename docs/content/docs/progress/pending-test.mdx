@@ -5,6 +5,24 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M7.2 第 1 阶段：生成分段写路径收到后端、任务内逐场续写
+
+- 分镜超时：画布拆镜（`operation=storyboard`）和短剧流程步骤（`metadata.dramaStep`）的文本任务按后台「分镜任务超时」（`storyboardTimeoutMinutes`，默认 20 分钟）算，不再被 8 分钟的文本超时掐断；没配时沿用文本超时。
+- 生成分段的输出契约升到 `chapter.shots@3`：一镜一行（JSON Lines）。画布拆镜仍是整段 JSON 的 `@2`。`yz-chapter-shots` 包清单同步成 `@3`；线上已有包版本清单仍写 `@2`，运行不受影响，下次上传前要改。
+- 一个运行 = 一个任务：正文按场次头切成两场以上时，worker 在任务内逐场调模型，每场一轮、带上前面各轮的对话、各用一次分镜超时；失败的那一场自动重试最多 2 次（5 秒、10 秒退避），仍失败时任务失败但已写完的场留在任务结果里。所有轮次的输出进同一条 `text-events`，前端只订阅一次。
+- 收尾在任务转成功之前由服务端做：逐行解析、按资产名称绑定、写镜头表、装段（单段上限叠加需求文档 `segment_seconds` 与渠道段长，只收紧）。检查有 error 时不再拒绝：镜头表存成草稿（`check_json` 带 error，`shotlist.draft = true`），不装段、本章原有的段不动，章节页列出问题行，处理后点「重新装段」（已有的 `shotlist/repack`）。检查结果不写证据。
+- 前端不再解析任务结果、不再写镜头表：删掉 `putDramaShotlist`、`PUT .../drama/shotlist`、「按旧方式保存」的分支和前端装段。章节页「生成分段」后右侧弹出进度侧栏，按场实时显示写出来的镜头；刷新页面后点「进度」接回正在跑的流；任务中途失败时显示「从第 N 场继续」，新任务只写剩下的场。
+
+自动化覆盖：
+
+- [x] `internal/app`：`TestStoryboardTextTasksUseStoryboardTimeout`；`TestFinalizeDramaStepTaskWritesShotlistLikeDirectWrite`（七床线上输出改成一镜一行，收尾写出的镜头表、台词表和每一段 spec 与同一批分镜行直接写入逐字段一致，解析统计进 `check_json`，不写证据）、`TestFinalizeDramaStepTaskKeepsDraftOnCheckErrors`、`TestFinalizeDramaStepTaskUsesBriefSegmentSeconds`；`TestDramaRunLoopsScenesInOneTask`、`TestDramaRunResumesFromFailedScene`、`TestDramaRunMetaAndResume`、`TestDramaTurnRetryable`、`TestChapterShotsScenesFromHeadings`；`TestDramaStepTaskRunsScenesAndFinalizesThroughWorker`（真实 worker 路径：三场三轮流式输出、第三场 503 重试用尽任务失败并保留前两场、从第 3 场继续只调一次模型并写完 41 镜）。提示词黄金文件按 `@3` 更新。
+- [x] `internal/drama`：`TestStoryboardRowsFromTextReadsOneShotPerLine`、`TestStoryboardRowsFromTextFallsBackToWholeObject`、`TestChapterShotsLinesContractText`。
+- [x] 前端：`chapter-shot-stream.test.ts`（按场分组、只认写完的行、重试清掉半截、没有标记时按 `spec.scene` 分场、从结束的任务还原）、`drama-api.test.ts`（没有写镜头表的函数、重新装段、`resumeTaskId` / `rule`、读进度和摘要）。
+- [x] 本机联调（独立数据目录 + 假的流式上游，按七床第一集的线上输出逐场吐行）：生成分段侧栏逐场出镜头，写完跳到分镜制作（3 场 6 段）；第三场一直 503 时侧栏显示「从第 3 场继续」，点了只调一次上游就写完；生成中刷新页面再点「进度」能接回流；离开页面任务照样写完；第一镜情绪弧写坏时存成草稿、侧栏列出 `R-SHOT-025`，重新装段仍报这个问题、草稿不变；明暗主题下侧栏可读。
+- [ ] 线上验收（部署后）：《七床》第一集（线上测试项目「yoozee 实测·七床」）用 gpt-6.1-sol 这类慢模型整集跑完，场与场之间没有排队停顿；中途在后台把渠道停掉一场，能从那一场继续；写出的镜头表和段与改造前人工检查过的一致。
+- [ ] 线上验收：后台「流程技能」页对线上已有的 `yz-chapter-shots` 包版本（清单仍是 `@2`）显示是否正常；新上传要按 `@3`。
+- [ ] 成本：逐场续写的输入是整章的 2.5～3 倍（对话历史越来越长），计费仍按每个任务一笔，确认是否要按轮计费或调价。
+
 ## M6 第三期修正：评测任务限并发与提交前失败重投
 
 线上现象（ea148dac，库结构 65）：同一版本 2.2.1+bad.1 连跑两次评测（04:55:33、05:03:52 两批），候选 + 对照十个文本任务一次投给 `CHANNEL_000002::deepseek-v4.1-flash`，每批只有 1 个跑起来，其余 9 个在 4 秒内失败（诊断 `provider_execution_failed`、`taskSubmitted: false`、`retryClass: reconcile_submission`、「模型服务暂时不可用（HTTP 502）」），评测判「出错」、门槛判不出来；单个生成分段任务走同一渠道一直正常。

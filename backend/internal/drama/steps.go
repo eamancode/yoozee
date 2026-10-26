@@ -9,7 +9,8 @@ const (
 	// StepChapterShots 是生成分段：一章正文 → 镜头行（带 spec）。
 	StepChapterShots = "chapter.shots"
 	// ContractChapterShots 是生成分段的输出契约版本；改契约就加版本号并换 schema 文件。
-	ContractChapterShots = "chapter.shots@2"
+	// @3 起一镜一行（JSON Lines）：任务内按场续写、前端边流边解析都靠它。
+	ContractChapterShots = "chapter.shots@3"
 )
 
 // StepEvalMaxConcurrency 是评测同时在跑的任务数上限（步骤表的 EvalConcurrency 超过它按它算）。
@@ -92,10 +93,10 @@ var steps = []Step{
 			{Name: "projectStyle", Label: "【项目画风：…】", Source: "项目画风快照 styleProfileJson 的 title / prompt，按小节取到 1200 字"},
 			{Name: "characters", Label: "【已确认角色外观】", Source: "项目里有角色卡版本的角色资产，外貌、服装、体型、随身道具、一致性，共 1600 字"},
 			{Name: "episodeSeconds", Label: "【本集时长】", Source: "需求文档 brief_json.episode_seconds"},
-			{Name: "contract", Label: "【受保护输出契约】", Source: "chapter.shots@2 schema 生成"},
+			{Name: "contract", Label: "【受保护输出契约】", Source: "chapter.shots@3 schema 生成（一镜一行）"},
 			{Name: "assets", Label: "【项目已确认资产】", Source: "项目资产清单（角色、有主版本的场景和道具，最多 60 项）与场景锚点；带 assets 字段要求"},
 		},
-		Parser:           "前端 storyboardRowsFromTask 取出 rows（带 spec），PUT /drama/shotlist 后由 RowsToShotlist 对照剧本台词表转成镜头表",
+		Parser:           "任务收尾时服务端 StoryboardRowsFromText 逐行解析（整段 JSON 兜底），按名字绑资产后由 RowsToShotlist 对照剧本台词表转成镜头表",
 		Checks:           []string{"CheckShots（镜头表规则 R-SHOT-*）", "Pack 装段后的段检查（R-SEG-*，含每集时长 R-SEG-008）"},
 		SkillBudgetChars: 32_000,
 		SkillLinkedFiles: 3,

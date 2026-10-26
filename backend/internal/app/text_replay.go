@@ -18,7 +18,7 @@ const (
 	textReplayMaxEventBytes          = 64 << 10
 	textReplayMaxTaskBytes           = 2 << 20
 	textReplayMaxUserBytes           = 64 << 20
-	textReplayMaxTaskEvents    int64 = 4096
+	textReplayMaxTaskEvents    int64 = 16384 // 按 500ms / 2KB 落一条；整集分镜逐场续写在慢模型上跑几十分钟，4096 条会半途停止回放
 	textReplaySuccessRetention       = 24 * time.Hour
 	textReplayDraftRetention         = 7 * 24 * time.Hour
 )
