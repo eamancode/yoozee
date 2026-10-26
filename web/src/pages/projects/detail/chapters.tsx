@@ -110,11 +110,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const { chapterId = "" } = useParams();
     const initialSelectedId = detail.units.some((unit) => unit.id === chapterId) ? chapterId : detail.units[0]?.id || "";
     const [selectedId, setSelectedId] = useState(initialSelectedId);
-    // 有剧集时默认看剧集；从地址打开某一章时看它所在的那一类。
+    // 有剧集或是导入剧本的项目时默认看剧集；从地址打开某一章时看它所在的那一类。
     const [unitView, setUnitView] = useState<UnitView>(() => {
         const opened = detail.units.find((unit) => unit.id === initialSelectedId);
         if (opened) return opened.kind === "episode" ? "episode" : "chapter";
-        return detail.units.some((unit) => unit.kind === "episode") ? "episode" : "chapter";
+        return detail.project.sourceType === "script" || detail.units.some((unit) => unit.kind === "episode") ? "episode" : "chapter";
     });
     const [createOpen, setCreateOpen] = useState(false);
     const [importOpen, setImportOpen] = useState(consumeChapterImportQuery);
@@ -164,10 +164,22 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     // 章与集各自编号。
     const chapterNumberById = useMemo(() => new Map([...chapterUnits.map((unit, index) => [unit.id, index + 1] as const), ...episodeUnits.map((unit, index) => [unit.id, index + 1] as const)]), [chapterUnits, episodeUnits]);
     const unitNoun = unitView === "episode" ? "集" : "章";
+    // 对话框里称呼当前单元：剧集叫「剧集」，原文叫「章节」。
+    const selectedUnitNoun = selectedUnit && unitKind(selectedUnit) === "episode" ? "剧集" : "章节";
     // 改编出剧集后原文只读：改原文要重新优化，否则剧集和原文对不上。
     const originalLocked = Boolean(selectedUnit && unitKind(selectedUnit) === "chapter" && episodeUnits.length);
     const episodesQuery = useQuery({ queryKey: dramaEpisodesKey(detail.project.id), queryFn: ({ signal }) => getDramaEpisodes(detail.project.id, signal), enabled: episodeUnits.length > 0 });
     const unitTitleById = useMemo(() => new Map(orderedUnits.map((unit) => [unit.id, unit.title])), [orderedUnits]);
+    // 由当前原文章节改编出的剧集（来源注释或主要来源指向它）。
+    const adaptedEpisodes = useMemo(() => {
+        if (!selectedUnit || unitKind(selectedUnit) !== "chapter" || !episodesQuery.data) return [];
+        return episodesQuery.data.episodes.filter((episode) => episode.parentId === selectedUnit.id || episode.sources.some((source) => source.unitId === selectedUnit.id));
+    }, [episodesQuery.data, selectedUnit]);
+    // 已改编的原文上不再提取资产、生成分段（会在原文上另出一套段），到剧集上做；剧集清单还没读到时先按已改编处理。
+    const adaptedOriginal = originalLocked && (episodesQuery.isPending || adaptedEpisodes.length > 0);
+    const adaptedEpisodeTarget = adaptedEpisodes[0];
+    const adaptedEpisodeLabel = adaptedEpisodeTarget ? `第 ${chapterNumberById.get(adaptedEpisodeTarget.unitId) || 1} 集` : "剧集";
+    const adaptedOriginalHint = "已改编成剧集，请到剧集上操作";
     // 原文与剧集互相跳转：剧集列来源章节和段号，原文章节列改编出的剧集。
     const unitLinks = useMemo(() => {
         if (!selectedUnit || !episodesQuery.data) return [];
@@ -175,8 +187,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             const episode = episodesQuery.data.episodes.find((item) => item.unitId === selectedUnit.id);
             return (episode?.sources || []).filter((source) => unitTitleById.has(source.unitId)).map((source) => ({ unitId: source.unitId, label: `${unitTitleById.get(source.unitId)}${source.from ? ` ¶${source.from}-${source.to}` : ""}` }));
         }
-        return episodesQuery.data.episodes.filter((episode) => episode.sources.some((source) => source.unitId === selectedUnit.id)).map((episode) => ({ unitId: episode.unitId, label: episode.title }));
-    }, [episodesQuery.data, selectedUnit, unitTitleById]);
+        return adaptedEpisodes.map((episode) => ({ unitId: episode.unitId, label: episode.title }));
+    }, [adaptedEpisodes, episodesQuery.data, selectedUnit, unitTitleById]);
     const canvasCountByUnitId = useMemo(() => new Map(Object.entries(detail.unitCanvasCounts || {}).map(([unitId, count]) => [unitId, Number(count)])), [detail.unitCanvasCounts]);
     const storyboardImpact = useMemo(() => chapterStoryboardReplaceImpact(detail, selectedUnit?.id || ""), [detail, selectedUnit?.id]);
     const dramaModels = useDramaModels();
@@ -431,6 +443,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         const unit = selectedUnit;
         if (!unit) throw new Error("章节正文尚未加载完成");
         if (dirty) throw new Error("请先保存当前章节，再运行 AI 分析");
+        if (adaptedOriginal) throw new Error(adaptedOriginalHint);
         const sourceText = editor?.getText().trim() || stripHtml(unit.sourceText);
         if (!sourceText) throw new Error("当前章节没有可分析的正文");
         const config = { ...effectiveConfig, model: textModel, textModel };
@@ -544,6 +557,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         const unit = selectedUnit;
         if (!unit) return message.warning("章节正文尚未加载完成");
         if (dirty) return message.warning("请先保存当前章节，再生成分镜");
+        if (adaptedOriginal) return message.warning(adaptedOriginalHint);
         if (detail.project.status === "archived") return message.warning("项目已归档，请先在项目设置中恢复");
         const sourceText = editor?.getText().trim() || stripHtml(unit.sourceText);
         if (!sourceText) return message.warning("当前章节没有可用于分镜的正文");
@@ -825,13 +839,13 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                             </div>
                             <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5">
                                 <ScriptAdaptControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} onWritten={showWrittenEpisodes} />
-                                <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(characterOperation)} loading={Boolean(characterOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setCharacterExtractOpen(true); }} aria-label={characterOperation ? `提取角色、场景与道具，${chapterOperationLabel(characterOperation, operationNow)}` : "提取角色、场景与道具"}>{characterOperation ? `提取资产（${chapterOperationLabel(characterOperation, operationNow)}）` : charactersGenerated ? "提取资产（已生成）" : "提取角色、场景与道具"}</Button>
-                                <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button>
+                                <Tooltip title={adaptedOriginal ? adaptedOriginalHint : undefined}><Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnit || dirty || adaptedOriginal || Boolean(characterOperation)} loading={Boolean(characterOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setCharacterExtractOpen(true); }} aria-label={characterOperation ? `提取角色、场景与道具，${chapterOperationLabel(characterOperation, operationNow)}` : "提取角色、场景与道具"}>{characterOperation ? `提取资产（${chapterOperationLabel(characterOperation, operationNow)}）` : charactersGenerated ? "提取资产（已生成）" : "提取角色、场景与道具"}</Button></Tooltip>
+                                <Tooltip title={adaptedOriginal ? adaptedOriginalHint : undefined}><Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || adaptedOriginal || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button></Tooltip>
                                 {storyboardOperation || storyboardStreamState.shotCount || shotlist || storyboardStop ? <Button size="small" onClick={() => setRunPanelOpen(true)} aria-label="查看生成分段进度">进度</Button> : null}
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending || originalLocked} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
-                        {originalLocked ? <div className="shrink-0 border-b border-border/70 px-4 py-2"><Callout tone="info" title="这一章已改编成剧集，原文只读" action={<Button size="small" onClick={() => switchUnitView("episode")}>看剧集</Button>}>原文只作改编依据：要改剧情就改剧集；要按原文重来，点「剧本优化」勾选这一章重新改编，新剧本会替换由它改编的剧集。</Callout></div> : null}
+                        {originalLocked ? <div className="shrink-0 border-b border-border/70 px-4 py-2"><Callout tone="info" title={adaptedOriginal ? "这一章已改编成剧集，原文只读" : "已有剧集，原文只读"} action={<Button size="small" onClick={() => (adaptedEpisodeTarget ? selectChapter(adaptedEpisodeTarget.unitId) : switchUnitView("episode"))}>{adaptedEpisodeTarget ? `去${adaptedEpisodeLabel}` : "看剧集"}</Button>}>{adaptedOriginal ? "原文只作改编依据：改剧情、提取资产、生成分段都到剧集上操作；要按原文重来，点「剧本优化」勾选这一章重新改编，新剧本会替换由它改编的剧集。" : "原文只作改编依据。这一章还没改编：点「剧本优化」勾选它改编成剧集。"}</Callout></div> : null}
                         <EditorToolbar editor={originalLocked ? null : editor} />
                         <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">
                             <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>
@@ -841,10 +855,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             </section>
             <CreateChapterModal open={createOpen} kind={unitView} onClose={() => setCreateOpen(false)} loading={createMutation.isPending} onSubmit={(values) => createMutation.mutate(values)} />
             <ImportNovelModal open={importOpen} kind={importKind} loading={importMutation.isPending} onClose={() => setImportOpen(false)} onImport={(chapters) => importMutation.mutate(chapters)} />
-            <Modal className="library-modal" title="提取章节角色、场景与道具" open={characterExtractOpen} width={500} okText="开始提取" cancelText="取消" okButtonProps={{ disabled: !selectedTextModel }} onCancel={() => setCharacterExtractOpen(false)} onOk={() => void extractCharacters()} styles={{ body: { paddingTop: 12 } }}>
+            <Modal className="library-modal" title={`提取${selectedUnitNoun}角色、场景与道具`} open={characterExtractOpen} width={500} okText="开始提取" cancelText="取消" okButtonProps={{ disabled: !selectedTextModel }} onCancel={() => setCharacterExtractOpen(false)} onOk={() => void extractCharacters()} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
-                        <div className="text-[var(--fs-tiny)] text-foreground/42">当前章节</div>
+                        <div className="text-[var(--fs-tiny)] text-foreground/42">当前{selectedUnitNoun}</div>
                         <div className="mt-1 truncate text-sm font-medium text-foreground/85">{selectedUnit?.title}</div>
                         <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文会交给本次选择的文本模型分析，提取结果进入“角色与资产”待确认列表。</div>
                     </div>
@@ -871,11 +885,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 onRegenerate={() => { setRunPanelOpen(false); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
                 onOpenProduction={() => { if (selectedUnit) navigate(`/projects/${detail.project.id}/workflow/${selectedUnit.id}/video`); }}
             />
-            <Modal className="library-modal" title="生成章节分段" open={storyboardOpen} width={560} okText={storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard()} styles={{ body: { paddingTop: 12 } }}>
+            <Modal className="library-modal" title={`生成${selectedUnitNoun}分段`} open={storyboardOpen} width={560} okText={storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard()} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
                     {projectStyleMissing ? <Callout tone="warning" title="还没有项目画风" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去选画风</Button>}>分镜要按项目画风写画面和参考，先在项目设置里选一个画风并保存，再回来生成。</Callout> : null}
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
-                        <div className="text-[var(--fs-tiny)] text-foreground/42">当前章节</div>
+                        <div className="text-[var(--fs-tiny)] text-foreground/42">当前{selectedUnitNoun}</div>
                         <div className="mt-1 truncate text-sm font-medium text-foreground/85">{selectedUnit?.title}</div>
                         <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文将作为分段依据：一场戏一组镜头，一段 = 一次视频生成。按场景切段，每段目标 {segmentTargetLabel(segmentRule.maxSeconds)}（{segmentLimit.byBrief ? `项目单段最长 ${segmentMaxSeconds} 秒，${dramaModel?.label || "项目生成模型"}上限 ${modelSegmentMaxSeconds} 秒` : `${dramaModel?.label || "项目生成模型"}最长 ${segmentMaxSeconds} 秒`}，视频渠道 {segmentRule.label}），不在接话之间切；结果写入“分镜制作”。</div>
                     </div>

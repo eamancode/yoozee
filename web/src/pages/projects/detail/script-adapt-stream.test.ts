@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { episodeSourcesComment, withEpisodeSourcesComment } from "./episode-sources";
-import { parseScriptAdaptStream, scriptAdaptStreamFromResult } from "./script-adapt-stream";
+import { scriptAdaptDefaultMode } from "./script-adapt-mode";
+import { parseScriptAdaptStream, resumedScriptAdaptStream, scriptAdaptStreamFromResult } from "./script-adapt-stream";
 
 const marker = (index: number, attempt = 1) => JSON.stringify({ "@turn": { index, total: 2, scene: String(index), heading: `第 ${index} 集`, attempt } });
 const header = (no: number, title: string) => JSON.stringify({ no, title, sources: [{ unitId: "c1", from: 1, to: 3 }] });
@@ -46,4 +47,36 @@ test("保存剧集时接回来源注释，不重复", () => {
     assert.equal(withEpisodeSourcesComment(stored, "<p>## 内·客厅·日</p>"), "<!-- sources: c1:1-3;c2:1-1 --><p>## 内·客厅·日</p>");
     assert.equal(withEpisodeSourcesComment(stored, stored), stored);
     assert.equal(withEpisodeSourcesComment("<p>导入的剧本</p>", "<p>改过</p>"), "<p>改过</p>");
+});
+
+test("续写一开始就按续写起点显示，前面的集接在新输出前面", () => {
+    const previous = parseScriptAdaptStream([marker(1), header(1, "七床空了"), "## 内·病房走廊·夜", "林小满：七床？"].join("\n"));
+    const resume = { from: 2, total: 2, episodes: previous.episodes };
+    const waiting = resumedScriptAdaptStream(parseScriptAdaptStream(""), resume);
+    assert.equal(waiting.current, 2);
+    assert.equal(waiting.total, 2);
+    assert.deepEqual(
+        waiting.episodes.map((episode) => episode.index),
+        [1],
+    );
+    const live = resumedScriptAdaptStream(parseScriptAdaptStream([marker(2), header(2, "现在信了"), "## 内·电梯口·夜"].join("\n")), resume);
+    assert.equal(live.current, 2);
+    assert.deepEqual(
+        live.episodes.map((episode) => episode.title),
+        ["七床空了", "现在信了"],
+    );
+    assert.equal(live.sceneCount, 2);
+    // 不是续写：原样返回。
+    assert.equal(resumedScriptAdaptStream(waiting), waiting);
+});
+
+test("剧本优化默认模式：原文都改编过、导入剧本时只调节奏", () => {
+    const chapterIds = ["c1", "c2"];
+    assert.equal(scriptAdaptDefaultMode({ sourceType: "novel", chapterIds, episodeCount: 0 }), "adapt");
+    assert.equal(scriptAdaptDefaultMode({ sourceType: "novel", chapterIds, episodeCount: 1, adaptedChapterIds: ["c1"] }), "adapt");
+    assert.equal(scriptAdaptDefaultMode({ sourceType: "novel", chapterIds, episodeCount: 2, adaptedChapterIds: ["c1", "c2"] }), "rhythm");
+    // 剧集清单还没读到：先按小说转剧本。
+    assert.equal(scriptAdaptDefaultMode({ sourceType: "novel", chapterIds, episodeCount: 2 }), "adapt");
+    assert.equal(scriptAdaptDefaultMode({ sourceType: "script", chapterIds, episodeCount: 0 }), "rhythm");
+    assert.equal(scriptAdaptDefaultMode({ sourceType: "novel", chapterIds: [], episodeCount: 2 }), "rhythm");
 });

@@ -98,3 +98,17 @@ export function scriptAdaptStreamFromResult(resultJson?: string): ScriptAdaptStr
     const state = parseScriptAdaptStream(typeof result.text === "string" ? result.text : "");
     return { ...state, total: total || state.episodes.length };
 }
+
+/** 「从第 N 集继续」时已写完的集：上一次任务存下的前 N-1 集，以及从第几集接着写。 */
+export type ScriptAdaptResume = { from: number; total: number; episodes: StreamEpisode[] };
+
+/**
+ * 续写任务的文本流只有剩下的集：前面几集取上一次任务存下的接在前面；新任务的第一个回合标记到之前，
+ * 「正在写第几集」按续写起点显示，不回落到第 1 集。
+ */
+export function resumedScriptAdaptStream(live: ScriptAdaptStreamState, resume?: ScriptAdaptResume): ScriptAdaptStreamState {
+    if (!resume) return live;
+    const first = live.episodes[0]?.index ?? resume.from;
+    const episodes = [...resume.episodes.filter((episode) => episode.index < first), ...live.episodes];
+    return { total: live.total || resume.total, current: live.current || resume.from, episodes, sceneCount: episodes.reduce((sum, item) => sum + item.scenes.length, 0) };
+}

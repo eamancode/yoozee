@@ -14,19 +14,20 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - 建项目 / 项目设置加「导入剧本」：建完直接打开导入，按「第一集」这类标题切分，每集成为一个剧集；「剧本优化」在这种项目里默认只调节奏。
 - 总览「剧本定了」改为：至少一集剧集、每集都有正文（原先看每段的剧本格和连戏表人物）。
 - 后台「流程技能」页多出「剧本优化」一列，五个档案都显示默认技能 `yz-script-adapt`；流程技能包列表里有 `yz-script-adapt` 1.0.0（首次启动时由内置种子导入）。
+- 收口（验证时发现的小问题）：已改编的原文章节上「提取角色、场景与道具」「生成分段」灰掉，悬停提示「已改编成剧集，请到剧集上操作」，原文提示条的按钮直接去改编出的那一集；原文章节都改编过时（或「导入剧本」项目）剧本优化默认「只调节奏」；剧集上的提取 / 生成分段对话框写「当前剧集」；分镜制作页导航和左栏按「第 N 集」「第 N 章」各自编号，只在同一类里上下切换；「从第 N 集继续」一开始侧栏就显示「正在写第 N/总 集」，前面的集接在新输出前面；逐场 / 逐集失败原因以句号收尾；读已删除单元的镜头表返回 404（`not_found`）；「导入剧本」项目还没有单元时章节页默认停在「剧集」。
 
 自动化覆盖：
 
 - [x] `internal/drama`：`TestScriptAdaptContractText`、`TestScriptAdaptEpisodesFromText`、`TestScriptAdaptNormalizesSkillFormat`、`TestCountScriptAdaptTurn`、`TestCheckScriptAdapt`、`TestEpisodeSourceTextRoundTrip`（写进剧集的正文按章节同一条路径切得出场、读得出台词）、`TestScriptAdaptEpisodeCountAndPrompts`、`TestStepGateMetrics`、`TestDeriveScriptEndStateByEpisodes`。
 - [x] `internal/app`：`TestScriptAdaptWritesEpisodesThroughWorker`（真实 worker 路径：三章两集两轮、收尾建两集、主要来源按段数、排在章节之后；剧集上生成分段按场切；重跑要确认替换；只调节奏原地改写、来源注释保留）；`TestDramaStepBindingsResolveAndAdminWrite`（剧本优化默认技能）。
-- [x] 前端：`script-adapt-stream.test.ts`（按集分组、重试清掉半截、从结果还原、保存时接回来源注释）、`drama-api.test.ts`（项目级入口、409 影响面、按步骤读摘要）；`internal/app` 的 `TestTaskClientContextMarksScriptAdapt`（任务列表靠 `clientContext.chapterOperation = script-adapt` 认出剧本优化任务，列表不下发任务输入）。
+- [x] 前端：`script-adapt-stream.test.ts`（按集分组、重试清掉半截、从结果还原、保存时接回来源注释、续写起点、默认模式）、`unit-numbering.test.ts`（章和集各自编号）、`drama-api.test.ts`（项目级入口、409 影响面、按步骤读摘要）；`internal/app` 的 `TestTaskClientContextMarksScriptAdapt`（任务列表靠 `clientContext.chapterOperation = script-adapt` 认出剧本优化任务，列表不下发任务输入）。
 - [x] 本机联调（独立数据目录 + 假的流式上游）：导入 3 章小说的项目点「剧本优化」写 2 集，一个任务两轮，侧栏按集流出正文；完成后切到剧集视图，第 1 集「改编自 第一章 ¶1-10」、正文开头带来源注释、`parent_id` 指向第一章，第 2 集来源第二、三章、主要来源按段数取第二章；原文切过去只读并提示；第 1 集一轮输出没写 sources 时自动重试，三次都不对时任务失败、侧栏显示原因和「重新生成」，原文与剧集不动。在第 1 集上生成分段：按 3 个场次头逐场写 41 镜、装成 10 段。勾选第一章重跑返回 409 并列出第 1 集（10 段、有镜头表），确认替换后旧的第 1 集连同镜头表和段被删、新第 1 集仍排在第 2 集前面。「导入剧本」项目默认看剧集、对话框默认只调节奏，两集原地改写、集数不变。总览「剧本定了」显示「2 集剧本」。明暗主题下侧栏可读。
+- [x] 收口：`TestDramaShotlistOfDeletedUnitIsNotFound`、`TestDramaRunTurnErrorEndsWithFullStop`。本机联调：已改编的第一章两个按钮灰掉、悬停有提示，「去第 1 集」跳到剧集；全部改编后剧本优化默认只调节奏；剧集上的分段对话框写「当前剧集」；分镜制作导航「第 1 集 … 1/2」、章节「第 2 章 … 2/3」；第 2 集 503 失败后「从第 2 集继续」，点下 50 毫秒内侧栏就是「正在写第 2/2 集」并带着第 1 集；读已删单元的镜头表 404 `not_found`；新建「导入剧本」项目后导入框自动打开（验证记录里没看到是点到了遮罩）。
 - [ ] 部署后：线上真实模型把一章小说改编成一集，检查场次头、台词行是否都被台词表读出（侧栏提醒为 0）；剧集上生成分段的台词覆盖率。
 - [ ] 部署后：后台对 `yz-script-adapt` 1.0.0 跑一次评测（`qichuang-novel-c01`），解析率门槛是否合适。
 
 未做 / 已知边界：
 
-- 分镜制作页的章节导航仍按全部单元编号（剧集排在章节之后，显示为「第 N 章」）。
 - 剧本优化跑完不自动接着跑导演风格（设计稿 §2.1，导演风格是第 4 阶段）。
 - 资产库里没有单独的「调节奏」技能，只调节奏也用 `yz-script-adapt`（同一份删减、画面化、节奏规则），用户任务里写明只调节奏。
 
