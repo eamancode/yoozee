@@ -21,9 +21,6 @@ import (
 	"yingce/backend/internal/model"
 )
 
-// ReasonDramaEpisodesReplace 是这次剧本优化会替换或改写已有剧集，请求没带 replace=true；details.episodes 列出影响面。
-const ReasonDramaEpisodesReplace = "drama_episodes_replace_required"
-
 // DramaScriptAdaptRunRequest 是「对这个项目跑剧本优化」：选哪些单元、怎么改、写几集，加文本模型选择；提示词由服务端组装。
 type DramaScriptAdaptRunRequest struct {
 	Model          string         `json:"model"`
