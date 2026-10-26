@@ -173,7 +173,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                 <div className="grid gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
                     <Field label="项目名称" className="xl:col-span-2"><Input value={name} onChange={(event) => setName(event.target.value)} /></Field>
                     <Field label="默认画幅"><Select className="w-full" value={aspectRatio} options={[{ label: "9:16 · 竖屏短剧", value: "9:16" }, { label: "16:9 · 横屏", value: "16:9" }, { label: "1:1 · 方形", value: "1:1" }, { label: "4:3 · 标准横屏", value: "4:3" }]} onChange={setAspectRatio} /></Field>
-                    <Field label="内容来源"><Select className="w-full" value={sourceType} options={[{ label: "空白开始", value: "blank" }, { label: "导入小说", value: "novel" }, { label: "粘贴文本", value: "text" }]} onChange={setSourceType} /></Field>
+                    <Field label="内容来源"><Select className="w-full" value={sourceType} options={[{ label: "空白开始", value: "blank" }, { label: "导入小说", value: "novel" }, { label: "导入剧本", value: "script" }, { label: "粘贴文本", value: "text" }]} onChange={setSourceType} /></Field>
                     <Field label="项目简介" className="md:col-span-2 xl:col-span-4"><Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="一句话说明项目目标" /></Field>
                 </div>
             </section>

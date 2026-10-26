@@ -28,6 +28,8 @@ export const API_ERROR_REASON = {
     PackageCheckFailed: "package_check_failed",
     /** 流程技能包版本的评测没通过或还没跑完，不能直接启用；强制启用要带 `force: true` 和原因。 */
     PackageEvalNotPassed: "package_eval_not_passed",
+    /** 剧本优化会替换已有剧集（或改写有镜头表的剧集），请求没带 `replace: true`；`ApiError.details.episodes` 列出影响面。 */
+    DramaEpisodesReplace: "drama_episodes_replace_required",
 } as const;
 
 export type ApiErrorReason = (typeof API_ERROR_REASON)[keyof typeof API_ERROR_REASON];

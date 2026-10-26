@@ -5,7 +5,7 @@ import { MediaPlaceholder } from "@/components/ui/product/media-placeholder";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Form, Input, Modal } from "antd";
-import { ArrowRight, BookOpenText, FileText, FolderKanban, Images, LayoutGrid, Palette, Plus, Search, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpenText, FileText, FolderKanban, Images, LayoutGrid, Palette, Plus, ScrollText, Search, Sparkles } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { CollectionGrid, PageHeader, WorkspacePage } from "@/components/layout/workspace-page";
@@ -49,7 +49,7 @@ export default function ProjectsPage() {
     const [status, setStatus] = useState<"all" | "active" | "archived">("all");
     const [sort, setSort] = useState<"updated" | "progress" | "name">("updated");
     const [storyDraft, setStoryDraft] = useState("");
-    const [createSource, setCreateSource] = useState<"blank" | "novel" | "text">("blank");
+    const [createSource, setCreateSource] = useState<"blank" | "novel" | "script" | "text">("blank");
     const [selectedStyle, setSelectedStyle] = useState<CanvasStylePreset | null>(null);
     const [stylePickerOpen, setStylePickerOpen] = useState(false);
     const [generateModel, setGenerateModel] = useState("");
@@ -88,7 +88,7 @@ export default function ProjectsPage() {
         else next.delete("create");
         setSearchParams(next, { replace: true });
     };
-    const openCreate = (source: "blank" | "novel" | "text") => {
+    const openCreate = (source: "blank" | "novel" | "script" | "text") => {
         setCreateSource(source);
         setCreateOpen(true);
     };
@@ -211,8 +211,8 @@ export default function ProjectsPage() {
         onSuccess: ({ project }) => {
             setCreateOpen(false);
             void queryClient.invalidateQueries({ queryKey: ["projects"] });
-            // 选了「导入小说」：建完直接到章节页并打开导入对话框。
-            navigate(project.sourceType === "novel" ? `/projects/${project.id}/chapters?${CHAPTER_IMPORT_QUERY}=1` : `/projects/${project.id}/overview`);
+            // 选了「导入小说」「导入剧本」：建完直接到章节页并打开导入对话框（导入剧本时导入的是剧集）。
+            navigate(project.sourceType === "novel" || project.sourceType === "script" ? `/projects/${project.id}/chapters?${CHAPTER_IMPORT_QUERY}=1` : `/projects/${project.id}/overview`);
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "项目创建失败"),
     });
@@ -345,9 +345,10 @@ export default function ProjectsPage() {
                     <Form.Item name="contentType" label="类型" rules={[{ required: true, message: "请先选类型" }]} extra="类型只用来筛选画风，不单独保存；换类型时不属于它的画风会清空。">
                         <ContentTypePicker />
                     </Form.Item>
-                    <div className="mb-4 grid grid-cols-3 gap-2">
+                    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <button type="button" className={createSource === "blank" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("blank"); createForm.setFieldValue("sourceType", "blank"); }}><FolderKanban className="size-4" /><span>空白开始</span></button>
                         <button type="button" className={createSource === "novel" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("novel"); createForm.setFieldValue("sourceType", "novel"); }}><FileText className="size-4" /><span>导入小说</span></button>
+                        <button type="button" className={createSource === "script" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("script"); createForm.setFieldValue("sourceType", "script"); }}><ScrollText className="size-4" /><span>导入剧本</span></button>
                         <button type="button" className={createSource === "text" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("text"); createForm.setFieldValue("sourceType", "text"); }}><BookOpenText className="size-4" /><span>粘贴文本</span></button>
                     </div>
                     <Form.Item name="sourceType" hidden><Input /></Form.Item>
@@ -371,7 +372,7 @@ export default function ProjectsPage() {
                         <Form.Item name="generationModel" label="生成模型" rules={[{ required: true, message: "请选择生成模型" }]} extra={createModel ? (dramaFamilies && !dramaFamilies.has(createModel.id) ? `当前没有 ${createModel.label} 的视频渠道，建了项目也生成不了视频；先在设置里配置渠道，或换一个模型。` : `一段 = 一次生成，最长 ${createModel.duration.max} 秒；建项后可在设置里改，但已有超长的段需要先拆分。`) : undefined}><Select loading={dramaModels.isLoading} options={createModelOptions} /></Form.Item>
                         <Form.Item name="authMode" label="授权档位" extra={DRAMA_AUTH_OPTIONS.find((item) => item.value === createAuth)?.hint}><Select options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} /></Form.Item>
                     </div>
-                    <p className="-mt-1 mb-5 text-xs leading-5 text-foreground/48">{createSource === "novel" ? "创建后直接进入章节页导入小说。" : "创建后先进入项目概览。"}章节和参考资产可以逐步补充；画风可以晚点选，但生成分镜前必须选好。</p>
+                    <p className="-mt-1 mb-5 text-xs leading-5 text-foreground/48">{createSource === "novel" ? "创建后直接进入章节页导入小说，再用「剧本优化」改编成剧集。" : createSource === "script" ? "创建后直接进入章节页导入剧本，每集成为一个剧集，「剧本优化」只调节奏。" : "创建后先进入项目概览。"}章节和参考资产可以逐步补充；画风可以晚点选，但生成分镜前必须选好。</p>
                     <div className="flex justify-end gap-2"><Button onClick={() => setCreateOpen(false)}>取消</Button><Button type="primary" htmlType="submit" loading={mutation.isPending}>创建项目</Button></div>
                 </Form>
             </Modal>

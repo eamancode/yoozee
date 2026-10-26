@@ -220,6 +220,24 @@ describe("短剧流程步骤（M6）", () => {
         expect(drama.dramaStepOutcomeOf({ resultJson: JSON.stringify({ dramaStep: { status: "other" } }) })).toBeUndefined();
     });
 
+    test("剧本优化走项目级入口；替换已有剧集的 409 读出影响面；结果摘要按步骤区分", async () => {
+        transport.responses["/projects/p1/drama/steps/script.adapt/run"] = { task: { id: "t3" }, usage: { step: "script.adapt" } };
+        await drama.runDramaProjectStep("p1", "script.adapt", { model: "deepseek", config: {}, mode: "adapt", sourceUnitIds: ["c1", "c2"], targetEpisodes: 2, replace: true });
+        expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/drama/steps/script.adapt/run", body: { mode: "adapt", sourceUnitIds: ["c1", "c2"], targetEpisodes: 2, replace: true } });
+        transport.responses["/projects/p1/drama/episodes"] = { episodes: [], adaptedChapterIds: [] };
+        await drama.getDramaEpisodes("p1");
+        expect(lastCall()).toMatchObject({ method: "get", url: "/projects/p1/drama/episodes" });
+
+        const episodes = [{ unitId: "e1", title: "第一集", shots: 3, hasShotlist: true }];
+        expect(drama.dramaEpisodesReplaceImpact(new transport.ApiError("x", { status: 409, reason: "drama_episodes_replace_required", details: { mode: "adapt", episodes } }))).toEqual({ mode: "adapt", episodes });
+        expect(drama.dramaEpisodesReplaceImpact(new transport.ApiError("x", { status: 409, reason: "conflict", details: { episodes } }))).toBeUndefined();
+
+        const adapt = { step: "script.adapt", status: "written", mode: "adapt", episodes: [{ unitId: "e1", no: 1, title: "雨夜", sources: [], scenes: 2 }], parse: { blocks: 1, episodes: 1, rate: 1 }, errors: 0, warnings: 0 };
+        const task = { resultJson: JSON.stringify({ dramaStep: adapt }) };
+        expect(drama.dramaScriptAdaptOutcomeOf(task)?.episodes[0].unitId).toBe("e1");
+        expect(drama.dramaStepOutcomeOf(task)).toBeUndefined();
+    });
+
     test("风格档案按后端画风对照表推荐，与 StyleMap.ProfileFor 同一规则", () => {
         const styleMap = JSON.parse(readFileSync(new URL("../../backend/internal/drama/style_map.json", import.meta.url), "utf8"));
         expect(drama.recommendDramaStyleProfile(styleMap, { selection: { world: "suspense", medium: "live-action" }, title: "悬疑犯罪 · 暗黑诡谲 · 真人实拍", tags: [] })).toBe("live-realism");
