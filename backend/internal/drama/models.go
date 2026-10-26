@@ -120,6 +120,20 @@ func Models() (Registry, error) {
 	return registry, registryErr
 }
 
+// maxModelSegmentSeconds 是目录里所有生成模型一段上限的最大值；需求文档的 segment_seconds 不能超过它
+// （具体项目还要按自己的生成模型再收紧，见 app 的 checkSegmentSecondsForModel）。
+func maxModelSegmentSeconds() int {
+	reg, err := Models()
+	if err != nil {
+		return 0
+	}
+	most := 0
+	for _, m := range reg.Models {
+		most = max(most, m.Duration.Max)
+	}
+	return most
+}
+
 // ModelByID 按 ID 查模型。
 func ModelByID(id string) (Model, bool) {
 	reg, err := Models()

@@ -30,6 +30,8 @@ type CreateProjectRequest struct {
 	AuthMode string `json:"authMode"`
 	// StyleProfile 是 yoozee 风格档案（五选一）；空则按画风对照表推荐。
 	StyleProfile string `json:"styleProfile"`
+	// SegmentSeconds 是单段最长秒数（建项目选 15 / 30），写进 brief_json.segment_seconds；0 表示不限（按生成模型上限）。
+	SegmentSeconds int `json:"segmentSeconds"`
 }
 
 type UpdateProjectRequest struct {
@@ -46,7 +48,9 @@ type UpdateProjectRequest struct {
 	GenerationModel   *string `json:"generationModel"`
 	AuthMode          *string `json:"authMode"`
 	StyleProfile      *string `json:"styleProfile"`
-	Status            string  `json:"status"`
+	// SegmentSeconds 改单段最长秒数（brief_json.segment_seconds）；0 去掉这一项。
+	SegmentSeconds *int   `json:"segmentSeconds"`
+	Status         string `json:"status"`
 }
 
 type CreateProjectUnitRequest struct {
@@ -241,6 +245,9 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 	if aspectRatio == "" {
 		aspectRatio = "9:16"
 	}
+	if err := validateProjectAspectRatio(aspectRatio); err != nil {
+		return model.Project{}, err
+	}
 	sourceType := strings.TrimSpace(req.SourceType)
 	if sourceType == "" {
 		sourceType = "blank"
@@ -273,13 +280,22 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 	if err := checkProjectVideoModelFamily(generationModel, defaultVideoModel); err != nil {
 		return model.Project{}, err
 	}
+	briefJSON := ""
+	if req.SegmentSeconds != 0 {
+		if err := checkSegmentSecondsForModel(req.SegmentSeconds, generationModel); err != nil {
+			return model.Project{}, err
+		}
+		if briefJSON, err = withBriefSegmentSeconds("", req.SegmentSeconds); err != nil {
+			return model.Project{}, err
+		}
+	}
 	styleProfile := strings.TrimSpace(req.StyleProfile)
 	if styleProfile == "" {
 		styleProfile, _ = drama.RecommendProfile(stylePresetID, styleProfileJSON, "")
 	} else if !drama.ValidProfileID(styleProfile) {
 		return model.Project{}, BadAuthRequest("不支持的风格档案")
 	}
-	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel, GenerationModel: generationModel, AuthMode: authMode, StyleProfile: styleProfile, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel, GenerationModel: generationModel, AuthMode: authMode, StyleProfile: styleProfile, BriefJSON: briefJSON, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
 	if err := s.repo.CreateProject(&project); err != nil {
 		if errors.Is(err, repository.ErrProjectNameConflict) {
 			// 项目名称冲突需要明确返回 409，页面才能按已有逻辑换一个名称重试。
@@ -304,7 +320,10 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 	if value := strings.TrimSpace(req.Type); value != "" {
 		project.Type = value
 	}
-	if value := strings.TrimSpace(req.AspectRatio); value != "" {
+	if value := strings.TrimSpace(req.AspectRatio); value != "" && value != project.AspectRatio {
+		if err := validateProjectAspectRatio(value); err != nil {
+			return model.Project{}, err
+		}
 		project.AspectRatio = value
 	}
 	if value := strings.TrimSpace(req.SourceType); value != "" {
@@ -383,6 +402,27 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 			return model.Project{}, err
 		}
 	}
+	// 单段秒数存在需求文档里：改了它或换了生成模型，都要重新按模型一段的上限校验（只能收紧不能放宽）。
+	briefChanged := false
+	if req.SegmentSeconds != nil && *req.SegmentSeconds != briefSegmentSeconds(project.BriefJSON) {
+		if *req.SegmentSeconds != 0 {
+			if err := checkSegmentSecondsForModel(*req.SegmentSeconds, project.GenerationModel); err != nil {
+				return model.Project{}, err
+			}
+		}
+		briefJSON, briefErr := withBriefSegmentSeconds(project.BriefJSON, *req.SegmentSeconds)
+		if briefErr != nil {
+			return model.Project{}, briefErr
+		}
+		project.BriefJSON = briefJSON
+		briefChanged = true
+	} else if req.GenerationModel != nil {
+		if seconds := briefSegmentSeconds(project.BriefJSON); seconds > 0 {
+			if err := checkSegmentSecondsForModel(seconds, project.GenerationModel); err != nil {
+				return model.Project{}, err
+			}
+		}
+	}
 	if err := validateStyleProfilePreset(project.StylePresetID, project.StyleProfileJSON); err != nil {
 		return model.Project{}, BadAuthRequest(err.Error())
 	}
@@ -394,7 +434,7 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 	}
 	project.Revision++
 	project.UpdatedAt = time.Now()
-	if err := s.repo.UpdateProject(project); err != nil {
+	if err := s.repo.UpdateProject(project, briefChanged); err != nil {
 		return model.Project{}, err
 	}
 	return *project, nil
