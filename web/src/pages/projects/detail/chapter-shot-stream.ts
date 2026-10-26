@@ -138,3 +138,14 @@ export function shotStreamFromResult(resultJson?: string): ShotStreamState {
     }
     return parseShotStream(lines.length ? lines.join("\n") + "\n" : "");
 }
+
+/** 上一次生成分段任务停下来的样子：写完 ≥1 场的可以从下一场续写（resume），一场都没写完或收尾失败的只能重新生成（failed）。 */
+export type StoryboardRunStop = { kind: "resume"; taskId: string; from: number; total: number; error?: string } | { kind: "failed"; taskId: string; status: "failed" | "cancelled"; error?: string };
+
+/** 只看失败或取消的任务；progress 是任务结果里的 dramaRun（整章一轮或还没开始逐场时没有）。 */
+export function storyboardRunStop(task: { id: string; status: string; error?: string }, progress?: { total: number; completed: number }): StoryboardRunStop | undefined {
+    if (task.status !== "failed" && task.status !== "cancelled") return undefined;
+    const error = task.error?.trim() || undefined;
+    if (progress && progress.completed >= 1 && progress.completed < progress.total) return { kind: "resume", taskId: task.id, from: progress.completed + 1, total: progress.total, error };
+    return { kind: "failed", taskId: task.id, status: task.status, error };
+}

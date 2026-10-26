@@ -188,7 +188,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                     <Field label="每集时长（秒）"><InputNumber className="w-full" min={EPISODE_SECONDS_RANGE.min} max={EPISODE_SECONDS_RANGE.max} step={10} precision={0} value={episodeSeconds} disabled={!briefQuery.isSuccess} placeholder="不限" onChange={(value) => setEpisodeSeconds(typeof value === "number" ? value : null)} /></Field>
                 </div>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_STYLE_PROFILE_HINT}换了画风不会自动改档案。</p>
-                {segmentSecondsShrunk ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">单段最长时长改小后，下次装段生效；已经装好的段不会自动重拆。</div> : null}
+                {segmentSecondsShrunk ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">单段最长时长改小后，下次装段生效；已经装好的段不会自动重拆，可在章节页「进度」侧栏里点「重新装段」。</div> : null}
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">单段最长时长只能比生成模型一段的上限更严，装段时按两者里小的那个切段。</p>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">每集时长写进生成分镜的提示词（镜头估时合计不超过它的 1.1 倍），保存分镜时按它检查分段合计；不填就不限。</p>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_AUTH_OPTIONS.find((item) => item.value === authMode)?.hint}{selectedDramaModel && !selectedDramaModel.calibrated ? "。该模型档案尚未用真实样片校准，首次使用请先跑一次校准。" : ""}</p>

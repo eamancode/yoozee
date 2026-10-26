@@ -77,8 +77,8 @@ import { dramaRunProgressOf, dramaStepOutcomeOf, getDramaShotlist, getDramaStepU
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
 import { chapterDialogueCoverage, DEFAULT_SEGMENT_TARGET, segmentDurationRule } from "./chapter-segments";
-import { parseShotStream, shotStreamFromResult } from "./chapter-shot-stream";
-import { ChapterStoryboardRunPanel, type StoryboardResumePoint } from "./chapter-storyboard-run-panel";
+import { parseShotStream, shotStreamFromResult, storyboardRunStop } from "./chapter-shot-stream";
+import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
 import { consumeChapterImportQuery } from "./chapter-import-query";
@@ -189,7 +189,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         return identity?.kind === "storyboard" && identity.chapterId === selectedUnitId;
     }), [chapterTasksQuery.data, selectedUnitId]);
     const latestStoryboardTerminal = latestStoryboardTask && latestStoryboardTask.status !== "queued" && latestStoryboardTask.status !== "running" ? latestStoryboardTask : undefined;
-    // 结束了的任务读详情（带结果）：成功的取写库摘要，失败的取已写完几场，给「从第 N 场继续」。
+    // 结束了的任务读详情（带结果）：成功的取写库摘要，失败的取已写完几场给「从第 N 场继续」，一场没写完的给失败原因。
     const storyboardTaskDetailQuery = useQuery({
         queryKey: ["generation-task", latestStoryboardTerminal?.id, latestStoryboardTerminal?.status],
         queryFn: () => queryGenerationTask(latestStoryboardTerminal!.id),
@@ -198,12 +198,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     });
     const storyboardTaskDetail = storyboardTaskDetailQuery.data;
     const storyboardOutcome = storyboardTaskDetail?.status === "succeeded" ? dramaStepOutcomeOf(storyboardTaskDetail) : undefined;
-    const storyboardResume = useMemo<StoryboardResumePoint | undefined>(() => {
-        if (!storyboardTaskDetail || (storyboardTaskDetail.status !== "failed" && storyboardTaskDetail.status !== "cancelled")) return undefined;
-        const progress = dramaRunProgressOf(storyboardTaskDetail);
-        if (!progress || progress.completed < 1 || progress.completed >= progress.total) return undefined;
-        return { taskId: storyboardTaskDetail.id, from: progress.completed + 1, total: progress.total, error: storyboardTaskDetail.error };
-    }, [storyboardTaskDetail]);
+    const storyboardStop = useMemo(() => (storyboardTaskDetail ? storyboardRunStop(storyboardTaskDetail, dramaRunProgressOf(storyboardTaskDetail)) : undefined), [storyboardTaskDetail]);
+    const storyboardResume = storyboardStop?.kind === "resume" ? storyboardStop : undefined;
     const liveStoryboardStream = selectedUnitId ? storyboardStreams[selectedUnitId] : undefined;
     // 台词覆盖率和超长段：拿本章正文里引号中的台词，对照各段 lines；超过项目模型上限的段要拆。
     const unitShots = useMemo(() => detail.shots.filter((shot) => shot.unitId === selectedUnit?.id), [detail.shots, selectedUnit?.id]);
@@ -462,14 +458,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         return { ...current, [unitId]: { taskId: taskId || previous?.taskId || "", text: text ?? (sameTask ? previous.text : "") } };
     });
     const repackMutation = useMutation({
-        mutationFn: (unitId: string) => repackDramaShotlist(detail.project.id, unitId, { rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds } }),
-        onSuccess: async (result, unitId) => {
+        mutationFn: ({ unitId }: { unitId: string; before: number; draft: boolean }) => repackDramaShotlist(detail.project.id, unitId, { rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds } }),
+        onSuccess: async (result, { unitId, before }) => {
             await refreshStoryboardResult(unitId);
-            message.success(`已重新装段：按 ${new Set(result.segments.map((segment) => segment.spec.scene)).size} 场装成 ${result.segments.length} 段`);
+            const scenes = new Set(result.segments.map((segment) => segment.spec.scene)).size;
+            message.success(before && before !== result.segments.length ? `已重新装段：${before} 段 → ${result.segments.length} 段（按 ${scenes} 场）` : `已重新装段：按 ${scenes} 场装成 ${result.segments.length} 段`);
         },
-        onError: (error) => {
+        onError: (error, { draft }) => {
             const check = shotlistCheckFailure(error);
-            message.error(check ? `重新装段仍有 ${check.errors} 个问题，草稿没变；需要的话重新生成` : error instanceof Error ? error.message : "重新装段失败");
+            message.error(check ? `重新装段仍有 ${check.errors} 个问题，${draft ? "草稿" : "现有的段"}没变；需要的话重新生成` : error instanceof Error ? error.message : "重新装段失败");
             void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "drama-shotlist"] });
         },
     });
@@ -543,6 +540,30 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             finishChapterOperation(unit.id, "storyboard");
         }
     };
+    // 草稿重装是处理检查问题；镜头表已写入时重装会整章替换现有的段，先确认。
+    const repackStoryboard = async () => {
+        if (!selectedUnit) return;
+        if (segmentRule.problem) return message.warning(`${segmentRule.problem}，先在项目设置里换默认视频模型或生成模型`);
+        if (!shotlist?.draft && storyboardImpact.shotCount && !(await confirmStoryboardRepack(storyboardImpact))) return;
+        repackMutation.mutate({ unitId: selectedUnit.id, before: storyboardImpact.shotCount, draft: Boolean(shotlist?.draft) });
+    };
+    const confirmStoryboardRepack = (impact: ReturnType<typeof chapterStoryboardReplaceImpact>) => new Promise<boolean>((resolve) => {
+        modal.confirm({
+            title: `按当前设置重新装段，替换本章 ${impact.shotCount} 段？`,
+            content: (
+                <div className="space-y-2 text-sm leading-6 text-foreground/62">
+                    <p>用已存的镜头表按项目单段时长、资产和编译档案重新装段，不调模型；装段仍要过检查，有问题时现有的段不变。</p>
+                    <p>替换会移除 {impact.shotCount} 个镜头、{impact.revisionCount} 个脚本版本、{impact.referenceCount} 个资产引用、{impact.artifactCount} 个生成产物{impact.candidateCount ? `及 ${impact.candidateCount} 个相关候选资产` : ""}，此操作无法撤销。</p>
+                </div>
+            ),
+            okText: "重新装段",
+            okButtonProps: { danger: true },
+            cancelText: "保留现有的段",
+            centered: true,
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+        });
+    });
     const confirmStoryboardReplacement = (impact: ReturnType<typeof chapterStoryboardReplaceImpact>) => new Promise<boolean>((resolve) => {
         modal.confirm({
             title: `替换本章已有的 ${impact.shotCount} 个分镜？`,
@@ -711,12 +732,12 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                             <div className="min-w-0 flex-1">
                                 <div className="mb-1 text-[var(--fs-tiny)] font-medium tabular-nums text-foreground/38">第 {String(orderedUnits.findIndex((unit) => unit.id === selectedUnit.id) + 1).padStart(2, "0")} 章</div>
                                 <Input variant="borderless" value={draftTitle} disabled={!selectedUnit} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
-                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span>{unitShots.length ? <><span>·</span><span>{unitShots.length} 段</span></> : null}{dialogueCoverage.expected ? <><span>·</span><span className={dialogueCoverage.covered < dialogueCoverage.expected && unitShots.length ? "text-amber-600 dark:text-amber-400" : ""} title={dialogueCoverage.missing.length ? `没进分段的台词：${dialogueCoverage.missing.slice(0, 5).join(" / ")}` : undefined}>台词覆盖 {dialogueCoverage.covered}/{dialogueCoverage.expected}</span></> : null}{overLimitSegments.length ? <><span>·</span><span className="text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {segmentMaxSeconds} 秒，需拆分</span></> : null}{shotlist?.draft && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>镜头表有 {shotlist.check.errors} 个问题，还没装段</button></> : null}{storyboardResume && !storyboardOperation ? <><span>·</span><button type="button" className="text-amber-600 underline-offset-2 hover:underline dark:text-amber-400" onClick={() => setRunPanelOpen(true)}>分段停在第 {storyboardResume.from} 场</button></> : null}</div>
+                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span>{unitShots.length ? <><span>·</span><span>{unitShots.length} 段</span></> : null}{dialogueCoverage.expected ? <><span>·</span><span className={dialogueCoverage.covered < dialogueCoverage.expected && unitShots.length ? "text-amber-600 dark:text-amber-400" : ""} title={dialogueCoverage.missing.length ? `没进分段的台词：${dialogueCoverage.missing.slice(0, 5).join(" / ")}` : undefined}>台词覆盖 {dialogueCoverage.covered}/{dialogueCoverage.expected}</span></> : null}{overLimitSegments.length ? <><span>·</span><span className="text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {segmentMaxSeconds} 秒，需拆分</span></> : null}{shotlist?.draft && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>镜头表有 {shotlist.check.errors} 个问题，还没装段</button></> : null}{storyboardResume && !storyboardOperation ? <><span>·</span><button type="button" className="text-amber-600 underline-offset-2 hover:underline dark:text-amber-400" onClick={() => setRunPanelOpen(true)}>分段停在第 {storyboardResume.from} 场</button></> : null}{storyboardStop?.kind === "failed" && storyboardStop.status === "failed" && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>上一次生成分段失败</button></> : null}</div>
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                                 <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(characterOperation)} loading={Boolean(characterOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setCharacterExtractOpen(true); }} aria-label={characterOperation ? `提取角色、场景与道具，${chapterOperationLabel(characterOperation, operationNow)}` : "提取角色、场景与道具"}>{characterOperation ? `提取资产（${chapterOperationLabel(characterOperation, operationNow)}）` : charactersGenerated ? "提取资产（已生成）" : "提取角色、场景与道具"}</Button>
                                 <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button>
-                                {storyboardOperation || storyboardStreamState.shotCount || shotlist?.draft || storyboardResume ? <Button size="small" onClick={() => setRunPanelOpen(true)} aria-label="查看生成分段进度">进度</Button> : null}
+                                {storyboardOperation || storyboardStreamState.shotCount || shotlist || storyboardStop ? <Button size="small" onClick={() => setRunPanelOpen(true)} aria-label="查看生成分段进度">进度</Button> : null}
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
@@ -751,9 +772,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 stream={storyboardStreamState}
                 outcome={storyboardOutcome}
                 shotlist={shotlist}
-                resume={storyboardResume}
+                stop={storyboardStop}
+                segmentCount={storyboardImpact.shotCount}
                 onResume={() => { if (storyboardResume) void createStoryboard({ resumeTaskId: storyboardResume.taskId }); }}
-                onRepack={() => { if (selectedUnit) repackMutation.mutate(selectedUnit.id); }}
+                onRepack={() => void repackStoryboard()}
                 repacking={repackMutation.isPending}
                 onRegenerate={() => { setRunPanelOpen(false); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
                 onOpenProduction={() => { if (selectedUnit) navigate(`/projects/${detail.project.id}/workflow/${selectedUnit.id}/video`); }}
