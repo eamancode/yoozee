@@ -33,7 +33,10 @@ test("scriptAdaptStreamFromResult 从失败任务的各轮原文或成功任务�
     assert.equal(failed.total, 3);
     assert.equal(failed.episodes[0].title, "a");
     const done = scriptAdaptStreamFromResult(JSON.stringify({ text: `${header(1, "a")}\n## 内·客厅·夜\n${header(2, "b")}\n## 外·街·日\n`, dramaRun: { total: 2, turns: [{ index: 1 }, { index: 2 }] } }));
-    assert.deepEqual(done.episodes.map((item) => item.title), ["a", "b"]);
+    assert.deepEqual(
+        done.episodes.map((item) => item.title),
+        ["a", "b"],
+    );
     assert.equal(scriptAdaptStreamFromResult("not json").episodes.length, 0);
 });
 

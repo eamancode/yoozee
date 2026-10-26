@@ -6,7 +6,18 @@ import { ScrollText } from "lucide-react";
 import { ModelPicker } from "@/components/model-picker";
 import { Callout } from "@/components/ui/product/callout";
 import { navigateToSettings } from "@/lib/settings-navigation";
-import { dramaEpisodesKey, dramaEpisodesReplaceImpact, dramaRunProgressOf, dramaScriptAdaptOutcomeOf, getDramaBrief, getDramaEpisodes, getDramaStepUsage, type DramaEpisodeImpact, type DramaScriptAdaptMode, type DramaScriptAdaptOutcome } from "@/services/api/drama";
+import {
+    dramaEpisodesKey,
+    dramaEpisodesReplaceImpact,
+    dramaRunProgressOf,
+    dramaScriptAdaptOutcomeOf,
+    getDramaBrief,
+    getDramaEpisodes,
+    getDramaStepUsage,
+    type DramaEpisodeImpact,
+    type DramaScriptAdaptMode,
+    type DramaScriptAdaptOutcome,
+} from "@/services/api/drama";
 import type { ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -99,11 +110,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
     }, [open, briefQuery.data]);
 
     const refresh = async () => {
-        await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
-            queryClient.invalidateQueries({ queryKey: ["projects"] }),
-            queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] }),
-        ]);
+        await Promise.all([queryClient.invalidateQueries({ queryKey: ["project", projectId] }), queryClient.invalidateQueries({ queryKey: ["projects"] }), queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] })]);
     };
 
     const confirmReplace = (mode: DramaScriptAdaptMode, impacts: DramaEpisodeImpact[]) =>
@@ -113,12 +120,19 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                 title: mode === "rhythm" ? `改写 ${impacts.length} 集剧集的正文？` : `替换已有的 ${impacts.length} 集剧集？`,
                 content: (
                     <div className="space-y-2 text-sm leading-6 text-foreground/62">
-                        <p>{mode === "rhythm" ? "只调节奏会原地改写这些剧集的正文，已有的镜头表和段不会自动更新，需要时在剧集上重新生成分段。" : "所选章节已经改编过。新剧本写完后会整体替换下面这些剧集，连同它们的镜头表、段和生成产物；生成失败时现有剧集不受影响。"}</p>
+                        <p>
+                            {mode === "rhythm"
+                                ? "只调节奏会原地改写这些剧集的正文，已有的镜头表和段不会自动更新，需要时在剧集上重新生成分段。"
+                                : "所选章节已经改编过。新剧本写完后会整体替换下面这些剧集，连同它们的镜头表、段和生成产物；生成失败时现有剧集不受影响。"}
+                        </p>
                         <ul className="max-h-48 space-y-1 overflow-y-auto pl-0">
                             {impacts.map((item) => (
                                 <li key={item.unitId} className="list-none rounded-md bg-surface-active px-2.5 py-1.5">
                                     <span className="font-medium text-foreground/85">{item.title}</span>
-                                    <span className="ml-2 text-[var(--fs-tiny)] text-foreground/50">{item.shots ? `${item.shots} 段` : "还没有段"}{item.hasShotlist ? " · 有镜头表" : ""}</span>
+                                    <span className="ml-2 text-[var(--fs-tiny)] text-foreground/50">
+                                        {item.shots ? `${item.shots} 段` : "还没有段"}
+                                        {item.hasShotlist ? " · 有镜头表" : ""}
+                                    </span>
                                 </li>
                             ))}
                         </ul>
@@ -246,7 +260,9 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                     <div>
                         <div className="mb-1.5 flex items-center justify-between text-xs">
                             <span className="font-medium text-foreground/68">{settings.mode === "rhythm" ? "要调节奏的剧集" : "要改编的原文章节"}</span>
-                            <span className="tabular-nums text-foreground/40">已选 {settings.sourceIds.length} / {candidates.length}</span>
+                            <span className="tabular-nums text-foreground/40">
+                                已选 {settings.sourceIds.length} / {candidates.length}
+                            </span>
                         </div>
                         <div className="thin-scrollbar max-h-52 overflow-y-auto rounded-lg border border-border/70 px-2.5 py-1.5">
                             {candidates.map((unit, index) => (
@@ -279,19 +295,42 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                             ) : (
                                 <label className="flex items-center gap-2 text-sm">
                                     <span className="shrink-0">每集约</span>
-                                    <InputNumber min={EPISODE_SECONDS_RANGE.min} max={EPISODE_SECONDS_RANGE.max} precision={0} value={settings.episodeSeconds} onChange={(value) => setSettings((current) => ({ ...current, episodeSeconds: value || 90 }))} className="w-24" />
+                                    <InputNumber
+                                        min={EPISODE_SECONDS_RANGE.min}
+                                        max={EPISODE_SECONDS_RANGE.max}
+                                        precision={0}
+                                        value={settings.episodeSeconds}
+                                        onChange={(value) => setSettings((current) => ({ ...current, episodeSeconds: value || 90 }))}
+                                        className="w-24"
+                                    />
                                     <span className="shrink-0">秒，按原文字数估集数</span>
                                 </label>
                             )}
                         </div>
                     ) : null}
-                    {replaced ? <Callout tone="warning" title={`${replaced} 章已经改编过`}>写完后会替换引用了这些章节的已有剧集，提交前会列出影响的剧集再确认一次。</Callout> : null}
+                    {replaced ? (
+                        <Callout tone="warning" title={`${replaced} 章已经改编过`}>
+                            写完后会替换引用了这些章节的已有剧集，提交前会列出影响的剧集再确认一次。
+                        </Callout>
+                    ) : null}
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
-                        <ModelPicker config={effectiveConfig} capability="text" value={settings.textModel} onChange={(textModel) => setSettings((current) => ({ ...current, textModel }))} variant="creation" fullWidth placeholder="选择用于剧本优化的文本模型" showSelectedPrice={false} onMissingConfig={() => navigateToSettings({ continueCreation: true })} />
+                        <ModelPicker
+                            config={effectiveConfig}
+                            capability="text"
+                            value={settings.textModel}
+                            onChange={(textModel) => setSettings((current) => ({ ...current, textModel }))}
+                            variant="creation"
+                            fullWidth
+                            placeholder="选择用于剧本优化的文本模型"
+                            showSelectedPrice={false}
+                            onMissingConfig={() => navigateToSettings({ continueCreation: true })}
+                        />
                     </label>
                     {usageQuery.isError ? (
-                        <Callout tone="error" title="读不到本步使用的技能">{usageQuery.error instanceof Error ? usageQuery.error.message : "请稍后重试"}</Callout>
+                        <Callout tone="error" title="读不到本步使用的技能">
+                            {usageQuery.error instanceof Error ? usageQuery.error.message : "请稍后重试"}
+                        </Callout>
                     ) : (
                         <div className="rounded-lg border border-border/70 px-3 py-2.5 text-xs leading-5 text-foreground/62" aria-live="polite">
                             {usage ? (
