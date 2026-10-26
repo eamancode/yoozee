@@ -82,9 +82,11 @@ type DramaStyleBibleOutcome struct {
 	Images DramaPaletteQueueResult `json:"images"`
 }
 
+// DramaPaletteWriteSummary 里 Retired 是标成场次已不存在的旧色卡（这次运行范围内、色彩脚本里不再有的场）。
 type DramaPaletteWriteSummary struct {
 	Created   int `json:"created"`
 	Versioned int `json:"versioned"`
+	Retired   int `json:"retired"`
 }
 
 // planStyleBible 选剧集（没有剧集时取原文章节）、切场、读已有风格锚和色彩脚本，组装提示词。
@@ -149,6 +151,24 @@ func styleBibleUnits(units []model.ProjectUnit, requested []string) ([]model.Pro
 		return nil, nil, false, BadAuthRequest("所选单元不是这个项目的剧集")
 	}
 	return out, numbers, fromChapters, nil
+}
+
+// styleBibleSceneRefs 是项目当前的场次表（总览「风格定了」「色卡齐了」的基准）：选单元、编集号、切场都与导演风格同一套
+// （全部剧集，没有剧集时取原文章节，一章当一集）。项目里没有剧集也没有章节时返回空。
+func styleBibleSceneRefs(units []model.ProjectUnit) ([]drama.SceneRef, bool) {
+	sorted := slices.Clone(units)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Position < sorted[j].Position })
+	all, numbers, fromChapters, err := styleBibleUnits(sorted, nil)
+	if err != nil {
+		return nil, false
+	}
+	var out []drama.SceneRef
+	for _, u := range all {
+		for _, sc := range drama.StyleBibleScenes(chapterPlainText(u.SourceText), u.Title, drama.StyleBibleMinExcerptChars) {
+			out = append(out, drama.SceneRef{Episode: numbers[u.ID], SceneNo: sc.No})
+		}
+	}
+	return out, fromChapters
 }
 
 // styleBiblePlan 把选好的单元、项目记忆和技能版本组装成提示词与运行参数（不读库，评测直接拿评测集的单元喂进来）。
@@ -308,7 +328,11 @@ func (s *Service) applyStyleBibleTask(task model.Task, meta *dramaStepTaskMeta, 
 	if style.Images && decryptErr == nil {
 		template = taskPaletteImageTemplate(decrypted)
 	}
-	writes, summary, err := s.dramaPaletteWrites(task.UserID, project, entries, template != nil)
+	// 运行范围：这次重写的集，和超出项目现在集数的集（keptColorScript 合并时去掉的）；其中这次没写到的场，色卡标成场次已不存在。
+	retire := func(m paletteMeta) bool {
+		return runEpisodes[m.Episode] || (style.TotalEpisodes > 0 && m.Episode > style.TotalEpisodes)
+	}
+	writes, summary, err := s.dramaPaletteWrites(task.UserID, project, entries, template != nil, retire)
 	if err != nil {
 		return DramaStyleBibleOutcome{}, err
 	}

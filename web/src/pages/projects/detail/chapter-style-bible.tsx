@@ -161,6 +161,9 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
     const [open, setOpen] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
     const [starting, setStarting] = useState(false);
+    const [preparing, setPreparing] = useState(false);
+    /** 开跑前的检查（图片模型没配好、出图模板组不出来）没过的原因：常驻在对话框里，侧栏不打开。 */
+    const [precheckError, setPrecheckError] = useState("");
     const [stream, setStream] = useState<{ taskId: string; text: string }>({ taskId: "", text: "" });
     const [resumeView, setResumeView] = useState<{ from: number; total: number; previous: StyleBibleStreamState }>();
     const followedRef = useRef(new Set<string>());
@@ -185,6 +188,9 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
 
     const defaultImageModel = () => turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
     const openDialog = () => {
+        // 侧栏（AppDrawer）和对话框同一层级、后渲染的在上面：先收起侧栏，免得盖住「定风格」。
+        setPanelOpen(false);
+        setPrecheckError("");
         setSettings((current) => ({
             sourceIds: candidates.map((unit) => unit.id),
             textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
@@ -210,15 +216,35 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
         const images = previous ? previous.images : settings.images;
         const imageModel = settings.imageModel || defaultImageModel();
         const imageConfig = { ...effectiveConfig, model: imageModel };
-        if (images && !isAiConfigReady(imageConfig, imageModel)) return message.warning("请先在设置中配置可用的图片模型，或关掉色卡出图");
         const sourceUnitIds = previous?.sourceUnitIds || (settings.sourceIds.length === candidates.length ? [] : settings.sourceIds);
+        // 出图模板在开跑前组好：组不出来（例如个人图片模型没选请求协议）时不建任务、不打开侧栏，原因留在对话框里。
+        const precheckFailed = (reason: string) => {
+            if (options.resumeTaskId) {
+                message.error(`没有继续导演风格：${reason}`);
+                return;
+            }
+            setPrecheckError(reason);
+        };
+        let paletteImages: Awaited<ReturnType<typeof paletteImageTaskTemplate>> | undefined;
+        if (images) {
+            if (!isAiConfigReady(imageConfig, imageModel)) return precheckFailed("色卡出图用的图片模型还没配好：到设置里配置，或关掉色卡出图。");
+            setPrecheckError("");
+            setPreparing(true);
+            try {
+                paletteImages = await paletteImageTaskTemplate(imageConfig, imageModel);
+            } catch (error) {
+                return precheckFailed(`色卡出图模板准备失败：${error instanceof Error ? error.message.replace(/[。.]+$/, "") : "请检查图片模型配置"}。可以换个图片模型，或关掉色卡出图。`);
+            } finally {
+                setPreparing(false);
+            }
+        }
+        setPrecheckError("");
         setOpen(false);
         setStarting(true);
         setStream({ taskId: "", text: "" });
         setResumeView(options.resumeTaskId && resume ? { from: resume.from, total: resume.total, previous: styleBibleStreamFromResult(taskDetail?.resultJson) } : undefined);
         setPanelOpen(true);
         try {
-            const paletteImages = images ? await paletteImageTaskTemplate(imageConfig, imageModel) : undefined;
             const result = await runStyleBible(
                 { projectId, config, sourceUnitIds, paletteImages, resumeTaskId: options.resumeTaskId },
                 {
@@ -291,7 +317,7 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
         </>
     ) : outcome ? (
         <span>
-            已写入风格锚和 {outcome.scenes} 场色彩脚本，色卡新建 {outcome.palettes.created} 张、加版本 {outcome.palettes.versioned} 张
+            已写入风格锚和 {outcome.scenes} 场色彩脚本，色卡新建 {outcome.palettes.created} 张、加版本 {outcome.palettes.versioned} 张{outcome.palettes.retired ? `，${outcome.palettes.retired} 张旧色卡的场次已不存在（已标出，没删）` : ""}
         </span>
     ) : stop?.kind === "failed" ? (
         <span>{stop.status === "cancelled" ? "上一次导演风格已取消" : "上一次导演风格失败"}</span>
@@ -316,7 +342,7 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
                 width={560}
                 okText="定风格"
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.images && !settings.imageModel) }}
+                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.images && !settings.imageModel), loading: preparing }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -362,14 +388,25 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
                     <div className="grid gap-2">
                         <label className="flex items-center justify-between gap-3 text-xs">
                             <span className="font-medium text-foreground/68">写完后给每场色卡出图（16:9）</span>
-                            <Switch size="small" checked={settings.images} onChange={(images) => setSettings((current) => ({ ...current, images }))} aria-label="给色卡出图" />
+                            <Switch
+                                size="small"
+                                checked={settings.images}
+                                onChange={(images) => {
+                                    setPrecheckError("");
+                                    setSettings((current) => ({ ...current, images }));
+                                }}
+                                aria-label="给色卡出图"
+                            />
                         </label>
                         {settings.images ? (
                             <ModelPicker
                                 config={effectiveConfig}
                                 capability="image"
                                 value={settings.imageModel}
-                                onChange={(imageModel) => setSettings((current) => ({ ...current, imageModel }))}
+                                onChange={(imageModel) => {
+                                    setPrecheckError("");
+                                    setSettings((current) => ({ ...current, imageModel }));
+                                }}
                                 fullWidth
                                 placeholder="选择色卡出图用的图片模型"
                                 showSelectedPrice
@@ -377,6 +414,11 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
                             />
                         ) : null}
                     </div>
+                    {precheckError ? (
+                        <Callout tone="error" title="还没开始：色卡出图准备没通过">
+                            {precheckError}
+                        </Callout>
+                    ) : null}
                     {usageQuery.isError ? (
                         <Callout tone="error" title="读不到本步使用的技能">
                             {usageQuery.error instanceof Error ? usageQuery.error.message : "请稍后重试"}
