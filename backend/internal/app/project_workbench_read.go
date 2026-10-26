@@ -1,9 +1,12 @@
 package app
 
 import (
+	"errors"
+
 	"yingce/backend/internal/model"
 
 	"golang.org/x/sync/errgroup"
+	"gorm.io/gorm"
 )
 
 type ProjectCore struct {
@@ -115,6 +118,9 @@ func (s *Service) ProjectCore(userID string, projectID string) (ProjectCore, err
 
 func (s *Service) ProjectUnitSummaries(userID string, projectID string) (ProjectUnitSummaries, error) {
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ProjectUnitSummaries{}, NotFound("项目不存在")
+		}
 		return ProjectUnitSummaries{}, err
 	}
 	var units []model.ProjectUnit

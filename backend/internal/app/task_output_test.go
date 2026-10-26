@@ -130,6 +130,10 @@ func TestTaskClientContextMarksScriptAdapt(t *testing.T) {
 	if context == nil || context.ChapterOperation != "script-adapt" || context.DomainProjectID != "project-1" || context.ChapterID != "" {
 		t.Fatalf("context = %+v", context)
 	}
+	style := taskClientContext(`{"metadata":{"source":"short-drama-style-bible","domainProjectId":"project-1"}}`)
+	if style == nil || style.ChapterOperation != "style-bible" || style.DomainProjectID != "project-1" {
+		t.Fatalf("导演风格 context = %+v", style)
+	}
 }
 
 func TestTaskSummaryPreservesCanvasNodeWithoutExposingInput(t *testing.T) {

@@ -523,4 +523,14 @@ func TestDramaShotlistOfDeletedUnitIsNotFound(t *testing.T) {
 	if !errors.As(err, &appErr) || appErr.Status != http.StatusNotFound || appErr.Reason != ReasonNotFound {
 		t.Fatalf("已删除的单元返回 404 not_found：%v", err)
 	}
+	// 项目 id 不存在时读镜头表、单元列表也是 404，不是 500。
+	for name, call := range map[string]func() error{
+		"镜头表":  func() error { _, err := service.DramaShotlist("user-1", "no-such-project", unit.ID); return err },
+		"单元列表": func() error { _, err := service.ProjectUnitSummaries("user-1", "no-such-project"); return err },
+	} {
+		var notFound *AppError
+		if err := call(); !errors.As(err, &notFound) || notFound.Status != http.StatusNotFound {
+			t.Fatalf("%s：项目不存在应返回 404：%v", name, err)
+		}
+	}
 }

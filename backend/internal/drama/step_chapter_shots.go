@@ -11,10 +11,11 @@ import (
 // chapter.shots（生成分段）的提示词组装：技能上下文 + 代码负责的变量 + 按 schema 生成的契约。
 // 各段的写法、字数上限和先后与原先前端 chapterStoryboardTaskPrompt 一致。
 
-// StepStyle 是项目画风（画风快照的标题和执行规范原文）。
+// StepStyle 是项目画风（画风快照的标题和执行规范原文；Selection 是预设各维度的选项，只有导演风格写进提示词）。
 type StepStyle struct {
-	Title  string
-	Prompt string
+	Title     string
+	Prompt    string
+	Selection map[string]string
 }
 
 // StepCharacter 是已确认的角色（角色卡当前版本的设定）。
@@ -92,6 +93,11 @@ func BuildChapterShotsPrompt(in ChapterShotsInput) (StepPrompt, error) {
 
 // StepStylePrompt 是【项目画风】段：按小节取到预算为止、按原顺序输出；自由书写的画风没有【】小节，按行截取。
 func StepStylePrompt(style StepStyle) string {
+	return stepStylePrompt(style, "分镜里的画面、光影、服饰和场景描述都按这个画风写，不要写成其他媒介；这是项目级基线，不要整段抄进每个镜头。")
+}
+
+// stepStylePrompt 是标题后接指定说明的【项目画风】段。
+func stepStylePrompt(style StepStyle, intro string) string {
 	var lines []string
 	for _, line := range strings.Split(style.Prompt, "\n") {
 		if line = jsCompact(line); line != "" {
@@ -138,7 +144,7 @@ func StepStylePrompt(style StepStyle) string {
 	if title == "" {
 		title = "未命名画风"
 	}
-	out := []string{"【项目画风：" + title + "】分镜里的画面、光影、服饰和场景描述都按这个画风写，不要写成其他媒介；这是项目级基线，不要整段抄进每个镜头。"}
+	out := []string{"【项目画风：" + title + "】" + intro}
 	for i := range lines {
 		if line, ok := kept[i]; ok {
 			out = append(out, line)

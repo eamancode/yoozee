@@ -21,13 +21,18 @@ import (
 	"yingce/backend/internal/model"
 )
 
-// DramaScriptAdaptRunRequest 是「对这个项目跑剧本优化」：选哪些单元、怎么改、写几集，加文本模型选择；提示词由服务端组装。
-type DramaScriptAdaptRunRequest struct {
+// DramaProjectStepRunRequest 是「对这个项目跑一步」（剧本优化、导演风格）：选哪些单元，剧本优化另有怎么改、写几集，加文本模型选择；
+// 提示词由服务端组装。
+type DramaProjectStepRunRequest struct {
 	Model          string         `json:"model"`
 	LogicalModelID string         `json:"logicalModelId"`
 	Config         map[string]any `json:"config"`
-	// SourceUnitIDs 是来源单元：adapt 是原文章节（默认全部还没被剧集引用的），rhythm 是已有剧集（默认全部）。
+	// SourceUnitIDs 是来源单元：adapt 是原文章节（默认全部还没被剧集引用的），rhythm 是已有剧集（默认全部）；
+	// 导演风格是要定风格的剧集（默认全部；项目还没有剧集时是原文章节）。
 	SourceUnitIDs []string `json:"sourceUnitIds,omitempty"`
+	// PaletteImages 是色卡出图的图片任务模板（导演风格收尾给每场色卡出图用；为空时只建色卡不出图）。剧本优化带上它时，
+	// 跑完自动接着的导演风格用它出图。
+	PaletteImages *DramaImageTaskTemplate `json:"paletteImages,omitempty"`
 	// Mode 是 adapt（小说转剧本，默认）或 rhythm（已是剧本，只调节奏）。
 	Mode string `json:"mode,omitempty"`
 	// TargetEpisodes / EpisodeSeconds 二选一：写几集，或每集多少秒（按原文字数估集数）；都不给时取需求文档每集时长，再没有就一章一集。
@@ -39,6 +44,8 @@ type DramaScriptAdaptRunRequest struct {
 	ResumeTaskID string `json:"resumeTaskId,omitempty"`
 	TraceID      string `json:"-"`
 	RequestID    string `json:"-"`
+	// chainedFrom 是服务端自动接着建任务时的上一步任务（metadata.chainedFrom）。
+	chainedFrom string
 }
 
 // dramaAdaptMeta 是任务 metadata.dramaAdapt：收尾按它写剧集。
@@ -105,12 +112,14 @@ type DramaScriptAdaptOutcome struct {
 	Warnings  int                   `json:"warnings"`
 	// Items 是检查提醒（最多 50 条）。
 	Items []drama.CheckItem `json:"items,omitempty"`
+	// Chained 是写完剧集后自动接着建的导演风格任务。
+	Chained *DramaChainedTask `json:"chained,omitempty"`
 }
 
 const dramaAdaptOutcomeItems = 50
 
-// RunDramaProjectStep 对整个项目跑一步（现在只有剧本优化）：服务端组装提示词并创建文本任务。
-func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID string, req DramaScriptAdaptRunRequest) (DramaStepRunResult, error) {
+// RunDramaProjectStep 对整个项目跑一步（剧本优化、导演风格）：服务端组装提示词并创建文本任务。
+func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID string, req DramaProjectStepRunRequest) (DramaStepRunResult, error) {
 	step, err := dramaStep(stepID)
 	if err != nil {
 		return DramaStepRunResult{}, err
@@ -122,7 +131,22 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}
-	plan, err := s.planScriptAdapt(project, step, req)
+	if req.PaletteImages != nil && !req.PaletteImages.usable() {
+		return DramaStepRunResult{}, BadAuthRequest("色卡出图要先选图片模型")
+	}
+	var plan *dramaStepPlan
+	switch step.ID {
+	case drama.StepScriptAdapt:
+		plan, err = s.planScriptAdapt(project, step, req)
+	case drama.StepStyleBible:
+		plan, err = s.planStyleBible(project, step, req)
+		if plan != nil {
+			plan.style.Images = req.PaletteImages != nil
+			plan.style.ChainedFrom = req.chainedFrom
+		}
+	default:
+		err = BadAuthRequest(fmt.Sprintf("步骤 %s 还不能在服务端运行", step.ID))
+	}
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}
@@ -133,7 +157,15 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 		}
 	}
 	taskReq := dramaStepTaskRequest(project.ID, "", plan, dramaStepTaskOptions{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config, TraceID: req.TraceID, RequestID: req.RequestID})
-	taskReq.Input["metadata"].(map[string]any)["dramaRun"] = run
+	metadata := taskReq.Input["metadata"].(map[string]any)
+	metadata["dramaRun"] = run
+	if req.chainedFrom != "" {
+		metadata["chainedFrom"] = req.chainedFrom
+	}
+	// 模板带着图片渠道的密钥：放在 input 顶层（建任务时加密，任务结束后从正文去掉），不进 metadata。
+	if req.PaletteImages != nil {
+		taskReq.Input["paletteImageTask"] = req.PaletteImages
+	}
 	task, err := s.CreateTask(userID, taskReq)
 	if err != nil {
 		return DramaStepRunResult{}, err
@@ -142,7 +174,7 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 }
 
 // planScriptAdapt 选来源、算集数、查会动到的已有剧集，组装提示词。
-func (s *Service) planScriptAdapt(project *model.Project, step drama.Step, req DramaScriptAdaptRunRequest) (*dramaStepPlan, error) {
+func (s *Service) planScriptAdapt(project *model.Project, step drama.Step, req DramaProjectStepRunRequest) (*dramaStepPlan, error) {
 	mode := strings.TrimSpace(req.Mode)
 	if mode == "" {
 		mode = drama.ScriptAdaptModeAdapt

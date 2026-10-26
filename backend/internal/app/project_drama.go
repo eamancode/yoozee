@@ -331,18 +331,59 @@ func (s *Service) UpdateProjectBible(userID string, projectID string, raw json.R
 	if err != nil {
 		return nil, err
 	}
-	for _, key := range []string{"characters", "props", "locations", "screen_text", "timeline", "spatial_maps"} {
-		if value, ok := doc[key]; ok {
-			if _, isList := value.([]any); !isList {
-				return nil, BadAuthRequest("连戏表的 " + key + " 必须是数组")
-			}
-		}
+	if err := validateDramaBibleDocument(doc); err != nil {
+		return nil, err
 	}
 	encoded, _ := json.Marshal(doc)
 	if err := s.repo.UpdateProjectDramaDocument(userID, projectID, "bible_json", string(encoded), time.Now()); err != nil {
 		return nil, err
 	}
 	return doc, nil
+}
+
+// validateDramaBibleDocument 是连戏表的形状校验（页面保存和导演风格收尾共用）：列表字段必须是数组；style_anchor 是对象；
+// color_script 每场的 HEX 必须是 #RRGGBB、集号场序是正整数，同一场不能写两次。
+func validateDramaBibleDocument(doc map[string]any) error {
+	for _, key := range []string{"characters", "props", "locations", "screen_text", "timeline", "spatial_maps", "color_script"} {
+		if value, ok := doc[key]; ok {
+			if _, isList := value.([]any); !isList {
+				return BadAuthRequest("连戏表的 " + key + " 必须是数组")
+			}
+		}
+	}
+	if value, ok := doc["style_anchor"]; ok && value != nil {
+		if _, isObject := value.(map[string]any); !isObject {
+			return BadAuthRequest("连戏表的 style_anchor 必须是对象")
+		}
+		var anchor drama.StyleAnchor
+		encoded, _ := json.Marshal(value)
+		if json.Unmarshal(encoded, &anchor) != nil {
+			return BadAuthRequest("连戏表的 style_anchor 字段类型不对（forbidden 是字符串数组，其余是字符串）")
+		}
+	}
+	if value, ok := doc["color_script"]; ok {
+		encoded, _ := json.Marshal(value)
+		var entries []drama.ColorScriptEntry
+		if json.Unmarshal(encoded, &entries) != nil {
+			return BadAuthRequest("连戏表的 color_script 每一项要有 episode、scene_no 和颜色数组")
+		}
+		seen := map[string]bool{}
+		for _, e := range entries {
+			if e.Episode <= 0 || e.SceneNo <= 0 {
+				return BadAuthRequest("色彩脚本的 episode、scene_no 必须是正整数")
+			}
+			if seen[e.Code()] {
+				return BadAuthRequest("色彩脚本里 " + e.Code() + " 写了两次")
+			}
+			seen[e.Code()] = true
+			for _, c := range e.Colors() {
+				if !drama.ValidHexColor(drama.NormalizeHexColor(c.Hex)) {
+					return BadAuthRequest(fmt.Sprintf("色彩脚本 %s 的「%s」HEX「%s」不是 #RRGGBB", e.Code(), c.NameZh, c.Hex))
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------- 分段
@@ -889,6 +930,9 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 		return shots[i].Position < shots[j].Position
 	})
 	input := drama.ProgressInput{Model: m, AuthMode: project.AuthMode, BriefJSON: project.BriefJSON, BibleJSON: project.BibleJSON}
+	if input.Palettes, err = s.projectPaletteProgress(userID, projectID); err != nil {
+		return drama.Progress{}, err
+	}
 	for _, unit := range units {
 		if unit.Kind == model.ProjectUnitKindEpisode {
 			input.Episodes = append(input.Episodes, drama.EpisodeInput{ID: unit.ID, Title: unit.Title, WordCount: unit.WordCount})

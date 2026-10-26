@@ -77,7 +77,7 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
                             </Button>
                         }
                     >
-                        前 {resume.from - 1} {unit}（共 {resume.total} {unit}）已保存，接着写会带上它们的对话，不用重跑。{resume.error ? `原因：${resume.error}` : ""}
+                        前 {resume.from - 1} {unit}（共 {resume.total} {unit}）已保存，接着写会带上它们的对话，不用重跑。{resume.error ? `原因：${sentence(resume.error)}` : ""}
                     </Callout>
                 ) : null}
 

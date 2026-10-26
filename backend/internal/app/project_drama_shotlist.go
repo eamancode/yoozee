@@ -803,6 +803,9 @@ func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID st
 // DramaShotlist 读一章的镜头表、台词表与最近一次检查结果；这一章还没有镜头表时返回 nil。
 func (s *Service) DramaShotlist(userID string, projectID string, unitID string) (*DramaShotlistView, error) {
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, NotFound("项目不存在")
+		}
 		return nil, err
 	}
 	unitID = strings.TrimSpace(unitID)

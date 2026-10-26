@@ -110,7 +110,7 @@ describe("概览：模型与档位标签", () => {
     });
 });
 
-describe("概览：一句进度、八个终态与每段六格", () => {
+describe("概览：一句进度、十个终态与每段六格", () => {
     test("空项目显示进度行与下一步", () => {
         const html = render(<DramaOverviewPanel projectId="p1" />, {
             progress: progress({ line: "还没有分段", endStates: [endState("brief", false), endState("bible", false)], next: { key: "brief", label: "问需求", detail: "先问清用途和平台", skill: "yz-brief" } }),
@@ -119,10 +119,10 @@ describe("概览：一句进度、八个终态与每段六格", () => {
         expect(html).toContain("下一步：问需求 · 先问清用途和平台（yz-brief）");
     });
 
-    test("八个终态全达成时不再给下一步", () => {
-        const states = Array.from({ length: 8 }, (_, index) => endState(`s${index}`, true));
+    test("十个终态全达成时不再给下一步", () => {
+        const states = Array.from({ length: 10 }, (_, index) => endState(`s${index}`, true));
         const html = render(<DramaOverviewPanel projectId="p1" />, { progress: progress({ endStates: states }) });
-        expect(html).toContain("8 个终态全部达成。");
+        expect(html).toContain("10 个终态全部达成。");
         expect(html).not.toContain("下一步：");
     });
 

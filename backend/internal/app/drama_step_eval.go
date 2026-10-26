@@ -240,10 +240,14 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 		Skill: DramaStepSkillRef{ID: skillRef.ID, Name: skillRef.Name, VersionID: skillRef.VersionID, Version: skillRef.Version, ContentHash: skillRef.ContentHash},
 	}
 	var plan *dramaStepPlan
-	if step.ID == drama.StepScriptAdapt {
+	switch step.ID {
+	case drama.StepScriptAdapt:
 		// 剧本优化的评测：这一章改编成一集。
 		plan, err = scriptAdaptPlan(in.project, []model.ProjectUnit{*in.unit}, drama.ScriptAdaptModeAdapt, 1, 0, nil, usage, skillRef)
-	} else {
+	case drama.StepStyleBible:
+		// 导演风格的评测：这一章当第 1 集定风格（只出风格锚和色彩脚本，不建色卡、不出图）。
+		plan, err = styleBiblePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, usage, skillRef)
+	default:
 		plan, err = chapterShotsPlan(in.project, in.unit, in.assets, usage, skillRef)
 	}
 	if err != nil {
@@ -679,8 +683,11 @@ func dramaStepEvalChapterResult(step drama.Step, c drama.StepEvalChapter, taskID
 		Text string `json:"text"`
 	}
 	_ = json.Unmarshal([]byte(firstNonEmpty(task.ResultJSON, "{}")), &output)
-	if step.ID == drama.StepScriptAdapt {
+	switch step.ID {
+	case drama.StepScriptAdapt:
 		return scriptAdaptEvalResult(r, in, output.Text), ""
+	case drama.StepStyleBible:
+		return styleBibleEvalResult(r, in, output.Text), ""
 	}
 	rows, _, err := drama.StoryboardRowsFromText(output.Text)
 	if err != nil {
@@ -757,6 +764,38 @@ func scriptAdaptEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInp
 		r.Failure = fmt.Sprintf("解析出 %d 集，%d 集带场次头，检查 %d 个 error", stats.Blocks, stats.Episodes, report.Errors)
 	}
 	return r
+}
+
+// styleBibleEvalResult 是导演风格一章的指标：有风格锚、解析出的场占应写的场 ≥ 0.9 才算解析成功；Rows 是场数，Shots 是应写的场数。
+func styleBibleEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInput, text string) drama.StepEvalChapterResult {
+	out, stats := drama.StyleBibleFromText(text, 1)
+	scenes := drama.StyleBibleScenes(chapterPlainText(in.unit.SourceText), in.unit.Title, drama.StyleBibleSceneExcerptChars)
+	episode := drama.StyleBibleEpisode{No: 1, UnitID: in.unit.ID, Title: in.unit.Title, Scenes: scenes}
+	report := drama.CheckStyleBible(out, drama.StyleBibleCheckContext{Episodes: []drama.StyleBibleEpisode{episode}})
+	parsed := len(styleBibleRunEntries(out.Script, map[int]bool{1: true}))
+	r.Rows, r.Shots, r.Errors, r.Warnings = parsed, len(scenes), report.Errors, report.Warnings
+	for _, item := range report.Items {
+		if r.Rules == nil {
+			r.Rules = map[string]int{}
+		}
+		r.Rules[item.Rule]++
+	}
+	rate := 0.0
+	if len(scenes) > 0 {
+		rate = float64(min(parsed, len(scenes))) / float64(len(scenes))
+	}
+	r.Parsed = stats.Anchor && rate >= 0.9
+	if !r.Parsed {
+		r.Failure = fmt.Sprintf("解析出 %d/%d 场，风格锚%s", parsed, len(scenes), boolWord(stats.Anchor, "有", "没有"))
+	}
+	return r
+}
+
+func boolWord(ok bool, yes, no string) string {
+	if ok {
+		return yes
+	}
+	return no
 }
 
 // autoActivateDramaStepPackage 在评测通过后启用候选版本：评测期间启用版本换过、上传的人已不是管理员时不启用，写进评测的说明。

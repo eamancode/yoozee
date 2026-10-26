@@ -169,7 +169,18 @@ export type DramaBibleVariant = { label: string; age?: string; face_hair?: strin
 export type DramaBibleCharacter = { name: string; speaks?: boolean; variants: DramaBibleVariant[] };
 export type DramaBibleProp = { name: string; image?: string; states?: Array<{ when?: string; desc?: string; image?: string }>; checked?: boolean };
 export type DramaBibleLocation = { name: string; plate?: string; side_a?: string; side_b?: string; fixtures?: string; light?: string; checked?: boolean };
-export type DramaBible = { characters?: DramaBibleCharacter[]; props?: DramaBibleProp[]; locations?: DramaBibleLocation[]; [key: string]: unknown };
+/** 全局风格锚（导演风格 style.bible 写入 bible_json.style_anchor）。 */
+export type DramaStyleAnchor = { medium?: string; art_style?: string; lighting?: string; camera?: string; grading?: string; forbidden?: string[]; era?: string; genre?: string; render_quality?: string };
+/** 色彩脚本里的一个颜色。 */
+export type DramaPaletteColor = { name_zh: string; name_en: string; hex: string; usage: string };
+/** 一场的色彩脚本（bible_json.color_script 的一项，也是这一场色卡的设定）：场编号是 E{episode}S{scene_no}。 */
+export type DramaColorScriptEntry = { episode: number; scene_no: number; scene: string; inherits_from: string; shared_colors: DramaPaletteColor[]; new_colors: DramaPaletteColor[]; purpose?: string; references?: string };
+export type DramaBible = { characters?: DramaBibleCharacter[]; props?: DramaBibleProp[]; locations?: DramaBibleLocation[]; style_anchor?: DramaStyleAnchor; color_script?: DramaColorScriptEntry[]; [key: string]: unknown };
+
+/** 场编号 E01S02（第 1 集第 2 场）。 */
+export function dramaSceneCode(episode: number, sceneNo: number) {
+    return `E${String(episode).padStart(2, "0")}S${String(sceneNo).padStart(2, "0")}`;
+}
 
 export function getDramaBible(projectId: string) {
     return http.get<{ document: DramaBible }>(`/projects/${projectId}/drama/bible`);
@@ -322,8 +333,8 @@ export function recommendDramaStyleProfile(styleMap: DramaStyleProfiles["styleMa
     return rule?.profile || styleMap.default;
 }
 
-/** 短剧流程步骤：script.adapt 是剧本优化（项目级），chapter.shots 是生成分段（按章节或剧集）。 */
-export type DramaStepId = "chapter.shots" | "script.adapt";
+/** 短剧流程步骤：script.adapt 是剧本优化、style.bible 是导演风格（项目级），chapter.shots 是生成分段（按章节或剧集）。 */
+export type DramaStepId = "chapter.shots" | "script.adapt" | "style.bible";
 
 /** 一个项目跑这一步用哪个技能版本（风格档案查绑定；bound 为 false 时是步骤默认技能）。 */
 export type DramaStepUsage = {
@@ -356,12 +367,41 @@ export function runDramaStep(projectId: string, unitId: string, step: DramaStepI
  */
 export type DramaScriptAdaptMode = "adapt" | "rhythm";
 
+/**
+ * 色卡出图的图片任务模板：前端按项目默认图片模型组好的任务（模型选择、input.config 等，16:9），服务端每张色卡换上自己的
+ * 提示词和资产出图 metadata 后建任务。导演风格（以及剧本优化跑完自动接着的导演风格）带上它才给色卡出图。
+ */
+export type DramaImageTaskTemplate = { model: string; logicalModelId?: string; provider?: string; input: Record<string, unknown> };
+
+/**
+ * 导演风格（项目级步骤 style.bible）：服务端按项目记忆为全部剧集（没有剧集时是原文章节）写全局风格锚和逐场色彩脚本，一轮一集；
+ * 收尾合并写进 bible_json，每场建一张色卡资产（category=palette，重跑同一场加版本），带了 paletteImages 时接着排色卡出图。
+ */
 export function runDramaProjectStep(
     projectId: string,
-    step: "script.adapt",
-    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; sourceUnitIds?: string[]; mode?: DramaScriptAdaptMode; targetEpisodes?: number; episodeSeconds?: number; replace?: boolean; resumeTaskId?: string },
+    step: "script.adapt" | "style.bible",
+    input: {
+        model: string;
+        logicalModelId?: string;
+        config: Record<string, unknown>;
+        sourceUnitIds?: string[];
+        mode?: DramaScriptAdaptMode;
+        targetEpisodes?: number;
+        episodeSeconds?: number;
+        replace?: boolean;
+        resumeTaskId?: string;
+        paletteImages?: DramaImageTaskTemplate;
+    },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
+}
+
+/** 一次排色卡出图：queued 建了任务，waiting 等空位（同时任务数有上限，前面的出完图自动接着排），failed 没建成（原因记在色卡上）。 */
+export type DramaPaletteQueueResult = { queued: string[]; waiting: string[]; failed: string[] };
+
+/** 给色卡出图 / 重新出图：assetIds 为空时排全部还没出图或出图失败的色卡。 */
+export function queueDramaPaletteImages(projectId: string, input: { assetIds?: string[]; imageTask: DramaImageTaskTemplate }) {
+    return http.post<DramaPaletteQueueResult>(`/projects/${encodeURIComponent(projectId)}/drama/palettes/images`, input);
 }
 
 /** 重跑剧本优化会动到的一集：adapt 整体替换（连同镜头表和段），rhythm 原地改写正文。 */
@@ -402,6 +442,22 @@ export type DramaScriptAdaptOutcome = {
     errors: number;
     warnings: number;
     items?: DramaCheckReport["items"];
+    /** 写完剧集后自动接着建的导演风格任务；error 是没建成的原因（已写的剧集不受影响）。 */
+    chained?: { step: "style.bible"; taskId?: string; error?: string };
+};
+
+/** 导演风格收尾的摘要（任务 result.dramaStep）：写了几集几场、色卡新建 / 加版本几张、出图排上和等空位的色卡。 */
+export type DramaStyleBibleOutcome = {
+    step: "style.bible";
+    status: "written";
+    episodes: number;
+    scenes: number;
+    parse: { episodes: number; scenes: number; invalid: number; anchor: boolean };
+    errors: number;
+    warnings: number;
+    items?: DramaCheckReport["items"];
+    palettes: { created: number; versioned: number };
+    images: DramaPaletteQueueResult;
 };
 
 /** 逐轮续写的进度（任务 result.dramaRun）：completed / total 场（剧本优化是集）；任务失败时前面写完的仍在，可从第 completed + 1 场继续。 */
@@ -451,4 +507,9 @@ export function dramaStepOutcomeOf(task: Pick<GenerationTask, "resultJson">): Dr
 export function dramaScriptAdaptOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaScriptAdaptOutcome | undefined {
     const outcome = taskResultRecord(task).dramaStep as DramaScriptAdaptOutcome | undefined;
     return outcome && outcome.step === "script.adapt" && Array.isArray(outcome.episodes) ? outcome : undefined;
+}
+
+export function dramaStyleBibleOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaStyleBibleOutcome | undefined {
+    const outcome = taskResultRecord(task).dramaStep as DramaStyleBibleOutcome | undefined;
+    return outcome && outcome.step === "style.bible" && typeof outcome.scenes === "number" ? outcome : undefined;
 }

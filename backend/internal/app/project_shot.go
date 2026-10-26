@@ -354,6 +354,9 @@ func (s *Service) CreateProjectAssetCandidates(userID string, projectID string, 
 		if name == "" || nameKey == "" || !validAssetCategory(category) {
 			return nil, BadAuthRequest("资产候选名称或分类无效")
 		}
+		if category == model.AssetCategoryPalette {
+			return nil, BadAuthRequest("色卡由导演风格按色彩脚本生成，不走资产候选")
+		}
 		if category == model.AssetCategoryCharacter && source != assetCandidateSourceChapterCharacter {
 			return nil, BadAuthRequest("角色候选只能从剧情章节的角色提取流程创建")
 		}

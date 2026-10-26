@@ -18,6 +18,7 @@ import { dramaAuthLabel } from "../drama-model";
 import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
 import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
 import { editSubShot, mergeWithNext, moveEdgeShot, segmentLacksReferences, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
+import { StyleBibleEditor } from "./drama-style-bible-editor";
 import { applyBriefFacts, bibleSummary, BRIEF_FACTS, BRIEF_STATUSES, briefConfirmedCount, briefFactsFromDocument, dramaBriefKey, parseDocumentJson, type BriefFactDraft, type BriefFactKey } from "./drama-brief";
 
 export const dramaProgressKey = (projectId: string) => ["project", projectId, "drama", "progress"] as const;
@@ -48,11 +49,12 @@ const SEGMENT_CELLS: Array<{ key: keyof Pick<DramaSegmentProgress, "script" | "r
 
 const EVIDENCE_LABELS: Record<string, string> = { faces: "人脸核对", frames: "抽帧核对", transcript: "台词转写" };
 
-/** 项目概览里的「终态」面板：一句进度、8 个可验证终态和每段六格证据。 */
+/** 项目概览里的「终态」面板：一句进度、十个可验证终态和每段六格证据。 */
 export function DramaOverviewPanel({ projectId }: { projectId: string }) {
     const query = useDramaProgress(projectId);
     const [expanded, setExpanded] = useState(false);
     const [documentOpen, setDocumentOpen] = useState<"brief" | "bible" | null>(null);
+    const [bibleView, setBibleView] = useState<"style" | "json">("json");
     const progress = query.data;
     if (query.isLoading) return <section className="rounded-xl border border-border/70 bg-surface p-5 text-xs text-foreground/45">正在读取段级进度…</section>;
     if (query.isError || !progress) return <section className="rounded-xl border border-border/70 bg-surface p-5 text-xs text-foreground/55">段级进度读取失败：{query.error instanceof Error ? query.error.message : "未知错误"} <Button size="small" type="link" onClick={() => void query.refetch()}>重试</Button></section>;
@@ -63,21 +65,21 @@ export function DramaOverviewPanel({ projectId }: { projectId: string }) {
                 <div className="min-w-0">
                     <div className="text-[var(--fs-micro)] font-medium uppercase tracking-[.18em] text-[var(--workspace-accent)]">yoozee 1.0 · 段级进度</div>
                     <h2 className="mt-1.5 text-base font-semibold">{progress.line || "还没有分段"}</h2>
-                    {progress.next ? <p className="mt-1 text-xs leading-5 text-foreground/50">下一步：{progress.next.label} · {progress.next.detail}（{progress.next.skill}）</p> : <p className="mt-1 text-xs text-foreground/50">8 个终态全部达成。</p>}
+                    {progress.next ? <p className="mt-1 text-xs leading-5 text-foreground/50">下一步：{progress.next.label} · {progress.next.detail}（{progress.next.skill}）</p> : <p className="mt-1 text-xs text-foreground/50">{progress.endStates.length} 个终态全部达成。</p>}
                 </div>
                 <DramaModelChips progress={progress} />
             </div>
-            <ol className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <ol className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                 {progress.endStates.map((state, index) => (
                     <li key={state.key} className={`rounded-lg border px-3 py-2.5 ${state.done ? "border-border/50 bg-surface-active" : progress.next?.key === state.key ? "border-[var(--workspace-accent)]/50" : "border-border/70"}`}>
                         <div className="flex items-center gap-1.5 text-xs font-medium">{state.done ? <CheckCircle2 className="size-3.5 text-[var(--workspace-accent)]" /> : <Circle className="size-3.5 text-foreground/30" />}<span className="text-foreground/40">{index + 1}</span><span className="truncate">{state.label}</span></div>
                         <p className="mt-1 line-clamp-2 text-[var(--fs-label)] leading-5 text-foreground/50">{state.detail}</p>
-                        <span className="mt-1 flex items-center justify-between gap-2 text-[var(--fs-tiny)] text-foreground/35"><span>{state.skill}</span>{DOCUMENT_BY_END_STATE[state.key] ? <Button type="link" size="small" className="!h-auto !px-0 !text-[var(--fs-tiny)]" icon={<FileText className="size-3" />} onClick={() => setDocumentOpen(DOCUMENT_BY_END_STATE[state.key]!)}>{DOCUMENT_BY_END_STATE[state.key] === "brief" ? "打开需求文档" : "打开连戏表"}</Button> : null}</span>
+                        <span className="mt-1 flex items-center justify-between gap-2 text-[var(--fs-tiny)] text-foreground/35"><span>{state.skill}</span>{DOCUMENT_BY_END_STATE[state.key] ? <Button type="link" size="small" className="!h-auto !px-0 !text-[var(--fs-tiny)]" icon={<FileText className="size-3" />} onClick={() => { setBibleView(state.key === "style" ? "style" : "json"); setDocumentOpen(DOCUMENT_BY_END_STATE[state.key]!); }}>{DOCUMENT_BY_END_STATE[state.key] === "brief" ? "打开需求文档" : state.key === "style" ? "看风格锚" : "打开连戏表"}</Button> : state.key === "palette" ? <Link to={`/projects/${projectId}/assets?category=palette`} className="text-[var(--fs-tiny)] text-[var(--workspace-accent)]">看色卡</Link> : null}</span>
                     </li>
                 ))}
             </ol>
             <DramaBriefModal projectId={projectId} open={documentOpen === "brief"} onClose={() => setDocumentOpen(null)} />
-            <DramaBibleModal projectId={projectId} open={documentOpen === "bible"} onClose={() => setDocumentOpen(null)} />
+            <DramaBibleModal projectId={projectId} open={documentOpen === "bible"} initialView={bibleView} onClose={() => setDocumentOpen(null)} />
             {progress.segments.length ? (
                 <div className="mt-4 overflow-x-auto">
                     <table className="w-full min-w-[640px] text-left text-xs">
@@ -100,8 +102,9 @@ export function DramaOverviewPanel({ projectId }: { projectId: string }) {
     );
 }
 
-// 终态 1 靠需求文档六项确认；终态 3 靠连戏表有人物并逐项校验（终态 2「剧本定了」看剧集，在章节页做）。前端要能直接打开它们，不能只靠 Agent 写。
-const DOCUMENT_BY_END_STATE: Record<string, "brief" | "bible" | undefined> = { brief: "brief", refs: "bible" };
+// 「需求问透了」靠需求文档六项确认；「风格定了」看连戏表的风格锚；「参考齐了」靠连戏表有人物并逐项校验（「剧本定了」看剧集，在章节页做；
+// 「色卡齐了」去资产页的色卡）。前端要能直接打开它们，不能只靠 Agent 写。
+const DOCUMENT_BY_END_STATE: Record<string, "brief" | "bible" | undefined> = { brief: "brief", style: "bible", refs: "bible" };
 
 /** 需求文档：六项事实可以逐项填写、改状态；其余字段（要求、不做、待确认……）在 JSON 里改。 */
 export function DramaBriefModal({ projectId, open, onClose }: { projectId: string; open: boolean; onClose: () => void }) {
@@ -178,15 +181,27 @@ export function DramaBriefModal({ projectId, open, onClose }: { projectId: strin
 }
 
 /** 连戏表：看人物、道具、场景的数量和未校验项；没人物时一键按已确认资产起草，细项在 JSON 里改，逐项过门禁去资产页。 */
-export function DramaBibleModal({ projectId, open, onClose }: { projectId: string; open: boolean; onClose: () => void }) {
+export function DramaBibleModal({ projectId, open, initialView = "json", onClose }: { projectId: string; open: boolean; initialView?: "style" | "json"; onClose: () => void }) {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const bibleQuery = useQuery({ queryKey: dramaBibleKey(projectId), queryFn: async () => (await getDramaBible(projectId)).document, enabled: open });
     const assetsQuery = useQuery({ queryKey: dramaChecklistAssetsKey(projectId), queryFn: async () => (await listProjectAssets(projectId)).assets, enabled: open });
     const [jsonText, setJsonText] = useState("");
+    const [view, setView] = useState<"style" | "json">(initialView);
+    useEffect(() => {
+        if (open) setView(initialView);
+    }, [initialView, open]);
     useEffect(() => {
         if (open && bibleQuery.data) setJsonText(JSON.stringify(bibleQuery.data, null, 2));
     }, [bibleQuery.data, open]);
+    // 风格锚、色彩脚本的编辑直接改 JSON 草稿，「保存连戏表」一起提交；JSON 写坏时先回完整 JSON 改好。
+    const draft = useMemo(() => {
+        try {
+            return parseDocumentJson(jsonText) as DramaBible;
+        } catch {
+            return undefined;
+        }
+    }, [jsonText]);
     const save = useMutation({
         mutationFn: (document: DramaBible) => putDramaBible(projectId, document),
         onSuccess: ({ document }) => {
@@ -218,8 +233,13 @@ export function DramaBibleModal({ projectId, open, onClose }: { projectId: strin
                             <Link to={`/projects/${projectId}/assets`} onClick={onClose} className="text-[var(--workspace-accent)]">去资产页逐项过门禁</Link>
                         </span>
                     </div>
-                    <p className="m-0 text-[var(--fs-label)] leading-5 text-foreground/50">终态「剧本定了」要求连戏表里有人物；「参考齐了」要求每个造型、道具、场景都勾过门禁。characters、props、locations 等字段必须是数组。</p>
-                    <Input.TextArea className="font-mono !text-xs" autoSize={{ minRows: 14, maxRows: 26 }} value={jsonText} onChange={(event) => setJsonText(event.target.value)} aria-label="连戏表 JSON" spellCheck={false} />
+                    <p className="m-0 text-[var(--fs-label)] leading-5 text-foreground/50">「风格定了」要求有风格锚；「参考齐了」要求每个造型、道具、场景都勾过门禁。characters、props、locations、color_script 等字段必须是数组。</p>
+                    <SegmentedControl size="sm" value={view} onChange={(value) => setView(value as "style" | "json")} options={[{ value: "style", label: "风格锚与色彩脚本" }, { value: "json", label: "完整 JSON" }]} />
+                    {view === "style" ? (
+                        draft ? <StyleBibleEditor document={draft} onChange={(next) => setJsonText(JSON.stringify(next, null, 2))} /> : <Callout tone="warning" title="连戏表 JSON 写坏了">先切到「完整 JSON」改好格式。</Callout>
+                    ) : (
+                        <Input.TextArea className="font-mono !text-xs" autoSize={{ minRows: 14, maxRows: 26 }} value={jsonText} onChange={(event) => setJsonText(event.target.value)} aria-label="连戏表 JSON" spellCheck={false} />
+                    )}
                 </div>
             )}
         </AppModal>

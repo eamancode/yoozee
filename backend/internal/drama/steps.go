@@ -4,7 +4,7 @@ import "slices"
 
 // 短剧流程的步骤表（M6）：流程（步骤、顺序、输出契约、代码负责组装的变量、解析与检查）写在代码里，改了要发版；
 // 每一步「怎么想、怎么写」交给按项目风格档案绑定的技能（drama_step_bindings）。现有 script.adapt（剧本优化，项目级）
-// 和 chapter.shots（生成分段，按章节或剧集）。
+// 、style.bible（导演风格，项目级）和 chapter.shots（生成分段，按章节或剧集）。
 
 const (
 	// StepChapterShots 是生成分段：一章正文 → 镜头行（带 spec）。
@@ -16,6 +16,10 @@ const (
 	StepScriptAdapt = "script.adapt"
 	// ContractScriptAdapt 是剧本优化的输出契约：一集一块（一行 JSON 头加正文）。
 	ContractScriptAdapt = "script.adapt@1"
+	// StepStyleBible 是导演风格：全部剧集的场次 → 全局风格锚 + 逐场色彩脚本（bible_json），每场一个色卡资产。
+	StepStyleBible = "style.bible"
+	// ContractStyleBible 是导演风格的输出契约：第一行风格锚，之后一集一块（一行 JSON 头加每场一行色彩脚本）。
+	ContractStyleBible = "style.bible@1"
 )
 
 // 步骤作用的范围（Step.Scope）。
@@ -67,7 +71,18 @@ type StepEvalChapter struct {
 	Label   string `json:"label"`
 }
 
-// TurnPlan 是一步把一次运行切成多轮的方式（M7.2 逐轮续写）：生成分段一轮一场，剧本优化一轮一集。
+// TurnContext 是校验一轮输出时可用的上下文。
+type TurnContext struct {
+	// Index 是第几轮（从 1 数）；Turn 是这一轮（场或集）。
+	Index int
+	Turn  ShotsScene
+	// Prior 是前面各轮的输出按顺序拼接（导演风格校验承接色用）。
+	Prior string
+	// Sources 是这次运行点名的来源单元（剧本优化校验 sources 用），其余步骤为空。
+	Sources []string
+}
+
+// TurnPlan 是一步把一次运行切成多轮的方式（M7.2 逐轮续写）：生成分段一轮一场，剧本优化、导演风格一轮一集。
 // 轮次本身（场次表、集次表）在建任务时算好存进 metadata.dramaRun.scenes，这里只管每一轮怎么说、怎么验。
 type TurnPlan struct {
 	// Unit 是一轮叫什么（场、集），用在进度和错误文字里。
@@ -77,8 +92,7 @@ type TurnPlan struct {
 	// Next 是第 k 轮（从 1 数，k ≥ 2）的续写指令；written 是前面各轮已经写出的条数（镜头数、集数）。
 	Next func(turns []ShotsScene, k int, written int) string
 	// Count 解析一轮的输出，返回这一轮写了几条；解析不出或不合格时返回错误，这一轮按临时失败重试。
-	// sources 是这次运行点名的来源单元（剧本优化校验 sources 用），生成分段为空。
-	Count func(text string, sources []string) (int, error)
+	Count func(text string, turn TurnContext) (int, error)
 }
 
 // Step 是步骤表的一行。
@@ -144,7 +158,39 @@ var steps = []Step{
 			Unit:  "集",
 			Intro: ScriptAdaptTurnPlan,
 			Next:  func(turns []ShotsScene, k int, _ int) string { return ScriptAdaptTurnPrompt(turns, k) },
-			Count: CountScriptAdaptTurn,
+			Count: func(text string, turn TurnContext) (int, error) { return CountScriptAdaptTurn(text, turn.Sources) },
+		},
+	},
+	{
+		ID:       StepStyleBible,
+		Label:    "导演风格",
+		Scope:    StepScopeProject,
+		Contract: ContractStyleBible,
+		Inputs: []StepInput{
+			{Name: "skill", Label: "技能上下文（skill-context）与用户任务：各集的场次表（场编号、场次头、每场开头 300 字）", Source: "按项目风格档案绑定的技能当前版本；场次取各剧集（kind=episode，没有剧集时取原文章节）保存的 HTML 转成的纯文本，按场次头切场，超过总字数预算时每场摘录同比缩短（不少于 80 字）"},
+			{Name: "brief", Label: "【项目需求】", Source: "需求文档 brief_json 的片名、用途、平台、口味、约束、不做的事等，共 1500 字"},
+			{Name: "projectStyle", Label: "【项目画风：…】", Source: "项目画风快照 styleProfileJson 的 title、selection 与 prompt，按小节取到 1200 字"},
+			{Name: "profile", Label: "【风格档案：…】", Source: "项目风格档案（profiles/*.json）的名称、画面质感段（style_block.zh，600 字）与光线政策"},
+			{Name: "existing", Label: "【已有风格锚】【已有色彩脚本】", Source: "bible_json 里已有的 style_anchor，以及这次不重写的各集的 color_script（承接用，只列场编号、场次头和颜色）"},
+			{Name: "contract", Label: "【受保护输出契约】", Source: "style.bible@1 schema 生成（第一行风格锚，之后一集一块：JSON 头加每场一行）"},
+		},
+		Parser:           "每一轮 StyleBibleFromText 解析出风格锚（第一轮）和这一集各场的色彩脚本，CountStyleBibleTurn 当轮校验 HEX、色数和承接色；任务收尾时解析全部轮次的输出",
+		Checks:           []string{"CheckStyleBible（R-STYLE-*：有风格锚、每场 ≥3 色、HEX 是 #RRGGBB、inherits_from 指向已有的场、shared_colors 的 HEX 与承接场一致、场次与剧集对得上）"},
+		SkillBudgetChars: 32_000,
+		SkillLinkedFiles: 3,
+		DefaultSkill:     "yz-style-bible",
+		// 闸门先宽：只看解析率（解析出的场 / 应写的场 ≥ 0.9 且有风格锚才算这一章解析成功）。
+		Gate:            StepGate{Metrics: []string{GateParseRate}, ParseRate: 0.9},
+		EvalConcurrency: 1,
+		EvalSet: []StepEvalChapter{
+			{ID: "qichuang-e01", Profile: "live-realism", Label: "《七床》第一集（悬疑·真人剧）"},
+		},
+		TaskSource: "short-drama-style-bible",
+		Turns: TurnPlan{
+			Unit:  "集",
+			Intro: StyleBibleTurnPlan,
+			Next:  func(turns []ShotsScene, k int, _ int) string { return StyleBibleTurnPrompt(turns, k) },
+			Count: CountStyleBibleTurn,
 		},
 	},
 	{
@@ -195,7 +241,7 @@ var steps = []Step{
 			Next: func(turns []ShotsScene, k int, written int) string {
 				return ChapterShotsTurnPrompt(turns, k, written+1)
 			},
-			Count: func(text string, _ []string) (int, error) {
+			Count: func(text string, _ TurnContext) (int, error) {
 				rows, _, err := StoryboardRowsFromText(text)
 				return len(rows), err
 			},

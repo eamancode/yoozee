@@ -55,8 +55,9 @@ func (s *Service) bindProjectAssetImage(userID, projectID, assetID string, req B
 	if err != nil {
 		return false, err
 	}
-	if !linked || !projectVisualCategory(asset.Category) || (asset.Kind != "entity" && asset.Kind != "text" && asset.Kind != "image") {
-		return false, BadAuthRequest("请选择当前项目的场景或道具图片资产")
+	// 色卡（导演风格建的）与场景、道具同一条出图绑定路径。
+	if !linked || !(projectVisualCategory(asset.Category) || asset.Category == model.AssetCategoryPalette) || (asset.Kind != "entity" && asset.Kind != "text" && asset.Kind != "image") {
+		return false, BadAuthRequest("请选择当前项目的场景、道具或色卡图片资产")
 	}
 	representations, err := s.repo.AssetRepresentationsForTask(operationID)
 	if err != nil {

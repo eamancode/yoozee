@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { assetCategoryLabel, defaultAssetCategoryForKind, normalizeAssetCategory } from "@/lib/asset-category";
+import { ASSET_CATEGORY_OPTIONS, assetCategoryLabel, defaultAssetCategoryForKind, normalizeAssetCategory } from "@/lib/asset-category";
 
 describe("asset category contract", () => {
     test("旧服饰、武器和配饰统一迁移为道具", () => {
@@ -20,5 +20,11 @@ describe("asset category contract", () => {
         expect(defaultAssetCategoryForKind("video")).toBe("material");
         expect(defaultAssetCategoryForKind("audio")).toBe("material");
         expect(defaultAssetCategoryForKind("text")).toBe("other");
+    });
+
+    test("色卡是导演风格生成的分类：认得出、有中文名，但不出现在手选分类里", () => {
+        expect(normalizeAssetCategory("palette")).toBe("palette");
+        expect(assetCategoryLabel("palette")).toBe("色卡");
+        expect(ASSET_CATEGORY_OPTIONS.some((option) => option.value === "palette")).toBe(false);
     });
 });

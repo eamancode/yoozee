@@ -14,7 +14,11 @@ type (
 	DramaStepBindingMatrix   = app.DramaStepBindingMatrix
 	DramaStepBindingsRequest = app.DramaStepBindingsRequest
 
-	DramaScriptAdaptRunRequest = app.DramaScriptAdaptRunRequest
+	DramaProjectStepRunRequest = app.DramaProjectStepRunRequest
 	DramaScriptAdaptOutcome    = app.DramaScriptAdaptOutcome
 	DramaEpisodesView          = app.DramaEpisodesView
+	DramaImageTaskTemplate     = app.DramaImageTaskTemplate
+	DramaStyleBibleOutcome     = app.DramaStyleBibleOutcome
+	DramaPaletteImagesRequest  = app.DramaPaletteImagesRequest
+	DramaPaletteQueueResult    = app.DramaPaletteQueueResult
 )
