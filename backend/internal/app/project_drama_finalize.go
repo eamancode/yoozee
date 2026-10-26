@@ -1,5 +1,6 @@
 // 短剧流程步骤的收尾（M7.2）：带 metadata.dramaStep 的文本任务转成功之前，服务端解析模型输出、检查、写库，
 // 与资产出图的 finalizeProjectAssetImageTask 同一位置。前端不再解析任务结果、不再写镜头表。
+// 生成分段写镜头表并装段；剧本优化写剧集单元（project_drama_script_adapt.go）。
 
 package app
 
@@ -69,6 +70,13 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 	switch meta.Step {
 	case drama.StepChapterShots:
 		outcome, err := s.applyChapterShotsTask(task, meta, result)
+		if err != nil {
+			return false, err
+		}
+		result["dramaStep"] = outcome
+		return true, nil
+	case drama.StepScriptAdapt:
+		outcome, err := s.applyScriptAdaptTask(task, meta, result)
 		if err != nil {
 			return false, err
 		}

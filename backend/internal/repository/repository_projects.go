@@ -197,7 +197,7 @@ func (r *Repository) ProjectUnits(projectID string) ([]model.ProjectUnit, error)
 
 func (r *Repository) ProjectUnitSummaries(projectID string) ([]model.ProjectUnit, error) {
 	var units []model.ProjectUnit
-	err := r.db.Select("id", "project_id", "kind", "title", "word_count", "status", "position", "created_at", "updated_at").Where("project_id = ?", projectID).Order("position asc, created_at asc").Find(&units).Error
+	err := r.db.Select("id", "project_id", "parent_id", "kind", "title", "word_count", "status", "position", "created_at", "updated_at").Where("project_id = ?", projectID).Order("position asc, created_at asc").Find(&units).Error
 	return units, err
 }
 
@@ -267,51 +267,105 @@ func (r *Repository) UpdateProjectUnit(unit *model.ProjectUnit, invalidateWorkfl
 
 func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.CanvasUnitLink{}).Error; err != nil {
+		if err := deleteProjectUnitTx(tx, projectID, id); err != nil {
 			return err
-		}
-		shotIDs := tx.Model(&model.Shot{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, id)
-		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProductionTaskLink{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ShotArtifact{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotRevision{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotAssetReference{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.Shot{}).Error; err != nil {
-			return err
-		}
-		instanceIDs := tx.Model(&model.WorkflowInstance{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, id)
-		stepIDs := tx.Model(&model.WorkflowStepInstance{}).Select("id").Where("workflow_instance_id IN (?)", instanceIDs)
-		if err := tx.Where("workflow_step_id IN (?)", stepIDs).Delete(&model.WorkflowStepTask{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("workflow_instance_id IN (?)", instanceIDs).Delete(&model.WorkflowStepInstance{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.WorkflowInstance{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProjectAssetCandidate{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.DramaShotlist{}).Error; err != nil {
-			return err
-		}
-		result := tx.Delete(&model.ProjectUnit{}, "id = ? AND project_id = ?", id, projectID)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return gorm.ErrRecordNotFound
 		}
 		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error
 	})
+}
+
+// ApplyDramaEpisodes 是剧本优化的写库（同一事务）：删掉被整体替换的剧集（连同镜头、镜头表等，与删除单元同一套），
+// 新建剧集、原地改写调节奏的剧集，再按 order 重排整个项目的单元。
+func (r *Repository) ApplyDramaEpisodes(projectID string, deleteIDs []string, create []model.ProjectUnit, update []model.ProjectUnit, order []string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		for _, id := range deleteIDs {
+			if err := deleteProjectUnitTx(tx, projectID, id); err != nil {
+				return fmt.Errorf("删除被替换的剧集 %s：%w", id, err)
+			}
+		}
+		if len(create) > 0 {
+			if err := tx.CreateInBatches(&create, 100).Error; err != nil {
+				return err
+			}
+		}
+		for _, unit := range update {
+			result := tx.Model(&model.ProjectUnit{}).Where("id = ? AND project_id = ?", unit.ID, projectID).Updates(map[string]any{
+				"title": unit.Title, "source_text": unit.SourceText, "word_count": unit.WordCount, "status": unit.Status, "updated_at": unit.UpdatedAt,
+			})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return gorm.ErrRecordNotFound
+			}
+			// 正文改了，这一集已生成的产物跟着过期（与编辑章节正文同一规则）。
+			if err := tx.Model(&model.ShotArtifact{}).Where("project_id = ? AND unit_id = ? AND status NOT IN ?", projectID, unit.ID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": unit.UpdatedAt}).Error; err != nil {
+				return err
+			}
+		}
+		now := time.Now()
+		for position, id := range order {
+			if err := tx.Model(&model.ProjectUnit{}).Where("id = ? AND project_id = ?", id, projectID).Updates(map[string]any{"position": position}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": now}).Error
+	})
+}
+
+// DramaShotlistUnitIDs 是项目里有镜头表（含草稿）的单元。
+func (r *Repository) DramaShotlistUnitIDs(projectID string) ([]string, error) {
+	var ids []string
+	err := r.db.Model(&model.DramaShotlist{}).Where("project_id = ?", projectID).Pluck("unit_id", &ids).Error
+	return ids, err
+}
+
+// deleteProjectUnitTx 删除一个单元和挂在它上面的画布关联、镜头、产物、工作流、候选资产与镜头表（不动项目 revision）。
+func deleteProjectUnitTx(tx *gorm.DB, projectID string, id string) error {
+	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.CanvasUnitLink{}).Error; err != nil {
+		return err
+	}
+	shotIDs := tx.Model(&model.Shot{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, id)
+	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProductionTaskLink{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ShotArtifact{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotRevision{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotAssetReference{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.Shot{}).Error; err != nil {
+		return err
+	}
+	instanceIDs := tx.Model(&model.WorkflowInstance{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, id)
+	stepIDs := tx.Model(&model.WorkflowStepInstance{}).Select("id").Where("workflow_instance_id IN (?)", instanceIDs)
+	if err := tx.Where("workflow_step_id IN (?)", stepIDs).Delete(&model.WorkflowStepTask{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("workflow_instance_id IN (?)", instanceIDs).Delete(&model.WorkflowStepInstance{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.WorkflowInstance{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProjectAssetCandidate{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.DramaShotlist{}).Error; err != nil {
+		return err
+	}
+	result := tx.Delete(&model.ProjectUnit{}, "id = ? AND project_id = ?", id, projectID)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *Repository) CanvasUnitLink(projectID string, canvasID string, unitID string) (*model.CanvasUnitLink, error) {

@@ -13,4 +13,8 @@ type (
 	DramaStepBindingCell     = app.DramaStepBindingCell
 	DramaStepBindingMatrix   = app.DramaStepBindingMatrix
 	DramaStepBindingsRequest = app.DramaStepBindingsRequest
+
+	DramaScriptAdaptRunRequest = app.DramaScriptAdaptRunRequest
+	DramaScriptAdaptOutcome    = app.DramaScriptAdaptOutcome
+	DramaEpisodesView          = app.DramaEpisodesView
 )

@@ -113,7 +113,7 @@ func TestDramaStepEvalChapterResultOnRealOutput(t *testing.T) {
 	}
 	result, _ := json.Marshal(map[string]any{"mode": "text", "text": "```json\n" + readTestdata(t, "model-output.txt") + "\n```"})
 	task := &model.Task{ID: "task-1", Status: model.TaskStatusSucceeded, ResultJSON: string(result)}
-	got, infra := dramaStepEvalChapterResult(c, task.ID, task, phrases)
+	got, infra := dramaStepEvalChapterResult(step, c, task.ID, task, phrases)
 	if infra != "" || !got.Parsed || got.Failure != "" {
 		t.Fatalf("应解析成功：%+v %s", got, infra)
 	}
@@ -135,7 +135,7 @@ func TestDramaStepEvalChapterResultOnRealOutput(t *testing.T) {
 	}
 	noSpec, _ := json.Marshal(payload)
 	result, _ = json.Marshal(map[string]any{"mode": "text", "text": string(noSpec)})
-	bad, infra := dramaStepEvalChapterResult(c, "task-2", &model.Task{Status: model.TaskStatusSucceeded, ResultJSON: string(result)}, phrases)
+	bad, infra := dramaStepEvalChapterResult(step, c, "task-2", &model.Task{Status: model.TaskStatusSucceeded, ResultJSON: string(result)}, phrases)
 	if infra != "" || !bad.Parsed || bad.SpecRows != 0 || bad.Rows != got.Rows {
 		t.Fatalf("没有 spec：%+v", bad)
 	}
@@ -146,16 +146,16 @@ func TestDramaStepEvalChapterResultOnRealOutput(t *testing.T) {
 
 	// 截断：任务失败、诊断原因是 text_output_truncated，算包的问题（截断 1、解析失败），不算评测出错。
 	truncated := &model.Task{Status: model.TaskStatusFailed, Error: "模型输出达到上限被截断", ExecutionDiagnosticJSON: `{"code":"text_output_truncated"}`}
-	cut, infra := dramaStepEvalChapterResult(c, "task-3", truncated, phrases)
+	cut, infra := dramaStepEvalChapterResult(step, c, "task-3", truncated, phrases)
 	if infra != "" || !cut.Truncated || cut.Parsed {
 		t.Fatalf("截断：%+v %s", cut, infra)
 	}
 	upstream := &model.Task{Status: model.TaskStatusFailed, Error: "上游 502"}
-	if _, infra := dramaStepEvalChapterResult(c, "task-4", upstream, phrases); infra == "" {
+	if _, infra := dramaStepEvalChapterResult(step, c, "task-4", upstream, phrases); infra == "" {
 		t.Fatal("上游失败算评测出错，可以重跑")
 	}
 	garbage, _ := json.Marshal(map[string]any{"mode": "text", "text": "抱歉，我无法完成"})
-	if r, infra := dramaStepEvalChapterResult(c, "task-5", &model.Task{Status: model.TaskStatusSucceeded, ResultJSON: string(garbage)}, phrases); infra != "" || r.Parsed {
+	if r, infra := dramaStepEvalChapterResult(step, c, "task-5", &model.Task{Status: model.TaskStatusSucceeded, ResultJSON: string(garbage)}, phrases); infra != "" || r.Parsed {
 		t.Fatalf("解析不出镜头行算包的问题：%+v %s", r, infra)
 	}
 }

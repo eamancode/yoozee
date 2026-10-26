@@ -45,13 +45,6 @@ type ChapterShotsInput struct {
 	Skill          StepSkill
 }
 
-// ChapterShotsPrompt 是组装结果。
-type ChapterShotsPrompt struct {
-	Text string
-	// Files 是注入的技能文件。
-	Files []StepSkillFileUse
-}
-
 const (
 	stepStylePromptChars     = 1200
 	stepCharacterPromptChars = 1600
@@ -76,15 +69,15 @@ func ChapterShotsTask(title, sourceText string) string {
 }
 
 // BuildChapterShotsPrompt 组装生成分段的提示词。
-func BuildChapterShotsPrompt(in ChapterShotsInput) (ChapterShotsPrompt, error) {
+func BuildChapterShotsPrompt(in ChapterShotsInput) (StepPrompt, error) {
 	step, _ := StepByID(StepChapterShots)
 	contract, err := BuiltinContract(step.Contract)
 	if err != nil {
-		return ChapterShotsPrompt{}, err
+		return StepPrompt{}, err
 	}
 	skillPrompt, files, ok := StepSkillPrompt(in.Skill, ChapterShotsTask(in.ChapterTitle, in.SourceText), step.SkillBudgetChars, step.SkillLinkedFiles)
 	if !ok {
-		return ChapterShotsPrompt{}, fmt.Errorf("技能 %s 当前版本没有 SKILL.md", in.Skill.ID)
+		return StepPrompt{}, fmt.Errorf("技能 %s 当前版本没有 SKILL.md", in.Skill.ID)
 	}
 	projectContext := joinTruthy([]string{
 		skillPrompt,
@@ -94,7 +87,7 @@ func BuildChapterShotsPrompt(in ChapterShotsInput) (ChapterShotsPrompt, error) {
 	}, "\n\n")
 	withContract := projectContext + "\n\n" + contract.Text(contract.DefaultRequirement(), ContractTextOptions{SkillShaped: true})
 	text := joinTruthy([]string{withContract, StepAssetPrompt(contract, in.Assets)}, "\n\n")
-	return ChapterShotsPrompt{Text: text, Files: files}, nil
+	return StepPrompt{Text: text, Files: files}, nil
 }
 
 // StepStylePrompt 是【项目画风】段：按小节取到预算为止、按原顺序输出；自由书写的画风没有【】小节，按行截取。

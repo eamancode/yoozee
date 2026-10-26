@@ -311,8 +311,12 @@ func TestDramaStepBindingsResolveAndAdminWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(matrix.Profiles) != 5 || len(matrix.Steps) != 1 || matrix.Steps[0].DefaultSkill != "yz-chapter-shots" {
-		t.Fatalf("五个档案、一个步骤：%+v", matrix)
+	if len(matrix.Profiles) != 5 || len(matrix.Steps) != 2 || matrix.Steps[0].DefaultSkill != "yz-script-adapt" || matrix.Steps[1].DefaultSkill != "yz-chapter-shots" {
+		t.Fatalf("五个档案、两个步骤（剧本优化、生成分段）：%+v", matrix.Steps)
+	}
+	// 剧本优化没配绑定时五个档案都用默认技能 yz-script-adapt（内置种子首次安装就是流程技能包）。
+	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepScriptAdapt); err != nil || usage.Skill.ID != "yz-script-adapt" || usage.Bound || usage.Contract != drama.ContractScriptAdapt {
+		t.Fatalf("剧本优化默认技能：%v %+v", err, usage)
 	}
 	for _, bad := range []DramaStepBindingCell{
 		{StyleProfile: "no-such", Step: drama.StepChapterShots, SkillID: "yz-chapter-shots"},
@@ -359,7 +363,7 @@ func TestDramaStepTaskRequestRecordsSkillVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := dramaStepTaskRequest(project.ID, unit.ID, plan, DramaStepRunRequest{Model: " deepseek ", Config: map[string]any{"model": "deepseek"}})
+	req := dramaStepTaskRequest(project.ID, unit.ID, plan, dramaStepTaskOptions{Model: " deepseek ", Config: map[string]any{"model": "deepseek"}})
 	if req.Type != "canvas_text" || req.Operation != "storyboard" || req.Model != "deepseek" || req.Prompt != plan.prompt.Text || req.Input["mode"] != "text" {
 		t.Fatalf("任务形状：%+v", req)
 	}

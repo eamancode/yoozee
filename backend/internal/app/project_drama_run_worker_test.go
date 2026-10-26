@@ -129,8 +129,14 @@ func queueDramaStepTask(t *testing.T, svc *Service, db *gorm.DB, project model.P
 			t.Fatal(err)
 		}
 	}
-	req := dramaStepTaskRequest(project.ID, unit.ID, plan, DramaStepRunRequest{Model: "test", Config: map[string]any{"baseUrl": upstream, "apiKey": "test-key", "model": "test", "interfaceType": "chat-completion"}})
+	req := dramaStepTaskRequest(project.ID, unit.ID, plan, dramaStepTaskOptions{Model: "test", Config: map[string]any{"baseUrl": upstream, "apiKey": "test-key", "model": "test", "interfaceType": "chat-completion"}})
 	req.Input["metadata"].(map[string]any)["dramaRun"] = run
+	return insertDramaTestTask(t, svc, db, project.ID, req)
+}
+
+// insertDramaTestTask 把一个步骤任务请求直接写成排队中的任务（带计费单），交给 worker 领取。
+func insertDramaTestTask(t *testing.T, svc *Service, db *gorm.DB, projectID string, req CreateTaskRequest) *model.Task {
+	t.Helper()
 	input, err := normalizeTaskInput(req.Input)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +145,7 @@ func queueDramaStepTask(t *testing.T, svc *Service, db *gorm.DB, project model.P
 		t.Fatal(err)
 	}
 	encoded, _ := json.Marshal(input)
-	task := &model.Task{ID: newID(), UserID: "user-1", ProjectID: project.ID, Type: req.Type, Operation: req.Operation, Prompt: req.Prompt, Status: model.TaskStatusQueued, InputJSON: string(encoded), RouteRun: 1}
+	task := &model.Task{ID: newID(), UserID: "user-1", ProjectID: projectID, Type: req.Type, Operation: req.Operation, Prompt: req.Prompt, Status: model.TaskStatusQueued, InputJSON: string(encoded), RouteRun: 1}
 	if err := db.Create(task).Error; err != nil {
 		t.Fatal(err)
 	}
