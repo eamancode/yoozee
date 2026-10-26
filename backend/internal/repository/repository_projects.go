@@ -58,15 +58,20 @@ func (r *Repository) CreateProject(project *model.Project) error {
 	return nil
 }
 
-func (r *Repository) UpdateProject(project *model.Project) error {
-	return r.db.Model(&model.Project{}).Where("id = ? AND user_id = ?", project.ID, project.UserID).Updates(map[string]any{
+// UpdateProject 写项目设置；briefChanged 时连同 brief_json 一起写（项目设置改了单段秒数），否则不碰需求文档。
+func (r *Repository) UpdateProject(project *model.Project, briefChanged bool) error {
+	values := map[string]any{
 		"name": project.Name, "type": project.Type, "aspect_ratio": project.AspectRatio, "source_type": project.SourceType,
 		"description": project.Description, "cover_resource_id": project.CoverResourceID,
 		"style_preset_id": project.StylePresetID, "style_profile_json": project.StyleProfileJSON,
 		"default_image_model": project.DefaultImageModel, "default_video_model": project.DefaultVideoModel,
 		"generation_model": project.GenerationModel, "auth_mode": project.AuthMode, "style_profile": project.StyleProfile,
 		"status": project.Status, "revision": project.Revision, "updated_at": project.UpdatedAt,
-	}).Error
+	}
+	if briefChanged {
+		values["brief_json"] = project.BriefJSON
+	}
+	return r.db.Model(&model.Project{}).Where("id = ? AND user_id = ?", project.ID, project.UserID).Updates(values).Error
 }
 
 // UpdateProjectDramaDocument 写需求文档或连戏表（field 只能是 brief_json / bible_json）。

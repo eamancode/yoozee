@@ -49,7 +49,9 @@ type Brief struct {
 	// StyleProfile 是手动指定的 yoozee 风格档案；不写时按项目画风对照（style_map.json）。
 	StyleProfile string `json:"style_profile,omitempty"`
 	// EpisodeSeconds 是每集目标时长（秒，项目设置里填）：生成分镜的提示词和 R-SEG-008 读它。
-	EpisodeSeconds *float64        `json:"episode_seconds,omitempty"`
+	EpisodeSeconds *float64 `json:"episode_seconds,omitempty"`
+	// SegmentSeconds 是单段最长秒数（建项目选 15 / 30，项目设置可改）：装段时只收紧生成模型一段的上限，不放宽。
+	SegmentSeconds *int            `json:"segment_seconds,omitempty"`
 	Episodes       []BriefEpisode  `json:"episodes,omitempty"`
 	Purpose        *BriefFact      `json:"purpose,omitempty"`
 	Platform       *BriefFact      `json:"platform,omitempty"`
@@ -68,7 +70,7 @@ type Brief struct {
 var BriefStatuses = []string{"已确认", "默认，待确认", "默认，已授权", "待答"}
 
 // BriefShape 是写给 Agent 和人看的字段说明，出错时一并返回。
-const BriefShape = "需求文档字段：title；video_model；auth_mode（step/full）；purpose、platform、duration、taste、budget、acceptance 各是 {value, status, quote?, date?}，status 只能是 已确认 / 默认，待确认 / 默认，已授权 / 待答；items 是 [{id: R-001, content, status, quote?, date?, segments?}]；questions 是 [{id: Q-001, question, blocking, status}]；not_doing、constraints、decided_for_you 是字符串数组；episode_seconds 是每集目标秒数（数字）；episodes 是 [{no, target_seconds?, hook_requirement?}]；style_profile 是 yoozee 风格档案 ID（不写按项目画风对照）。画幅、平台写进 platform，片长写进 duration。"
+const BriefShape = "需求文档字段：title；video_model；auth_mode（step/full）；purpose、platform、duration、taste、budget、acceptance 各是 {value, status, quote?, date?}，status 只能是 已确认 / 默认，待确认 / 默认，已授权 / 待答；items 是 [{id: R-001, content, status, quote?, date?, segments?}]；questions 是 [{id: Q-001, question, blocking, status}]；not_doing、constraints、decided_for_you 是字符串数组；episode_seconds 是每集目标秒数（数字）；segment_seconds 是单段最长秒数（整数，不超过生成模型一段的上限）；episodes 是 [{no, target_seconds?, hook_requirement?}]；style_profile 是 yoozee 风格档案 ID（不写按项目画风对照）。画幅、平台写进 platform，片长写进 duration。"
 
 var (
 	briefItemID     = regexp.MustCompile(`^R-[0-9]{3}$`)
@@ -104,6 +106,9 @@ func ParseBrief(raw []byte) (Brief, error) {
 	}
 	if s := brief.EpisodeSeconds; s != nil && (*s < 5 || *s > 3600) {
 		problems = append(problems, "episode_seconds 是每集秒数，应在 5 到 3600 之间")
+	}
+	if s := brief.SegmentSeconds; s != nil && (*s < 1 || *s > maxModelSegmentSeconds()) {
+		problems = append(problems, fmt.Sprintf("segment_seconds 是单段最长秒数，应在 1 到 %d 之间", maxModelSegmentSeconds()))
 	}
 	for _, ep := range brief.Episodes {
 		if ep.No < 1 || ep.TargetSeconds < 0 {
@@ -159,7 +164,7 @@ func containsString(items []string, value string) bool {
 
 var briefFactFields = []string{"purpose", "platform", "duration", "taste", "budget", "acceptance"}
 
-var briefKnownFields = map[string]bool{"title": true, "video_model": true, "auth_mode": true, "style_profile": true, "episode_seconds": true, "episodes": true, "purpose": true, "platform": true, "duration": true, "taste": true, "budget": true, "acceptance": true, "items": true, "not_doing": true, "constraints": true, "questions": true, "decided_for_you": true}
+var briefKnownFields = map[string]bool{"title": true, "video_model": true, "auth_mode": true, "style_profile": true, "episode_seconds": true, "segment_seconds": true, "episodes": true, "purpose": true, "platform": true, "duration": true, "taste": true, "budget": true, "acceptance": true, "items": true, "not_doing": true, "constraints": true, "questions": true, "decided_for_you": true}
 
 // NormalizeBrief 把早期写进来的不合契约的需求文档整理成契约形状（读的时候用，不丢内容）：
 // 事实写成字符串的改成 {value, status: 默认，待确认}；问题、要求写成字符串的补上编号；

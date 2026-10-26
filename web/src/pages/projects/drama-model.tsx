@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { configuredModelMatchesCapability, modelDisplayName, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { getDramaStyleProfiles, listDramaModels, recommendDramaStyleProfile, type DramaAuthMode, type DramaModel, type DramaRegistry, type DramaStyleProfiles } from "@/services/api/drama";
 
@@ -46,6 +47,29 @@ export function useDramaChannelFamilies(registry: DramaRegistry | undefined) {
     }, [config, registry]);
 }
 
+/**
+ * 每个生成模型族在当前账号已配置的视频渠道上支持哪些画幅（取渠道模型能力配置 video.ratios 的并集）。
+ * 没有渠道的模型族不在表里，按「不知道」处理，不置灰。
+ */
+export function useDramaFamilyRatios(registry: DramaRegistry | undefined) {
+    const config = useEffectiveConfig();
+    return useMemo(() => {
+        const ratios = new Map<string, Set<string>>();
+        if (!registry) return ratios;
+        for (const value of selectableModelsByCapability(config, "video")) {
+            const family = dramaFamilyOf(registry, value, modelDisplayName(config, value));
+            if (!family) continue;
+            const supported = ratios.get(family.id) || new Set<string>();
+            for (const ratio of modelCapabilityConfigFor(config, value).video?.ratios || []) supported.add(ratio);
+            ratios.set(family.id, supported);
+        }
+        return ratios;
+    }, [config, registry]);
+}
+
+/** 单段最长时长的两个档位（秒）；选了之后生成模型只列一段上限够得着的。 */
+export const SEGMENT_SECONDS_OPTIONS = [15, 30] as const;
+
 /** 没有可用渠道时优先选一个有渠道的模型族，避免建了项目却生成不了。 */
 export function preferredDramaModel(registry: DramaRegistry | undefined, available: Set<string> | undefined) {
     const fallback = registry?.default || DEFAULT_DRAMA_MODEL;
@@ -53,9 +77,19 @@ export function preferredDramaModel(registry: DramaRegistry | undefined, availab
     return registry.models.find((item) => available.has(item.id))?.id || fallback;
 }
 
-export function dramaModelOptions(registry?: DramaRegistry, available?: Set<string>) {
-    if (!registry?.models?.length) return [{ label: "Seedance 2.0 · 每段最长 15 秒", value: DEFAULT_DRAMA_MODEL }];
-    return registry.models.map((item) => ({ label: `${item.label} · 每段最长 ${item.duration.max} 秒${available && !available.has(item.id) ? " · 没有可用渠道" : item.calibrated ? "" : " · 未校准"}`, value: item.id }));
+/**
+ * 生成模型选项。minSeconds：只列一段上限 ≥ 它的模型（单段最长时长）；aspectRatio + ratios：渠道不支持该画幅的置灰并注明。
+ */
+export function dramaModelOptions(registry?: DramaRegistry, available?: Set<string>, filter?: { minSeconds?: number; aspectRatio?: string; ratios?: Map<string, Set<string>> }) {
+    if (!registry?.models?.length) return [{ label: "Seedance 2.0 · 每段最长 15 秒", value: DEFAULT_DRAMA_MODEL, disabled: false }];
+    return registry.models
+        .filter((item) => !filter?.minSeconds || item.duration.max >= filter.minSeconds)
+        .map((item) => {
+            const ratios = filter?.aspectRatio ? filter.ratios?.get(item.id) : undefined;
+            const ratioUnsupported = Boolean(ratios && filter?.aspectRatio && !ratios.has(filter.aspectRatio));
+            const note = ratioUnsupported ? ` · 渠道不支持 ${filter?.aspectRatio}` : available && !available.has(item.id) ? " · 没有可用渠道" : item.calibrated ? "" : " · 未校准";
+            return { label: `${item.label} · 每段最长 ${item.duration.max} 秒${note}`, value: item.id, disabled: ratioUnsupported };
+        });
 }
 
 /**

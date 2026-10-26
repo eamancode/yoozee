@@ -25,9 +25,18 @@ import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store"
 import { sourceTypeLabel } from "./detail/shared";
 import { Select } from "@/components/ui/base/select";
 import type { DramaAuthMode } from "@/services/api/drama";
-import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, DRAMA_STYLE_PROFILE_HINT, dramaModelOptions, dramaStyleProfileOptions, findDramaModel, preferredDramaModel, recommendedDramaStyleProfile, useDramaChannelFamilies, useDramaModels, useDramaStyleProfiles } from "./drama-model";
+import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, DRAMA_STYLE_PROFILE_HINT, SEGMENT_SECONDS_OPTIONS, dramaModelOptions, dramaStyleProfileOptions, findDramaModel, preferredDramaModel, recommendedDramaStyleProfile, useDramaChannelFamilies, useDramaFamilyRatios, useDramaModels, useDramaStyleProfiles } from "./drama-model";
+import { PROJECT_CONTENT_TYPES, canvasStyleMedium, styleMatchesContentType, type ProjectContentType } from "@/lib/canvas/project-content-type";
+import { CHAPTER_IMPORT_QUERY } from "./detail/chapter-import-query";
 
-type ProjectForm = { name: string; aspectRatio: string; sourceType: string; generationModel: string; authMode: DramaAuthMode; styleProfile: string };
+type ProjectForm = { contentType: ProjectContentType; name: string; aspectRatio: string; sourceType: string; segmentSeconds: number; generationModel: string; authMode: DramaAuthMode; styleProfile?: string };
+
+const PROJECT_ASPECT_RATIOS = [
+    { label: "9:16 竖屏", value: "9:16" },
+    { label: "16:9 横屏", value: "16:9" },
+    { label: "1:1 方形", value: "1:1" },
+    { label: "4:3 标准横屏", value: "4:3" },
+];
 
 export default function ProjectsPage() {
     const navigate = useNavigate();
@@ -56,12 +65,19 @@ export default function ProjectsPage() {
     const [launcherAuth, setLauncherAuth] = useState<DramaAuthMode>("step");
     const dramaFamilies = useDramaChannelFamilies(dramaModels.data);
     const defaultDramaModel = preferredDramaModel(dramaModels.data, dramaFamilies);
+    const dramaRatios = useDramaFamilyRatios(dramaModels.data);
     const createModelId = Form.useWatch("generationModel", createForm);
     const createModel = findDramaModel(dramaModels.data, createModelId);
     const createAuth = Form.useWatch("authMode", createForm);
-    // 风格档案默认按所选画风推荐；用户在下拉里改过就不再跟着画风变。
+    const createContentType = Form.useWatch("contentType", createForm);
+    const createAspectRatio = Form.useWatch("aspectRatio", createForm);
+    const createSegmentSeconds = Form.useWatch("segmentSeconds", createForm);
+    const createModelOptions = useMemo(() => dramaModelOptions(dramaModels.data, dramaFamilies, { minSeconds: createSegmentSeconds, aspectRatio: createAspectRatio, ratios: dramaRatios }), [createAspectRatio, createSegmentSeconds, dramaFamilies, dramaModels.data, dramaRatios]);
+    // 风格档案不让用户先选：按所选画风由对照表推出（与后端 RecommendProfile 同一张表），展开后才能改。
     const styleProfiles = useDramaStyleProfiles();
     const recommendedProfile = recommendedDramaStyleProfile(styleProfiles.data, selectedStyle ? selectedStyle.profile || createStyleProfileSnapshot(selectedStyle) : undefined);
+    const [profileEditing, setProfileEditing] = useState(false);
+    const recommendedProfileLabel = styleProfiles.data?.profiles.find((profile) => profile.id === recommendedProfile)?.label;
     const [generating, setGenerating] = useState(false);
     const [generationStatus, setGenerationStatus] = useState("");
     const [generationPreview, setGenerationPreview] = useState("");
@@ -76,19 +92,50 @@ export default function ProjectsPage() {
         setCreateSource(source);
         setCreateOpen(true);
     };
+    // 每次打开只初始化一次：对话框里切换内容来源不能把已选的画幅、时长、模型重置掉。
+    const createInitializedRef = useRef(false);
     useEffect(() => {
-        if (!createOpen) return;
+        if (!createOpen) {
+            createInitializedRef.current = false;
+            return;
+        }
+        if (createInitializedRef.current) return;
+        createInitializedRef.current = true;
         createForm.setFieldsValue({
             name: storyDraft.trim().slice(0, 24) || "",
             sourceType: createSource,
             aspectRatio: "9:16",
+            segmentSeconds: SEGMENT_SECONDS_OPTIONS[0],
             generationModel: launcherModel || defaultDramaModel,
             authMode: launcherAuth,
         });
     }, [createForm, createOpen, createSource, storyDraft, launcherModel, launcherAuth, defaultDramaModel]);
+    // 模型目录晚于对话框读到时，没动过的生成模型跟着默认值走。
     useEffect(() => {
-        if (createOpen && recommendedProfile && !createForm.isFieldTouched("styleProfile")) createForm.setFieldValue("styleProfile", recommendedProfile);
-    }, [createForm, createOpen, recommendedProfile]);
+        if (createOpen && !createForm.isFieldTouched("generationModel")) createForm.setFieldValue("generationModel", launcherModel || defaultDramaModel);
+    }, [createForm, createOpen, launcherModel, defaultDramaModel]);
+    // 在外面先选了画风再打开对话框：按画风的媒介把类型带上。
+    useEffect(() => {
+        if (!createOpen || createForm.getFieldValue("contentType") || !selectedStyle) return;
+        const medium = canvasStyleMedium(selectedStyle);
+        const matched = PROJECT_CONTENT_TYPES.find((item) => (item.media as readonly string[]).includes(medium));
+        if (matched) createForm.setFieldValue("contentType", matched.value);
+    }, [createForm, createOpen, selectedStyle]);
+    useEffect(() => {
+        if (!createOpen) setProfileEditing(false);
+    }, [createOpen]);
+    // 单段时长或画幅变了、当前模型不在可选范围里：换成第一个可选的（优先有渠道的）。
+    useEffect(() => {
+        if (!createOpen || !dramaModels.data) return;
+        if (createModelOptions.some((option) => option.value === createModelId && !option.disabled)) return;
+        const enabled = createModelOptions.filter((option) => !option.disabled);
+        const next = enabled.find((option) => dramaFamilies?.has(option.value)) || enabled[0];
+        if (next && next.value !== createModelId) createForm.setFieldValue("generationModel", next.value);
+    }, [createForm, createModelId, createModelOptions, createOpen, dramaFamilies, dramaModels.data]);
+    // 换了类型：已选画风不属于新类型就清空，档案随之回到默认推荐。
+    useEffect(() => {
+        if (createOpen && createContentType && selectedStyle && !styleMatchesContentType(selectedStyle, createContentType)) setSelectedStyle(null);
+    }, [createContentType, createOpen, selectedStyle]);
 
     const generateStory = async () => {
         const story = storyDraft.trim();
@@ -164,7 +211,8 @@ export default function ProjectsPage() {
         onSuccess: ({ project }) => {
             setCreateOpen(false);
             void queryClient.invalidateQueries({ queryKey: ["projects"] });
-            navigate(`/projects/${project.id}/overview`);
+            // 选了「导入小说」：建完直接到章节页并打开导入对话框。
+            navigate(project.sourceType === "novel" ? `/projects/${project.id}/chapters?${CHAPTER_IMPORT_QUERY}=1` : `/projects/${project.id}/overview`);
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "项目创建失败"),
     });
@@ -287,31 +335,50 @@ export default function ProjectsPage() {
                 />
             ) : null}
 
-            <Modal className="library-modal" title="创建短剧项目" open={createOpen} footer={null} destroyOnHidden onCancel={() => setCreateOpen(false)} width={560} styles={{ body: { paddingTop: 12 } }}>
-                <Form<ProjectForm> form={createForm} layout="vertical" initialValues={{ aspectRatio: "9:16", sourceType: "blank", generationModel: DEFAULT_DRAMA_MODEL, authMode: "step" }} onFinish={(values) => mutation.mutate({ ...values, type: "short-drama", ...(selectedStyle ? { stylePresetId: selectedStyle.id, styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)) } : {}) })}>
+            <Modal className="library-modal" title="创建短剧项目" open={createOpen} footer={null} destroyOnHidden onCancel={() => setCreateOpen(false)} width={600} styles={{ body: { paddingTop: 12 } }}>
+                <Form<ProjectForm>
+                    form={createForm}
+                    layout="vertical"
+                    initialValues={{ aspectRatio: "9:16", sourceType: "blank", segmentSeconds: SEGMENT_SECONDS_OPTIONS[0], generationModel: DEFAULT_DRAMA_MODEL, authMode: "step" }}
+                    onFinish={({ contentType: _contentType, styleProfile, ...values }) => mutation.mutate({ ...values, type: "short-drama", ...(profileEditing && styleProfile ? { styleProfile } : {}), ...(selectedStyle ? { stylePresetId: selectedStyle.id, styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)) } : {}) })}
+                >
+                    <Form.Item name="contentType" label="类型" rules={[{ required: true, message: "请先选类型" }]} extra="类型只用来筛选画风，不单独保存；换类型时不属于它的画风会清空。">
+                        <ContentTypePicker />
+                    </Form.Item>
                     <div className="mb-4 grid grid-cols-3 gap-2">
                         <button type="button" className={createSource === "blank" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("blank"); createForm.setFieldValue("sourceType", "blank"); }}><FolderKanban className="size-4" /><span>空白开始</span></button>
                         <button type="button" className={createSource === "novel" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("novel"); createForm.setFieldValue("sourceType", "novel"); }}><FileText className="size-4" /><span>导入小说</span></button>
                         <button type="button" className={createSource === "text" ? "app-story-source is-active" : "app-story-source"} onClick={() => { setCreateSource("text"); createForm.setFieldValue("sourceType", "text"); }}><BookOpenText className="size-4" /><span>粘贴文本</span></button>
                     </div>
+                    <Form.Item name="sourceType" hidden><Input /></Form.Item>
                     <Form.Item name="name" label="项目名称" rules={[{ required: true, whitespace: true, message: "请输入项目名称" }]}><Input autoFocus placeholder="例如：长安夜行" /></Form.Item>
+                    <Form.Item label="项目画风"><button type="button" className="app-story-modal-style" disabled={!createContentType} onClick={() => setStylePickerOpen(true)}>{selectedStyle ? <><img src={selectedStyle.imageUrl} alt="" /><span>{selectedStyle.title}</span><em>更换</em></> : <><Palette className="size-4" /><span>{createContentType ? "选择项目画风（生成分镜前必选）" : "先选类型，再选画风"}</span></>}</button></Form.Item>
+                    <Form.Item label="风格档案" extra={profileEditing ? DRAMA_STYLE_PROFILE_HINT + "建项后可在项目设置里改。" : undefined}>
+                        {profileEditing ? (
+                            <Form.Item name="styleProfile" noStyle><Select loading={styleProfiles.isLoading} options={dramaStyleProfileOptions(styleProfiles.data, recommendedProfile)} /></Form.Item>
+                        ) : (
+                            <div className="flex items-center justify-between gap-2 rounded-md bg-surface-active px-3 py-1.5 text-xs">
+                                <span className="min-w-0 truncate text-foreground/70">{recommendedProfileLabel ? `${recommendedProfileLabel}（按${selectedStyle ? "画风" : "默认"}推荐）` : "按画风自动推出"}</span>
+                                <Button type="link" size="small" onClick={() => { createForm.setFieldValue("styleProfile", recommendedProfile); setProfileEditing(true); }}>修改</Button>
+                            </div>
+                        )}
+                    </Form.Item>
                     <div className="grid grid-cols-2 gap-3">
-                        <Form.Item name="aspectRatio" label="默认画幅"><Select options={[{ label: "9:16 竖屏", value: "9:16" }, { label: "16:9 横屏", value: "16:9" }, { label: "1:1 方形", value: "1:1" }]} /></Form.Item>
-                        <Form.Item name="sourceType" label="内容来源"><Select options={[{ label: "空白开始", value: "blank" }, { label: "导入小说", value: "novel" }, { label: "粘贴文本", value: "text" }]} /></Form.Item>
+                        <Form.Item name="aspectRatio" label="默认画幅"><Select options={PROJECT_ASPECT_RATIOS} /></Form.Item>
+                        <Form.Item name="segmentSeconds" label="单段最长时长" extra="生成模型只列一段能做到这么长的；建项后可在设置里改。"><Select options={SEGMENT_SECONDS_OPTIONS.map((value) => ({ label: `${value} 秒`, value }))} /></Form.Item>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                        <Form.Item name="generationModel" label="生成模型" rules={[{ required: true, message: "请选择生成模型" }]} extra={createModel ? (dramaFamilies && !dramaFamilies.has(createModel.id) ? `当前没有 ${createModel.label} 的视频渠道，建了项目也生成不了视频；先在设置里配置渠道，或换一个模型。` : `一段 = 一次生成，最长 ${createModel.duration.max} 秒；建项后可在设置里改，但已有超长的段需要先拆分。`) : undefined}><Select loading={dramaModels.isLoading} options={dramaModelOptions(dramaModels.data, dramaFamilies)} /></Form.Item>
+                        <Form.Item name="generationModel" label="生成模型" rules={[{ required: true, message: "请选择生成模型" }]} extra={createModel ? (dramaFamilies && !dramaFamilies.has(createModel.id) ? `当前没有 ${createModel.label} 的视频渠道，建了项目也生成不了视频；先在设置里配置渠道，或换一个模型。` : `一段 = 一次生成，最长 ${createModel.duration.max} 秒；建项后可在设置里改，但已有超长的段需要先拆分。`) : undefined}><Select loading={dramaModels.isLoading} options={createModelOptions} /></Form.Item>
                         <Form.Item name="authMode" label="授权档位" extra={DRAMA_AUTH_OPTIONS.find((item) => item.value === createAuth)?.hint}><Select options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} /></Form.Item>
                     </div>
-                    <Form.Item label="项目画风"><button type="button" className="app-story-modal-style" onClick={() => setStylePickerOpen(true)}>{selectedStyle ? <><img src={selectedStyle.imageUrl} alt="" /><span>{selectedStyle.title}</span><em>更换</em></> : <><Palette className="size-4" /><span>选择项目画风（生成分镜前必选）</span></>}</button></Form.Item>
-                    <Form.Item name="styleProfile" label="风格档案" rules={[{ required: true, message: "请选择风格档案" }]} extra={DRAMA_STYLE_PROFILE_HINT + "建项后可在项目设置里改。"}><Select loading={styleProfiles.isLoading} options={dramaStyleProfileOptions(styleProfiles.data, recommendedProfile)} /></Form.Item>
-                    <p className="-mt-1 mb-5 text-xs leading-5 text-foreground/48">创建后先进入项目概览。章节和参考资产可以逐步补充；画风可以晚点选，但生成分镜前必须选好。</p>
+                    <p className="-mt-1 mb-5 text-xs leading-5 text-foreground/48">{createSource === "novel" ? "创建后直接进入章节页导入小说。" : "创建后先进入项目概览。"}章节和参考资产可以逐步补充；画风可以晚点选，但生成分镜前必须选好。</p>
                     <div className="flex justify-end gap-2"><Button onClick={() => setCreateOpen(false)}>取消</Button><Button type="primary" htmlType="submit" loading={mutation.isPending}>创建项目</Button></div>
                 </Form>
             </Modal>
             <CanvasStylePickerModal
                 open={stylePickerOpen}
                 value={selectedStyle?.id}
+                contentType={createOpen ? createContentType : undefined}
                 onClose={() => setStylePickerOpen(false)}
                 onSelect={(preset) => { setSelectedStyle(preset); setStylePickerOpen(false); }}
             />
@@ -406,6 +473,14 @@ function ProjectRow({ row, onDelete }: { row: ProjectSummary; onDelete: () => Pr
                 <span className="project-library-stats"><ProjectCount icon={<BookOpenText className="size-3.5" />} label="章节" value={row.unitCount} /><ProjectCount icon={<LayoutGrid className="size-3.5" />} label="画布" value={row.canvasCount} /><ProjectCount icon={<Images className="size-3.5" />} label="资产" value={row.assetCount} /></span>
             </span>
         </Link>
+    );
+}
+
+function ContentTypePicker({ value, onChange }: { value?: ProjectContentType; onChange?: (value: ProjectContentType) => void }) {
+    return (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="类型">
+            {PROJECT_CONTENT_TYPES.map((item) => <button key={item.value} type="button" role="radio" aria-checked={value === item.value} title={item.hint} className={value === item.value ? "app-story-source is-active" : "app-story-source"} onClick={() => onChange?.(item.value)}><span>{item.label}</span></button>)}
+        </div>
     );
 }
 

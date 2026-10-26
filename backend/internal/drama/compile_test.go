@@ -172,3 +172,20 @@ func TestNormalizeBriefKeepsLegacyContentInContractShape(t *testing.T) {
 		t.Fatalf("不认识的字段应挪进 constraints 而不是丢掉: %s", raw)
 	}
 }
+
+func TestBriefKeepsSegmentSeconds(t *testing.T) {
+	doc := NormalizeBrief(map[string]any{"title": "七床", "segment_seconds": float64(30)})
+	if doc["segment_seconds"] != float64(30) {
+		t.Fatalf("单段秒数是契约字段，读的时候不能挪进 constraints: %v", doc)
+	}
+	raw, _ := json.Marshal(doc)
+	brief, err := ParseBrief(raw)
+	if err != nil || brief.SegmentSeconds == nil || *brief.SegmentSeconds != 30 {
+		t.Fatalf("segment_seconds 应能按契约解析: %+v err=%v", brief, err)
+	}
+	for _, bad := range []string{`{"segment_seconds": 0}`, `{"segment_seconds": 999}`} {
+		if _, err := ParseBrief([]byte(bad)); err == nil || !strings.Contains(err.Error(), "segment_seconds") {
+			t.Fatalf("%s 应被拒绝，得到 %v", bad, err)
+		}
+	}
+}

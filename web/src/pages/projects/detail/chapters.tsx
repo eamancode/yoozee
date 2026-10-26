@@ -81,6 +81,7 @@ import { parseShotStream, shotStreamFromResult } from "./chapter-shot-stream";
 import { ChapterStoryboardRunPanel, type StoryboardResumePoint } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
+import { consumeChapterImportQuery } from "./chapter-import-query";
 import { chapterAssetsFromGenerationTask, chapterTaskIdentity, extractChapterAssets, followChapterStoryboardTask, generateChapterStoryboard } from "./project-chapter-ai";
 
 const CHAPTER_ROW_HEIGHT = 62;
@@ -104,7 +105,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const initialSelectedId = detail.units.some((unit) => unit.id === chapterId) ? chapterId : detail.units[0]?.id || "";
     const [selectedId, setSelectedId] = useState(initialSelectedId);
     const [createOpen, setCreateOpen] = useState(false);
-    const [importOpen, setImportOpen] = useState(false);
+    const [importOpen, setImportOpen] = useState(consumeChapterImportQuery);
     const [searchQuery, setSearchQuery] = useState("");
     const [moveTargetId, setMoveTargetId] = useState("");
     const [movePosition, setMovePosition] = useState<number | null>(null);

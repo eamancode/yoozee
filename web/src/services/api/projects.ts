@@ -446,11 +446,13 @@ function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
     };
 }
 
-export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string; generationModel?: string; authMode?: "step" | "full"; styleProfile?: string }) {
+/** segmentSeconds 是单段最长秒数（15 / 30），后端写进 brief_json.segment_seconds；不超过生成模型一段的上限。 */
+export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string; generationModel?: string; authMode?: "step" | "full"; styleProfile?: string; segmentSeconds?: number }) {
     return http.post<{ project: Project }>("/projects", input);
 }
 
-export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "authMode" | "styleProfile" | "status">>) {
+/** segmentSeconds 改单段最长秒数（0 去掉这一项），与生成模型一起按模型上限校验。 */
+export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "authMode" | "styleProfile" | "status">> & { segmentSeconds?: number }) {
     return http.patch<{ project: Project }>(`/projects/${encodeURIComponent(projectId)}`, input);
 }
 

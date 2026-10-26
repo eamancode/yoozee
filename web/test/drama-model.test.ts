@@ -30,19 +30,39 @@ const registry: DramaRegistry = {
 };
 
 describe("短剧生成模型选项", () => {
-    test("每项都带「每段最长 N 秒」，未校准的显式标出", () => {
+    test("每项都带「每段最长 N 秒」，未校准的显式标出；不传过滤条件时全部可选", () => {
         expect(dramaModelOptions(registry)).toEqual([
-            { label: "Seedance 2.0 · 每段最长 15 秒 · 未校准", value: "seedance-2.0" },
-            { label: "Seedance 2.5 · 每段最长 30 秒 · 未校准", value: "seedance-2.5" },
-            { label: "MiniMax-H3 · 每段最长 15 秒", value: "minimax-h3" },
+            { label: "Seedance 2.0 · 每段最长 15 秒 · 未校准", value: "seedance-2.0", disabled: false },
+            { label: "Seedance 2.5 · 每段最长 30 秒 · 未校准", value: "seedance-2.5", disabled: false },
+            { label: "MiniMax-H3 · 每段最长 15 秒", value: "minimax-h3", disabled: false },
         ]);
     });
 
     test("目录还没读到时退回默认模型，且仍然给出 15 秒上限", () => {
         for (const empty of [undefined, { version: "", default: "", models: [] } as DramaRegistry]) {
-            expect(dramaModelOptions(empty)).toEqual([{ label: "Seedance 2.0 · 每段最长 15 秒", value: DEFAULT_DRAMA_MODEL }]);
+            expect(dramaModelOptions(empty)).toEqual([{ label: "Seedance 2.0 · 每段最长 15 秒", value: DEFAULT_DRAMA_MODEL, disabled: false }]);
         }
         expect(DEFAULT_DRAMA_MODEL).toBe("seedance-2.0");
+    });
+
+    test("单段最长时长只留一段上限够得着的模型", () => {
+        expect(dramaModelOptions(registry, undefined, { minSeconds: 30 }).map((item) => item.value)).toEqual(["seedance-2.5"]);
+        expect(dramaModelOptions(registry, undefined, { minSeconds: 15 }).map((item) => item.value)).toEqual(["seedance-2.0", "seedance-2.5", "minimax-h3"]);
+    });
+
+    test("渠道不支持所选画幅的模型置灰并注明；没有渠道的模型不判断画幅", () => {
+        const ratios = new Map([
+            ["seedance-2.0", new Set(["16:9", "9:16", "1:1"])],
+            ["seedance-2.5", new Set(["16:9", "9:16", "1:1", "4:3"])],
+        ]);
+        const available = new Set(["seedance-2.0", "seedance-2.5"]);
+        expect(dramaModelOptions(registry, available, { aspectRatio: "4:3", ratios })).toEqual([
+            { label: "Seedance 2.0 · 每段最长 15 秒 · 渠道不支持 4:3", value: "seedance-2.0", disabled: true },
+            { label: "Seedance 2.5 · 每段最长 30 秒 · 未校准", value: "seedance-2.5", disabled: false },
+            { label: "MiniMax-H3 · 每段最长 15 秒 · 没有可用渠道", value: "minimax-h3", disabled: false },
+        ]);
+        // 不带画幅时不置灰。
+        expect(dramaModelOptions(registry, available, { ratios }).every((item) => !item.disabled)).toBe(true);
     });
 });
 

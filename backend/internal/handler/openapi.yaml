@@ -1544,6 +1544,18 @@ paths:
     post:
       tags: [projects]
       summary: 创建短剧项目
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                aspectRatio: {type: string, enum: ["9:16", "16:9", "1:1", "4:3"], default: "9:16"}
+                generationModel: {type: string, description: kb-dialects/models.json 的模型族 id}
+                segmentSeconds: {type: integer, minimum: 1, description: 单段最长秒数（建项目选 15 / 30），写进 brief_json.segment_seconds；不超过生成模型一段的上限；不传按模型上限}
+                styleProfile: {type: string, description: 不传按画风对照表推荐}
       responses:
         "200":
           $ref: "#/components/responses/Envelope"
