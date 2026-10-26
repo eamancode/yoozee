@@ -41,8 +41,10 @@ type dramaStyleMeta struct {
 	FromChapters bool                    `json:"fromChapters,omitempty"`
 	Images       bool                    `json:"images"`
 	// ExcerptChars 是每场摘录的字数（总字数超预算时缩短，记下来便于排查）。
-	ExcerptChars int    `json:"excerptChars"`
-	ChainedFrom  string `json:"chainedFrom,omitempty"`
+	ExcerptChars int `json:"excerptChars"`
+	// TotalEpisodes 是项目现在一共几集（或几章）：已有色彩脚本里集号超过它的（剧集删了、重新改编成更少的集）合并时去掉。
+	TotalEpisodes int    `json:"totalEpisodes"`
+	ChainedFrom   string `json:"chainedFrom,omitempty"`
 }
 
 type dramaStyleEpisodeMeta struct {
@@ -162,7 +164,7 @@ func styleBiblePlan(project *model.Project, units []model.ProjectUnit, numbers m
 	}
 	limit := drama.StyleBibleExcerptLimit(total)
 	episodes := make([]drama.StyleBibleEpisode, 0, len(units))
-	meta := &dramaStyleMeta{FromChapters: fromChapters, ExcerptChars: limit}
+	meta := &dramaStyleMeta{FromChapters: fromChapters, ExcerptChars: limit, TotalEpisodes: len(numbers)}
 	records := make([]map[string]any, 0, len(units))
 	runEpisodes := map[int]bool{}
 	for i, u := range units {
@@ -181,12 +183,7 @@ func styleBiblePlan(project *model.Project, units []model.ProjectUnit, numbers m
 		runEpisodes[no] = true
 	}
 	anchor, script := projectStyleBible(project.BibleJSON)
-	var existing []drama.ColorScriptEntry
-	for _, e := range script {
-		if !runEpisodes[e.Episode] {
-			existing = append(existing, e)
-		}
-	}
+	existing := keptColorScript(script, runEpisodes, len(numbers))
 	style := projectStyleSnapshot(project)
 	in := drama.StyleBibleInput{
 		Episodes: episodes, FromChapters: fromChapters, BriefJSON: project.BriefJSON,
@@ -206,6 +203,17 @@ func styleBiblePlan(project *model.Project, units []model.ProjectUnit, numbers m
 		record: map[string]any{"requirements": "输出全局风格锚和逐场色彩脚本，每场一行，供色卡、资产和分镜使用。", "dramaSources": records},
 		style:  meta,
 	}, nil
+}
+
+// keptColorScript 是这次不重写、合并时保留的已有色彩脚本：不在这次运行的集里，集号也没超过项目现在的集数（total 为 0 时不按集数筛）。
+func keptColorScript(script []drama.ColorScriptEntry, runEpisodes map[int]bool, total int) []drama.ColorScriptEntry {
+	var out []drama.ColorScriptEntry
+	for _, e := range script {
+		if !runEpisodes[e.Episode] && (total <= 0 || e.Episode <= total) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // projectStyleBible 读 bible_json 里的风格锚和色彩脚本（读不出的字段当作没有）。
@@ -277,12 +285,7 @@ func (s *Service) applyStyleBibleTask(task model.Task, meta *dramaStepTaskMeta, 
 		runEpisodes[ep.No] = true
 	}
 	_, current := projectStyleBible(project.BibleJSON)
-	var existing []drama.ColorScriptEntry
-	for _, e := range current {
-		if !runEpisodes[e.Episode] {
-			existing = append(existing, e)
-		}
-	}
+	existing := keptColorScript(current, runEpisodes, style.TotalEpisodes)
 	report := drama.CheckStyleBible(out, drama.StyleBibleCheckContext{Episodes: style.episodes(), Existing: existing})
 	if report.Errors > 0 {
 		for _, item := range report.Items {
@@ -300,7 +303,12 @@ func (s *Service) applyStyleBibleTask(task model.Task, meta *dramaStepTaskMeta, 
 	if err != nil {
 		return DramaStyleBibleOutcome{}, err
 	}
-	writes, summary, err := s.dramaPaletteWrites(task.UserID, project, entries)
+	decrypted, decryptErr := s.decryptTaskInputJSON(task.InputJSON)
+	template := (*DramaImageTaskTemplate)(nil)
+	if style.Images && decryptErr == nil {
+		template = taskPaletteImageTemplate(decrypted)
+	}
+	writes, summary, err := s.dramaPaletteWrites(task.UserID, project, entries, template != nil)
 	if err != nil {
 		return DramaStyleBibleOutcome{}, err
 	}
@@ -316,15 +324,13 @@ func (s *Service) applyStyleBibleTask(task model.Task, meta *dramaStepTaskMeta, 
 			outcome.Items = append(outcome.Items, item)
 		}
 	}
-	if style.Images {
-		decrypted, err := s.decryptTaskInputJSON(task.InputJSON)
-		if err == nil {
-			if template := taskPaletteImageTemplate(decrypted); template != nil {
-				outcome.Images, err = s.queueDramaPaletteImages(task.UserID, project.ID, *template, task.ID, nil)
-			}
-		}
-		if err != nil {
+	if style.Images && template == nil {
+		_ = s.log(task.UserID, task.ID, "warn", "色卡出图没有排上", "任务里读不出图片任务模板")
+	}
+	if template != nil {
+		if outcome.Images, err = s.queueDramaPaletteImages(task.UserID, project.ID, *template, task.ID, nil); err != nil {
 			_ = s.log(task.UserID, task.ID, "warn", "色卡出图没有排上", err.Error())
+			outcome.Images = DramaPaletteQueueResult{Queued: []string{}, Waiting: []string{}, Failed: []string{}}
 		}
 	}
 	return outcome, nil

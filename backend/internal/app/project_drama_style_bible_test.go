@@ -330,3 +330,47 @@ func drawPaletteCard(w, h int, hexes []string) *image.RGBA {
 	}
 	return img
 }
+
+// 合并时保留这次没重写的集；集号超过项目现在集数的（剧集删了、改编成更少的集）去掉。
+func TestKeptColorScriptDropsVanishedEpisodes(t *testing.T) {
+	script := []drama.ColorScriptEntry{{Episode: 1, SceneNo: 1}, {Episode: 2, SceneNo: 1}, {Episode: 3, SceneNo: 1}}
+	kept := keptColorScript(script, map[int]bool{1: true}, 2)
+	if len(kept) != 1 || kept[0].Code() != "E02S01" {
+		t.Fatalf("只留第 2 集：%+v", kept)
+	}
+	if all := keptColorScript(script, map[int]bool{}, 0); len(all) != 3 {
+		t.Fatalf("不知道集数时不按集数筛：%+v", all)
+	}
+}
+
+// 评测：七床第一集当第 1 集定风格；三场都写了、有风格锚才算解析成功（闸门只看解析率）。
+func TestStyleBibleEvalResult(t *testing.T) {
+	step, _ := drama.StepByID(drama.StepStyleBible)
+	c, ok := step.EvalChapter("qichuang-e01")
+	if !ok {
+		t.Fatal("评测集缺 qichuang-e01")
+	}
+	in, err := loadDramaEvalChapter(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scene := func(no int, inherits string) string {
+		return strings.NewReplacer("SCENE_NO", strconv.Itoa(no), "INHERITS", inherits).Replace(`{"episode": 1, "scene_no": SCENE_NO, "scene": "内·电梯口·夜", "inherits_from": "INHERITS", "shared_colors": [{"name_zh": "水泥灰", "name_en": "Concrete Grey", "hex": "#6E6E6E", "usage": "墙"}], "new_colors": [{"name_zh": "护士蓝", "name_en": "Nurse Blue", "hex": "#5B7FA3", "usage": "制服"}, {"name_zh": "夜色", "name_en": "Night Navy", "hex": "#1B2A41", "usage": "窗外"}]}`)
+	}
+	full := strings.Join([]string{styleAnchorLine, `{"episode": 1}`, scene(1, ""), scene(2, "E01S01"), scene(3, "E01S02")}, "\n")
+	r := styleBibleEvalResult(drama.StepEvalChapterResult{Chapter: c.ID}, in, full)
+	if !r.Parsed || r.Rows != 3 || r.Shots != 3 || r.Errors != 0 {
+		t.Fatalf("三场齐、有风格锚应解析成功：%+v", r)
+	}
+	short := strings.Join([]string{styleAnchorLine, `{"episode": 1}`, scene(1, "")}, "\n")
+	if r := styleBibleEvalResult(drama.StepEvalChapterResult{Chapter: c.ID}, in, short); r.Parsed || !strings.Contains(r.Failure, "1/3") {
+		t.Fatalf("只写一场不算解析成功：%+v", r)
+	}
+	if verdict := step.Gate.Evaluate([]drama.StepEvalChapterResult{styleBibleEvalResult(drama.StepEvalChapterResult{Chapter: c.ID}, in, full)}, nil); !verdict.Passed {
+		t.Fatalf("闸门只看解析率：%+v", verdict)
+	}
+	plan, err := styleBiblePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, DramaStepUsage{Step: step.ID}, drama.StepSkill{ID: "yz-style-bible", Files: []drama.StepSkillFile{{Path: "SKILL.md", Kind: "markdown", Content: "# 导演风格"}}})
+	if err != nil || len(plan.style.Episodes[0].Scenes) != 3 || !strings.Contains(plan.prompt.Text, "E01S03 场次头：内·电梯口·夜") {
+		t.Fatalf("评测章节组装提示词：%v %+v", err, plan)
+	}
+}

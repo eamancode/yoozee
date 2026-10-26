@@ -153,8 +153,12 @@ func (s *Service) projectPaletteAssets(userID string, projectID string) (map[str
 }
 
 // dramaPaletteWrites 为这次写的每一场准备色卡：已有同一场（按场编号找）的色卡加一个版本并换成主版本（没有图，等重新出图），
-// 没有的新建资产、版本 1 和项目关联。出图状态先记成 none，排队时再改。
-func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entries []drama.ColorScriptEntry) ([]repository.DramaPaletteWrite, DramaPaletteWriteSummary, error) {
+// 没有的新建资产、版本 1 和项目关联。要出图（images）时出图状态记成「等空位」，写库后按空位排；否则记成 none。
+func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entries []drama.ColorScriptEntry, images bool) ([]repository.DramaPaletteWrite, DramaPaletteWriteSummary, error) {
+	initial := paletteImageNone
+	if images {
+		initial = paletteImageWaiting
+	}
 	var summary DramaPaletteWriteSummary
 	existing, err := s.projectPaletteAssets(userID, project.ID)
 	if err != nil {
@@ -191,7 +195,7 @@ func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entr
 			payload := assetPayload(&current)
 			metadata := payloadMetadata(payload)
 			delete(metadata, "paletteCheck")
-			metadata["paletteImage"] = paletteImageState{Status: paletteImageNone, UpdatedAt: now.Format(time.RFC3339Nano)}
+			metadata["paletteImage"] = paletteImageState{Status: initial, UpdatedAt: now.Format(time.RFC3339Nano)}
 			payload["kind"], payload["status"], payload["primaryVersionId"], payload["title"] = "entity", model.AssetVersionStatusConfirmed, versionID, title
 			payload["coverUrl"], payload["updatedAt"] = "", now.Format(time.RFC3339Nano)
 			payload["data"] = map[string]any{"definition": definition}
@@ -211,7 +215,7 @@ func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entr
 			"id": assetID, "kind": "entity", "category": model.AssetCategoryPalette, "status": model.AssetVersionStatusConfirmed,
 			"primaryVersionId": versionID, "title": title, "coverUrl": "", "tags": []string{"色卡"},
 			"data":      map[string]any{"definition": definition},
-			"metadata":  map[string]any{"palette": paletteMeta{Code: e.Code(), Episode: e.Episode, SceneNo: e.SceneNo}, "paletteImage": paletteImageState{Status: paletteImageNone}},
+			"metadata":  map[string]any{"palette": paletteMeta{Code: e.Code(), Episode: e.Episode, SceneNo: e.SceneNo}, "paletteImage": paletteImageState{Status: initial, UpdatedAt: now.Format(time.RFC3339Nano)}},
 			"createdAt": now.Format(time.RFC3339Nano), "updatedAt": now.Format(time.RFC3339Nano),
 		}
 		raw, err := json.Marshal(payload)
