@@ -227,13 +227,13 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
         };
         let paletteImages: Awaited<ReturnType<typeof paletteImageTaskTemplate>> | undefined;
         if (images) {
-            if (!isAiConfigReady(imageConfig, imageModel)) return precheckFailed("色卡出图用的图片模型还没配好：到设置里配置，或关掉色卡出图");
+            if (!isAiConfigReady(imageConfig, imageModel)) return precheckFailed("色卡出图用的图片模型还没配好：到设置里配置，或关掉色卡出图。");
             setPrecheckError("");
             setPreparing(true);
             try {
                 paletteImages = await paletteImageTaskTemplate(imageConfig, imageModel);
             } catch (error) {
-                return precheckFailed(`色卡出图模板准备失败：${error instanceof Error ? error.message : "请检查图片模型配置"}。可以换个图片模型，或关掉色卡出图`);
+                return precheckFailed(`色卡出图模板准备失败：${error instanceof Error ? error.message.replace(/[。.]+$/, "") : "请检查图片模型配置"}。可以换个图片模型，或关掉色卡出图。`);
             } finally {
                 setPreparing(false);
             }

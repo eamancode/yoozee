@@ -465,7 +465,7 @@ func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRe
 	case anchorOK && aligned:
 		styleDetail = fmt.Sprintf("全局风格锚已写，%d 场色彩脚本", total)
 	case anchorOK:
-		styleDetail = "全局风格锚已写；" + scriptDetail + "：重跑导演风格"
+		styleDetail = scriptDetail + "：重跑导演风格"
 	}
 
 	imaged := map[string]bool{}

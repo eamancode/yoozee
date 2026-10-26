@@ -110,7 +110,7 @@ export function ProjectPaletteCard({
                 </button>
                 {palette ? (
                     <>
-                        {gone ? <p className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-amber-600 dark:text-amber-400">当前剧集里已经没有这一场，色卡保留但不再出图、不计入「色卡齐了」；用不上可以移出项目。</p> : null}
+                        {gone ? <p className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-amber-600 dark:text-amber-400">当前剧集里没有这一场了：不再出图，不计入「色卡齐了」，用不上可以移出。</p> : null}
                         <p className="mt-1 truncate text-[var(--fs-tiny)] text-foreground/50">{palette.design}</p>
                         <div className="mt-2">
                             <PaletteSwatches colors={colors} />
