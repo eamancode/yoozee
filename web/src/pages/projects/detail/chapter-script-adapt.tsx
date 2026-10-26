@@ -25,8 +25,9 @@ import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { storyboardRunStop } from "./chapter-shot-stream";
 import { briefEpisodeSeconds, dramaBriefKey, EPISODE_SECONDS_RANGE } from "./drama-brief";
 import { followDramaRunTask, isScriptAdaptTask, runScriptAdapt } from "./project-chapter-ai";
+import { scriptAdaptDefaultMode } from "./script-adapt-mode";
 import { ScriptAdaptRunPanel } from "./script-adapt-run-panel";
-import { parseScriptAdaptStream, scriptAdaptStreamFromResult } from "./script-adapt-stream";
+import { parseScriptAdaptStream, resumedScriptAdaptStream, scriptAdaptStreamFromResult, type ScriptAdaptResume } from "./script-adapt-stream";
 
 type ScriptAdaptControlProps = {
     detail: ProjectDetail;
@@ -68,9 +69,13 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
     const [starting, setStarting] = useState(false);
     const [stream, setStream] = useState<{ taskId: string; text: string }>({ taskId: "", text: "" });
     const followedRef = useRef(new Set<string>());
-    const defaultMode: DramaScriptAdaptMode = !chapters.length || detail.project.sourceType === "script" ? "rhythm" : "adapt";
-    const [settings, setSettings] = useState<Settings>({ mode: defaultMode, sourceIds: [], countBy: "episodes", targetEpisodes: 1, episodeSeconds: 90, textModel: "" });
+    // 续写时已写完的集和续写起点：侧栏一开始就显示「正在写第 N 集」，前面的集接在新输出前面。
+    const [resumeView, setResumeView] = useState<ScriptAdaptResume>();
     const episodesQuery = useQuery({ queryKey: dramaEpisodesKey(projectId), queryFn: ({ signal }) => getDramaEpisodes(projectId, signal), enabled: open });
+    const defaultMode = (adaptedChapterIds?: string[]) => scriptAdaptDefaultMode({ sourceType: detail.project.sourceType, chapterIds: chapters.map((unit) => unit.id), episodeCount: episodes.length, adaptedChapterIds });
+    // 打开对话框时剧集清单还没读到：读到后按是否都改编过再定一次默认模式。
+    const modePendingRef = useRef(false);
+    const [settings, setSettings] = useState<Settings>(() => ({ mode: defaultMode(), sourceIds: [], countBy: "episodes", targetEpisodes: 1, episodeSeconds: 90, textModel: "" }));
     const briefQuery = useQuery({ queryKey: dramaBriefKey(projectId), queryFn: async () => (await getDramaBrief(projectId)).document, enabled: open });
     const usageQuery = useQuery({
         queryKey: ["project", projectId, "drama-step", "script.adapt", detail.project.styleProfile || ""],
@@ -86,19 +91,29 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
     const stop = useMemo(() => (taskDetail ? storyboardRunStop(taskDetail, dramaRunProgressOf(taskDetail)) : undefined), [taskDetail]);
     const resume = stop?.kind === "resume" ? stop : undefined;
     const streamState = useMemo(() => {
-        if (stream.text && (running || stream.taskId === taskDetail?.id || !taskDetail)) return parseScriptAdaptStream(stream.text);
+        // 跑着的时候只看这次任务的输出（任务列表还没刷新时 taskDetail 是上一次的）。
+        if (running || (stream.text && (stream.taskId === taskDetail?.id || !taskDetail))) return resumedScriptAdaptStream(parseScriptAdaptStream(stream.text), resumeView);
         return taskDetail ? scriptAdaptStreamFromResult(taskDetail.resultJson) : parseScriptAdaptStream("");
-    }, [running, stream, taskDetail]);
+    }, [resumeView, running, stream, taskDetail]);
     const adapted = useMemo(() => new Set(episodesQuery.data?.adaptedChapterIds || []), [episodesQuery.data]);
     const candidates = settings.mode === "rhythm" ? episodes : chapters;
 
     // 打开对话框时按当前项目给默认值：没改编过的原文章节（全都改编过就不勾）、一章一集、每集时长取需求文档。
     const openDialog = () => {
-        setSettings((current) => ({ ...current, mode: defaultMode, textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "" }));
+        modePendingRef.current = !episodesQuery.data;
+        setSettings((current) => ({ ...current, mode: defaultMode(episodesQuery.data?.adaptedChapterIds), textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "" }));
         setOpen(true);
     };
     useEffect(() => {
         if (!open || !episodesQuery.data) return;
+        if (modePendingRef.current) {
+            modePendingRef.current = false;
+            const mode = defaultMode(episodesQuery.data.adaptedChapterIds);
+            if (mode !== settings.mode) {
+                setSettings((current) => ({ ...current, mode }));
+                return;
+            }
+        }
         setSettings((current) => {
             const ids = current.mode === "rhythm" ? episodes.map((unit) => unit.id) : chapters.filter((unit) => !adapted.has(unit.id)).map((unit) => unit.id);
             return { ...current, sourceIds: ids, targetEpisodes: Math.max(1, ids.length) };
@@ -163,6 +178,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
         setOpen(false);
         setStarting(true);
         setStream({ taskId: "", text: "" });
+        setResumeView(options.resumeTaskId && resume ? { from: resume.from, total: resume.total, episodes: scriptAdaptStreamFromResult(taskDetail?.resultJson).episodes.filter((episode) => episode.index < resume.from) } : undefined);
         setPanelOpen(true);
         try {
             const result = await runScriptAdapt(

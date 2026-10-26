@@ -42,6 +42,11 @@ type DramaRunPanelProps = {
     listLabel: string;
 };
 
+/** 失败原因后面还要接一句提示：原因没以句末标点收尾时补句号（服务端给用户看的原因会截掉上游明细连同句号）。 */
+function sentence(text: string) {
+    return /[。！？.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}。`;
+}
+
 /**
  * 逐轮续写的进度侧栏（生成分段、剧本优化共用）：按轮分组实时显示模型输出；任务中途失败时「从第 N 场 / 集继续」，
  * 第 1 轮就失败时显示原因、重新生成。写库结果和检查问题由各步骤作为 children 传进来。
@@ -86,7 +91,7 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
                             </Button>
                         }
                     >
-                        {failed.error ? `原因：${failed.error}` : `没有写完任何一${unit}。`}
+                        {failed.error ? `原因：${sentence(failed.error)}` : `没有写完任何一${unit}。`}
                         {failedNote ? ` ${failedNote}` : ""}
                     </Callout>
                 ) : null}

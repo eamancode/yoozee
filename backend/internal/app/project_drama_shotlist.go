@@ -807,6 +807,10 @@ func (s *Service) DramaShotlist(userID string, projectID string, unitID string) 
 	}
 	unitID = strings.TrimSpace(unitID)
 	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
+		// 单元删了（如剧本优化替换掉的旧剧集）时页面可能还在读：返回 404，不是 500。
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, NotFound("章节或剧集不存在")
+		}
 		return nil, err
 	}
 	record, err := s.repo.DramaShotlistForUnit(projectID, unitID)

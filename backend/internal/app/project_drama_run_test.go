@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -253,5 +254,20 @@ func TestDramaTurnRetryable(t *testing.T) {
 	cancel()
 	if dramaTurnRetryable(cancelled, providerHTTPError{StatusCode: 502}) {
 		t.Fatal("任务取消后不重试")
+	}
+}
+
+// 失败原因以句号收尾：页面在后面接「原文和已有剧集都没有改动。」，解析错误不带标点时会连成一句。
+func TestDramaRunTurnErrorEndsWithFullStop(t *testing.T) {
+	marker := dramaTurnMarker{Index: 1, Total: 2}
+	err := dramaRunTurnError("集", marker, 0, time.Minute, fmt.Errorf("%w：%v", errDramaTurnUnparsed, errors.New("这一集的 JSON 头没写 sources")))
+	if got := err.Error(); got != "第 1 集生成失败：这一轮的输出解析不出来：这一集的 JSON 头没写 sources。" || !errors.Is(err, errDramaTurnUnparsed) {
+		t.Fatalf("解析失败的原因补句号、仍能认出原错误：%q", got)
+	}
+	if got := dramaRunTurnError("集", marker, 0, time.Minute, errors.New("上游返回 503。")).Error(); strings.HasSuffix(got, "。。") {
+		t.Fatalf("已有句号不重复：%q", got)
+	}
+	if got := dramaRunTurnError("场", dramaTurnMarker{Index: 3, Total: 3}, 2, 8*time.Minute, context.DeadlineExceeded).Error(); got != "第 3 场生成超时（每场 8 分钟），已写完的 2 场已保存，可从第 3 场继续。" {
+		t.Fatalf("超时原因：%q", got)
 	}
 }

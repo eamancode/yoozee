@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -505,5 +506,21 @@ func TestCompileDropsImagelessRefsFromStoredSegments(t *testing.T) {
 	}, 6)
 	if len(kept.Refs) != 2 || kept.Mode != drama.ModeLockIdentity || issues != nil {
 		t.Fatalf("有图和认不出的参考不动：%+v %v", kept, issues)
+	}
+}
+
+// 剧本优化替换掉的旧剧集被删后，页面还可能读它的镜头表：返回 404（not_found），不是 500；在的单元照常读。
+func TestDramaShotlistOfDeletedUnitIsNotFound(t *testing.T) {
+	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	if view, err := service.DramaShotlist("user-1", project.ID, unit.ID); err != nil || view != nil {
+		t.Fatalf("还没有镜头表的章节返回空：%v %+v", err, view)
+	}
+	if err := db.Delete(&model.ProjectUnit{}, "id = ?", unit.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, err := service.DramaShotlist("user-1", project.ID, unit.ID)
+	var appErr *AppError
+	if !errors.As(err, &appErr) || appErr.Status != http.StatusNotFound || appErr.Reason != ReasonNotFound {
+		t.Fatalf("已删除的单元返回 404 not_found：%v", err)
 	}
 }

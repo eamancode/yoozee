@@ -1,6 +1,6 @@
 import { ImageSizePicker } from "@/components/image-size-picker";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Form, Image, Input, InputNumber } from "antd";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
@@ -58,6 +58,7 @@ import { shotTaskRunningLabel, shotVideoSeconds } from "./shot-generation";
 import { segmentDurationRule, segmentRefRole } from "./chapter-segments";
 import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { withSegmentRef } from "./segment-edit";
+import { unitsOfKind } from "./unit-numbering";
 import { applyShotReferenceChange } from "./project-cache";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
 import { compileProjectShot, getDramaBrief, writeDramaSegments, type DramaSegment } from "@/services/api/drama";
@@ -545,7 +546,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         size="sm"
                         value={leftTab}
                         onChange={(value) => setLeftTab(value as typeof leftTab)}
-                        options={[{ value: "episodes", label: "章节" }, { value: "shots", label: "镜头" }, { value: "assets", label: "资产" }]}
+                        options={[{ value: "episodes", label: detail.units.some((unit) => unit.kind === "episode") ? "剧集" : "章节" }, { value: "shots", label: "镜头" }, { value: "assets", label: "资产" }]}
                     />
                     <div className="workflow-library-scroll thin-scrollbar">
                         {leftTab === "assets" ? <AssetLibrary detail={detail} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate({ asset, reference })} /> : null}
@@ -757,7 +758,9 @@ function ShotAssetMentionTextarea({ value = "", onChange = () => undefined, refe
 }
 
 function EpisodeLibrary({ detail, activeUnitId, projectId, activeStage }: { detail: ProjectDetail; activeUnitId: string; projectId: string; activeStage: ShortDramaWorkflowStage }) {
-    return <div className="workflow-simple-list">{detail.units.slice().sort((left, right) => left.position - right.position).map((unit, index) => <Link key={unit.id} to={`/projects/${projectId}/workflow/${unit.id}/${activeStage}`} className={unit.id === activeUnitId ? "is-active" : ""}><span>{String(index + 1).padStart(2, "0")}</span><strong>{unit.title}</strong></Link>)}</div>;
+    // 章和集各自编号；两类都有时分组显示（剧集在前，制作通常在剧集上）。
+    const groups = [unitsOfKind(detail.units, "episode"), unitsOfKind(detail.units, "chapter")].filter((group) => group.units.length);
+    return <div className="workflow-simple-list">{groups.map((group) => <Fragment key={group.label}>{groups.length > 1 ? <div className="px-2 pb-0.5 pt-2 text-[var(--fs-micro)] font-medium text-foreground/40">{group.label === "章节" ? "原文" : group.label}</div> : null}{group.units.map((unit, index) => <Link key={unit.id} to={`/projects/${projectId}/workflow/${unit.id}/${activeStage}`} className={unit.id === activeUnitId ? "is-active" : ""} title={`第 ${index + 1} ${group.noun}`}><span>{String(index + 1).padStart(2, "0")}</span><strong>{unit.title}</strong></Link>)}</Fragment>)}</div>;
 }
 
 function ShotLibrary({ detail, shots, selectedShotId, onSelectShot }: { detail: ProjectDetail; shots: ProjectShot[]; selectedShotId: string; onSelectShot: (id: string) => void }) {
