@@ -5,6 +5,13 @@ import type { ProjectShot, ShotRevision } from "@/services/api/projects";
 /** 段长目标：一场戏装成 15–25 秒的段，不贴着模型上限装满。 */
 export const DEFAULT_SEGMENT_TARGET = { min: 15, max: 25 };
 
+/** 对话框里的段长目标：按一段上限截断，上限不到目标下限时（如单段 15 秒）只说一个数。 */
+export function segmentTargetLabel(maxSeconds: number) {
+    const low = Math.min(DEFAULT_SEGMENT_TARGET.min, maxSeconds);
+    const high = Math.min(DEFAULT_SEGMENT_TARGET.max, maxSeconds);
+    return low === high ? `${high} 秒` : `${low}–${high} 秒`;
+}
+
 /** 段长规则：项目生成模型一段的上限，叠加所选视频渠道实际能提交的时长。 */
 export type SegmentDurationRule = {
     /** 一段内容最长多少秒。 */

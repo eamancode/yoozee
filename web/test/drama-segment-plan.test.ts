@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { VideoCapabilityConfig } from "@/lib/model-capabilities";
-import { formatDialogue, parseDialogue, segmentDurationRule } from "@/pages/projects/detail/chapter-segments";
+import { formatDialogue, parseDialogue, segmentDurationRule, segmentTargetLabel } from "@/pages/projects/detail/chapter-segments";
 import { editSubShot, mergeWithNext, moveEdgeShot, nextSegmentId, segmentLacksReferences, splitSegment, withSegmentRef } from "@/pages/projects/detail/segment-edit";
 import type { DramaSegment, DramaSegmentView } from "@/services/api/drama";
 
@@ -16,6 +16,15 @@ describe("台词解析", () => {
             { speaker: "旁白", text: "他走了", vo: true },
         ]);
         expect(parseDialogue(formatDialogue(parseDialogue("林小满（画外）：七床的人呢？")))).toEqual([{ speaker: "林小满", text: "七床的人呢？", vo: true }]);
+    });
+});
+
+describe("生成分段对话框的段长目标", () => {
+    test("按一段上限截断，上限不到目标下限时只说一个数", () => {
+        expect(segmentTargetLabel(30)).toBe("15–25 秒");
+        expect(segmentTargetLabel(20)).toBe("15–20 秒");
+        expect(segmentTargetLabel(15)).toBe("15 秒");
+        expect(segmentTargetLabel(10)).toBe("10 秒");
     });
 });
 

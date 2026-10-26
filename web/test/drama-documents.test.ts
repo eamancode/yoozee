@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { applyBriefFacts, bibleSummary, briefConfirmedCount, briefEpisodeSeconds, briefFactsFromDocument, parseDocumentJson, withEpisodeSeconds } from "../src/pages/projects/detail/drama-brief";
+import { applyBriefFacts, bibleSummary, briefConfirmedCount, briefEpisodeSeconds, briefFactsFromDocument, parseDocumentJson, segmentMaxSecondsWithBrief, withEpisodeSeconds } from "../src/pages/projects/detail/drama-brief";
 
 describe("需求文档与连戏表的前端入口", () => {
     test("六项事实读成表单，旧的字符串写法回落为默认待确认", () => {
@@ -29,6 +29,17 @@ describe("需求文档与连戏表的前端入口", () => {
         const next = withEpisodeSeconds(document, 120.4);
         expect(next).toEqual({ title: "七床", duration: document.duration, episode_seconds: 120 });
         expect(withEpisodeSeconds(document, null)).not.toHaveProperty("episode_seconds");
+    });
+
+    test("一段最长取生成模型上限和项目单段时长里更严的，只收紧不放宽", () => {
+        expect(segmentMaxSecondsWithBrief(30, { segment_seconds: 15 })).toEqual({ seconds: 15, byBrief: true });
+        expect(segmentMaxSecondsWithBrief(30, {})).toEqual({ seconds: 30, byBrief: false });
+        expect(segmentMaxSecondsWithBrief(30, undefined)).toEqual({ seconds: 30, byBrief: false });
+        expect(segmentMaxSecondsWithBrief(15, { segment_seconds: 30 })).toEqual({ seconds: 15, byBrief: false });
+        expect(segmentMaxSecondsWithBrief(15, { segment_seconds: 15 })).toEqual({ seconds: 15, byBrief: false });
+        expect(segmentMaxSecondsWithBrief(0, { segment_seconds: 12.6 })).toEqual({ seconds: 12, byBrief: true });
+        expect(segmentMaxSecondsWithBrief(30, { segment_seconds: "15" })).toEqual({ seconds: 30, byBrief: false });
+        expect(segmentMaxSecondsWithBrief(30, { segment_seconds: 0.5 })).toEqual({ seconds: 30, byBrief: false });
     });
 
     test("确认数只算已确认和默认已授权", () => {
