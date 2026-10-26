@@ -247,7 +247,17 @@ describe("短剧流程步骤（M6）", () => {
         await drama.queueDramaPaletteImages("p1", { assetIds: ["a1"], imageTask });
         expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/drama/palettes/images", body: { assetIds: ["a1"], imageTask } });
 
-        const style = { step: "style.bible", status: "written", episodes: 2, scenes: 3, parse: { episodes: 2, scenes: 3, invalid: 0, anchor: true }, errors: 0, warnings: 0, palettes: { created: 3, versioned: 0 }, images: { queued: ["a1"], waiting: ["a2"], failed: [] } };
+        const style = {
+            step: "style.bible",
+            status: "written",
+            episodes: 2,
+            scenes: 3,
+            parse: { episodes: 2, scenes: 3, invalid: 0, anchor: true },
+            errors: 0,
+            warnings: 0,
+            palettes: { created: 3, versioned: 0 },
+            images: { queued: ["a1"], waiting: ["a2"], failed: [] },
+        };
         const task = { resultJson: JSON.stringify({ dramaStep: style }) };
         expect(drama.dramaStyleBibleOutcomeOf(task)?.palettes.created).toBe(3);
         expect(drama.dramaScriptAdaptOutcomeOf(task)).toBeUndefined();
