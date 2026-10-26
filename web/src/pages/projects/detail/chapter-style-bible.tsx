@@ -25,10 +25,35 @@ type StyleBibleControlProps = {
     episodes: ProjectUnit[];
     tasks?: GenerationTask[];
     disabled?: boolean;
-    /** 剧本优化跑完服务端自动接着建的导演风格任务：打开侧栏接上它的流。 */
-    followTaskId?: string;
-    onFollowed?: () => void;
 };
+
+const CHAINED_STYLE_KEY = "drama-style-bible-follow:";
+const CHAINED_STYLE_EVENT = "drama-style-bible-follow";
+
+/**
+ * 剧本优化跑完服务端自动接着建了导演风格任务：交给导演风格按钮打开侧栏接上它的流。写完剧集会切到剧集的路由，章节页会重新挂载，
+ * 所以先记进 sessionStorage（新挂载的按钮读它），同时发事件（没重新挂载时直接接上）。
+ */
+export function followChainedStyleBible(projectId: string, taskId: string) {
+    try {
+        sessionStorage.setItem(CHAINED_STYLE_KEY + projectId, JSON.stringify({ taskId, at: Date.now() }));
+    } catch {
+        // 存不了（隐私模式）时只靠事件。
+    }
+    window.dispatchEvent(new CustomEvent(CHAINED_STYLE_EVENT, { detail: { projectId, taskId } }));
+}
+
+/** 挂载时取走记下的任务；一分钟以前记的不再接（用户早就离开过章节页）。 */
+function takeChainedStyleBible(projectId: string) {
+    try {
+        const raw = sessionStorage.getItem(CHAINED_STYLE_KEY + projectId);
+        sessionStorage.removeItem(CHAINED_STYLE_KEY + projectId);
+        const saved = raw ? (JSON.parse(raw) as { taskId?: string; at?: number }) : undefined;
+        return saved?.taskId && Date.now() - (saved.at || 0) < 60_000 ? saved.taskId : "";
+    } catch {
+        return "";
+    }
+}
 
 type Settings = { sourceIds: string[]; textModel: string; images: boolean; imageModel: string };
 
@@ -124,7 +149,7 @@ function imagesText(outcome: DramaStyleBibleOutcome) {
  * 章节页的「导演风格」（项目级步骤 style.bible）：对话框选范围（默认全部剧集，没有剧集时是原文章节）、文本模型、要不要给色卡出图和
  * 用哪个图片模型（默认项目默认图片模型）；技能由项目风格档案的绑定决定。进度侧栏按集流式显示每场的色块。
  */
-export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled, followTaskId, onFollowed }: StyleBibleControlProps) {
+export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled }: StyleBibleControlProps) {
     const { message } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -214,7 +239,7 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled,
         }
     };
 
-    // 接上正在跑的导演风格：刷新页面后打开侧栏时，或剧本优化跑完自动接着建的任务（followTaskId）。
+    // 接上正在跑的导演风格：刷新页面后打开侧栏时，或剧本优化跑完自动接着建的任务（followChainedStyleBible）。
     const follow = (task: GenerationTask) => {
         followedRef.current.add(task.id);
         setResumeView(undefined);
@@ -229,16 +254,24 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled,
         follow(task);
     }, [latestTask, panelOpen]);
     useEffect(() => {
-        if (!followTaskId || followedRef.current.has(followTaskId)) return;
-        setPanelOpen(true);
-        void queryGenerationTask(followTaskId)
-            .then((task) => {
-                follow(task);
-                void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] });
-            })
-            .catch(() => message.warning("没读到接着跑的导演风格任务，稍后在「风格进度」里看"))
-            .finally(() => onFollowed?.());
-    }, [followTaskId]);
+        const followChained = (taskId: string) => {
+            if (!taskId || followedRef.current.has(taskId)) return;
+            setPanelOpen(true);
+            void queryGenerationTask(taskId)
+                .then((task) => {
+                    follow(task);
+                    void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] });
+                })
+                .catch(() => message.warning("没读到接着跑的导演风格任务，稍后在「风格进度」里看"));
+        };
+        followChained(takeChainedStyleBible(projectId));
+        const onChained = (event: Event) => {
+            const detail = (event as CustomEvent<{ projectId: string; taskId: string }>).detail;
+            if (detail?.projectId === projectId) followChained(detail.taskId);
+        };
+        window.addEventListener(CHAINED_STYLE_EVENT, onChained);
+        return () => window.removeEventListener(CHAINED_STYLE_EVENT, onChained);
+    }, [projectId]);
 
     const usage = usageQuery.data;
     const toggle = (id: string, checked: boolean) =>
@@ -249,7 +282,7 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled,
             <span className="font-medium text-foreground/80">{streamState.total ? `正在写第 ${Math.max(1, streamState.current)}/${streamState.total} 集` : "等待模型开始输出"}</span>
             <span>·</span>
             <span>已出 {streamState.sceneCount} 场</span>
-            {latestTask?.stage ? (
+            {latestTask?.stage && (latestTask.status === "queued" || latestTask.status === "running") ? (
                 <>
                     <span>·</span>
                     <span>{latestTask.stage}</span>

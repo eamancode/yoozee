@@ -86,7 +86,7 @@ import { appendProjectUnits } from "./project-cache";
 import { consumeChapterImportQuery } from "./chapter-import-query";
 import { chapterAssetsFromGenerationTask, chapterTaskIdentity, extractChapterAssets, followDramaRunTask, generateChapterStoryboard, isScriptAdaptTask, isStyleBibleTask } from "./project-chapter-ai";
 import { ScriptAdaptControl } from "./chapter-script-adapt";
-import { StyleBibleControl } from "./chapter-style-bible";
+import { followChainedStyleBible, StyleBibleControl } from "./chapter-style-bible";
 import { withEpisodeSourcesComment } from "./episode-sources";
 
 const CHAPTER_ROW_HEIGHT = 62;
@@ -690,8 +690,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     }, [latestStoryboardTask, runPanelOpen, selectedUnit?.id]);
 
     // 剧本优化写完：切到剧集视图，改编时选中写出的第一集。
-    // 剧本优化写完后服务端自动接着建的导演风格任务，交给导演风格按钮接上它的流。
-    const [chainedStyleTaskId, setChainedStyleTaskId] = useState("");
     const showWrittenEpisodes = (outcome: DramaScriptAdaptOutcome) => {
         void queryClient.invalidateQueries({ queryKey: dramaEpisodesKey(detail.project.id) });
         setUnitView("episode");
@@ -841,8 +839,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                                 {unitLinks.length ? <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/45"><span>{unitKind(selectedUnit) === "episode" ? "改编自" : "已改编成"}</span>{unitLinks.map((link) => <button key={`${link.unitId}-${link.label}`} type="button" className="rounded bg-foreground/[.035] px-1.5 py-0.5 text-foreground/62 hover:text-[var(--workspace-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--workspace-accent)]" onClick={() => selectChapter(link.unitId)}>{link.label}</button>)}</div> : null}
                             </div>
                             <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5">
-                                <ScriptAdaptControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} onWritten={showWrittenEpisodes} onChained={setChainedStyleTaskId} />
-                                <StyleBibleControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} followTaskId={chainedStyleTaskId} onFollowed={() => setChainedStyleTaskId("")} />
+                                <ScriptAdaptControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} onWritten={showWrittenEpisodes} onChained={(taskId) => followChainedStyleBible(detail.project.id, taskId)} />
+                                <StyleBibleControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} />
                                 <Tooltip title={adaptedOriginal ? adaptedOriginalHint : undefined}><Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnit || dirty || adaptedOriginal || Boolean(characterOperation)} loading={Boolean(characterOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setCharacterExtractOpen(true); }} aria-label={characterOperation ? `提取角色、场景与道具，${chapterOperationLabel(characterOperation, operationNow)}` : "提取角色、场景与道具"}>{characterOperation ? `提取资产（${chapterOperationLabel(characterOperation, operationNow)}）` : charactersGenerated ? "提取资产（已生成）" : "提取角色、场景与道具"}</Button></Tooltip>
                                 <Tooltip title={adaptedOriginal ? adaptedOriginalHint : undefined}><Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || adaptedOriginal || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button></Tooltip>
                                 {storyboardOperation || storyboardStreamState.shotCount || shotlist || storyboardStop ? <Button size="small" onClick={() => setRunPanelOpen(true)} aria-label="查看生成分段进度">进度</Button> : null}

@@ -85,11 +85,11 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     // 总览、章节页的「看色卡」跳过来时带 ?category=palette。
     const [searchParams] = useSearchParams();
-    const [category, setCategory] = useState(() => {
-        const requested = searchParams.get("category") || "";
-        return (categories as readonly string[]).includes(requested) ? requested : "all";
-    });
-    const [folderId, setFolderId] = useState("");
+    const requestedCategory = searchParams.get("category") || "";
+    const linkedCategory = (categories as readonly string[]).includes(requestedCategory) && requestedCategory !== "all" ? requestedCategory : "";
+    // 按分类筛选时看全部目录（与点左侧分类一致）。
+    const [category, setCategory] = useState(linkedCategory || "all");
+    const [folderId, setFolderId] = useState(linkedCategory ? ALL_FOLDERS : "");
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(40);
     const [candidatePage, setCandidatePage] = useState(1);
