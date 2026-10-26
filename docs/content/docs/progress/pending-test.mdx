@@ -5,6 +5,31 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M7.2 第 3 阶段：剧本优化（script.adapt）与剧集单元
+
+- 章节页右上角「剧本优化」（项目级）：对话框选「小说转剧本」（勾选原文章节，默认全部还没改编的）或「只调节奏（已是剧本）」（勾选剧集），按集数或按每集时长估集数，选文本模型；技能由风格档案的绑定决定，五个档案默认都是 `yz-script-adapt`（资产库《小说转剧本》原文，只追加了输出格式说明）。一个任务一集一轮，右侧侧栏按集流式显示剧本正文；中途失败可「从第 N 集继续」。
+- 写完后出现 `kind=episode` 的剧集：标题取模型写的集标题，正文是场次头 + 动作 + 台词，开头隐藏一行来源注释（`<!-- sources: … -->`），主要来源章节记在 `parent_id`。章节页左栏「原文 / 剧集」切换（有剧集时默认剧集），剧集信息行列出「改编自 第一章 ¶1-12」，原文章节列出「已改编成 …」，点了互相跳转；原文在有剧集后只读，提示「改原文请重新优化」。
+- 剧集上的「提取角色、场景与道具」「生成分段」与章节一样用：生成分段按剧集的场次头逐场续写、写镜头表和段，分镜制作页照常打开。
+- 重跑：勾选已改编过的章节再跑，会先列出要被替换的剧集（段数、有没有镜头表）确认；只调节奏改写有镜头表的剧集也要确认，镜头表和段不会自动更新。
+- 建项目 / 项目设置加「导入剧本」：建完直接打开导入，按「第一集」这类标题切分，每集成为一个剧集；「剧本优化」在这种项目里默认只调节奏。
+- 总览「剧本定了」改为：至少一集剧集、每集都有正文（原先看每段的剧本格和连戏表人物）。
+- 后台「流程技能」页多出「剧本优化」一列，五个档案都显示默认技能 `yz-script-adapt`；流程技能包列表里有 `yz-script-adapt` 1.0.0（首次启动时由内置种子导入）。
+
+自动化覆盖：
+
+- [x] `internal/drama`：`TestScriptAdaptContractText`、`TestScriptAdaptEpisodesFromText`、`TestScriptAdaptNormalizesSkillFormat`、`TestCountScriptAdaptTurn`、`TestCheckScriptAdapt`、`TestEpisodeSourceTextRoundTrip`（写进剧集的正文按章节同一条路径切得出场、读得出台词）、`TestScriptAdaptEpisodeCountAndPrompts`、`TestStepGateMetrics`、`TestDeriveScriptEndStateByEpisodes`。
+- [x] `internal/app`：`TestScriptAdaptWritesEpisodesThroughWorker`（真实 worker 路径：三章两集两轮、收尾建两集、主要来源按段数、排在章节之后；剧集上生成分段按场切；重跑要确认替换；只调节奏原地改写、来源注释保留）；`TestDramaStepBindingsResolveAndAdminWrite`（剧本优化默认技能）。
+- [x] 前端：`script-adapt-stream.test.ts`（按集分组、重试清掉半截、从结果还原、保存时接回来源注释）、`drama-api.test.ts`（项目级入口、409 影响面、按步骤读摘要）。
+- [ ] 本机联调（独立数据目录 + 假的流式上游）：空项目导入 3 章小说，「剧本优化」写 2 集，侧栏按集出正文；在剧集上生成分段；sourceType=script 导入后只调节奏。
+- [ ] 部署后：线上真实模型把一章小说改编成一集，检查场次头、台词行是否都被台词表读出（侧栏提醒为 0）；剧集上生成分段的台词覆盖率。
+- [ ] 部署后：后台对 `yz-script-adapt` 1.0.0 跑一次评测（`qichuang-novel-c01`），解析率门槛是否合适。
+
+未做 / 已知边界：
+
+- 分镜制作页的章节导航仍按全部单元编号（剧集排在章节之后，显示为「第 N 章」）。
+- 剧本优化跑完不自动接着跑导演风格（设计稿 §2.1，导演风格是第 4 阶段）。
+- 资产库里没有单独的「调节奏」技能，只调节奏也用 `yz-script-adapt`（同一份删减、画面化、节奏规则），用户任务里写明只调节奏。
+
 ## M7.2 第 1 阶段：生成分段写路径收到后端、任务内逐场续写
 
 - 分镜超时：画布拆镜（`operation=storyboard`）和短剧流程步骤（`metadata.dramaStep`）的文本任务按后台「分镜任务超时」（`storyboardTimeoutMinutes`，默认 20 分钟）算，不再被 8 分钟的文本超时掐断；没配时沿用文本超时。
