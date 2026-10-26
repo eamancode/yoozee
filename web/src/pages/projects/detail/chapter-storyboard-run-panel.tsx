@@ -5,10 +5,7 @@ import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { Callout } from "@/components/ui/product/callout";
 import type { DramaShotlistView, DramaStepOutcome } from "@/services/api/drama";
 
-import type { ShotStreamState } from "./chapter-shot-stream";
-
-/** 上一次没写完、可以从中间继续的生成分段任务。 */
-export type StoryboardResumePoint = { taskId: string; from: number; total: number; error?: string };
+import type { ShotStreamState, StoryboardRunStop } from "./chapter-shot-stream";
 
 type ChapterStoryboardRunPanelProps = {
     open: boolean;
@@ -19,7 +16,10 @@ type ChapterStoryboardRunPanelProps = {
     stream: ShotStreamState;
     outcome?: DramaStepOutcome;
     shotlist?: DramaShotlistView | null;
-    resume?: StoryboardResumePoint;
+    /** 上一次任务失败或取消：写完 ≥1 场的给「从第 N 场继续」，否则给失败原因和「重新生成」。 */
+    stop?: StoryboardRunStop;
+    /** 本章当前的段数；镜头表已写入时「重新装段」用它提示改动范围。 */
+    segmentCount: number;
     onResume: () => void;
     onRepack: () => void;
     repacking: boolean;
@@ -29,9 +29,10 @@ type ChapterStoryboardRunPanelProps = {
 
 /**
  * 生成分段的进度侧栏：流式镜头按场分组实时显示；结束后给出写库结果。镜头表检查有 error 时服务端只存了草稿、没装段，
- * 这里列出问题行，处理后「重新装段」；任务中途失败时可以「从第 N 场继续」。
+ * 这里列出问题行，处理后「重新装段」；任务中途失败时可以「从第 N 场继续」，第 1 场就失败时显示原因、重新生成。
+ * 镜头表已写入（非草稿）时也能「重新装段」：项目单段时长、资产或编译档案改了以后不调模型重装。
  */
-export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running, stage, stream, outcome, shotlist, resume, onResume, onRepack, repacking, onRegenerate, onOpenProduction }: ChapterStoryboardRunPanelProps) {
+export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running, stage, stream, outcome, shotlist, stop, segmentCount, onResume, onRepack, repacking, onRegenerate, onOpenProduction }: ChapterStoryboardRunPanelProps) {
     const listRef = useRef<HTMLDivElement>(null);
     const followRef = useRef(true);
     useEffect(() => {
@@ -40,6 +41,14 @@ export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running
     }, [running, stream.shotCount]);
     const draftErrors = shotlist?.draft ? shotlist.check.items.filter((item) => item.level === "error") : [];
     const parse = shotlist?.check.parse;
+    const resume = stop?.kind === "resume" ? stop : undefined;
+    const failed = stop?.kind === "failed" ? stop : undefined;
+    const repackable = Boolean(shotlist && !shotlist.draft);
+    const repackButton = (
+        <Button size="small" loading={repacking} onClick={onRepack}>
+            重新装段
+        </Button>
+    );
     return (
         <AppDrawer open={open} onClose={onClose} placement="right" size="min(520px, 100vw)" mask={false} title={`生成分段 · ${chapterTitle}`}>
             <div className="flex h-full min-h-0 flex-col gap-3">
@@ -60,6 +69,8 @@ export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running
                         <span>{outcome.status === "written" ? `已写入 ${outcome.shots} 镜，按 ${outcome.scenes} 场装成 ${outcome.segments} 段` : `已写入 ${outcome.shots} 镜，检查有 ${outcome.errors} 个问题，还没装段`}</span>
                     ) : stream.shotCount ? (
                         <span>上一次输出 {stream.shotCount} 镜</span>
+                    ) : failed ? (
+                        <span>{failed.status === "cancelled" ? "上一次生成已取消" : "上一次生成失败"}</span>
                     ) : (
                         <span>还没有生成记录</span>
                     )}
@@ -81,6 +92,21 @@ export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running
                         }
                     >
                         前 {resume.from - 1} 场（共 {resume.total} 场）已保存，接着写会带上它们的对话，不用重跑。{resume.error ? `原因：${resume.error}` : ""}
+                    </Callout>
+                ) : null}
+
+                {failed && !running ? (
+                    <Callout
+                        tone={failed.status === "cancelled" ? "warning" : "error"}
+                        title={failed.status === "cancelled" ? "上一次生成分段已取消" : "上一次生成分段失败"}
+                        action={
+                            <Button size="small" type="primary" onClick={onRegenerate}>
+                                重新生成
+                            </Button>
+                        }
+                    >
+                        {failed.error ? `原因：${failed.error}` : "没有写完任何一场。"}
+                        {repackable ? " 本章现有的段不受影响。" : ""}
                     </Callout>
                 ) : null}
 
@@ -117,13 +143,21 @@ export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running
                         tone="success"
                         title="分段已写入分镜制作"
                         action={
-                            <Button size="small" onClick={onOpenProduction}>
-                                去分镜制作
-                            </Button>
+                            <div className="flex gap-1.5">
+                                {repackable ? repackButton : null}
+                                <Button size="small" onClick={onOpenProduction}>
+                                    去分镜制作
+                                </Button>
+                            </div>
                         }
                     >
                         {outcome.warnings ? `镜头表检查有 ${outcome.warnings} 条提醒，可在分镜制作页按段查看。` : "镜头表检查没有问题。"}
                         {outcome.notes?.length ? ` ${outcome.notes.join("；")}` : ""}
+                        {repackable ? " 之后改了项目单段时长、资产或编译档案，点「重新装段」按当前设置重装，不调模型。" : ""}
+                    </Callout>
+                ) : repackable && !running ? (
+                    <Callout tone="info" title={`镜头表已写入，本章 ${segmentCount} 段`} action={repackButton}>
+                        改了项目单段时长、资产或编译档案后，点「重新装段」用已存的镜头表按当前设置重装，不调模型；会整章替换段。
                     </Callout>
                 ) : null}
 

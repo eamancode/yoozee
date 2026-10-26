@@ -12,16 +12,24 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - 一个运行 = 一个任务：正文按场次头切成两场以上时，worker 在任务内逐场调模型，每场一轮、带上前面各轮的对话、各用一次分镜超时；失败的那一场自动重试最多 2 次（5 秒、10 秒退避），仍失败时任务失败但已写完的场留在任务结果里。所有轮次的输出进同一条 `text-events`，前端只订阅一次。
 - 收尾在任务转成功之前由服务端做：逐行解析、按资产名称绑定、写镜头表、装段（单段上限叠加需求文档 `segment_seconds` 与渠道段长，只收紧）。检查有 error 时不再拒绝：镜头表存成草稿（`check_json` 带 error，`shotlist.draft = true`），不装段、本章原有的段不动，章节页列出问题行，处理后点「重新装段」（已有的 `shotlist/repack`）。检查结果不写证据。
 - 前端不再解析任务结果、不再写镜头表：删掉 `putDramaShotlist`、`PUT .../drama/shotlist`、「按旧方式保存」的分支和前端装段。章节页「生成分段」后右侧弹出进度侧栏，按场实时显示写出来的镜头；刷新页面后点「进度」接回正在跑的流；任务中途失败时显示「从第 N 场继续」，新任务只写剩下的场。
+- 验收收口（线上验收发现的两个缺口）：任务在第 1 场就失败、一场没写完（或收尾失败、被取消）时，侧栏显示任务的失败原因（服务端写的「第 N 场…生成失败：…」）和「重新生成」，章节信息行出「上一次生成分段失败」；写完 ≥1 场的仍是「从第 N 场继续」。镜头表已写入（非草稿）时侧栏也给「重新装段」：先确认替换本章的段，调已有的 `shotlist/repack`，成功后提示「x 段 → y 段」；装段仍过检查，有 error 时提示问题数、现有的段不变。项目设置里「下次装段生效」的提示指向这个入口。
 
 自动化覆盖：
 
 - [x] `internal/app`：`TestStoryboardTextTasksUseStoryboardTimeout`；`TestFinalizeDramaStepTaskWritesShotlistLikeDirectWrite`（七床线上输出改成一镜一行，收尾写出的镜头表、台词表和每一段 spec 与同一批分镜行直接写入逐字段一致，解析统计进 `check_json`，不写证据）、`TestFinalizeDramaStepTaskKeepsDraftOnCheckErrors`、`TestFinalizeDramaStepTaskUsesBriefSegmentSeconds`；`TestDramaRunLoopsScenesInOneTask`、`TestDramaRunResumesFromFailedScene`、`TestDramaRunMetaAndResume`、`TestDramaTurnRetryable`、`TestChapterShotsScenesFromHeadings`；`TestDramaStepTaskRunsScenesAndFinalizesThroughWorker`（真实 worker 路径：三场三轮流式输出、第三场 503 重试用尽任务失败并保留前两场、从第 3 场继续只调一次模型并写完 41 镜）。提示词黄金文件按 `@3` 更新。
 - [x] `internal/drama`：`TestStoryboardRowsFromTextReadsOneShotPerLine`、`TestStoryboardRowsFromTextFallsBackToWholeObject`、`TestChapterShotsLinesContractText`。
-- [x] 前端：`chapter-shot-stream.test.ts`（按场分组、只认写完的行、重试清掉半截、没有标记时按 `spec.scene` 分场、从结束的任务还原）、`drama-api.test.ts`（没有写镜头表的函数、重新装段、`resumeTaskId` / `rule`、读进度和摘要）。
+- [x] 前端：`chapter-shot-stream.test.ts`（按场分组、只认写完的行、重试清掉半截、没有标记时按 `spec.scene` 分场、从结束的任务还原；`storyboardRunStop` 写完 ≥1 场给续写点，第 1 场失败、没有进度、收尾失败或取消给失败原因）、`drama-api.test.ts`（没有写镜头表的函数、重新装段、`resumeTaskId` / `rule`、读进度和摘要）。
 - [x] 本机联调（独立数据目录 + 假的流式上游，按七床第一集的线上输出逐场吐行）：生成分段侧栏逐场出镜头，写完跳到分镜制作（3 场 6 段）；第三场一直 503 时侧栏显示「从第 3 场继续」，点了只调一次上游就写完；生成中刷新页面再点「进度」能接回流；离开页面任务照样写完；第一镜情绪弧写坏时存成草稿、侧栏列出 `R-SHOT-025`，重新装段仍报这个问题、草稿不变；明暗主题下侧栏可读。
-- [ ] 线上验收（部署后）：《七床》第一集（线上测试项目「yoozee 实测·七床」）用 gpt-6.1-sol 这类慢模型整集跑完，场与场之间没有排队停顿；中途在后台把渠道停掉一场，能从那一场继续；写出的镜头表和段与改造前人工检查过的一致。
-- [ ] 线上验收：后台「流程技能」页对线上已有的 `yz-chapter-shots` 包版本（清单仍是 `@2`）显示是否正常；新上传要按 `@3`。
+- [x] 线上验收：《七床》第一集（线上测试项目「yoozee 实测·七床」）整集逐场跑完。claude-opus-5-5 3 场 38 镜，8 分 57 秒，一个任务、场间无停顿；检查有 1 个 error，按草稿保存、本章旧段保留、侧栏列出问题行，草稿路径正确。deepseek-v4.1-flash 3 场 39 镜，0 error，写入并装成 8 段。
+- [ ] 线上验收：中途在后台把渠道停掉一场，能从那一场继续。线上未验；本机联调和 `TestDramaStepTaskRunsScenesAndFinalizesThroughWorker` 已覆盖。
+- [ ] 线上验收：写出的镜头表和段与改造前人工检查过的一致（未逐条对照）。
+- [x] 线上验收：后台「流程技能」页对线上已有的 `yz-chapter-shots` 2.2.1（清单仍是 `@2`）显示「不兼容」（生效版本与流程契约不符），生成分段运行正常；新上传要按 `@3`。
+- [ ] 验收收口（本 PR，部署后）：让任务在第 1 场失败，侧栏显示失败原因和「重新生成」；镜头表已写入时把单段时长改小，侧栏「重新装段」后段数变化、段长不超过新上限。
 - [ ] 成本：逐场续写的输入是整章的 2.5～3 倍（对话历史越来越长），计费仍按每个任务一笔，确认是否要按轮计费或调价。
+
+已知问题：
+
+- gpt-6.1-sol 所在渠道的上游已不提供该模型（回「not supported by any configured account」），任务几秒内失败、按设计不重试；线上测慢模型要先换模型或渠道。
 
 ## M6 第三期修正：评测任务限并发与提交前失败重投
 
@@ -54,7 +62,8 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [x] 本机浏览器（亮色主题）：建项目选 3D 动漫 → 画风中心只剩 3D 类；选 4:3；选 30 秒 → 生成模型只剩 Seedance 2.5；档案显示「3D 动漫（按画风推荐）」；选导入小说创建后章节页导入对话框自动打开；项目设置把 30 秒改成 15 秒出现「下次装段生效」，保存后需求文档 `segment_seconds` 为 15；仿真人切到 2D 动漫时已选画风清空、只剩 2D / 水墨画风。
 - [ ] 暗色主题（未做）：建项目对话框的类型按钮、风格档案行、单段时长与置灰的模型选项，项目设置的单段时长与「下次装段生效」提示，在暗色下的对比度和选中态。
 - [ ] 用户确认：上面这套流程按真实使用走一遍。
-- [ ] 线上验收：新建 30 秒项目跑一次生成分段，段长不超过 30 秒；改成 15 秒后重新装段，段长不超过 15 秒。
+- [x] 线上验收：项目设置改 30 / 15 秒都写进 `brief_json.segment_seconds`，读取时不挪进 `constraints`；`segment_seconds=15` 时生成分段装出的 8 段为 14/14/15/14/13/12/11/10 秒，全部 ≤ 15 秒（模型上限 30）。
+- [ ] 线上验收：新建 30 秒项目跑一次生成分段，段长不超过 30 秒；镜头表已写入后改成 15 秒，在章节页侧栏「重新装段」，段长不超过 15 秒（入口在第 1 阶段「验收收口」补上）。
 
 ## 功能开放：技能展示开关
 

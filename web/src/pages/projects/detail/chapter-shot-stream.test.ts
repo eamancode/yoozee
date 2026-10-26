@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseShotStream, shotStreamFromResult } from "./chapter-shot-stream";
+import { parseShotStream, shotStreamFromResult, storyboardRunStop } from "./chapter-shot-stream";
 
 const marker = (index: number, attempt = 1) => JSON.stringify({ "@turn": { index, total: 2, scene: `E01S0${index}`, heading: index === 1 ? "内·病房走廊·夜" : "内·电梯口·夜", attempt } });
 const shot = (n: number, plot: string) => JSON.stringify({ shotNumber: n, plotDescription: plot, dialogue: "", shotSize: "中景", spec: { id: `E01S01-0${n}` } });
@@ -89,4 +89,21 @@ test("parseShotStream 没有回合标记、坏行和代码块围栏也不报错"
     const state = parseShotStream(["```json", shot(1, "推门"), "{坏行", "", "```"].join("\n") + "\n");
     assert.equal(state.scenes.length, 1);
     assert.equal(state.shotCount, 1);
+});
+
+test("storyboardRunStop 写完至少一场时从下一场继续", () => {
+    const stop = storyboardRunStop({ id: "t1", status: "failed", error: "第 3 场生成失败：超时" }, { total: 5, completed: 2 });
+    assert.deepEqual(stop, { kind: "resume", taskId: "t1", from: 3, total: 5, error: "第 3 场生成失败：超时" });
+});
+
+test("storyboardRunStop 第 1 场就失败、没有进度或收尾失败时只能重新生成，并带上失败原因", () => {
+    assert.deepEqual(storyboardRunStop({ id: "t1", status: "failed", error: " 第 1 场（E01S01）生成失败：上游 502 " }, { total: 3, completed: 0 }), { kind: "failed", taskId: "t1", status: "failed", error: "第 1 场（E01S01）生成失败：上游 502" });
+    assert.deepEqual(storyboardRunStop({ id: "t2", status: "failed", error: "模型没有输出" }), { kind: "failed", taskId: "t2", status: "failed", error: "模型没有输出" });
+    assert.deepEqual(storyboardRunStop({ id: "t3", status: "failed", error: "镜头表写入失败" }, { total: 3, completed: 3 }), { kind: "failed", taskId: "t3", status: "failed", error: "镜头表写入失败" });
+    assert.deepEqual(storyboardRunStop({ id: "t4", status: "cancelled", error: "" }, { total: 3, completed: 0 }), { kind: "failed", taskId: "t4", status: "cancelled", error: undefined });
+});
+
+test("storyboardRunStop 成功或还在跑的任务不算停下", () => {
+    assert.equal(storyboardRunStop({ id: "t1", status: "succeeded" }, { total: 3, completed: 3 }), undefined);
+    assert.equal(storyboardRunStop({ id: "t1", status: "running" }, { total: 3, completed: 1 }), undefined);
 });
