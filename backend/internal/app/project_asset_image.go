@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -95,6 +96,17 @@ func (s *Service) bindProjectAssetImage(userID, projectID, assetID string, req B
 	}
 	now := time.Now()
 	version := model.AssetVersion{ID: newID(), AssetID: asset.ID, Version: nextNumber, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: current.DefinitionJSON, Prompt: current.Prompt, Note: current.Note, CreatedAt: now, UpdatedAt: now}
+	// 色卡：导演风格写色彩脚本时已经建了一个还没有图的版本，出图绑到这一版，不再另加一版（一次定风格只加一个版本）。
+	// 主版本已经有图（重新出图）时照常加版本；场景、道具不走这里。
+	if asset.Category == model.AssetCategoryPalette {
+		bound, err := s.repo.AssetRepresentations(current.ID)
+		if err != nil {
+			return false, err
+		}
+		if !slices.ContainsFunc(bound, func(r model.AssetRepresentation) bool { return r.Role == "primary" }) {
+			version = *current
+		}
+	}
 	// 在已有 payload 上更新媒体字段，保留标签、来源及其他非媒体元数据。
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(asset.PayloadJSON), &payload); err != nil || payload == nil {

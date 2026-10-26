@@ -885,7 +885,7 @@ func (s *Service) PickShotArtifact(userID string, projectID string, artifactID s
 	return *selected, nil
 }
 
-// DramaProgress 由产物和证据推导进度表与八个终态。
+// DramaProgress 由产物和证据推导进度表与十个终态。
 func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress, error) {
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
@@ -915,7 +915,8 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 	for _, ref := range references {
 		refCount[ref.ShotID]++
 	}
-	units, err := s.repo.ProjectUnitSummaries(projectID)
+	// 要正文：「风格定了」「色卡齐了」按当前剧集的场次表算。
+	units, err := s.repo.ProjectUnits(projectID)
 	if err != nil {
 		return drama.Progress{}, err
 	}
@@ -933,6 +934,7 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 	if input.Palettes, err = s.projectPaletteProgress(userID, projectID); err != nil {
 		return drama.Progress{}, err
 	}
+	input.StyleScenes, input.StyleFromChapters = styleBibleSceneRefs(units)
 	for _, unit := range units {
 		if unit.Kind == model.ProjectUnitKindEpisode {
 			input.Episodes = append(input.Episodes, drama.EpisodeInput{ID: unit.ID, Title: unit.Title, WordCount: unit.WordCount})

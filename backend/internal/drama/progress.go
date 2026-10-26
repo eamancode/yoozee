@@ -130,8 +130,18 @@ type ProgressInput struct {
 	Evidence  []EvidenceState
 	// Episodes 是项目里的剧集单元（kind=episode，按顺序）：「剧本定了」看它们。
 	Episodes []EpisodeInput
-	// Palettes 是项目里的色卡资产：「色卡齐了」看色彩脚本的每一场是否都有出了图的色卡。
+	// Palettes 是项目里的色卡资产（不含场次已不存在的）：「色卡齐了」看当前每一场是否都有出了图的色卡。
 	Palettes []PaletteInput
+	// StyleScenes 是当前的场次表（有剧集看剧集，没有看原文章节，一章当一集；切场与导演风格同一套）：
+	// 「风格定了」「色卡齐了」以它为准，色彩脚本缺场、多场都算没齐。StyleFromChapters 表示取自原文章节。
+	StyleScenes       []SceneRef
+	StyleFromChapters bool
+}
+
+// SceneRef 是一场的集号和场序（场编号 E01S02）。
+type SceneRef struct {
+	Episode int
+	SceneNo int
 }
 
 // PaletteInput 是一张色卡资产：Code 是场编号（E01S02），Imaged 是已确认的主版本有图。
@@ -355,7 +365,7 @@ func Derive(in ProgressInput) Progress {
 	}
 	hasCharacters, bibleChecked, unchecked := bibleState(in.BibleJSON)
 	scriptOK, scriptDetail := episodesWritten(in.Episodes)
-	styleOK, styleDetail, paletteOK, paletteDetail := styleBibleState(in.BibleJSON, in.Palettes)
+	styleOK, styleDetail, paletteOK, paletteDetail := styleBibleState(in.BibleJSON, in.Palettes, in.StyleScenes, in.StyleFromChapters)
 	refsOK := all(func(r SegmentProgress) bool { return r.Refs }) && bibleChecked && hasCharacters
 	reviewedOK := all(func(r SegmentProgress) bool { return r.Reviewed })
 	gateOK := filmGate != nil && passed(filmGate) && filmGate.CreatedAt.After(lastSelection)
@@ -398,8 +408,9 @@ func Derive(in ProgressInput) Progress {
 	return out
 }
 
-// styleBibleState 是「风格定了」（风格锚非空）和「色卡齐了」（色彩脚本的每一场都有色卡资产，且已确认的主版本有图）。
-func styleBibleState(bibleJSON string, palettes []PaletteInput) (bool, string, bool, string) {
+// styleBibleState 是「风格定了」（风格锚非空，色彩脚本和当前场次表一场不差）和「色卡齐了」（当前每一场都有色卡资产，
+// 且已确认的主版本有图；色彩脚本对不上时不算齐）。
+func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRef, fromChapters bool) (bool, string, bool, string) {
 	var doc struct {
 		StyleAnchor *StyleAnchor `json:"style_anchor"`
 		ColorScript []struct {
@@ -408,36 +419,93 @@ func styleBibleState(bibleJSON string, palettes []PaletteInput) (bool, string, b
 		} `json:"color_script"`
 	}
 	_ = json.Unmarshal([]byte(strings.TrimSpace(bibleJSON)), &doc)
-	styleOK := !doc.StyleAnchor.Empty()
+	anchorOK := !doc.StyleAnchor.Empty()
+	if len(scenes) == 0 {
+		detail := "项目还没有剧集或章节"
+		if anchorOK {
+			detail = "全局风格锚已写；" + detail
+		}
+		return false, detail, false, detail
+	}
+	unit, units := "集", "剧集"
+	if fromChapters {
+		unit, units = "章", "原文章节"
+	}
+	label := func(r SceneRef) string { return fmt.Sprintf("第 %d %s第 %d 场", r.Episode, unit, r.SceneNo) }
+	scripted := map[string]bool{}
+	var extra []SceneRef
+	expected := map[string]bool{}
+	for _, r := range scenes {
+		expected[SceneCode(r.Episode, r.SceneNo)] = true
+	}
+	for _, e := range doc.ColorScript {
+		code := SceneCode(e.Episode, e.SceneNo)
+		if !expected[code] && !scripted[code] {
+			extra = append(extra, SceneRef{Episode: e.Episode, SceneNo: e.SceneNo})
+		}
+		scripted[code] = true
+	}
+	var missing []SceneRef
+	for _, r := range scenes {
+		if !scripted[SceneCode(r.Episode, r.SceneNo)] {
+			missing = append(missing, r)
+		}
+	}
+	aligned := len(missing) == 0 && len(extra) == 0
+	total := len(scenes)
+	scriptDetail := fmt.Sprintf("%d/%d 场有色彩脚本", total-len(missing), total)
+	if len(missing) > 0 {
+		scriptDetail += "，" + sceneList(missing, label) + "缺"
+	}
+	if len(extra) > 0 {
+		scriptDetail += "，" + sceneList(extra, label) + "已不在当前" + units + "里"
+	}
 	styleDetail := "还没有全局风格锚：在章节页点「导演风格」"
-	if styleOK {
-		styleDetail = "全局风格锚已写"
+	switch {
+	case anchorOK && aligned:
+		styleDetail = fmt.Sprintf("全局风格锚已写，%d 场色彩脚本", total)
+	case anchorOK:
+		styleDetail = "全局风格锚已写；" + scriptDetail + "：重跑导演风格"
 	}
-	if len(doc.ColorScript) == 0 {
-		return styleOK, styleDetail, false, "还没有色彩脚本"
-	}
+
 	imaged := map[string]bool{}
 	has := map[string]bool{}
 	for _, p := range palettes {
 		has[p.Code] = true
 		imaged[p.Code] = imaged[p.Code] || p.Imaged
 	}
-	done, missing := 0, 0
-	for _, e := range doc.ColorScript {
-		code := SceneCode(e.Episode, e.SceneNo)
+	done, noAsset := 0, 0
+	for _, r := range scenes {
+		code := SceneCode(r.Episode, r.SceneNo)
 		switch {
+		case !scripted[code]:
 		case imaged[code]:
 			done++
 		case !has[code]:
-			missing++
+			noAsset++
 		}
 	}
-	total := len(doc.ColorScript)
-	detail := fmt.Sprintf("%d/%d 场色卡已出图", done, total)
-	if missing > 0 {
-		detail += fmt.Sprintf("；%d 场还没有色卡资产", missing)
+	paletteDetail := fmt.Sprintf("%d/%d 场色卡已出图", done, total)
+	if noAsset > 0 {
+		paletteDetail += fmt.Sprintf("；%d 场还没有色卡资产", noAsset)
 	}
-	return styleOK, styleDetail, done == total, detail
+	if !aligned {
+		paletteDetail += "；" + scriptDetail
+	}
+	return anchorOK && aligned, styleDetail, aligned && done == total, paletteDetail
+}
+
+// sceneList 把几场写成「第 2 集第 1 场、第 2 集第 2 场」，超过三场只写前三场加「等 N 场」。
+func sceneList(refs []SceneRef, label func(SceneRef) string) string {
+	parts := make([]string, 0, 3)
+	for _, r := range refs[:min(3, len(refs))] {
+		parts = append(parts, label(r))
+	}
+	out := strings.Join(parts, "、")
+	if len(refs) > 3 {
+		out += fmt.Sprintf("等 %d 场", len(refs))
+	}
+	return out
 }
 
 // episodesWritten 是「剧本定了」：至少一集剧本，每集都有正文（剧本优化写出，或导入剧本）。

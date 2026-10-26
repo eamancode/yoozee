@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -292,6 +293,10 @@ func TestPaletteImageTaskAndColorCheck(t *testing.T) {
 	if good.MediaType != "image" || good.Palette.ImageStatus != paletteImageBound || good.Palette.Check == nil || !good.Palette.Check.Passed || len(good.Palette.Check.Blocks) != 3 {
 		t.Fatalf("按 HEX 画的色卡取色通过：%+v %+v", good, good.Palette)
 	}
+	// 导演风格建的版本还没有图：出图绑到这一版，不另加版本。
+	if good.VersionCount != 1 || good.PrimaryVersionID != version.ID {
+		t.Fatalf("出图绑到导演风格建的版本：v%d %s / %s", good.VersionCount, good.PrimaryVersionID, version.ID)
+	}
 	var rep model.AssetRepresentation
 	if err := db.First(&rep, "task_id = ? AND role = ?", "task-good", "primary").Error; err != nil || !strings.Contains(rep.MetadataJSON, `"paletteCheck"`) {
 		t.Fatalf("取色结果写进主图 metadata：%v %s", err, rep.MetadataJSON)
@@ -300,11 +305,127 @@ func TestPaletteImageTaskAndColorCheck(t *testing.T) {
 	if bad.MediaType != "image" || bad.Palette.Check == nil || bad.Palette.Check.Passed || bad.Palette.Check.Blocks[1].DeltaE <= drama.PaletteCheckMaxDeltaE {
 		t.Fatalf("画错一块：取色不过但图保留：%+v %+v", bad, bad.Palette.Check)
 	}
+	// 主版本已经有图时重新出图照常加一版。
+	if bad.VersionCount != 2 {
+		t.Fatalf("重新出图加一版：v%d", bad.VersionCount)
+	}
 	progress, _ := svc.DramaProgress("user-1", project.ID)
 	for _, e := range progress.EndStates {
 		if e.Key == "palette" && (e.Done || !strings.Contains(e.Detail, "1/3")) {
 			t.Fatalf("一张出了图：%+v", e)
 		}
+	}
+
+	// 带出图重跑导演风格：写色彩脚本加一版，出图绑到这一版，一次运行只加一个版本。
+	queueStyleBibleTask(t, svc, db, project, server.URL, DramaProjectStepRunRequest{})
+	if again, err := runQueuedTask(t, svc); err != nil || again.Status != model.TaskStatusSucceeded {
+		t.Fatalf("重跑导演风格：%v %q", err, again.Error)
+	}
+	rerun := bind("task-rerun", hexes)
+	if rerun.VersionCount != 3 || rerun.Palette.ImageStatus != paletteImageBound || !rerun.Palette.Check.Passed {
+		t.Fatalf("重跑后出图只加一版：v%d %+v", rerun.VersionCount, rerun.Palette)
+	}
+	var imageless int64
+	db.Model(&model.AssetVersion{}).Where("asset_id = ? AND id NOT IN (?)", asset.ID, db.Model(&model.AssetRepresentation{}).Select("asset_version_id").Where("role = ?", "primary")).Count(&imageless)
+	if imageless != 0 {
+		t.Fatalf("不该留下没有图的中间版本：%d", imageless)
+	}
+}
+
+// chapterStyleScene 是按原文章节定风格时第 n 章的一场（不承接）。
+func chapterStyleScene(n int) string {
+	return fmt.Sprintf(`{"episode": %d, "scene_no": 1, "scene": "第%d章", "inherits_from": "", "shared_colors": [{"name_zh": "日光灯白", "name_en": "Fluorescent White", "hex": "#E8ECEF", "usage": "顶灯"}], "new_colors": [{"name_zh": "水泥灰", "name_en": "Concrete Grey", "hex": "#6E6E6E", "usage": "墙面"}, {"name_zh": "护士蓝", "name_en": "Nurse Blue", "hex": "#5B7FA3", "usage": "制服"}]}`, n, n)
+}
+
+// 只有原文时按 3 章定风格（3 张色卡），再改编成 2 集 3 场：总览两个终态变未完成并写清缺哪场、多哪场；按剧集重跑后
+// 第 3 章那张色卡标成场次已不存在（不删、不加版本、不再出图），「色卡齐了」按当前 3 场算。
+func TestStyleBibleRetiresPalettesOfVanishedScenes(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, _ := seedNovelProject(t, svc, db)
+	server := httptest.NewServer(&streamingShotsUpstream{scenes: map[string][]string{
+		"E01S01": {styleAnchorLine, `{"episode": 1}`, chapterStyleScene(1)},
+		"E01S02": {`{"episode": 2}`, chapterStyleScene(2)},
+		"E01S03": {`{"episode": 3}`, chapterStyleScene(3)},
+	}})
+	defer server.Close()
+	queueStyleBibleTask(t, svc, db, project, server.URL, DramaProjectStepRunRequest{})
+	if done, err := runQueuedTask(t, svc); err != nil || done.Status != model.TaskStatusSucceeded || styleBibleOutcomeOf(t, done).Palettes.Created != 3 {
+		t.Fatalf("按章节定风格：%v %q", err, done.Error)
+	}
+	states := func() map[string]drama.EndState {
+		t.Helper()
+		progress, err := svc.DramaProgress("user-1", project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]drama.EndState{}
+		for _, e := range progress.EndStates {
+			out[e.Key] = e
+		}
+		return out
+	}
+	if s := states(); !s["style"].Done || !strings.Contains(s["palette"].Detail, "0/3 场色卡已出图") {
+		t.Fatalf("按章节：%+v %+v", s["style"], s["palette"])
+	}
+
+	if _, err := svc.ImportProjectUnits("user-1", project.ID, ImportProjectUnitsRequest{Units: []CreateProjectUnitRequest{
+		{Kind: "episode", Title: "七床空了", SourceText: plainTextToHTML("## 内·病房走廊·夜\n（日光灯一盏接一盏。）\n林小满：七床？\n## 内·电梯口·夜\n周岸：小满。")},
+		{Kind: "episode", Title: "现在信了", SourceText: plainTextToHTML("## 内·电梯里·夜\n（应急灯闪了一下。）\n周岸：退后！")},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s := states()
+	if s["style"].Done || s["palette"].Done {
+		t.Fatalf("改编成剧集后不该还算齐：%+v %+v", s["style"], s["palette"])
+	}
+	for _, want := range []string{"2/3 场有色彩脚本", "第 1 集第 2 场缺", "第 3 集第 1 场已不在当前剧集里"} {
+		if !strings.Contains(s["palette"].Detail, want) || !strings.Contains(s["style"].Detail, want) {
+			t.Fatalf("detail 要写清（%s）：%q / %q", want, s["style"].Detail, s["palette"].Detail)
+		}
+	}
+
+	upstream := styleBibleUpstream()
+	server2 := httptest.NewServer(upstream)
+	defer server2.Close()
+	queueStyleBibleTask(t, svc, db, project, server2.URL, DramaProjectStepRunRequest{})
+	done, err := runQueuedTask(t, svc)
+	if err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("按剧集重跑：%v %q", err, done.Error)
+	}
+	if got := styleBibleOutcomeOf(t, done).Palettes; got != (DramaPaletteWriteSummary{Created: 1, Versioned: 2, Retired: 1}) {
+		t.Fatalf("新建 E01S02、E01S01 和 E02S01 加版本、E03S01 标过期：%+v", got)
+	}
+	assets, err := svc.FilterProjectAssets("user-1", project.ID, ProjectAssetFilter{Category: string(model.AssetCategoryPalette)})
+	if err != nil || len(assets) != 4 {
+		t.Fatalf("旧色卡不删：%v %d", err, len(assets))
+	}
+	byCode := map[string]ProjectAssetSummary{}
+	for _, a := range assets {
+		byCode[a.Palette.Code] = a
+	}
+	gone := byCode["E03S01"]
+	if !gone.Palette.SceneGone || gone.VersionCount != 1 || gone.Status != model.AssetVersionStatusConfirmed {
+		t.Fatalf("E03S01 标成场次已不存在、不加版本、状态不动：%+v %+v", gone, gone.Palette)
+	}
+	for _, code := range []string{"E01S01", "E01S02", "E02S01"} {
+		if byCode[code].Palette == nil || byCode[code].Palette.SceneGone {
+			t.Fatalf("%s 是当前的场：%+v", code, byCode[code].Palette)
+		}
+	}
+	s = states()
+	if !s["style"].Done || s["palette"].Done || s["palette"].Detail != "0/3 场色卡已出图" {
+		t.Fatalf("重跑后按当前 3 场算、过期的不计：%+v %+v", s["style"], s["palette"])
+	}
+	template := DramaImageTaskTemplate{Model: "gpt-image-2", Input: map[string]any{"mode": "image"}}
+	if _, err := svc.QueueDramaPaletteImages("user-1", project.ID, DramaPaletteImagesRequest{AssetIDs: []string{gone.ID}, ImageTask: &template}); err == nil || !strings.Contains(err.Error(), "场次已不存在") {
+		t.Fatalf("场次已不存在的色卡不再出图：%v", err)
+	}
+
+	// 之后又写到这一场（比如改回三集）：加版本时恢复。
+	current, _ := svc.repo.ProjectForUser("user-1", project.ID)
+	writes, summary, err := svc.dramaPaletteWrites("user-1", current, []drama.ColorScriptEntry{{Episode: 3, SceneNo: 1, Scene: "内·走廊·夜"}}, false, nil)
+	if err != nil || summary.Versioned != 1 || len(writes) != 1 || writes[0].Version == nil || writes[0].Asset.ID != gone.ID || strings.Contains(writes[0].Asset.PayloadJSON, `"stale"`) {
+		t.Fatalf("又写到这一场时加版本并恢复：%v %+v %+v", err, summary, writes)
 	}
 }
 

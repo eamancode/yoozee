@@ -3,8 +3,10 @@
 // 英文提示词由 drama.PalettePrompt 按《色卡提示词卡》模板拼。同时排队的任务数有上限，排不上的色卡记成「等空位」，
 // 前面的色卡出完图（任务成功落库之后）自动接着排；出图绑上后按色块取色、算 ΔE2000，写进版本主图的 metadata.paletteCheck
 // 和资产 payload（只记警告，不删图）。
-// 资产 payload 里色卡自己的字段：metadata.palette（场编号、集号、场序）、metadata.paletteImage（出图排队状态）、
+// 资产 payload 里色卡自己的字段：metadata.palette（场编号、集号、场序；stale=true 是场次已不存在）、metadata.paletteImage（出图排队状态）、
 // metadata.paletteCheck（最近一次取色结果）。
+// 场次结构变了（章节改编成剧集、集数变了）重跑导演风格后，运行范围内色彩脚本里不再有的场，色卡标成场次已不存在（不删，用户自己移出），
+// 不再出图，也不计入「色卡齐了」；之后哪次又写到这一场，加版本时恢复。
 
 package app
 
@@ -66,6 +68,8 @@ type ProjectAssetPaletteSummary struct {
 	// Design 是《色卡提示词卡》【色板设计】的结构句；Prompt 是出图用的英文提示词。
 	Design string `json:"design"`
 	Prompt string `json:"prompt"`
+	// SceneGone 是这一场在当前剧集里已不存在（重跑导演风格时标的），色卡保留但不再出图、不计入「色卡齐了」。
+	SceneGone bool `json:"sceneGone,omitempty"`
 	// ImageStatus 是 none / waiting / queued / bound / stale / failed；TaskID、ImageError 是最近一次出图任务。
 	ImageStatus string              `json:"imageStatus"`
 	TaskID      string              `json:"taskId,omitempty"`
@@ -78,6 +82,9 @@ type paletteMeta struct {
 	Code    string `json:"code"`
 	Episode int    `json:"episode"`
 	SceneNo int    `json:"sceneNo"`
+	// Stale 是场次已不存在：StaleAt 是标上的时间。
+	Stale   bool   `json:"stale,omitempty"`
+	StaleAt string `json:"staleAt,omitempty"`
 }
 
 type paletteImageState struct {
@@ -126,14 +133,17 @@ func decodeInto[T any](value any) (T, bool) {
 	return out, json.Unmarshal(encoded, &out) == nil
 }
 
-// paletteCodeOf 是色卡资产的场编号；不是色卡或没有场编号返回空串。
-func paletteCodeOf(asset *model.Asset) string {
+// paletteMetaOf 是色卡资产的场编号与场次状态；不是色卡时返回零值。
+func paletteMetaOf(asset *model.Asset) paletteMeta {
 	if asset.Category != model.AssetCategoryPalette {
-		return ""
+		return paletteMeta{}
 	}
 	meta, _ := decodeInto[paletteMeta](payloadMetadata(assetPayload(asset))["palette"])
-	return meta.Code
+	return meta
 }
+
+// paletteCodeOf 是色卡资产的场编号；不是色卡或没有场编号返回空串。
+func paletteCodeOf(asset *model.Asset) string { return paletteMetaOf(asset).Code }
 
 // projectPaletteAssets 是项目里的色卡资产，按场编号。
 func (s *Service) projectPaletteAssets(userID string, projectID string) (map[string]model.Asset, error) {
@@ -152,9 +162,10 @@ func (s *Service) projectPaletteAssets(userID string, projectID string) (map[str
 	return out, nil
 }
 
-// dramaPaletteWrites 为这次写的每一场准备色卡：已有同一场（按场编号找）的色卡加一个版本并换成主版本（没有图，等重新出图），
+// dramaPaletteWrites 为这次写的每一场准备色卡：已有同一场（按场编号找）的色卡加一个版本并换成主版本（没有图，出图时绑到这一版），
 // 没有的新建资产、版本 1 和项目关联。要出图（images）时出图状态记成「等空位」，写库后按空位排；否则记成 none。
-func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entries []drama.ColorScriptEntry, images bool) ([]repository.DramaPaletteWrite, DramaPaletteWriteSummary, error) {
+// 这次没写到的已有色卡里，retire 认定在运行范围内的（色彩脚本里已经没有这一场），标成场次已不存在（只改 payload，不加版本、不删）。
+func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entries []drama.ColorScriptEntry, images bool, retire func(paletteMeta) bool) ([]repository.DramaPaletteWrite, DramaPaletteWriteSummary, error) {
 	initial := paletteImageNone
 	if images {
 		initial = paletteImageWaiting
@@ -195,6 +206,7 @@ func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entr
 			payload := assetPayload(&current)
 			metadata := payloadMetadata(payload)
 			delete(metadata, "paletteCheck")
+			metadata["palette"] = paletteMeta{Code: e.Code(), Episode: e.Episode, SceneNo: e.SceneNo}
 			metadata["paletteImage"] = paletteImageState{Status: initial, UpdatedAt: now.Format(time.RFC3339Nano)}
 			payload["kind"], payload["status"], payload["primaryVersionId"], payload["title"] = "entity", model.AssetVersionStatusConfirmed, versionID, title
 			payload["coverUrl"], payload["updatedAt"] = "", now.Format(time.RFC3339Nano)
@@ -227,6 +239,34 @@ func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entr
 		position++
 		writes = append(writes, repository.DramaPaletteWrite{Asset: &asset, Version: &version, Link: &link})
 		summary.Created++
+	}
+	written := map[string]bool{}
+	for _, e := range entries {
+		written[e.Code()] = true
+	}
+	for _, code := range slices.Sorted(maps.Keys(existing)) {
+		current := existing[code]
+		meta := paletteMetaOf(&current)
+		if written[code] || meta.Stale || retire == nil || !retire(meta) {
+			continue
+		}
+		payload := assetPayload(&current)
+		metadata := payloadMetadata(payload)
+		meta.Stale, meta.StaleAt = true, now.Format(time.RFC3339Nano)
+		metadata["palette"] = meta
+		// 等空位的不再排；已排上的任务照常收尾（图绑到原版本）。
+		if state, _ := decodeInto[paletteImageState](metadata["paletteImage"]); state.Status == paletteImageWaiting {
+			metadata["paletteImage"] = paletteImageState{Status: paletteImageNone, UpdatedAt: now.Format(time.RFC3339Nano)}
+		}
+		payload["updatedAt"] = now.Format(time.RFC3339Nano)
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return nil, summary, err
+		}
+		asset := current
+		asset.PayloadJSON, asset.UpdatedAt = string(raw), now
+		writes = append(writes, repository.DramaPaletteWrite{Asset: &asset})
+		summary.Retired++
 	}
 	return writes, summary, nil
 }
@@ -285,6 +325,9 @@ func (s *Service) queueDramaPaletteImages(userID string, projectID string, templ
 			if !ok {
 				return result, BadAuthRequest("所选资产不是这个项目的色卡")
 			}
+			if paletteMetaOf(&asset).Stale {
+				return result, BadAuthRequest(fmt.Sprintf("「%s」的场次已不存在，不再出图", asset.Title))
+			}
 			if state := paletteImageStateOf(&asset); state.Status == paletteImageQueued && s.paletteTaskActive(userID, state.TaskID) {
 				return result, BadAuthRequest(fmt.Sprintf("「%s」正在出图，等它完成再重出", asset.Title))
 			}
@@ -310,7 +353,7 @@ func (s *Service) queueDramaPaletteImages(userID string, projectID string, templ
 	slots := int64(policy.Task.ActiveTaskLimit) - active
 	for _, code := range codes {
 		asset := palettes[code]
-		if paletteImageStateOf(&asset).Status != paletteImageWaiting {
+		if paletteImageStateOf(&asset).Status != paletteImageWaiting || paletteMetaOf(&asset).Stale {
 			continue
 		}
 		if slots <= 0 {
@@ -400,7 +443,7 @@ func (s *Service) QueueDramaPaletteImages(userID string, projectID string, req D
 		}
 		for _, a := range palettes {
 			state := s.paletteImageView(userID, &a)
-			if state.Status != paletteImageBound && state.Status != paletteImageQueued {
+			if !paletteMetaOf(&a).Stale && state.Status != paletteImageBound && state.Status != paletteImageQueued {
 				only = append(only, a.ID)
 			}
 		}
@@ -451,7 +494,8 @@ func (s *Service) paletteAssetSummary(userID string, asset *model.Asset, version
 		}
 	}
 	state := s.paletteImageView(userID, asset)
-	summary := &ProjectAssetPaletteSummary{Code: firstNonEmpty(definition.Code, paletteCodeOf(asset)), Entry: definition.Palette, Design: definition.Design, Prompt: definition.Prompt, ImageStatus: state.Status, TaskID: state.TaskID, ImageError: state.Error}
+	meta := paletteMetaOf(asset)
+	summary := &ProjectAssetPaletteSummary{Code: firstNonEmpty(definition.Code, meta.Code), Entry: definition.Palette, Design: definition.Design, Prompt: definition.Prompt, SceneGone: meta.Stale, ImageStatus: state.Status, TaskID: state.TaskID, ImageError: state.Error}
 	if check, ok := decodeInto[drama.PaletteCheck](payloadMetadata(assetPayload(asset))["paletteCheck"]); ok && check.Blocks != nil && asset.Kind == "image" {
 		summary.Check = &check
 	}
@@ -583,7 +627,7 @@ func paletteCheckSummary(check drama.PaletteCheck) string {
 	return strings.Join(parts, "；")
 }
 
-// projectPaletteProgress 是「色卡齐了」要的色卡：场编号和已确认主版本有没有图。
+// projectPaletteProgress 是「色卡齐了」要的色卡：场编号和已确认主版本有没有图；场次已不存在的不算。
 func (s *Service) projectPaletteProgress(userID string, projectID string) ([]drama.PaletteInput, error) {
 	palettes, err := s.projectPaletteAssets(userID, projectID)
 	if err != nil {
@@ -591,6 +635,9 @@ func (s *Service) projectPaletteProgress(userID string, projectID string) ([]dra
 	}
 	out := make([]drama.PaletteInput, 0, len(palettes))
 	for code, a := range palettes {
+		if paletteMetaOf(&a).Stale {
+			continue
+		}
 		out = append(out, drama.PaletteInput{Code: code, Imaged: a.Kind == "image" && a.Status == model.AssetVersionStatusConfirmed})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
