@@ -56,10 +56,11 @@ import {
 } from "./workflow-shared";
 import { shotTaskRunningLabel, shotVideoSeconds } from "./shot-generation";
 import { segmentDurationRule, segmentRefRole } from "./chapter-segments";
+import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { withSegmentRef } from "./segment-edit";
 import { applyShotReferenceChange } from "./project-cache";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
-import { compileProjectShot, writeDramaSegments, type DramaSegment } from "@/services/api/drama";
+import { compileProjectShot, getDramaBrief, writeDramaSegments, type DramaSegment } from "@/services/api/drama";
 import { dramaFamilyOf, findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useInvalidateDrama } from "./drama-panels";
 import { Select } from "@/components/ui/base/select";
@@ -165,7 +166,11 @@ export default function WorkflowProductionWorkbench(props: Props) {
             ...(reference.asset?.primaryVersionId ? [[reference.asset.primaryVersionId, reference] as const] : []),
         ]));
     }, [detail.shotReferences, selectedShot?.id]);
-    const segmentMaxSeconds = dramaModel?.duration.max || 0;
+    // 一段最长取生成模型上限和项目单段时长（需求文档 segment_seconds）里更严的，和章节页、后端装段同一口径。
+    const briefQuery = useQuery({ queryKey: dramaBriefKey(projectId), queryFn: async () => (await getDramaBrief(projectId)).document, enabled: Boolean(dramaModel) });
+    const segmentLimit = segmentMaxSecondsWithBrief(dramaModel?.duration.max || 0, briefQuery.data);
+    const segmentMaxSeconds = segmentLimit.seconds;
+    const segmentLimitLabel = segmentLimit.byBrief ? "项目设置" : dramaModel?.label;
     const segmentSpecJson = revision?.specJson || "";
     const segmentSpecShots = useMemo(() => segmentShotCount(segmentSpecJson), [segmentSpecJson]);
     const invalidateDrama = useInvalidateDrama(projectId);
@@ -189,7 +194,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const activeProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, routedModel), [effectiveConfig, routedModel]);
     const videoProfile = generationCapability === "video" ? activeProfile.video : undefined;
     // 段卡拆合、改时长时按当前视频渠道的时长档位取段长，和下面提交前的时长校验同一份能力画像。
-    const segmentRule = useMemo(() => generationCapability === "video" && dramaModel ? segmentDurationRule(segmentMaxSeconds, videoProfile?.duration, dramaModel.label) : undefined, [dramaModel, generationCapability, segmentMaxSeconds, videoProfile?.duration]);
+    const segmentRule = useMemo(() => generationCapability === "video" && dramaModel ? segmentDurationRule(segmentMaxSeconds, videoProfile?.duration, segmentLimitLabel) : undefined, [dramaModel, generationCapability, segmentLimitLabel, segmentMaxSeconds, videoProfile?.duration]);
     const segmentTakeCounts = useMemo(() => {
         const counts: Record<string, number> = {};
         for (const artifact of detail.shotArtifacts || []) if (artifact.unitId === unitId) counts[artifact.shotId] = (counts[artifact.shotId] || 0) + 1;
@@ -594,7 +599,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                     {familyMismatch ? <p className="-mt-2 mb-3 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">这个模型属于 {routedFamily?.label}，项目的生成模型是 {dramaModel?.label}。分段按 {dramaModel?.label} 的上限和提示词写，请换成同族模型。</p> : null}
                                     <Form.Item label="技能库"><SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} /></Form.Item>
                                     <div className="workflow-form-grid is-three">
-                                        <Form.Item name="durationSeconds" label="段时长（秒）" extra={segmentSpecShots ? "由分段表决定" : dramaModel ? `${dramaModel.label} 一段最长 ${segmentMaxSeconds} 秒` : undefined} rules={segmentMaxSeconds ? [{ validator: (_rule, value) => Number(value) > segmentMaxSeconds ? Promise.reject(new Error(`超过 ${dramaModel?.label} 一段 ${segmentMaxSeconds} 秒的上限，请拆成两段`)) : Promise.resolve() }] : undefined}>
+                                        <Form.Item name="durationSeconds" label="段时长（秒）" extra={segmentSpecShots ? "由分段表决定" : dramaModel ? `${segmentLimit.byBrief ? "项目单段" : `${dramaModel.label} 一段`}最长 ${segmentMaxSeconds} 秒` : undefined} rules={segmentMaxSeconds ? [{ validator: (_rule, value) => Number(value) > segmentMaxSeconds ? Promise.reject(new Error(`超过${segmentLimit.byBrief ? "项目单段" : ` ${dramaModel?.label} 一段`} ${segmentMaxSeconds} 秒的上限，请拆成两段`)) : Promise.resolve() }] : undefined}>
                                             {generationCapability === "video" && videoProfile?.duration.selection === "enum"
                                                 ? <Select disabled={Boolean(segmentSpecShots)} options={videoDurationOptions(videoProfile).filter((value) => !segmentMaxSeconds || Number(value) <= segmentMaxSeconds).map((value) => ({ value, label: `${value} 秒` }))} />
                                                 : <InputNumber className="w-full" disabled={Boolean(segmentSpecShots)} min={generationCapability === "video" ? videoProfile?.duration.min || 1 : 0.5} max={cappedSeconds(generationCapability === "video" ? videoProfile?.duration.max || 60 : 60, segmentMaxSeconds)} step={generationCapability === "video" ? videoProfile?.duration.step || 1 : 0.5} />}

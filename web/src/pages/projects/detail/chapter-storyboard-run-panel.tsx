@@ -5,7 +5,7 @@ import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { Callout } from "@/components/ui/product/callout";
 import type { DramaShotlistView, DramaStepOutcome } from "@/services/api/drama";
 
-import type { ShotStreamState, StoryboardRunStop } from "./chapter-shot-stream";
+import { storyboardOutcomeSummary, type ShotStreamState, type StoryboardRunStop } from "./chapter-shot-stream";
 
 type ChapterStoryboardRunPanelProps = {
     open: boolean;
@@ -18,7 +18,7 @@ type ChapterStoryboardRunPanelProps = {
     shotlist?: DramaShotlistView | null;
     /** 上一次任务失败或取消：写完 ≥1 场的给「从第 N 场继续」，否则给失败原因和「重新生成」。 */
     stop?: StoryboardRunStop;
-    /** 本章当前的段数；镜头表已写入时「重新装段」用它提示改动范围。 */
+    /** 本章当前的段数：摘要行按它说段数（重新装段后任务结果里的数字就旧了），「重新装段」也用它提示改动范围。 */
     segmentCount: number;
     onResume: () => void;
     onRepack: () => void;
@@ -66,7 +66,7 @@ export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running
                             ) : null}
                         </>
                     ) : outcome ? (
-                        <span>{outcome.status === "written" ? `已写入 ${outcome.shots} 镜，按 ${outcome.scenes} 场装成 ${outcome.segments} 段` : `已写入 ${outcome.shots} 镜，检查有 ${outcome.errors} 个问题，还没装段`}</span>
+                        <span>{storyboardOutcomeSummary(outcome, { segmentCount, draft: shotlist?.draft })}</span>
                     ) : stream.shotCount ? (
                         <span>上一次输出 {stream.shotCount} 镜</span>
                     ) : failed ? (

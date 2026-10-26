@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseShotStream, shotStreamFromResult, storyboardRunStop } from "./chapter-shot-stream";
+import { parseShotStream, shotStreamFromResult, storyboardOutcomeSummary, storyboardRunStop } from "./chapter-shot-stream";
 
 const marker = (index: number, attempt = 1) => JSON.stringify({ "@turn": { index, total: 2, scene: `E01S0${index}`, heading: index === 1 ? "内·病房走廊·夜" : "内·电梯口·夜", attempt } });
 const shot = (n: number, plot: string) => JSON.stringify({ shotNumber: n, plotDescription: plot, dialogue: "", shotSize: "中景", spec: { id: `E01S01-0${n}` } });
@@ -106,4 +106,13 @@ test("storyboardRunStop 第 1 场就失败、没有进度或收尾失败时只�
 test("storyboardRunStop 成功或还在跑的任务不算停下", () => {
     assert.equal(storyboardRunStop({ id: "t1", status: "succeeded" }, { total: 3, completed: 3 }), undefined);
     assert.equal(storyboardRunStop({ id: "t1", status: "running" }, { total: 3, completed: 1 }), undefined);
+});
+
+test("storyboardOutcomeSummary 段数按本章现在的段说，重新装段后不读任务结果里的旧数字", () => {
+    const written = { status: "written" as const, shots: 41, scenes: 3, errors: 0 };
+    assert.equal(storyboardOutcomeSummary(written, { segmentCount: 10, draft: false }), "已写入 41 镜，按 3 场装成 10 段");
+    const draft = { status: "draft" as const, shots: 41, scenes: 3, errors: 1 };
+    assert.equal(storyboardOutcomeSummary(draft, { segmentCount: 6, draft: true }), "已写入 41 镜，检查有 1 个问题，还没装段");
+    assert.equal(storyboardOutcomeSummary(draft, { segmentCount: 6 }), "已写入 41 镜，检查有 1 个问题，还没装段");
+    assert.equal(storyboardOutcomeSummary(draft, { segmentCount: 8, draft: false }), "已写入 41 镜，按 3 场装成 8 段");
 });

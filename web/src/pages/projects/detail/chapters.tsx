@@ -72,11 +72,12 @@ import {
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { dramaRunProgressOf, dramaStepOutcomeOf, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure } from "@/services/api/drama";
+import { dramaRunProgressOf, dramaStepOutcomeOf, getDramaBrief, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure } from "@/services/api/drama";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
-import { chapterDialogueCoverage, DEFAULT_SEGMENT_TARGET, segmentDurationRule } from "./chapter-segments";
+import { chapterDialogueCoverage, segmentDurationRule, segmentTargetLabel } from "./chapter-segments";
+import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { parseShotStream, shotStreamFromResult, storyboardRunStop } from "./chapter-shot-stream";
 import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
@@ -150,10 +151,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const storyboardImpact = useMemo(() => chapterStoryboardReplaceImpact(detail, selectedUnit?.id || ""), [detail, selectedUnit?.id]);
     const dramaModels = useDramaModels();
     const dramaModel = findDramaModel(dramaModels.data, detail.project.generationModel);
-    const segmentMaxSeconds = dramaModel?.duration.max || 15;
+    // 一段最长取生成模型上限和项目单段时长（需求文档 segment_seconds）里更严的，和后端装段同一口径。
+    const briefQuery = useQuery({ queryKey: dramaBriefKey(detail.project.id), queryFn: async () => (await getDramaBrief(detail.project.id)).document, enabled: Boolean(dramaModel) });
+    const modelSegmentMaxSeconds = dramaModel?.duration.max || 15;
+    const segmentLimit = segmentMaxSecondsWithBrief(modelSegmentMaxSeconds, briefQuery.data);
+    const segmentMaxSeconds = segmentLimit.seconds;
+    const segmentLimitLabel = segmentLimit.byBrief ? "项目设置" : dramaModel?.label;
     // 段长还要能被所选视频渠道提交（如只能 15/30 秒、最少 5 秒）：渠道取分镜制作页默认会用的那个视频模型。
     const segmentVideoModel = projectVideoModel(effectiveConfig, detail.project.defaultVideoModel, dramaModels.data, dramaModel);
-    const segmentRule = useMemo(() => segmentDurationRule(segmentMaxSeconds, segmentVideoModel ? modelCapabilityConfigFor(effectiveConfig, segmentVideoModel).video?.duration : undefined, dramaModel?.label), [dramaModel?.label, effectiveConfig, segmentMaxSeconds, segmentVideoModel]);
+    const segmentRule = useMemo(() => segmentDurationRule(segmentMaxSeconds, segmentVideoModel ? modelCapabilityConfigFor(effectiveConfig, segmentVideoModel).video?.duration : undefined, segmentLimitLabel), [effectiveConfig, segmentLimitLabel, segmentMaxSeconds, segmentVideoModel]);
     // 本章工作区只带本章镜头已引用的资产；生成分镜和装段要看项目里全部已确认的资产，否则新章节的段带不上参考。
     const projectAssetsKey = ["project", detail.project.id, "assets", "chapter-storyboard"] as const;
     const loadProjectAssets = async () => (await listProjectAssets(detail.project.id)).assets;
@@ -786,7 +792,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
                         <div className="text-[var(--fs-tiny)] text-foreground/42">当前章节</div>
                         <div className="mt-1 truncate text-sm font-medium text-foreground/85">{selectedUnit?.title}</div>
-                        <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文将作为分段依据：一场戏一组镜头，一段 = 一次视频生成。按场景切段，每段目标 {Math.min(DEFAULT_SEGMENT_TARGET.min, segmentRule.maxSeconds)}–{Math.min(DEFAULT_SEGMENT_TARGET.max, segmentRule.maxSeconds)} 秒（{dramaModel?.label || "项目生成模型"}最长 {segmentMaxSeconds} 秒，视频渠道 {segmentRule.label}），不在接话之间切；结果写入“分镜制作”。</div>
+                        <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文将作为分段依据：一场戏一组镜头，一段 = 一次视频生成。按场景切段，每段目标 {segmentTargetLabel(segmentRule.maxSeconds)}（{segmentLimit.byBrief ? `项目单段最长 ${segmentMaxSeconds} 秒，${dramaModel?.label || "项目生成模型"}上限 ${modelSegmentMaxSeconds} 秒` : `${dramaModel?.label || "项目生成模型"}最长 ${segmentMaxSeconds} 秒`}，视频渠道 {segmentRule.label}），不在接话之间切；结果写入“分镜制作”。</div>
                     </div>
                     {segmentRule.problem ? <Callout tone="warning" title="当前视频渠道交不了这种段长" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去项目设置</Button>}>{segmentRule.problem}。按这个渠道装出来的段提交时必然被拒，先换默认视频模型或项目生成模型。</Callout> : null}
                     {assetsNotReady ? <Callout tone="warning" title="先确认资产，段才会自动带上参考" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/assets`); }}>去确认资产</Button>}>{pendingCandidateCount ? `项目里还有 ${pendingCandidateCount} 个待确认的角色、场景或道具。` : ""}{referenceAssetCount ? "确认后再生成，同一场的段会带上这一场绑定的全部资产作为参考。" : "现在没有已确认的资产，生成的段都不带参考，人物和场景在段与段之间容易不一致。"}也可以先生成，之后在分镜制作页给段绑定资产。</Callout> : null}

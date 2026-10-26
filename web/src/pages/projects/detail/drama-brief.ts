@@ -41,6 +41,17 @@ export function briefSegmentSeconds(document: Record<string, unknown> | undefine
     return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+/**
+ * 一段最长秒数：生成模型上限再叠项目 segment_seconds，取更严的那个（同后端 briefSegmentRule，只收紧不放宽）。
+ * modelMaxSeconds 为 0 表示模型没限；byBrief 表示上限来自项目设置，文案要说「项目单段」而不是模型。
+ */
+export function segmentMaxSecondsWithBrief(modelMaxSeconds: number, document: Record<string, unknown> | undefined) {
+    const brief = briefSegmentSeconds(document);
+    const seconds = brief ? Math.floor(brief) : 0;
+    if (seconds >= 1 && (modelMaxSeconds <= 0 || seconds < modelMaxSeconds)) return { seconds, byBrief: true };
+    return { seconds: modelMaxSeconds, byBrief: false };
+}
+
 /** 本地副本里换上新的单段秒数（真正写库走 updateProject 的 segmentSeconds，后端按生成模型上限校验）。 */
 export function withSegmentSeconds(document: Record<string, unknown>, seconds: number | null | undefined) {
     const next: Record<string, unknown> = { ...document };

@@ -149,3 +149,12 @@ export function storyboardRunStop(task: { id: string; status: string; error?: st
     if (progress && progress.completed >= 1 && progress.completed < progress.total) return { kind: "resume", taskId: task.id, from: progress.completed + 1, total: progress.total, error };
     return { kind: "failed", taskId: task.id, status: task.status, error };
 }
+
+/**
+ * 侧栏摘要行。段数以本章现在的段为准：「重新装段」不产生新任务，任务结果里的段数在重装后就旧了。
+ * 草稿后来重新装段成功（镜头表不再是草稿）也按已写入说。
+ */
+export function storyboardOutcomeSummary(outcome: { status: "written" | "draft"; shots: number; scenes: number; errors: number }, current: { segmentCount: number; draft?: boolean }) {
+    if (outcome.status === "written" || current.draft === false) return `已写入 ${outcome.shots} 镜，按 ${outcome.scenes} 场装成 ${current.segmentCount} 段`;
+    return `已写入 ${outcome.shots} 镜，检查有 ${outcome.errors} 个问题，还没装段`;
+}
