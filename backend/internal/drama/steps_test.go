@@ -9,10 +9,10 @@ import (
 
 var updateGenerated = flag.Bool("update", false, "重新生成前端契约模板")
 
-// 生成分段的契约文字由 schema 生成：与原先前端手写的契约（含技能 outputFields 补的 spec 行）逐句对得上，
+// 整段 JSON 的契约文字（@2，画布拆镜仍用它）由 schema 生成：与原先前端手写的契约（含技能 outputFields 补的 spec 行）逐句对得上，
 // 只有字段清单的类型写法和折行不同。
 func TestChapterShotsContractText(t *testing.T) {
-	c, err := BuiltinContract(ContractChapterShots)
+	c, err := BuiltinContract(ContractCanvasStoryboard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,9 +48,29 @@ func TestChapterShotsContractText(t *testing.T) {
 	}
 }
 
+// 生成分段 @3 一镜一行：格式句、形状句和逐字段要求换成按行写，字段清单与 @2 相同。
+func TestChapterShotsLinesContractText(t *testing.T) {
+	c, err := BuiltinContract(ContractChapterShots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, _ := BuiltinContract(ContractCanvasStoryboard)
+	if !c.Lines() || old.Lines() || strings.Join(c.RowFields(), ",") != strings.Join(old.RowFields(), ",") {
+		t.Fatalf("@3 一镜一行、字段与 @2 相同：%v", c.RowFields())
+	}
+	text := c.Text(c.DefaultRequirement(), ContractTextOptions{SkillShaped: true})
+	got := strings.Split(text, "\n")
+	if !strings.HasPrefix(got[1], "- 逐行输出（JSON Lines）") || got[2] != "- 至少输出 1 个镜头。每个镜头必须能独立用于生成首帧图片和镜头视频。" || !strings.HasPrefix(got[3], "- 每行一个镜头") {
+		t.Fatalf("格式句：%s", text)
+	}
+	if !strings.Contains(text, "- 每个镜头再加 spec（对象") || !strings.HasPrefix(c.FieldInstruction("assets"), "- 每个镜头再加 assets（字符串数组）") {
+		t.Fatalf("逐字段要求按镜头写：%s", text)
+	}
+}
+
 // 前端画布拆镜的契约模板由同一份 schema 生成；schema 改了而没重新生成时这里失败。
 func TestCanvasStoryboardContractGenerated(t *testing.T) {
-	c, err := BuiltinContract(ContractChapterShots)
+	c, err := BuiltinContract(ContractCanvasStoryboard)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -249,6 +249,8 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 	delete(metadata, "chapterId")
 	metadata["source"] = dramaStepEvalTaskSource
 	metadata["dramaStepEval"] = map[string]any{"runId": runID, "chapter": c.ID, "role": role}
+	// 评测与章节页一样按场续写，门槛量的是用户实际跑出来的结果。
+	metadata["dramaRun"] = newDramaRunMeta(plan, "")
 	return req, nil
 }
 
@@ -667,7 +669,11 @@ func dramaStepEvalChapterResult(c drama.StepEvalChapter, taskID string, task *mo
 		r.Failure = "任务没有结束"
 		return r, r.Failure
 	}
-	rows, err := drama.StoryboardRowsFromResult(task.ResultJSON)
+	var output struct {
+		Text string `json:"text"`
+	}
+	_ = json.Unmarshal([]byte(firstNonEmpty(task.ResultJSON, "{}")), &output)
+	rows, _, err := drama.StoryboardRowsFromText(output.Text)
 	if err != nil {
 		r.Failure = err.Error()
 		return r, ""

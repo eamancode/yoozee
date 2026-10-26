@@ -1,12 +1,15 @@
 import { expect, test } from "bun:test";
 
-test("章节页直接生成分段到分镜制作，技能由项目风格档案绑定、提示词在服务端组装", async () => {
+test("章节页直接生成分段到分镜制作，技能由项目风格档案绑定、提示词在服务端组装、镜头表由服务端写", async () => {
     const source = await Bun.file(new URL("../src/pages/projects/detail/chapters.tsx", import.meta.url)).text();
     expect(source).not.toContain("导入分镜");
     expect(source).not.toContain("importStoryboardToCanvas");
     expect(source).not.toContain("在画布中分镜");
     expect(source).toContain("生成分段");
-    expect(source).toContain("replaceProjectUnitShots");
+    // 生成分段的结果由服务端在任务收尾时写镜头表和段，页面只订阅任务流、显示进度。
+    expect(source).not.toContain("replaceProjectUnitShots");
+    expect(source).not.toContain("putDramaShotlist");
+    expect(source).toContain("<ChapterStoryboardRunPanel");
     expect(source).toContain("/video`");
     expect(source).not.toContain("SkillRuntimePicker");
     expect(source).toContain('getDramaStepUsage(detail.project.id, "chapter.shots"');

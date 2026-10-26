@@ -20,7 +20,7 @@ var dramaRoutes = []string{
 	"GET /api/projects/:id/drama/segments",
 	"PUT /api/projects/:id/drama/segments",
 	"GET /api/projects/:id/units/:unitId/drama/shotlist",
-	"PUT /api/projects/:id/units/:unitId/drama/shotlist",
+	"POST /api/projects/:id/units/:unitId/drama/shotlist/repack",
 	"GET /api/projects/:id/drama/progress",
 	"GET /api/projects/:id/drama/evidence",
 	"POST /api/projects/:id/drama/evidence",
@@ -45,6 +45,10 @@ func TestDramaRoutesAreRegisteredUnderAPI(t *testing.T) {
 		if !registered[want] {
 			t.Errorf("短剧路由没注册：%s", want)
 		}
+	}
+	// 镜头表由生成分段任务收尾时服务端写，前端没有写镜头表的接口。
+	if registered["PUT /api/projects/:id/units/:unitId/drama/shotlist"] {
+		t.Error("镜头表写接口应已删除")
 	}
 	// 生成模型目录是登录后就能读的，不允许出现匿名可用的短剧写接口。
 	if registered["GET /api/drama/models"] && registered["POST /api/drama/models"] {
@@ -71,7 +75,7 @@ func TestDramaRoutesRejectAnonymousRequests(t *testing.T) {
 		{http.MethodGet, "/api/projects/project-1/drama/segments"},
 		{http.MethodPut, "/api/projects/project-1/drama/segments"},
 		{http.MethodGet, "/api/projects/project-1/units/unit-1/drama/shotlist"},
-		{http.MethodPut, "/api/projects/project-1/units/unit-1/drama/shotlist"},
+		{http.MethodPost, "/api/projects/project-1/units/unit-1/drama/shotlist/repack"},
 		{http.MethodGet, "/api/projects/project-1/drama/evidence"},
 		{http.MethodPost, "/api/projects/project-1/drama/evidence"},
 		{http.MethodGet, "/api/projects/project-1/drama/delivery"},

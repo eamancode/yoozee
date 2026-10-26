@@ -13,7 +13,8 @@ import (
 
 // 步骤的输出契约：contracts/ 下带版本号的 JSON Schema。契约文字（提示词里的【受保护输出契约】）由 Text 按 schema 生成，
 // 不再在前端手写；字段顺序取 required 数组。schema 里柚子自己的关键字：
-//   - x-contract：契约文字的固定句子（标题、格式要求、rows 引导句、默认要求、补充规则）；
+//   - x-contract：契约文字的固定句子（标题、格式要求、rows 引导句、默认要求、补充规则）；layout 为 "lines" 时
+//     模型一镜一行输出（JSON Lines），顶层 rows 只描述逻辑形状；
 //   - x-shape: "skill"：字段形状由技能正文说明（如 spec），单独成行，要求每镜都写；
 //   - x-section: "assets"：字段说明跟在资产清单那段之后（清单为空时不出现），由 FieldInstruction 取。
 
@@ -22,11 +23,19 @@ var contractFS embed.FS
 
 // contractFiles 是契约版本 → schema 文件。
 var contractFiles = map[string]string{
-	ContractChapterShots: "contracts/chapter.shots.v2.schema.json",
+	ContractCanvasStoryboard: "contracts/chapter.shots.v2.schema.json",
+	ContractChapterShots:     "contracts/chapter.shots.v3.schema.json",
 }
+
+// ContractCanvasStoryboard 是画布拆镜的输出契约：整段一个 {"title", "rows"} JSON 对象（前端解析），不随生成分段升级。
+const ContractCanvasStoryboard = "chapter.shots@2"
+
+// contractLayoutLines 是一镜一行的契约（x-contract.layout）。
+const contractLayoutLines = "lines"
 
 type contractProse struct {
 	Heading     string   `json:"heading"`
+	Layout      string   `json:"layout"`
 	Format      string   `json:"format"`
 	RowsIntro   string   `json:"rowsIntro"`
 	Requirement string   `json:"requirement"`
@@ -125,6 +134,9 @@ func parseContract(raw []byte) (*Contract, error) {
 	return &Contract{ID: root.ID, Title: root.Title, raw: raw, root: &root, rows: rows.Items, fields: append(fields, extra...)}, nil
 }
 
+// Lines 表示模型一镜一行输出（JSON Lines），不是整段 JSON 对象。
+func (c *Contract) Lines() bool { return c.root.Prose.Layout == contractLayoutLines }
+
 // Schema 是契约的 JSON Schema 原文。
 func (c *Contract) Schema() []byte { return slices.Clone(c.raw) }
 
@@ -156,12 +168,11 @@ func (c *Contract) Text(requirement string, opts ContractTextOptions) string {
 			list = append(list, fieldLabel(name, field))
 		}
 	}
-	lines := []string{
-		prose.Heading,
-		"- " + prose.Format,
-		fmt.Sprintf("- 顶层固定为 %s，%s。%s", c.topLevelShape(), c.rowsMinText(), requirement),
-		"- " + prose.RowsIntro,
+	shape := fmt.Sprintf("- 顶层固定为 %s，%s。%s", c.topLevelShape(), c.rowsMinText(), requirement)
+	if c.Lines() {
+		shape = "- 至少输出 1 个镜头。" + requirement
 	}
+	lines := []string{prose.Heading, "- " + prose.Format, shape, "- " + prose.RowsIntro}
 	lines = append(lines, wrapFieldList(list)...)
 	lines = append(lines, shaped...)
 	for _, rule := range prose.Rules {
@@ -180,7 +191,11 @@ func (c *Contract) FieldInstruction(name string) string {
 	if field.Shape == "skill" {
 		label += "，形状见技能说明，每个镜头都要写，不能省略"
 	}
-	line := fmt.Sprintf("- rows 每项再加 %s（%s）", name, label)
+	prefix := "rows 每项"
+	if c.Lines() {
+		prefix = "每个镜头"
+	}
+	line := fmt.Sprintf("- %s再加 %s（%s）", prefix, name, label)
 	if field.Description != "" {
 		line += "：" + field.Description
 	}

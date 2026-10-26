@@ -186,6 +186,20 @@ func (r *Repository) UpdateTaskProgressForLease(id string, owner string, stage s
 	return nil
 }
 
+// UpdateTaskResultForLease 在任务运行中写阶段、进度和阶段性结果（逐场续写每写完一场存一次），失败收尾不清空它。
+func (r *Repository) UpdateTaskResultForLease(id string, owner string, stage string, progress int, resultJSON string) error {
+	result := taskLeaseWriter(r.db.Model(&model.Task{}), owner).
+		Where("id = ? AND status = ?", id, model.TaskStatusRunning).
+		Updates(map[string]any{"stage": stage, "progress": progress, "result_json": resultJSON, "updated_at": time.Now()})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrTaskStateConflict
+	}
+	return nil
+}
+
 // 无租约任务仅能写无租约记录；有租约的执行者必须仍持有本次领取的有效 owner。
 func taskLeaseWriter(db *gorm.DB, owner string) *gorm.DB {
 	if owner == "" {

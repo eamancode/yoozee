@@ -39,8 +39,14 @@ func StoryboardRowsFromResult(resultJSON string) ([]map[string]any, error) {
 	if len(rawRows) == 0 {
 		return nil, ErrNoStoryboardRows
 	}
+	return normalizeStoryboardRows(rawRows), nil
+}
+
+// normalizeStoryboardRows 是前端 normalizeStoryboardRow：文本字段收成字符串，characters / mustHave / optionalDetails 不是数组时置空，
+// shotNumber 按顺序重排，缺 durationSeconds 时取 6，assetBindings 规整。
+func normalizeStoryboardRows(rawRows []any) []map[string]any {
 	rows := make([]map[string]any, 0, len(rawRows))
-	for i, raw := range rawRows {
+	for _, raw := range rawRows {
 		source, _ := raw.(map[string]any)
 		row := map[string]any{"durationSeconds": float64(6)}
 		for k, v := range source {
@@ -49,7 +55,7 @@ func StoryboardRowsFromResult(resultJSON string) ([]map[string]any, error) {
 		for _, field := range storyboardTextFields {
 			row[field] = storyboardText(source[field])
 		}
-		row["shotNumber"] = i + 1
+		row["shotNumber"] = len(rows) + 1
 		for _, field := range []string{"characters", "mustHave", "optionalDetails"} {
 			if _, ok := source[field].([]any); !ok {
 				row[field] = []any{}
@@ -58,7 +64,80 @@ func StoryboardRowsFromResult(resultJSON string) ([]map[string]any, error) {
 		row["assetBindings"] = normalizeRowAssetBindings(source["assetBindings"])
 		rows = append(rows, row)
 	}
-	return rows, nil
+	return rows
+}
+
+// ShotLinesStats 是逐行输出（chapter.shots@3：一镜一行 JSON）的解析统计：Lines 是像镜头行的行（以「{」开头），
+// Rows 是解析出的镜头行，Rate = Rows / Lines（整段 JSON 对象兜底解析时按 1 算）。
+type ShotLinesStats struct {
+	Lines    int     `json:"lines"`
+	Rows     int     `json:"rows"`
+	Rejected int     `json:"rejected"`
+	Rate     float64 `json:"rate"`
+}
+
+// ShotLinesMarkerKey 是逐场续写写进文本流的回合标记行的键（{"@turn": {...}}）；它不是镜头行，解析时跳过。
+const ShotLinesMarkerKey = "@turn"
+
+// ShotLineObjects 逐行解析模型输出：每行一个 JSON 对象是一个镜头行；一行里写了 {"rows": [...]} 的取其中的行，
+// 一行是对象数组的逐项取；代码块围栏、空行、回合标记跳过。返回原始对象（未规整）。
+func ShotLineObjects(text string) ([]any, ShotLinesStats) {
+	var out []any
+	var stats ShotLinesStats
+	// 只按换行切：JSON 字符串里可以出现 U+2028 之类的字符，不能当行尾。
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "```") {
+			continue
+		}
+		switch line[0] {
+		case '{':
+			stats.Lines++
+			var obj map[string]any
+			if json.Unmarshal([]byte(strings.TrimSuffix(line, ",")), &obj) != nil {
+				stats.Rejected++
+				continue
+			}
+			if _, marker := obj[ShotLinesMarkerKey]; marker {
+				stats.Lines--
+				continue
+			}
+			if rows, ok := obj["rows"].([]any); ok {
+				out = append(out, rows...)
+				continue
+			}
+			out = append(out, obj)
+		case '[':
+			stats.Lines++
+			var items []any
+			if json.Unmarshal([]byte(line), &items) != nil {
+				stats.Rejected++
+				continue
+			}
+			out = append(out, items...)
+		}
+	}
+	stats.Rows = len(out)
+	if stats.Lines > 0 {
+		stats.Rate = float64(stats.Lines-stats.Rejected) / float64(stats.Lines)
+	}
+	return out, stats
+}
+
+// StoryboardRowsFromText 解析生成分段的模型输出：整段是一个 {"rows": [...]} 对象（@2 的写法，可能跨行、带代码块围栏）就按它取；
+// 否则按一镜一行（@3）逐行解析。返回规整后的分镜行。
+func StoryboardRowsFromText(text string) ([]map[string]any, ShotLinesStats, error) {
+	encoded, _ := json.Marshal(map[string]any{"text": text})
+	if payload, err := storyboardRowsPayload(string(encoded)); err == nil {
+		if rows, ok := payload["rows"].([]any); ok && len(rows) > 0 {
+			return normalizeStoryboardRows(rows), ShotLinesStats{Lines: len(rows), Rows: len(rows), Rate: 1}, nil
+		}
+	}
+	objects, stats := ShotLineObjects(text)
+	if len(objects) == 0 {
+		return nil, stats, ErrNoStoryboardRows
+	}
+	return normalizeStoryboardRows(objects), stats, nil
 }
 
 // storyboardAssetRoles 是前端 STORYBOARD_ASSET_ROLES。

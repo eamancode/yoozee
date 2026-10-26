@@ -4,7 +4,7 @@
   "steps": [
     {
       "id": "chapter.shots",
-      "contract": "chapter.shots@2",
+      "contract": "chapter.shots@3",
       "skillBudgetChars": 32000,
       "skillLinkedFiles": 3,
       "evalSet": [

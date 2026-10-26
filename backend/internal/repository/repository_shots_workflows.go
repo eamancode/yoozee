@@ -166,6 +166,11 @@ func (r *Repository) ReplaceProjectUnitShotsWithShotlist(projectID string, unitI
 	})
 }
 
+// SaveDramaShotlist 只写一章的镜头表记录（检查没过的草稿），不动本章镜头。
+func (r *Repository) SaveDramaShotlist(shotlist *model.DramaShotlist) error {
+	return r.db.Transaction(func(tx *gorm.DB) error { return upsertDramaShotlist(tx, shotlist) })
+}
+
 func upsertDramaShotlist(tx *gorm.DB, shotlist *model.DramaShotlist) error {
 	var existing model.DramaShotlist
 	err := tx.Where("project_id = ? AND unit_id = ?", shotlist.ProjectID, shotlist.UnitID).First(&existing).Error

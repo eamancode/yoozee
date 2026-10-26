@@ -265,6 +265,10 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 			}
 			return runAgentToolTask(ctx, input)
 		}
+		if run := metadataDramaRun(input.Metadata); run != nil {
+			// 短剧流程步骤按场续写：同一任务内多轮调用，输出都进这个任务的文本流。
+			return s.runDramaRun(ctx, input, *run)
+		}
 		result, taskErr := runTextTask(ctx, input)
 		if taskErr == nil && promptTemplateOperation != "" {
 			taskErr = validatePromptTemplateResult(promptTemplateOperation, result)

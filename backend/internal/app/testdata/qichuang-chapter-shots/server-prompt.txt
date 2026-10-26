@@ -283,16 +283,16 @@ fixed 固定 ｜ push 推近 ｜ pull 拉远 ｜ crane_up 升 ｜ crane_down 降
 【本集时长】本集目标 90 秒，镜头 est 合计不超过 99 秒（90×1.1）；戏多时并镜或删掉不推进剧情的镜头，不靠压短单镜估时凑数。
 
 【受保护输出契约】
-- 只返回一个 JSON 对象，不要 Markdown、表格、代码块、注释或任何解释文字。
-- 顶层固定为 {"title": string, "rows": object[]}，rows 至少 1 项。每个镜头必须能独立用于生成首帧图片和镜头视频。
-- rows 每项对应一个镜头，按剧情顺序排列；字段缺失时填空字符串或空数组，不要省略字段：
+- 逐行输出（JSON Lines）：一行就是一个镜头的完整 JSON 对象，写完一个镜头换行再写下一个；不要外层数组或 {"rows": …} 对象，对象内部不要换行，不要 Markdown、表格、代码块、注释或任何解释文字。
+- 至少输出 1 个镜头。每个镜头必须能独立用于生成首帧图片和镜头视频。
+- 每行一个镜头，按剧情顺序排列；字段缺失时填空字符串或空数组，不要省略字段：
   shotNumber（整数，从 1 递增）、durationSeconds（整数，1-60）、plotDescription（本镜可见的剧情与关键动作）、
   dialogue（本镜实际念出的台词或简短旁白，超长必须拆镜）、characters（字符串数组，本镜出现的角色名）、narrativeIntent、
   viewerPOV、performanceBlocking、shotSize（景别）、emotion、lightingAndAtmosphere、
   audioEffects、camera、motion、timeBeats、imageGenerationPrompt（首帧画面提示词）、
   videoMotionPrompt（运镜与结尾状态）、continuityOut、negativePrompt、mustHave（字符串数组，最多 3 项）、
   optionalDetails（字符串数组）。
-- rows 每项再加 spec（对象，形状见技能说明，每个镜头都要写，不能省略）：yoozee 镜头表契约，形状见下文「spec 的形状」；装段、检查、编译都从这里取
+- 每个镜头再加 spec（对象，形状见技能说明，每个镜头都要写，不能省略）：yoozee 镜头表契约，形状见下文「spec 的形状」；装段、检查、编译都从这里取
 - 镜头数量以完整覆盖剧情因果、人物关系和关键台词为准，不要为压缩数量删减关键情节。
 
 【项目已确认资产】
@@ -310,5 +310,5 @@ fixed 固定 ｜ push 推近 ｜ pull 拉远 ｜ crane_up 升 ｜ crane_down 降
 - 阿坤（角色）
 - 周岸（角色）
 - 林小满（角色）
-- rows 每项再加 assets（字符串数组）：本镜画面里出现的上面这些角色、场景和道具，名称原样抄写，清单外的不写，没有就写空数组；角色同时写进 characters。镜头换了场景，assets 里就写新场景。
+- 每个镜头再加 assets（字符串数组）：本镜画面里出现的上面这些角色、场景和道具，名称原样抄写，清单外的不写，没有就写空数组；角色同时写进 characters。镜头换了场景，assets 里就写新场景。
 - 场景写了锚点的，镜头 spec 的 blocking.at 只用该场景的锚点名，不另起位置名。

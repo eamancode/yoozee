@@ -26,6 +26,33 @@ func TestVideoTaskTimeoutHasFiveMinuteSafetyFloor(t *testing.T) {
 	}
 }
 
+// 分镜文本任务（画布拆镜 operation=storyboard、短剧流程步骤 metadata.dramaStep）按分镜任务超时算，普通文本任务不变。
+func TestStoryboardTextTasksUseStoryboardTimeout(t *testing.T) {
+	policy := defaultRuntimePolicy().Task
+	policy.TextTimeoutMinutes, policy.StoryboardTimeoutMinutes = 8, 20
+	cases := []struct {
+		name string
+		task *model.Task
+		want time.Duration
+	}{
+		{"canvas storyboard", &model.Task{Type: "canvas_text", Operation: "storyboard"}, 20 * time.Minute},
+		{"drama step", &model.Task{Type: "canvas_text", Operation: "text", InputJSON: `{"mode":"text","metadata":{"dramaStep":{"step":"chapter.shots"}}}`}, 20 * time.Minute},
+		{"plain text", &model.Task{Type: "canvas_text", Operation: "text", InputJSON: `{"mode":"text","metadata":{"source":"x"}}`}, 8 * time.Minute},
+		{"empty drama step", &model.Task{Type: "canvas_text", InputJSON: `{"metadata":{"dramaStep":{}}}`}, 8 * time.Minute},
+		{"image storyboard", &model.Task{Type: "canvas_image", Operation: "storyboard"}, time.Duration(policy.ImageTimeoutMinutes) * time.Minute},
+	}
+	for _, c := range cases {
+		if got := taskExecutionTimeout(c.task, policy); got != c.want {
+			t.Fatalf("%s: timeout = %s, want %s", c.name, got, c.want)
+		}
+	}
+	// 没配分镜超时时沿用文本任务超时。
+	policy.StoryboardTimeoutMinutes = 0
+	if got := taskExecutionTimeout(cases[0].task, policy); got != 8*time.Minute {
+		t.Fatalf("fallback storyboard timeout = %s, want 8m", got)
+	}
+}
+
 func TestDefaultVideoTaskTimeoutIsOneHour(t *testing.T) {
 	policy := defaultRuntimePolicy().Task
 	if policy.VideoTimeoutMinutes != 60 {

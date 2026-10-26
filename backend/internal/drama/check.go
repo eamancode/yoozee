@@ -112,6 +112,8 @@ type CheckReport struct {
 	Warnings int         `json:"warnings"`
 	Items    []CheckItem `json:"items"`
 	Skipped  []CheckSkip `json:"skipped"`
+	// Parse 是生成分段收尾时模型输出的解析统计（服务端解析才有；手写镜头表、Agent 写入时为空）。
+	Parse *ShotLinesStats `json:"parse,omitempty"`
 }
 
 func (r *CheckReport) add(rules RuleLevels, rule, shotID, level, message string) {

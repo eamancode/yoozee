@@ -292,3 +292,79 @@ func StepAssetBrief(previewText string, hasDefinition bool, title string) string
 func joinTruthy(parts []string, sep string) string {
 	return strings.Join(slices.DeleteFunc(slices.Clone(parts), func(p string) bool { return p == "" }), sep)
 }
+
+// ShotsScene 是逐场续写的一场：剧本场编号（与镜头表台词表同一套编号）、场标题和开场原句（区分同名的场）。
+type ShotsScene struct {
+	ID      string `json:"scene"`
+	Heading string `json:"heading"`
+	Opening string `json:"opening"`
+}
+
+const shotsSceneOpeningChars = 30
+
+// ChapterShotsScenes 按正文的场次头切场（ScriptFromText 的规则：「## 」「内·」「外·」「第N场」等开头的行）；
+// 不到两场时返回 nil，整章一轮写完。
+func ChapterShotsScenes(plainText string, title string) []ShotsScene {
+	script := ScriptFromText(plainText, title)
+	if len(script.Scenes) < 2 {
+		return nil
+	}
+	out := make([]ShotsScene, 0, len(script.Scenes))
+	for _, sc := range script.Scenes {
+		scene := ShotsScene{ID: sc.ID, Heading: sc.Heading}
+		if len(sc.Beats) > 0 {
+			b := sc.Beats[0]
+			text := b.Text
+			if b.Speaker != "" {
+				text = b.Speaker + "：" + text
+			}
+			scene.Opening = firstSentence(text, shotsSceneOpeningChars)
+		}
+		out = append(out, scene)
+	}
+	return out
+}
+
+// firstSentence 取第一句（到第一个句末标点为止），超过 limit 个字按字截断。
+func firstSentence(text string, limit int) string {
+	runes := []rune(strings.TrimSpace(text))
+	for i, r := range runes {
+		if i >= limit {
+			break
+		}
+		if strings.ContainsRune("。！？!?", r) {
+			return string(runes[:i+1])
+		}
+	}
+	return string(runes[:min(limit, len(runes))])
+}
+
+func shotsSceneLabel(s ShotsScene) string {
+	label := "「" + s.Heading + "」"
+	if s.Opening != "" {
+		label += "（从「" + s.Opening + "」起）"
+	}
+	return label
+}
+
+// ChapterShotsTurnPlan 是逐场续写第一回合接在提示词后面的分回合说明（线上对照实验验证过的写法，输出改成一镜一行）。
+func ChapterShotsTurnPlan(scenes []ShotsScene) string {
+	parts := make([]string, 0, len(scenes))
+	ids := make([]string, 0, len(scenes))
+	for i, s := range scenes {
+		parts = append(parts, fmt.Sprintf("第 %d 场%s", i+1, shotsSceneLabel(s)))
+		ids = append(ids, s.ID)
+	}
+	n := len(scenes)
+	return fmt.Sprintf("【分回合输出】本章按正文的场景标题共 %d 场：%s。这个对话分 %d 个回合写完整章：本回合只写第 1 场的全部镜头；我说「继续」时再写下一场。"+
+		"每个回合仍按【受保护输出契约】一镜一行输出，只写本场的镜头；shotNumber 接着上一回合往下编，不从 1 重来；spec.scene 写本场编号（%s），spec.id 写「场编号-本场序号」。"+
+		"写一场的第一个镜头前，先看上一回合最后一个镜头的站位、朝向、谁在画左画右、手里拿着什么、灯光状态和 end_state，从那里接着写。【本集时长】是 %d 场合计，按戏份分摊。",
+		n, strings.Join(parts, "；"), n, strings.Join(ids, "、"), n)
+}
+
+// ChapterShotsTurnPrompt 是第 k 场（从 1 数，k ≥ 2）的续写指令；nextShot 是本场第一个镜头的 shotNumber。
+func ChapterShotsTurnPrompt(scenes []ShotsScene, k int, nextShot int) string {
+	s := scenes[k-1]
+	return fmt.Sprintf("继续写第 %d 场：%s，到这一场结束为止。shotNumber 从 %d 起，spec.scene 写 %s。先对照上一回合最后一个镜头的站位、朝向、画左画右、手里的道具、灯光和 end_state 接着写。"+
+		"只输出本场的镜头，一镜一行，不要重复前面已经写过的镜头。", k, shotsSceneLabel(s), nextShot, s.ID)
+}

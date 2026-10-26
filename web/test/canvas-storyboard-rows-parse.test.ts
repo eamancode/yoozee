@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import { storyboardRowsFromTask } from "../src/lib/canvas/canvas-project-domain";
-import { storyboardRowsToProjectShots } from "../src/pages/projects/detail/chapter-storyboard-production";
 import type { GenerationTask } from "../src/services/api/task-center";
 
 function storyboardTask(resultJson: string): GenerationTask {
@@ -64,13 +63,12 @@ describe("storyboardRowsFromTask", () => {
             motion: { description: "缓慢推进" },
             timeBeats: 3,
         }] }));
-        const result = storyboardRowsFromTask(task);
-        const shots = storyboardRowsToProjectShots(result.rows);
-        expect(shots[0]?.description).toBe("对象形式的剧情");
-        expect(shots[0]?.revision.dialogue).toBe("台词一、台词二");
-        expect(shots[0]?.revision.cameraAngle).toBe("中景");
-        expect(shots[0]?.revision.cameraMovement).toBe("缓慢推进");
-        expect(shots[0]?.revision.actionBeats).toEqual([{ description: "3" }]);
+        const [row] = storyboardRowsFromTask(task).rows;
+        expect(row?.plotDescription).toBe("对象形式的剧情");
+        expect(row?.dialogue).toBe("台词一、台词二");
+        expect(row?.camera).toBe("中景");
+        expect(row?.motion).toBe("缓慢推进");
+        expect(row?.timeBeats).toBe("3");
     });
 
     test("text 内层不是 JSON 时抛出缺行错误", () => {

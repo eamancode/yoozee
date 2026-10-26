@@ -170,7 +170,7 @@ func TestFlowPackageUploadChangesAssembledPrompt(t *testing.T) {
 			})
 		}, drama.PackageRuleRequiredCard},
 		"契约版本不符": {func(files map[string][]byte) {
-			bumpManifest(t, files, func(m *drama.StepPackageManifest) { m.Version = "2.2.3"; m.Contract = "chapter.shots@3" })
+			bumpManifest(t, files, func(m *drama.StepPackageManifest) { m.Version = "2.2.3"; m.Contract = drama.ContractCanvasStoryboard })
 		}, drama.PackageRuleContract},
 		"超出预算": {func(files map[string][]byte) {
 			files["cards/情绪弧索引.md"] = []byte(strings.Repeat("弧", 30000))

@@ -196,7 +196,9 @@ export function writeDramaSegments(projectId: string, input: { unitId: string; s
 
 /** 镜头表门禁的一条结果：shotId 是规则指向的镜头（整表级规则为空）。 */
 export type DramaCheckItem = { level: "error" | "warn"; rule: string; message: string; shotId?: string };
-export type DramaCheckReport = { kind: "shots"; errors: number; warnings: number; items: DramaCheckItem[]; skipped: Array<{ rule: string; why: string }> };
+/** 生成分段收尾时模型输出的解析统计（一镜一行）：rate = 解析成功的行 / 像镜头行的行。 */
+export type DramaShotParseStats = { lines: number; rows: number; rejected: number; rate: number };
+export type DramaCheckReport = { kind: "shots"; errors: number; warnings: number; items: DramaCheckItem[]; skipped: Array<{ rule: string; why: string }>; parse?: DramaShotParseStats };
 export type DramaShotlistStats = { rows: number; shots: number; no_spec?: number; line_exact?: number; line_fuzzy?: number; line_unmatched?: number; scene_remap?: number; scene_unknown?: number; dup_id?: number };
 /** 一章的镜头表（契约 shotlist）、由章节正文转出的台词表与最近一次检查结果。 */
 export type DramaShotlistView = {
@@ -205,22 +207,16 @@ export type DramaShotlistView = {
     shotlist: { profile: string; episode?: number; shots: Array<Record<string, unknown>> };
     script?: Record<string, unknown>;
     check: DramaCheckReport;
+    /** 检查有 error、只存了草稿还没装段：本章的段仍是上一次装出的，处理后用 repackDramaShotlist 重装。 */
+    draft: boolean;
     compileProfile?: DramaCompileProfileRef;
     updatedAt: string;
 };
-/** profile 是这章检查、装段用的风格档案及来由（按项目画风对照）。 */
-export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; notes: string[]; profile?: string };
+/** profile 是这章检查、装段用的风格档案及来由（按项目画风对照）；draft 为 true 时检查有 error，只存了草稿没装段。 */
+export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; draft: boolean; notes: string[]; profile?: string };
 
 export function getDramaShotlist(projectId: string, unitId: string, signal?: AbortSignal) {
     return http.get<{ shotlist: DramaShotlistView | null }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist`, { signal });
-}
-
-/**
- * 写一章的镜头表并整章重装段：后端转台词、转镜头表、检查、装段。检查有 error 时抛 ApiError（reason=shotlist_check_failed，
- * details.check 是检查结果），镜头表与段都不落库。rule 是渠道实际能提交的段长，只能收紧项目生成模型的上限。
- */
-export function putDramaShotlist(projectId: string, unitId: string, input: { rows: unknown[]; rule?: { maxSeconds: number; minSeconds: number }; expectedShotIds?: string[] }) {
-    return http.put<DramaShotlistWriteResult>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist`, input);
 }
 
 /** 镜头表检查不过时，从错误里取出检查结果；不是这种错误返回 undefined。 */
@@ -230,7 +226,10 @@ export function shotlistCheckFailure(error: unknown): DramaCheckReport | undefin
     return check && Array.isArray(check.items) ? check : undefined;
 }
 
-/** 用这一章已存的分镜行原文按当前生效的编译档案重新装段（不调模型）；与写镜头表一样整章替换段，旧段的候选视频与证据一并删除。 */
+/**
+ * 用这一章已存的分镜行原文按当前生效的编译档案重新装段（不调模型），整章替换段，旧段的候选视频与证据一并删除。
+ * 镜头表是检查没过的草稿时仍要过检查：还有 error 就抛 ApiError（reason=shotlist_check_failed，details.check 是检查结果），草稿不变。
+ */
 export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: { maxSeconds: number; minSeconds: number } } = {}) {
     return http.post<DramaShotlistWriteResult>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist/repack`, input);
 }
@@ -340,7 +339,55 @@ export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?:
     return http.get<{ usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}`, { signal });
 }
 
-/** 对这一章跑这一步：提示词（技能上下文、画风、角色、资产与锚点、每集时长、契约）由服务端组装，这里只带文本模型选择。 */
-export function runDramaStep(projectId: string, unitId: string, step: DramaStepId, input: { model: string; logicalModelId?: string; config: Record<string, unknown> }) {
+/**
+ * 对这一章跑这一步：提示词（技能上下文、画风、角色、资产与锚点、每集时长、契约）由服务端组装，这里只带文本模型选择。
+ * 服务端在一个任务里按场续写，任务成功前解析、绑资产、写镜头表并装段（结果摘要在任务 result.dramaStep）。
+ * rule 是视频渠道实际能提交的段长（只收紧）；resumeTaskId 是「从第 N 场继续」的上一次任务。
+ */
+export function runDramaStep(projectId: string, unitId: string, step: DramaStepId, input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: { maxSeconds: number; minSeconds: number }; resumeTaskId?: string }) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
+}
+
+/** 逐场续写的进度（任务 result.dramaRun）：completed / total 场；任务失败时前面写完的场仍在，可从第 completed + 1 场继续。 */
+export type DramaRunProgress = {
+    runId: string;
+    total: number;
+    completed: number;
+    scenes?: Array<{ scene: string; heading: string; opening: string }>;
+    turns: Array<{ index: number; scene?: string; heading?: string; rows: number; attempts: number; taskId: string }>;
+};
+
+/** 生成分段收尾的摘要（任务 result.dramaStep）：written 已写镜头表并装段；draft 检查有 error，只存了草稿。 */
+export type DramaStepOutcome = {
+    step: DramaStepId;
+    status: "written" | "draft";
+    unitId: string;
+    parse: DramaShotParseStats;
+    errors: number;
+    warnings: number;
+    shots: number;
+    segments: number;
+    scenes: number;
+    version: number;
+    notes?: string[];
+    profile?: string;
+};
+
+function taskResultRecord(task: Pick<GenerationTask, "resultJson">): Record<string, unknown> {
+    try {
+        const parsed = JSON.parse(task.resultJson || "{}") as unknown;
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    } catch {
+        return {};
+    }
+}
+
+export function dramaRunProgressOf(task: Pick<GenerationTask, "resultJson">): DramaRunProgress | undefined {
+    const run = taskResultRecord(task).dramaRun as DramaRunProgress | undefined;
+    return run && typeof run.total === "number" && typeof run.completed === "number" ? run : undefined;
+}
+
+export function dramaStepOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaStepOutcome | undefined {
+    const outcome = taskResultRecord(task).dramaStep as DramaStepOutcome | undefined;
+    return outcome && (outcome.status === "written" || outcome.status === "draft") ? outcome : undefined;
 }

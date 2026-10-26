@@ -122,25 +122,6 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"shotlist": shotlist})
 	})
-	r.PUT("/projects/:id/units/:unitId/drama/shotlist", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<20)
-		var req service.DramaShotlistWriteRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			fail(c, http.StatusBadRequest, err)
-			return
-		}
-		result, err := svc.WriteDramaShotlist(user.ID, c.Param("id"), c.Param("unitId"), req)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		ok(c, result)
-	})
 	r.POST("/projects/:id/units/:unitId/drama/shotlist/repack", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
