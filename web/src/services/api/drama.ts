@@ -322,8 +322,8 @@ export function recommendDramaStyleProfile(styleMap: DramaStyleProfiles["styleMa
     return rule?.profile || styleMap.default;
 }
 
-/** 短剧流程步骤：chapter.shots 是生成分段。 */
-export type DramaStepId = "chapter.shots";
+/** 短剧流程步骤：script.adapt 是剧本优化（项目级），chapter.shots 是生成分段（按章节或剧集）。 */
+export type DramaStepId = "chapter.shots" | "script.adapt";
 
 /** 一个项目跑这一步用哪个技能版本（风格档案查绑定；bound 为 false 时是步骤默认技能）。 */
 export type DramaStepUsage = {
@@ -348,7 +348,63 @@ export function runDramaStep(projectId: string, unitId: string, step: DramaStepI
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
 }
 
-/** 逐场续写的进度（任务 result.dramaRun）：completed / total 场；任务失败时前面写完的场仍在，可从第 completed + 1 场继续。 */
+/**
+ * 剧本优化（项目级步骤）：服务端按项目记忆把所选原文章节改编成短剧剧本（mode=adapt），或把已有剧集只调节奏（mode=rhythm）；
+ * 一个任务里一轮写一集，收尾写成 kind=episode 的单元（结果摘要在任务 result.dramaStep）。sourceUnitIds 不给时 adapt 取全部
+ * 还没改编的原文章节、rhythm 取全部剧集；targetEpisodes / episodeSeconds 二选一。会替换已有剧集或改写有镜头表的剧集时，
+ * 不带 replace 会被拒（ApiError.reason=drama_episodes_replace_required，details.episodes 列出影响面）。
+ */
+export type DramaScriptAdaptMode = "adapt" | "rhythm";
+
+export function runDramaProjectStep(
+    projectId: string,
+    step: "script.adapt",
+    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; sourceUnitIds?: string[]; mode?: DramaScriptAdaptMode; targetEpisodes?: number; episodeSeconds?: number; replace?: boolean; resumeTaskId?: string },
+) {
+    return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
+}
+
+/** 重跑剧本优化会动到的一集：adapt 整体替换（连同镜头表和段），rhythm 原地改写正文。 */
+export type DramaEpisodeImpact = { unitId: string; title: string; shots: number; hasShotlist: boolean };
+
+export function dramaEpisodesReplaceImpact(error: unknown): { mode: DramaScriptAdaptMode; episodes: DramaEpisodeImpact[] } | undefined {
+    if (!(error instanceof ApiError) || error.reason !== API_ERROR_REASON.DramaEpisodesReplace) return undefined;
+    const episodes = error.details?.episodes as DramaEpisodeImpact[] | undefined;
+    return Array.isArray(episodes) ? { mode: error.details?.mode === "rhythm" ? "rhythm" : "adapt", episodes } : undefined;
+}
+
+/** 一集剧集的来源：原文章节的第 from 到第 to 段（含首尾）。 */
+export type DramaEpisodeSource = { unitId: string; from: number; to: number };
+
+/** 项目的剧集、各自来源（剧集正文开头的来源注释）和已有的段，以及已被剧集引用的原文章节。 */
+export type DramaEpisodes = {
+    episodes: Array<{ unitId: string; title: string; parentId?: string; position: number; wordCount: number; sources: DramaEpisodeSource[]; shots: number; hasShotlist: boolean }>;
+    adaptedChapterIds: string[];
+};
+
+export function dramaEpisodesKey(projectId: string) {
+    return ["project", projectId, "drama-episodes"] as const;
+}
+
+export function getDramaEpisodes(projectId: string, signal?: AbortSignal) {
+    return http.get<DramaEpisodes>(`/projects/${encodeURIComponent(projectId)}/drama/episodes`, { signal });
+}
+
+/** 剧本优化收尾的摘要（任务 result.dramaStep）：写出的各集、替换或改写了哪些已有剧集、检查提醒。 */
+export type DramaScriptAdaptOutcome = {
+    step: "script.adapt";
+    status: "written";
+    mode: DramaScriptAdaptMode;
+    episodes: Array<{ unitId: string; no: number; title: string; parentId?: string; sources: DramaEpisodeSource[]; scenes: number }>;
+    replaced?: string[];
+    rewritten?: string[];
+    parse: { blocks: number; episodes: number; rate: number };
+    errors: number;
+    warnings: number;
+    items?: DramaCheckReport["items"];
+};
+
+/** 逐轮续写的进度（任务 result.dramaRun）：completed / total 场（剧本优化是集）；任务失败时前面写完的仍在，可从第 completed + 1 场继续。 */
 export type DramaRunProgress = {
     runId: string;
     total: number;
@@ -359,7 +415,7 @@ export type DramaRunProgress = {
 
 /** 生成分段收尾的摘要（任务 result.dramaStep）：written 已写镜头表并装段；draft 检查有 error，只存了草稿。 */
 export type DramaStepOutcome = {
-    step: DramaStepId;
+    step: "chapter.shots";
     status: "written" | "draft";
     unitId: string;
     parse: DramaShotParseStats;
@@ -389,5 +445,10 @@ export function dramaRunProgressOf(task: Pick<GenerationTask, "resultJson">): Dr
 
 export function dramaStepOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaStepOutcome | undefined {
     const outcome = taskResultRecord(task).dramaStep as DramaStepOutcome | undefined;
-    return outcome && (outcome.status === "written" || outcome.status === "draft") ? outcome : undefined;
+    return outcome && outcome.step === "chapter.shots" && (outcome.status === "written" || outcome.status === "draft") ? outcome : undefined;
+}
+
+export function dramaScriptAdaptOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaScriptAdaptOutcome | undefined {
+    const outcome = taskResultRecord(task).dramaStep as DramaScriptAdaptOutcome | undefined;
+    return outcome && outcome.step === "script.adapt" && Array.isArray(outcome.episodes) ? outcome : undefined;
 }

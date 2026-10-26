@@ -1,0 +1,9 @@
+{
+  "id": "yz-script-adapt",
+  "step": "script.adapt",
+  "contract": "script.adapt@1",
+  "profiles": ["action-epic", "anime-3d", "duanju-shiga", "game-ip", "live-realism"],
+  "version": "1.0.0",
+  "files": ["SKILL.md"],
+  "eval": ["qichuang-novel-c01"]
+}

@@ -3,6 +3,7 @@ package drama
 import (
 	"fmt"
 	"math"
+	"slices"
 )
 
 // 自动启用门槛（M6 第三期）：包上传后在评测集上真跑这一步，逐章得出下面的指标，再按步骤表里的 StepGate 判定；
@@ -87,6 +88,9 @@ func (g StepGate) Evaluate(candidate []StepEvalChapterResult, baseline []StepEva
 	chapters := len(candidate)
 	out := StepGateVerdict{Passed: true}
 	add := func(c StepGateCheck) {
+		if len(g.Metrics) > 0 && !slices.Contains(g.Metrics, c.Metric) {
+			return
+		}
 		out.Checks = append(out.Checks, c)
 		out.Passed = out.Passed && c.Passed
 	}
@@ -98,7 +102,7 @@ func (g StepGate) Evaluate(candidate []StepEvalChapterResult, baseline []StepEva
 	}
 	parseRate := rate(parsed, chapters, 0)
 	add(StepGateCheck{Metric: GateParseRate, Label: "解析成功率", Value: parseRate, Limit: g.ParseRate, Passed: chapters > 0 && parseRate+gateEpsilon >= g.ParseRate,
-		Detail: fmt.Sprintf("%d / %d 章解析出镜头行", parsed, chapters)})
+		Detail: fmt.Sprintf("%d / %d 章解析成功", parsed, chapters)})
 	specRate := rate(specRows, rows, 0)
 	add(StepGateCheck{Metric: GateSpecRate, Label: "spec 写出率", Value: specRate, Limit: g.SpecRate, Passed: rows > 0 && specRate+gateEpsilon >= g.SpecRate,
 		Detail: fmt.Sprintf("%d / %d 行写了合法 spec", specRows, rows)})

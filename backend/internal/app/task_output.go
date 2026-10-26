@@ -178,6 +178,12 @@ func taskClientContext(raw string) *TaskClientContext {
 		context.ArtifactType = metadata.ArtifactType
 		return context
 	}
+	// 剧本优化是项目级步骤，没有章节：只带项目和操作，章节页按它认出正在跑的剧本优化。
+	if metadata.Source == "short-drama-script-adapt" && metadata.DomainProjectID != "" {
+		context.DomainProjectID = metadata.DomainProjectID
+		context.ChapterOperation = "script-adapt"
+		return context
+	}
 	chapterOperation := ""
 	if metadata.Operation == "chapter_character_breakdown" {
 		chapterOperation = "characters"

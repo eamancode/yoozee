@@ -62,6 +62,7 @@ import {
     createProjectAssetCandidates,
     createProjectUnit,
     deleteProjectUnit,
+    getProjectUnit,
     importProjectUnits,
     listProjectAssetCandidates,
     listProjectAssets,
@@ -72,7 +73,7 @@ import {
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { dramaRunProgressOf, dramaStepOutcomeOf, getDramaBrief, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure } from "@/services/api/drama";
+import { dramaEpisodesKey, dramaRunProgressOf, dramaStepOutcomeOf, getDramaBrief, getDramaEpisodes, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure, type DramaScriptAdaptOutcome } from "@/services/api/drama";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
@@ -83,7 +84,9 @@ import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
 import { consumeChapterImportQuery } from "./chapter-import-query";
-import { chapterAssetsFromGenerationTask, chapterTaskIdentity, extractChapterAssets, followChapterStoryboardTask, generateChapterStoryboard } from "./project-chapter-ai";
+import { chapterAssetsFromGenerationTask, chapterTaskIdentity, extractChapterAssets, followDramaRunTask, generateChapterStoryboard, isScriptAdaptTask } from "./project-chapter-ai";
+import { ScriptAdaptControl } from "./chapter-script-adapt";
+import { withEpisodeSourcesComment } from "./episode-sources";
 
 const CHAPTER_ROW_HEIGHT = 62;
 const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
@@ -92,6 +95,8 @@ type ChapterOperationKind = "characters" | "storyboard";
 type ChapterOperation = { startedAt: number; taskId?: string; queued?: boolean };
 // 生成分段的文本流（各场输出与回合标记），按章节存，侧栏解析成按场分组的镜头。
 type StoryboardStream = { taskId: string; text: string };
+// 章节页左栏看哪一类单元：原文章节（kind=chapter）或剧集（kind=episode）。
+type UnitView = "chapter" | "episode";
 
 function formatChapterListCount(value: number) {
     if (value < 10_000) return formatCount(value);
@@ -105,6 +110,12 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const { chapterId = "" } = useParams();
     const initialSelectedId = detail.units.some((unit) => unit.id === chapterId) ? chapterId : detail.units[0]?.id || "";
     const [selectedId, setSelectedId] = useState(initialSelectedId);
+    // 有剧集时默认看剧集；从地址打开某一章时看它所在的那一类。
+    const [unitView, setUnitView] = useState<UnitView>(() => {
+        const opened = detail.units.find((unit) => unit.id === initialSelectedId);
+        if (opened) return opened.kind === "episode" ? "episode" : "chapter";
+        return detail.units.some((unit) => unit.kind === "episode") ? "episode" : "chapter";
+    });
     const [createOpen, setCreateOpen] = useState(false);
     const [importOpen, setImportOpen] = useState(consumeChapterImportQuery);
     const [searchQuery, setSearchQuery] = useState("");
@@ -141,12 +152,31 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         queryFn: () => listGenerationTasks(100, { projectId: detail.project.id }),
         refetchInterval: (query) => query.state.data?.some((task) => {
             const identity = chapterTaskIdentity(task);
-            return Boolean(identity && (task.status === "queued" || task.status === "running"));
+            return Boolean((identity || isScriptAdaptTask(task)) && (task.status === "queued" || task.status === "running"));
         }) ? 2_000 : false,
         refetchOnWindowFocus: true,
     });
     const selectedUnit = selectedUnitSummary;
-    const chapterNumberById = useMemo(() => new Map(orderedUnits.map((unit, index) => [unit.id, index + 1])), [orderedUnits]);
+    const unitKind = (unit: ProjectUnit): UnitView => (unit.kind === "episode" ? "episode" : "chapter");
+    const chapterUnits = useMemo(() => orderedUnits.filter((unit) => unitKind(unit) === "chapter"), [orderedUnits]);
+    const episodeUnits = useMemo(() => orderedUnits.filter((unit) => unitKind(unit) === "episode"), [orderedUnits]);
+    const viewUnits = unitView === "episode" ? episodeUnits : chapterUnits;
+    // 章与集各自编号。
+    const chapterNumberById = useMemo(() => new Map([...chapterUnits.map((unit, index) => [unit.id, index + 1] as const), ...episodeUnits.map((unit, index) => [unit.id, index + 1] as const)]), [chapterUnits, episodeUnits]);
+    const unitNoun = unitView === "episode" ? "集" : "章";
+    // 改编出剧集后原文只读：改原文要重新优化，否则剧集和原文对不上。
+    const originalLocked = Boolean(selectedUnit && unitKind(selectedUnit) === "chapter" && episodeUnits.length);
+    const episodesQuery = useQuery({ queryKey: dramaEpisodesKey(detail.project.id), queryFn: ({ signal }) => getDramaEpisodes(detail.project.id, signal), enabled: episodeUnits.length > 0 });
+    const unitTitleById = useMemo(() => new Map(orderedUnits.map((unit) => [unit.id, unit.title])), [orderedUnits]);
+    // 原文与剧集互相跳转：剧集列来源章节和段号，原文章节列改编出的剧集。
+    const unitLinks = useMemo(() => {
+        if (!selectedUnit || !episodesQuery.data) return [];
+        if (unitKind(selectedUnit) === "episode") {
+            const episode = episodesQuery.data.episodes.find((item) => item.unitId === selectedUnit.id);
+            return (episode?.sources || []).filter((source) => unitTitleById.has(source.unitId)).map((source) => ({ unitId: source.unitId, label: `${unitTitleById.get(source.unitId)}${source.from ? ` ¶${source.from}-${source.to}` : ""}` }));
+        }
+        return episodesQuery.data.episodes.filter((episode) => episode.sources.some((source) => source.unitId === selectedUnit.id)).map((episode) => ({ unitId: episode.unitId, label: episode.title }));
+    }, [episodesQuery.data, selectedUnit, unitTitleById]);
     const canvasCountByUnitId = useMemo(() => new Map(Object.entries(detail.unitCanvasCounts || {}).map(([unitId, count]) => [unitId, Number(count)])), [detail.unitCanvasCounts]);
     const storyboardImpact = useMemo(() => chapterStoryboardReplaceImpact(detail, selectedUnit?.id || ""), [detail, selectedUnit?.id]);
     const dramaModels = useDramaModels();
@@ -249,10 +279,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const charactersGenerated = Boolean(selectedUnit && (completedChapterOperations[chapterOperationKey(selectedUnit.id, "characters")] || serverCompletedOperations.has(chapterOperationKey(selectedUnit.id, "characters")) || detail.assetCandidates.some((candidate) => candidate.unitId === selectedUnit.id && candidate.category === "character")));
     const storyboardGenerated = Boolean(selectedUnit && (completedChapterOperations[chapterOperationKey(selectedUnit.id, "storyboard")] || serverCompletedOperations.has(chapterOperationKey(selectedUnit.id, "storyboard")) || storyboardImpact.shotCount > 0));
     const visibleUnits = useMemo(() => {
-        if (!deferredSearchQuery) return orderedUnits;
+        if (!deferredSearchQuery) return viewUnits;
         const numericQuery = /^\d+$/.test(deferredSearchQuery) ? deferredSearchQuery.replace(/^0+/, "") || "0" : "";
-        return orderedUnits.filter((unit, index) => (numericQuery && String(index + 1).startsWith(numericQuery)) || unit.title.toLocaleLowerCase("zh-CN").includes(deferredSearchQuery));
-    }, [deferredSearchQuery, orderedUnits]);
+        return viewUnits.filter((unit, index) => (numericQuery && String(index + 1).startsWith(numericQuery)) || unit.title.toLocaleLowerCase("zh-CN").includes(deferredSearchQuery));
+    }, [deferredSearchQuery, viewUnits]);
     const chapterVirtualizer = useVirtualizer({
         count: visibleUnits.length,
         getScrollElement: () => listRef.current,
@@ -285,6 +315,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (selectedId) sessionStorage.setItem(`project-active-chapter:${detail.project.id}`, selectedId);
     }, [detail.project.id, selectedId]);
 
+    // 从别处跳到某一章或某一集时，左栏跟着切到它那一类。
+    useEffect(() => {
+        if (selectedUnitSummary) setUnitView(unitKind(selectedUnitSummary));
+    }, [selectedUnitSummary?.id]);
+
     useEffect(() => {
         if (!runningOperationCount) return;
         setOperationNow(Date.now());
@@ -296,7 +331,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         mutationFn: () => selectedUnit
             ? updateProjectUnit(detail.project.id, selectedUnit.id, {
                 title: draftTitle.trim(),
-                sourceText: draftHtml,
+                // 剧集正文开头的来源注释编辑器不显示，保存时接回去。
+                sourceText: unitKind(selectedUnit) === "episode" ? withEpisodeSourcesComment(selectedUnit.sourceText || "", draftHtml) : draftHtml,
                 status: stripHtml(draftHtml) ? "ready" : "draft",
             })
             : Promise.reject(new Error("请选择章节")),
@@ -318,15 +354,17 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "章节保存失败"),
     });
+    // 「导入剧本」的项目导入的就是剧集（只调节奏），其余导入原文章节。
+    const importKind: UnitView = detail.project.sourceType === "script" ? "episode" : "chapter";
     const createMutation = useMutation({
-        mutationFn: (values: { title: string; sourceText?: string }) => createProjectUnit(detail.project.id, { kind: "chapter", title: values.title, sourceText: plainTextToHtml(values.sourceText || ""), position: detail.units.length }),
-        onSuccess: ({ unit }) => { queryClient.setQueryData(["project", detail.project.id, "units"], (current: Parameters<typeof appendProjectUnits>[0]) => appendProjectUnits(current, [unit])); setCreateOpen(false); setSelectedId(unit.id); refreshProject(); navigate(`/projects/${detail.project.id}/chapters/${unit.id}`); message.success("章节已创建"); },
-        onError: (error) => message.error(error instanceof Error ? error.message : "章节创建失败"),
+        mutationFn: (values: { title: string; sourceText?: string }) => createProjectUnit(detail.project.id, { kind: unitView, title: values.title, sourceText: plainTextToHtml(values.sourceText || ""), position: detail.units.length }),
+        onSuccess: ({ unit }) => { queryClient.setQueryData(["project", detail.project.id, "units"], (current: Parameters<typeof appendProjectUnits>[0]) => appendProjectUnits(current, [unit])); setCreateOpen(false); setSelectedId(unit.id); refreshProject(); navigate(`/projects/${detail.project.id}/chapters/${unit.id}`); message.success(unit.kind === "episode" ? "剧集已创建" : "章节已创建"); },
+        onError: (error) => message.error(error instanceof Error ? error.message : "创建失败"),
     });
     const importMutation = useMutation({
-        mutationFn: (chapters: Array<{ title: string; plainText: string }>) => importProjectUnits(detail.project.id, chapters.map((chapter) => ({ kind: "chapter", title: chapter.title, sourceText: plainTextToHtml(chapter.plainText) }))),
-        onSuccess: ({ units }) => { queryClient.setQueryData(["project", detail.project.id, "units"], (current: Parameters<typeof appendProjectUnits>[0]) => appendProjectUnits(current, units)); setImportOpen(false); if (units[0]) { setSelectedId(units[0].id); navigate(`/projects/${detail.project.id}/chapters/${units[0].id}`); } refreshProject(); message.success(`已导入 ${units.length} 章`); },
-        onError: (error) => message.error(error instanceof Error ? error.message : "小说导入失败"),
+        mutationFn: (chapters: Array<{ title: string; plainText: string }>) => importProjectUnits(detail.project.id, chapters.map((chapter) => ({ kind: importKind, title: chapter.title, sourceText: plainTextToHtml(chapter.plainText) }))),
+        onSuccess: ({ units }) => { queryClient.setQueryData(["project", detail.project.id, "units"], (current: Parameters<typeof appendProjectUnits>[0]) => appendProjectUnits(current, units)); setImportOpen(false); if (units[0]) { setSelectedId(units[0].id); navigate(`/projects/${detail.project.id}/chapters/${units[0].id}`); } refreshProject(); message.success(importKind === "episode" ? `已导入 ${units.length} 集剧本` : `已导入 ${units.length} 章`); },
+        onError: (error) => message.error(error instanceof Error ? error.message : importKind === "episode" ? "剧本导入失败" : "小说导入失败"),
     });
     const reorderMutation = useMutation({
         mutationFn: (unitIds: string[]) => reorderProjectUnits(detail.project.id, unitIds),
@@ -382,6 +420,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         editor.commands.setContent(loadedUnit.sourceText || "", { emitUpdate: false });
         // 只在切换章节时装载服务端内容，避免项目刷新覆盖当前未保存正文。
     }, [editor, selectedUnit?.id]);
+
+    useEffect(() => {
+        if (editor && editor.isEditable === originalLocked) editor.setEditable(!originalLocked, false);
+    }, [editor, originalLocked]);
 
     const wordCount = useMemo(() => editor?.storage.characterCount?.characters?.() || stripHtml(draftHtml).length || 0, [draftHtml, editor]);
     const chapterCanvasCount = (unitId: string) => canvasCountByUnitId.get(unitId) || 0;
@@ -627,11 +669,42 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (!runPanelOpen || !unitId || !task || (task.status !== "queued" && task.status !== "running") || followedStoryboardTasksRef.current.has(task.id)) return;
         followedStoryboardTasksRef.current.add(task.id);
         appendStoryboardStream(unitId, task.id, "");
-        void followChapterStoryboardTask(task, { onStreamText: (text) => appendStoryboardStream(unitId, task.id, text) })
+        void followDramaRunTask(task, { onStreamText: (text) => appendStoryboardStream(unitId, task.id, text) })
             .then(() => refreshStoryboardResult(unitId))
             .catch(() => void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", detail.project.id] }));
     }, [latestStoryboardTask, runPanelOpen, selectedUnit?.id]);
 
+    // 剧本优化写完：切到剧集视图，改编时选中写出的第一集。
+    const showWrittenEpisodes = (outcome: DramaScriptAdaptOutcome) => {
+        void queryClient.invalidateQueries({ queryKey: dramaEpisodesKey(detail.project.id) });
+        setUnitView("episode");
+        // 只调节奏改写了正在打开的这一集：编辑器只在切换单元时装载正文，这里换成改写后的，免得保存时把改写盖回去。
+        const openUnit = selectedUnit;
+        if (outcome.mode === "rhythm" && openUnit && outcome.rewritten?.includes(openUnit.id)) {
+            if (dirty) {
+                message.warning("这一集有未保存的修改，编辑器里还是改写前的正文；保存会覆盖改写结果，不需要就切换一下剧集放弃修改", 10);
+                return;
+            }
+            void getProjectUnit(detail.project.id, openUnit.id).then(({ unit }) => {
+                editor?.commands.setContent(unit.sourceText || "", { emitUpdate: false });
+                setDraftHtml(unit.sourceText || "");
+                setDirty(false);
+            });
+            return;
+        }
+        const first = outcome.episodes[0]?.unitId;
+        if (first && !dirty) {
+            setSelectedId(first);
+            navigate(`/projects/${detail.project.id}/chapters/${first}`);
+        }
+    };
+    const switchUnitView = (view: UnitView) => {
+        if (view === unitView) return;
+        setUnitView(view);
+        setSearchQuery("");
+        const first = (view === "episode" ? episodeUnits : chapterUnits)[0];
+        if (first && !dirty) selectChapter(first.id);
+    };
     const selectChapter = (unitId: string) => {
         if (unitId === selectedId) return;
         if (dirty) { message.warning("请先保存当前章节，再切换章节"); return; }
@@ -649,15 +722,18 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     };
     const moveChapterToPosition = () => {
         if (!moveTargetId || !movePosition || reorderMutation.isPending) return;
+        // 序号是当前这一类（原文或剧集）里的位置：插到这一类第 N 个单元前面，排到最后时接在这一类最后一个后面。
+        const viewIds = viewUnits.map((unit) => unit.id).filter((id) => id !== moveTargetId);
         const next = orderedIds.filter((id) => id !== moveTargetId);
-        const targetIndex = Math.min(Math.max(movePosition - 1, 0), next.length);
+        const anchor = viewIds[Math.min(Math.max(movePosition - 1, 0), viewIds.length)];
+        const targetIndex = anchor ? next.indexOf(anchor) : viewIds.length ? next.indexOf(viewIds[viewIds.length - 1]) + 1 : next.length;
         next.splice(targetIndex, 0, moveTargetId);
         setOrderedIds(next);
         setMoveTargetId("");
         setMovePosition(null);
         reorderMutation.mutate(next);
         window.setTimeout(() => {
-            const index = next.indexOf(moveTargetId);
+            const index = next.filter((id) => viewIds.includes(id) || id === moveTargetId).indexOf(moveTargetId);
             const visibleIndex = visibleUnits.findIndex((unit) => unit.id === moveTargetId);
             if (!deferredSearchQuery && index >= 0) chapterVirtualizer.scrollToIndex(index, { align: "center" });
             else if (visibleIndex >= 0) chapterVirtualizer.scrollToIndex(visibleIndex, { align: "center" });
@@ -667,7 +743,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (!selectedId) return;
         setSearchQuery("");
         window.setTimeout(() => {
-            const index = orderedIds.indexOf(selectedId);
+            const index = viewUnits.findIndex((unit) => unit.id === selectedId);
             if (index >= 0) chapterVirtualizer.scrollToIndex(index, { align: "center" });
         }, 0);
     };
@@ -684,22 +760,26 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         <div className="grid h-full min-h-0 min-w-0 w-full grid-rows-[minmax(180px,34vh)_minmax(0,1fr)] overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1">
             <aside className="flex min-h-0 min-w-0 w-full flex-col border-b border-border/70 bg-background/28 lg:border-b-0 lg:border-r">
                 <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/70 px-2.5">
-                    <div className="text-xs font-medium text-foreground/55">章节 <span className="ml-1 tabular-nums text-foreground/35">{detail.units.length.toLocaleString("zh-CN")}</span></div>
+                    <div className="flex items-center gap-0.5 rounded-md bg-foreground/[.035] p-0.5 text-xs" role="group" aria-label="原文或剧集">
+                        {([["chapter", "原文", chapterUnits.length], ["episode", "剧集", episodeUnits.length]] as const).map(([view, label, count]) => (
+                            <button key={view} type="button" aria-pressed={unitView === view} onClick={() => switchUnitView(view)} className={`rounded px-2 py-0.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--workspace-accent)] ${unitView === view ? "bg-background text-foreground/80 shadow-sm" : "text-foreground/45 hover:text-foreground/70"}`}>{label} <span className="tabular-nums text-foreground/35">{count.toLocaleString("zh-CN")}</span></button>
+                        ))}
+                    </div>
                     <div className="flex items-center gap-0.5">
-                        {selectedId ? <Tooltip title="回到当前章节"><Button type="text" size="small" icon={<Crosshair className="size-3.5" />} aria-label="回到当前章节" onClick={revealSelectedChapter} /></Tooltip> : null}
-                        <Tooltip title="导入小说"><Button type="text" size="small" icon={<FileUp className="size-3.5" />} aria-label="导入小说" onClick={() => setImportOpen(true)} /></Tooltip>
-                        <Tooltip title="添加章节"><Button type="text" size="small" icon={<Plus className="size-4" />} aria-label="添加章节" onClick={() => setCreateOpen(true)} /></Tooltip>
+                        {selectedId ? <Tooltip title={`回到当前${unitNoun}`}><Button type="text" size="small" icon={<Crosshair className="size-3.5" />} aria-label={`回到当前${unitNoun}`} onClick={revealSelectedChapter} /></Tooltip> : null}
+                        <Tooltip title={importKind === "episode" ? "导入剧本" : "导入小说"}><Button type="text" size="small" icon={<FileUp className="size-3.5" />} aria-label={importKind === "episode" ? "导入剧本" : "导入小说"} onClick={() => setImportOpen(true)} /></Tooltip>
+                        <Tooltip title={unitView === "episode" ? "添加剧集" : "添加章节"}><Button type="text" size="small" icon={<Plus className="size-4" />} aria-label={unitView === "episode" ? "添加剧集" : "添加章节"} onClick={() => setCreateOpen(true)} /></Tooltip>
                     </div>
                 </div>
                 <div className="shrink-0 border-b border-border/60 p-2">
                     <label className="flex h-8 items-center gap-1.5 rounded-md border border-border/75 bg-background/55 px-2 focus-within:border-[var(--workspace-accent)] focus-within:ring-2 focus-within:ring-[var(--workspace-accent-soft)]">
                         <Search className="size-3.5 shrink-0 text-foreground/32" />
-                        <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && visibleUnits[0]) selectChapter(visibleUnits[0].id); }} className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-foreground/28" placeholder="搜索标题或章节序号" aria-label="搜索章节" />
+                        <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && visibleUnits[0]) selectChapter(visibleUnits[0].id); }} className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-foreground/28" placeholder={`搜索标题或${unitNoun}序号`} aria-label={unitView === "episode" ? "搜索剧集" : "搜索章节"} />
                         {searchQuery ? <button type="button" onClick={() => setSearchQuery("")} className="grid size-5 shrink-0 place-items-center rounded text-foreground/32 hover:bg-surface-hover" aria-label="清空章节搜索"><X className="size-3" /></button> : null}
                     </label>
-                    {deferredSearchQuery ? <div className="mt-1 px-0.5 text-[var(--fs-micro)] tabular-nums text-foreground/35">找到 {visibleUnits.length.toLocaleString("zh-CN")} 章 · 搜索时使用“移动到”调整顺序</div> : null}
+                    {deferredSearchQuery ? <div className="mt-1 px-0.5 text-[var(--fs-micro)] tabular-nums text-foreground/35">找到 {visibleUnits.length.toLocaleString("zh-CN")} {unitNoun} · 搜索时使用“移动到”调整顺序</div> : null}
                 </div>
-                {orderedUnits.length ? (
+                {viewUnits.length ? (
                     <div ref={listRef} onDragOver={handleListDragOver} className="thin-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
                         {visibleUnits.length ? <div className="relative w-full" style={{ height: chapterVirtualizer.getTotalSize() }}>
                             {chapterVirtualizer.getVirtualItems().map((virtualItem) => {
@@ -711,15 +791,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                                 return (
                                     <div key={unit.id} className="absolute left-0 top-0 w-full" style={{ height: virtualItem.size, transform: `translateY(${virtualItem.start}px)` }}>
                                         <div draggable={!dirty && !reorderMutation.isPending && !deferredSearchQuery} onDragStart={(event) => { setDraggedId(unit.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (deferredSearchQuery) return; event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDrop={() => moveChapter(unit.id)} onDragEnd={() => setDraggedId("")} className={`group relative flex h-[58px] items-start rounded-lg border px-0.5 transition-colors duration-100 ${unit.id === selectedUnit?.id ? "border-border/90 bg-surface-active" : "border-transparent hover:border-border/60 hover:bg-surface-hover"} ${draggedId === unit.id ? "opacity-45" : ""}`}>
-                                            <button type="button" disabled={Boolean(deferredSearchQuery)} className="mt-3.5 grid size-6 shrink-0 cursor-grab place-items-center text-foreground/22 active:cursor-grabbing disabled:cursor-default disabled:opacity-35" aria-label={`拖动第 ${chapterNumber} 章排序`}><GripVertical className="size-3.5" /></button>
+                                            <button type="button" disabled={Boolean(deferredSearchQuery)} className="mt-3.5 grid size-6 shrink-0 cursor-grab place-items-center text-foreground/22 active:cursor-grabbing disabled:cursor-default disabled:opacity-35" aria-label={`拖动第 ${chapterNumber} ${unitNoun}排序`}><GripVertical className="size-3.5" /></button>
                                             <button type="button" onClick={() => selectChapter(unit.id)} className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pr-14 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--workspace-accent)]">
-                                                <span className={`grid h-8 min-w-8 shrink-0 place-items-center rounded-md px-1 text-[var(--fs-tiny)] font-semibold tabular-nums ${unit.id === selectedUnit?.id ? "bg-[var(--workspace-accent-soft)] text-[var(--workspace-accent)]" : "bg-foreground/[.035] text-foreground/35"}`}>{String(chapterNumber).padStart(Math.max(2, String(orderedUnits.length).length), "0")}</span>
+                                                <span className={`grid h-8 min-w-8 shrink-0 place-items-center rounded-md px-1 text-[var(--fs-tiny)] font-semibold tabular-nums ${unit.id === selectedUnit?.id ? "bg-[var(--workspace-accent-soft)] text-[var(--workspace-accent)]" : "bg-foreground/[.035] text-foreground/35"}`}>{String(chapterNumber).padStart(Math.max(2, String(viewUnits.length).length), "0")}</span>
                                                 <span className="min-w-0 flex-1 overflow-hidden"><span className={`block truncate text-[var(--fs-body)] ${unit.id === selectedUnit?.id ? "font-semibold text-foreground" : "font-medium text-foreground/68"}`}>{unit.title}</span><span title={chapterMeta} className="mt-1 block truncate whitespace-nowrap text-[var(--fs-tiny)] tabular-nums text-foreground/38">{statusLabel(unit.status)} · {formatChapterListCount(displayedWordCount)} 字 · {chapterCanvasCount(unit.id)} 画布</span></span>
                                             </button>
                                             <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: [{ key: "move", icon: <MoveVertical className="size-3.5" />, label: "移动到…" }], onClick: () => { setMoveTargetId(unit.id); setMovePosition(chapterNumber); } }}>
                                                 <button type="button" className="absolute right-7 top-1/2 z-[1] grid size-6 -translate-y-1/2 place-items-center rounded text-foreground/28 opacity-0 hover:bg-surface-hover hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100" aria-label={`${unit.title}更多操作`}><MoreHorizontal className="size-3.5" /></button>
                                             </Dropdown>
-                                            <Popconfirm title="删除此章节？" description="章节内容及关联制作记录将被删除，已关联的画布不会删除。" okText="删除" cancelText="取消" okButtonProps={{ danger: true, loading: deleteMutation.isPending }} onConfirm={() => deleteMutation.mutate(unit.id)}>
+                                            <Popconfirm title={unit.kind === "episode" ? "删除此剧集？" : "删除此章节？"} description={unit.kind === "episode" ? "剧集正文、镜头表和段将被删除，已关联的画布不会删除。" : "章节内容及关联制作记录将被删除，已关联的画布不会删除。"} okText="删除" cancelText="取消" okButtonProps={{ danger: true, loading: deleteMutation.isPending }} onConfirm={() => deleteMutation.mutate(unit.id)}>
                                                 <button type="button" className="absolute right-1 top-1/2 z-[1] grid size-6 -translate-y-1/2 place-items-center rounded text-foreground/28 opacity-0 hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 focus-visible:opacity-100" aria-label={`删除${unit.title}`}><Trash2 className="size-3.5" /></button>
                                             </Popconfirm>
                                         </div>
@@ -728,6 +808,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                             })}
                         </div> : <div className="px-3 py-8 text-center text-xs text-foreground/40">没有匹配的章节</div>}
                     </div>
+                ) : unitView === "episode" ? (
+                    <WorkspaceState icon="projects" compact className="flex-1 px-4" title="还没有剧集" description={chapterUnits.length ? "在右上角点「剧本优化」把原文章节改编成剧集，或导入剧本。" : "导入剧本，或先导入小说再做剧本优化。"} action={<Button size="small" type="primary" icon={<FileUp className="size-3.5" />} onClick={() => setImportOpen(true)}>{importKind === "episode" ? "导入剧本" : "导入小说"}</Button>} />
                 ) : <WorkspaceState icon="projects" compact className="flex-1 px-4" title="还没有章节" description="添加章节后可继续编写正文和关联画布。" action={<Button size="small" type="primary" icon={<Plus className="size-3.5" />} onClick={() => setCreateOpen(true)}>添加章节</Button>} />}
             </aside>
 
@@ -735,27 +817,30 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 {selectedUnit ? (
                     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-lg border border-border/80 bg-background">
                         <header className="flex shrink-0 flex-wrap items-start gap-3 border-b border-border/70 px-4 py-3">
-                            <div className="min-w-0 flex-1">
-                                <div className="mb-1 text-[var(--fs-tiny)] font-medium tabular-nums text-foreground/38">第 {String(orderedUnits.findIndex((unit) => unit.id === selectedUnit.id) + 1).padStart(2, "0")} 章</div>
-                                <Input variant="borderless" value={draftTitle} disabled={!selectedUnit} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
+                            <div className="min-w-[12rem] flex-1">
+                                <div className="mb-1 text-[var(--fs-tiny)] font-medium tabular-nums text-foreground/38">{unitKind(selectedUnit) === "episode" ? "剧集" : "原文"} · 第 {String(chapterNumberById.get(selectedUnit.id) || 1).padStart(2, "0")} {unitKind(selectedUnit) === "episode" ? "集" : "章"}</div>
+                                <Input variant="borderless" value={draftTitle} disabled={!selectedUnit || originalLocked} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
                                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span>{unitShots.length ? <><span>·</span><span>{unitShots.length} 段</span></> : null}{dialogueCoverage.expected ? <><span>·</span><span className={dialogueCoverage.covered < dialogueCoverage.expected && unitShots.length ? "text-amber-600 dark:text-amber-400" : ""} title={dialogueCoverage.missing.length ? `没进分段的台词：${dialogueCoverage.missing.slice(0, 5).join(" / ")}` : undefined}>台词覆盖 {dialogueCoverage.covered}/{dialogueCoverage.expected}</span></> : null}{overLimitSegments.length ? <><span>·</span><span className="text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {segmentMaxSeconds} 秒，需拆分</span></> : null}{shotlist?.draft && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>镜头表有 {shotlist.check.errors} 个问题，还没装段</button></> : null}{storyboardResume && !storyboardOperation ? <><span>·</span><button type="button" className="text-amber-600 underline-offset-2 hover:underline dark:text-amber-400" onClick={() => setRunPanelOpen(true)}>分段停在第 {storyboardResume.from} 场</button></> : null}{storyboardStop?.kind === "failed" && storyboardStop.status === "failed" && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>上一次生成分段失败</button></> : null}</div>
+                                {unitLinks.length ? <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/45"><span>{unitKind(selectedUnit) === "episode" ? "改编自" : "已改编成"}</span>{unitLinks.map((link) => <button key={`${link.unitId}-${link.label}`} type="button" className="rounded bg-foreground/[.035] px-1.5 py-0.5 text-foreground/62 hover:text-[var(--workspace-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--workspace-accent)]" onClick={() => selectChapter(link.unitId)}>{link.label}</button>)}</div> : null}
                             </div>
-                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                            <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5">
+                                <ScriptAdaptControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} onWritten={showWrittenEpisodes} />
                                 <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(characterOperation)} loading={Boolean(characterOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setCharacterExtractOpen(true); }} aria-label={characterOperation ? `提取角色、场景与道具，${chapterOperationLabel(characterOperation, operationNow)}` : "提取角色、场景与道具"}>{characterOperation ? `提取资产（${chapterOperationLabel(characterOperation, operationNow)}）` : charactersGenerated ? "提取资产（已生成）" : "提取角色、场景与道具"}</Button>
                                 <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button>
                                 {storyboardOperation || storyboardStreamState.shotCount || shotlist || storyboardStop ? <Button size="small" onClick={() => setRunPanelOpen(true)} aria-label="查看生成分段进度">进度</Button> : null}
-                                <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
+                                <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending || originalLocked} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
-                        <EditorToolbar editor={editor} />
+                        {originalLocked ? <div className="shrink-0 border-b border-border/70 px-4 py-2"><Callout tone="info" title="这一章已改编成剧集，原文只读" action={<Button size="small" onClick={() => switchUnitView("episode")}>看剧集</Button>}>原文只作改编依据：要改剧情就改剧集；要按原文重来，点「剧本优化」勾选这一章重新改编，新剧本会替换由它改编的剧集。</Callout></div> : null}
+                        <EditorToolbar editor={originalLocked ? null : editor} />
                         <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">
                             <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>
                         </div>
                     </div>
                 ) : <WorkspaceState icon="projects" compact className="h-full" title="请选择章节" description="从左侧章节列表选择一章开始编辑。" />}
             </section>
-            <CreateChapterModal open={createOpen} onClose={() => setCreateOpen(false)} loading={createMutation.isPending} onSubmit={(values) => createMutation.mutate(values)} />
-            <ImportNovelModal open={importOpen} loading={importMutation.isPending} onClose={() => setImportOpen(false)} onImport={(chapters) => importMutation.mutate(chapters)} />
+            <CreateChapterModal open={createOpen} kind={unitView} onClose={() => setCreateOpen(false)} loading={createMutation.isPending} onSubmit={(values) => createMutation.mutate(values)} />
+            <ImportNovelModal open={importOpen} kind={importKind} loading={importMutation.isPending} onClose={() => setImportOpen(false)} onImport={(chapters) => importMutation.mutate(chapters)} />
             <Modal className="library-modal" title="提取章节角色、场景与道具" open={characterExtractOpen} width={500} okText="开始提取" cancelText="取消" okButtonProps={{ disabled: !selectedTextModel }} onCancel={() => setCharacterExtractOpen(false)} onOk={() => void extractCharacters()} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
@@ -819,9 +904,9 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     )}
                 </div>
             </Modal>
-            <Modal className="library-modal" title="移动章节" open={Boolean(moveTargetId)} width={400} okText="移动" cancelText="取消" okButtonProps={{ disabled: !movePosition || movePosition < 1 || movePosition > orderedUnits.length, loading: reorderMutation.isPending }} onCancel={() => { setMoveTargetId(""); setMovePosition(null); }} onOk={moveChapterToPosition} styles={{ body: { paddingTop: 12 } }}>
+            <Modal className="library-modal" title={unitView === "episode" ? "移动剧集" : "移动章节"} open={Boolean(moveTargetId)} width={400} okText="移动" cancelText="取消" okButtonProps={{ disabled: !movePosition || movePosition < 1 || movePosition > viewUnits.length, loading: reorderMutation.isPending }} onCancel={() => { setMoveTargetId(""); setMovePosition(null); }} onOk={moveChapterToPosition} styles={{ body: { paddingTop: 12 } }}>
                 <div className="text-xs leading-5 text-foreground/50">输入目标章节位置。适合上千章项目的长距离调整，移动后其他章节会自动顺延。</div>
-                <label className="mt-3 flex items-center gap-2 text-sm"><span className="shrink-0">移动到第</span><InputNumber min={1} max={orderedUnits.length} precision={0} value={movePosition} onChange={setMovePosition} className="min-w-0 flex-1" /><span className="shrink-0">章</span></label>
+                <label className="mt-3 flex items-center gap-2 text-sm"><span className="shrink-0">移动到第</span><InputNumber min={1} max={viewUnits.length} precision={0} value={movePosition} onChange={setMovePosition} className="min-w-0 flex-1" /><span className="shrink-0">{unitNoun}</span></label>
             </Modal>
         </div>
     );
@@ -911,11 +996,15 @@ function ToolbarDivider() {
     return <span className="mx-1 h-4 w-px shrink-0 bg-border" />;
 }
 
-function CreateChapterModal({ open, onClose, loading, onSubmit }: { open: boolean; onClose: () => void; loading: boolean; onSubmit: (values: { title: string; sourceText?: string }) => void }) {
-    return <Modal className="library-modal" title="添加章节" open={open} footer={null} destroyOnHidden onCancel={onClose} width={480} styles={{ body: { paddingTop: 12 } }}><Form layout="vertical" onFinish={onSubmit}><Form.Item name="title" label="章节标题" rules={[{ required: true, whitespace: true, message: "请输入章节标题" }]}><Input autoFocus placeholder="例如：雨夜归城" /></Form.Item><Form.Item name="sourceText" label="正文（可选）"><Input.TextArea rows={4} placeholder="创建后仍可继续编辑和排版" /></Form.Item><div className="flex justify-end gap-2"><Button onClick={onClose}>取消</Button><Button type="primary" htmlType="submit" loading={loading}>创建章节</Button></div></Form></Modal>;
+function CreateChapterModal({ open, kind, onClose, loading, onSubmit }: { open: boolean; kind: UnitView; onClose: () => void; loading: boolean; onSubmit: (values: { title: string; sourceText?: string }) => void }) {
+    const noun = kind === "episode" ? "剧集" : "章节";
+    return <Modal className="library-modal" title={`添加${noun}`} open={open} footer={null} destroyOnHidden onCancel={onClose} width={480} styles={{ body: { paddingTop: 12 } }}><Form layout="vertical" onFinish={onSubmit}><Form.Item name="title" label={`${noun}标题`} rules={[{ required: true, whitespace: true, message: `请输入${noun}标题` }]}><Input autoFocus placeholder="例如：雨夜归城" /></Form.Item><Form.Item name="sourceText" label="正文（可选）"><Input.TextArea rows={4} placeholder={kind === "episode" ? "剧本格式：「## 内·地点·夜」起一场，「人物：台词」一行一句" : "创建后仍可继续编辑和排版"} /></Form.Item><div className="flex justify-end gap-2"><Button onClick={onClose}>取消</Button><Button type="primary" htmlType="submit" loading={loading}>创建{noun}</Button></div></Form></Modal>;
 }
 
-function ImportNovelModal({ open, loading, onClose, onImport }: { open: boolean; loading: boolean; onClose: () => void; onImport: (chapters: Array<{ title: string; plainText: string }>) => void }) {
+/** 导入小说（原文章节）或导入剧本（剧集，「导入剧本」的项目）：按章 / 集标题自动切分后追加到项目。 */
+function ImportNovelModal({ open, kind, loading, onClose, onImport }: { open: boolean; kind: UnitView; loading: boolean; onClose: () => void; onImport: (chapters: Array<{ title: string; plainText: string }>) => void }) {
+    const script = kind === "episode";
+    const noun = script ? "集" : "章";
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [text, setText] = useState("");
     const [fileName, setFileName] = useState("");
@@ -932,17 +1021,17 @@ function ImportNovelModal({ open, loading, onClose, onImport }: { open: boolean;
     return (
         <AppModal flush title={null} open={open} footer={null} onCancel={onClose} width={760}>
             <div className="flex min-h-[478px] flex-col">
-                <header className="flex h-12 shrink-0 items-center border-b border-border px-4"><div><h2 className="text-sm font-semibold">导入小说</h2><p className="mt-0.5 text-[var(--fs-tiny)] text-foreground/42">自动识别章节标题，确认后追加到当前项目</p></div></header>
+                <header className="flex h-12 shrink-0 items-center border-b border-border px-4"><div><h2 className="text-sm font-semibold">{script ? "导入剧本" : "导入小说"}</h2><p className="mt-0.5 text-[var(--fs-tiny)] text-foreground/42">{script ? "自动识别「第一集」这类标题，每集成为一个剧集，确认后追加到当前项目" : "自动识别章节标题，确认后追加到当前项目"}</p></div></header>
                 <div className="grid min-h-[430px] flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_240px]">
                 <div className="border-b border-border p-3 md:border-b-0 md:border-r">
-                    <div className="mb-2 flex items-center justify-between gap-2"><div><div className="text-sm font-medium">小说正文</div><div className="mt-0.5 text-[var(--fs-label)] text-foreground/45">识别章节标题后追加到现有章节</div></div><Button size="small" icon={<FileUp className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>{fileName || "选择 TXT"}</Button></div>
+                    <div className="mb-2 flex items-center justify-between gap-2"><div><div className="text-sm font-medium">{script ? "剧本正文" : "小说正文"}</div><div className="mt-0.5 text-[var(--fs-label)] text-foreground/45">{script ? "场次头写「## 内·地点·夜」，台词写「人物：台词」，生成分段按它切场" : "识别章节标题后追加到现有章节"}</div></div><Button size="small" icon={<FileUp className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>{fileName || "选择 TXT"}</Button></div>
                     <input ref={fileInputRef} type="file" accept=".txt,.md,text/plain,text/markdown" className="hidden" onChange={(event) => void readFile(event)} />
-                    <Input.TextArea value={text} onChange={(event) => setText(event.target.value)} rows={16} placeholder={'也可以直接粘贴小说正文，例如：\n\n第一章 雨夜来信\n正文……\n\n第二章 灯塔以北\n正文……'} className="!resize-none" />
+                    <Input.TextArea value={text} onChange={(event) => setText(event.target.value)} rows={16} placeholder={script ? '也可以直接粘贴剧本，例如：\n\n第一集 雨夜来信\n## 内·病房走廊·夜\n林小满：七床？\n\n第二集 灯塔以北\n……' : '也可以直接粘贴小说正文，例如：\n\n第一章 雨夜来信\n正文……\n\n第二章 灯塔以北\n正文……'} className="!resize-none" />
                 </div>
                 <div className="flex min-h-0 flex-col">
-                    <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3 text-xs"><span className="font-medium">拆分预览</span><span className="tabular-nums text-foreground/45">{chapters.length} 章</span></div>
-                    <ImportChapterPreview chapters={chapters} />
-                    <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3"><span className={`text-[var(--fs-tiny)] ${chapters.length > MAX_NOVEL_IMPORT_CHAPTERS ? "text-red-500" : "text-foreground/38"}`}>{chapters.length > MAX_NOVEL_IMPORT_CHAPTERS ? `最多一次导入 ${MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} 章` : `支持最多 ${MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} 章`}</span><div className="flex gap-2"><Button size="small" onClick={onClose}>取消</Button><Button size="small" type="primary" disabled={!chapters.length || chapters.length > MAX_NOVEL_IMPORT_CHAPTERS} loading={loading} onClick={() => onImport(chapters)}>导入 {chapters.length || ""} 章</Button></div></div>
+                    <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3 text-xs"><span className="font-medium">拆分预览</span><span className="tabular-nums text-foreground/45">{chapters.length} {noun}</span></div>
+                    <ImportChapterPreview chapters={chapters} noun={noun} />
+                    <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3"><span className={`text-[var(--fs-tiny)] ${chapters.length > MAX_NOVEL_IMPORT_CHAPTERS ? "text-red-500" : "text-foreground/38"}`}>{chapters.length > MAX_NOVEL_IMPORT_CHAPTERS ? `最多一次导入 ${MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} ${noun}` : `支持最多 ${MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} ${noun}`}</span><div className="flex gap-2"><Button size="small" onClick={onClose}>取消</Button><Button size="small" type="primary" disabled={!chapters.length || chapters.length > MAX_NOVEL_IMPORT_CHAPTERS} loading={loading} onClick={() => onImport(chapters)}>导入 {chapters.length || ""} {noun}</Button></div></div>
                 </div>
                 </div>
             </div>
@@ -950,7 +1039,7 @@ function ImportNovelModal({ open, loading, onClose, onImport }: { open: boolean;
     );
 }
 
-function ImportChapterPreview({ chapters }: { chapters: Array<{ title: string; plainText: string }> }) {
+function ImportChapterPreview({ chapters, noun }: { chapters: Array<{ title: string; plainText: string }>; noun: string }) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const virtualizer = useVirtualizer({
         count: chapters.length,
@@ -965,7 +1054,7 @@ function ImportChapterPreview({ chapters }: { chapters: Array<{ title: string; p
                     const chapter = chapters[virtualItem.index];
                     return <div key={`${chapter.title}-${virtualItem.index}`} className="absolute left-0 top-0 flex w-full gap-2 border-b border-border/60 px-1.5 py-2" style={{ height: virtualItem.size, transform: `translateY(${virtualItem.start}px)` }}><span className="w-8 shrink-0 pt-0.5 text-[var(--fs-tiny)] tabular-nums text-foreground/35">{String(virtualItem.index + 1).padStart(Math.max(2, String(chapters.length).length), "0")}</span><div className="min-w-0"><div className="truncate text-xs font-medium">{chapter.title}</div><div className="mt-0.5 text-[var(--fs-tiny)] text-foreground/40">{formatCount(chapter.plainText.length)} 字</div></div></div>;
                 })}
-            </div> : <div className="grid h-full place-items-center px-4 text-center text-xs leading-5 text-foreground/40">选择 TXT 文件或粘贴正文后，这里会显示拆分结果</div>}
+            </div> : <div className="grid h-full place-items-center px-4 text-center text-xs leading-5 text-foreground/40">选择 TXT 文件或粘贴正文后，这里会显示按{noun}拆分的结果</div>}
         </div>
     );
 }

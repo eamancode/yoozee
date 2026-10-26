@@ -51,6 +51,8 @@ const (
 	ReasonPackageCheckFailed ErrorReason = "package_check_failed"
 	// ReasonPackageEvalNotPassed 是流程技能包版本的评测没通过（或还没跑完），不能直接启用；要强制启用就带上原因。
 	ReasonPackageEvalNotPassed ErrorReason = "package_eval_not_passed"
+	// ReasonDramaEpisodesReplace 是剧本优化会替换已有剧集（或改写有镜头表的剧集），请求没带 replace=true；details.episodes 列出影响面。
+	ReasonDramaEpisodesReplace ErrorReason = "drama_episodes_replace_required"
 )
 
 func ReasonForStatus(status int) ErrorReason {

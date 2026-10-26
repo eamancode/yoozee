@@ -128,6 +128,15 @@ type ProgressInput struct {
 	Shots     []ShotInput
 	Artifacts []ArtifactState
 	Evidence  []EvidenceState
+	// Episodes 是项目里的剧集单元（kind=episode，按顺序）：「剧本定了」看它们。
+	Episodes []EpisodeInput
+}
+
+// EpisodeInput 是一集剧本：WordCount 是正文字数（来源注释不算）。
+type EpisodeInput struct {
+	ID        string
+	Title     string
+	WordCount int
 }
 
 // evidenceFor 返回某条产物上某种证据的最新一条。
@@ -337,17 +346,13 @@ func Derive(in ProgressInput) Progress {
 		briefOK, briefDetail = false, "还没定授权档位"
 	}
 	hasCharacters, bibleChecked, unchecked := bibleState(in.BibleJSON)
-	scriptOK := all(func(r SegmentProgress) bool { return r.Script }) && hasCharacters
+	scriptOK, scriptDetail := episodesWritten(in.Episodes)
 	refsOK := all(func(r SegmentProgress) bool { return r.Refs }) && bibleChecked && hasCharacters
 	reviewedOK := all(func(r SegmentProgress) bool { return r.Reviewed })
 	gateOK := filmGate != nil && passed(filmGate) && filmGate.CreatedAt.After(lastSelection)
 	deliveredOK := gateOK && filmDelivery != nil && filmDelivery.CreatedAt.After(filmGate.CreatedAt)
 	acceptedOK := deliveredOK && filmAcceptance != nil && passed(filmAcceptance) && filmAcceptance.CreatedAt.After(filmDelivery.CreatedAt)
 	reusableOK := refsOK && deliveredOK
-	scriptDetail := fmt.Sprintf("%d/%d 段剧本已定", c.Script, c.Segments)
-	if !hasCharacters {
-		scriptDetail += "；连戏表还没有人物"
-	}
 	refsDetail := fmt.Sprintf("%d/%d 段已挂参考", c.Refs, c.Segments)
 	if unchecked > 0 {
 		refsDetail += fmt.Sprintf("；连戏表还有 %d 项没校验", unchecked)
@@ -364,7 +369,7 @@ func Derive(in ProgressInput) Progress {
 	}
 	out.EndStates = []EndState{
 		{"brief", "需求问透了", briefOK, briefDetail, "yz-brief"},
-		{"script", "剧本定了", scriptOK, scriptDetail, "yz-adapt"},
+		{"script", "剧本定了", scriptOK, scriptDetail, "yz-script-adapt"},
 		{"refs", "参考齐了", refsOK, refsDetail, "yz-cast"},
 		{"review", "每段过审了", reviewedOK, fmt.Sprintf("%d/%d 段三项证据齐", c.Reviewed, c.Segments), "yz-shoot"},
 		{"gate", "成片过门禁了", gateOK, gateDetail, "yz-cut"},
@@ -380,6 +385,19 @@ func Derive(in ProgressInput) Progress {
 		}
 	}
 	return out
+}
+
+// episodesWritten 是「剧本定了」：至少一集剧本，每集都有正文（剧本优化写出，或导入剧本）。
+func episodesWritten(episodes []EpisodeInput) (bool, string) {
+	if len(episodes) == 0 {
+		return false, "还没有剧集：在章节页点「剧本优化」，或导入剧本"
+	}
+	for i, ep := range episodes {
+		if ep.WordCount <= 0 {
+			return false, fmt.Sprintf("第 %d 集「%s」还没有正文", i+1, ep.Title)
+		}
+	}
+	return true, fmt.Sprintf("%d 集剧本", len(episodes))
 }
 
 func selectedCount(rows []SegmentProgress) int {

@@ -241,7 +241,7 @@ func TestDramaTurnRetryable(t *testing.T) {
 		{providerHTTPError{StatusCode: 400}, false},
 		{providerHTTPError{StatusCode: 401}, false},
 		{context.DeadlineExceeded, true},
-		{errDramaTurnNoRows, true},
+		{errDramaTurnUnparsed, true},
 		{context.Canceled, false},
 		{fmt.Errorf("wrapped: %w", providerHTTPError{StatusCode: 503}), true},
 	} {

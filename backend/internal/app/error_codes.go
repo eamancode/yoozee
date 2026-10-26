@@ -44,6 +44,8 @@ const (
 	ReasonPackageCheckFailed  = kernel.ReasonPackageCheckFailed
 	// ReasonPackageEvalNotPassed 见 kernel。
 	ReasonPackageEvalNotPassed = kernel.ReasonPackageEvalNotPassed
+	// ReasonDramaEpisodesReplace 见 kernel。
+	ReasonDramaEpisodesReplace = kernel.ReasonDramaEpisodesReplace
 )
 
 func ReasonForStatus(status int) ErrorReason {

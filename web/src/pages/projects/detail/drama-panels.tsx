@@ -100,8 +100,8 @@ export function DramaOverviewPanel({ projectId }: { projectId: string }) {
     );
 }
 
-// 终态 1 靠需求文档六项确认；终态 2、3 靠连戏表有人物并逐项校验。前端要能直接打开它们，不能只靠 Agent 写。
-const DOCUMENT_BY_END_STATE: Record<string, "brief" | "bible" | undefined> = { brief: "brief", script: "bible", refs: "bible" };
+// 终态 1 靠需求文档六项确认；终态 3 靠连戏表有人物并逐项校验（终态 2「剧本定了」看剧集，在章节页做）。前端要能直接打开它们，不能只靠 Agent 写。
+const DOCUMENT_BY_END_STATE: Record<string, "brief" | "bible" | undefined> = { brief: "brief", refs: "bible" };
 
 /** 需求文档：六项事实可以逐项填写、改状态；其余字段（要求、不做、待确认……）在 JSON 里改。 */
 export function DramaBriefModal({ projectId, open, onClose }: { projectId: string; open: boolean; onClose: () => void }) {

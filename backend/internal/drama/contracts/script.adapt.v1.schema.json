@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "script.adapt@1",
+  "title": "短剧剧本（剧集）",
+  "description": "剧本优化这一步的模型输出：所选原文章节改编成若干集短剧剧本（已是剧本的只调节奏）。一集一块：先一行 JSON 头（no、title、sources），下面是这一集的正文，直到下一集的 JSON 头，便于边流边解析、按集续写。正文由场次头、动作和台词组成，格式与 drama.ScriptFromText 切场、读台词的规则一致，生成分段直接读它。scenes 由正文里的场次头得出，模型不另写。契约文字由 drama.Contract.Text 按本文件生成。",
+  "type": "object",
+  "required": [
+    "episodes"
+  ],
+  "x-contract": {
+    "heading": "【受保护输出契约】",
+    "layout": "blocks",
+    "items": "episodes",
+    "format": "一集一块，按集号顺序输出：每集先单独一行写这一集的 JSON 头，形如 {\"no\": 1, \"title\": \"集标题\", \"sources\": [{\"unitId\": \"原文章节编号\", \"from\": 1, \"to\": 12}]}，头里不要换行；下一行起写这一集的剧本正文，直到下一集的 JSON 头。不要 Markdown 代码块、表格、分析过程、删减说明或任何解释文字。",
+    "rowsIntro": "每集的字段（no、title、sources 写在 JSON 头里；scenes、text 就是头下面的正文，不用另写）：",
+    "requirement": "每集至少一场，正文按下面的格式写，后面的提取资产和生成分段直接读这份正文。",
+    "rules": [
+      "场次头单独一行，以「## 」开头写「内或外·地点·日或夜」，如「## 内·病房走廊·夜」；每换一个地点或时间就起一个新场次头，场次头之前不写正文。",
+      "动作、画面、音效和画面里要读出来的字各写一行，用全角括号括起来，如「（她推开门，病床空着。）」「（画面文字：7）」「（音效：电梯到站的叮声）」。",
+      "台词一行一句，写成「人物：台词」；需要情绪或动作时写「人物（压低声音）：台词」，画外音、内心独白写「人物（画外）：台词」。人物名不超过 8 个字，同一人物全集用同一个名字；名字前后不加引号、【】、** 等符号，台词不加引号。",
+      "sources 写这一集改编自哪些原文章节的哪几段：unitId 照抄原文章节标出的编号，from、to 是该章的段号（含首尾）。多章合成一集就写多项；一章拆成多集时各集写各自的段号范围，不重叠、不跳段。"
+    ]
+  },
+  "properties": {
+    "episodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "no",
+          "title",
+          "sources",
+          "scenes",
+          "text"
+        ],
+        "properties": {
+          "no": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "集号，从 1 递增"
+          },
+          "title": {
+            "type": "string",
+            "description": "集标题，不带「第 N 集」"
+          },
+          "sources": {
+            "type": "array",
+            "description": "来源原文 [{unitId, from, to}]，段号含首尾",
+            "items": {
+              "type": "object",
+              "required": [
+                "unitId",
+                "from",
+                "to"
+              ],
+              "properties": {
+                "unitId": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "to": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "scenes": {
+            "type": "array",
+            "description": "本集的场次，每个场次头一项 {heading}，由正文得出",
+            "items": {
+              "type": "object",
+              "required": [
+                "heading"
+              ],
+              "properties": {
+                "heading": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "text": {
+            "type": "string",
+            "description": "本集剧本正文：场次头、动作、台词逐行写"
+          }
+        }
+      }
+    }
+  }
+}

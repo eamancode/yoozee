@@ -14,7 +14,8 @@ import (
 // 步骤的输出契约：contracts/ 下带版本号的 JSON Schema。契约文字（提示词里的【受保护输出契约】）由 Text 按 schema 生成，
 // 不再在前端手写；字段顺序取 required 数组。schema 里柚子自己的关键字：
 //   - x-contract：契约文字的固定句子（标题、格式要求、rows 引导句、默认要求、补充规则）；layout 为 "lines" 时
-//     模型一镜一行输出（JSON Lines），顶层 rows 只描述逻辑形状；
+//     模型一镜一行输出（JSON Lines），顶层 rows 只描述逻辑形状；layout 为 "blocks" 时一项一块（剧本优化一集一块：
+//     一行 JSON 头加若干行正文）；items 是逐项数组在顶层的字段名（默认 rows）；
 //   - x-shape: "skill"：字段形状由技能正文说明（如 spec），单独成行，要求每镜都写；
 //   - x-section: "assets"：字段说明跟在资产清单那段之后（清单为空时不出现），由 FieldInstruction 取。
 
@@ -25,17 +26,22 @@ var contractFS embed.FS
 var contractFiles = map[string]string{
 	ContractCanvasStoryboard: "contracts/chapter.shots.v2.schema.json",
 	ContractChapterShots:     "contracts/chapter.shots.v3.schema.json",
+	ContractScriptAdapt:      "contracts/script.adapt.v1.schema.json",
 }
 
 // ContractCanvasStoryboard 是画布拆镜的输出契约：整段一个 {"title", "rows"} JSON 对象（前端解析），不随生成分段升级。
 const ContractCanvasStoryboard = "chapter.shots@2"
 
-// contractLayoutLines 是一镜一行的契约（x-contract.layout）。
-const contractLayoutLines = "lines"
+// contractLayoutLines 是一镜一行的契约（x-contract.layout）；contractLayoutBlocks 是一项一块（JSON 头加正文）。
+const (
+	contractLayoutLines  = "lines"
+	contractLayoutBlocks = "blocks"
+)
 
 type contractProse struct {
 	Heading     string   `json:"heading"`
 	Layout      string   `json:"layout"`
+	Items       string   `json:"items"`
 	Format      string   `json:"format"`
 	RowsIntro   string   `json:"rowsIntro"`
 	Requirement string   `json:"requirement"`
@@ -61,12 +67,14 @@ type contractNode struct {
 
 // Contract 是一个步骤输出契约（schema 原文与解析结果）。
 type Contract struct {
-	ID     string
-	Title  string
-	raw    []byte
-	root   *contractNode
-	rows   *contractNode
-	fields []string
+	ID    string
+	Title string
+	raw   []byte
+	root  *contractNode
+	// itemsKey 是顶层逐项数组的字段名（rows、episodes）；rows 是数组的元素。
+	itemsKey string
+	rows     *contractNode
+	fields   []string
 }
 
 var (
@@ -108,9 +116,13 @@ func parseContract(raw []byte) (*Contract, error) {
 	if root.Prose == nil || root.Prose.Heading == "" || root.Prose.Format == "" || root.Prose.RowsIntro == "" {
 		return nil, fmt.Errorf("schema 缺少 x-contract 的固定句子")
 	}
-	rows := root.Properties["rows"]
+	itemsKey := root.Prose.Items
+	if itemsKey == "" {
+		itemsKey = "rows"
+	}
+	rows := root.Properties[itemsKey]
 	if root.Type != "object" || rows == nil || rows.Type != "array" || rows.Items == nil || rows.Items.Type != "object" {
-		return nil, fmt.Errorf("schema 顶层必须是 {rows: object[]}")
+		return nil, fmt.Errorf("schema 顶层必须是 {%s: object[]}", itemsKey)
 	}
 	for _, name := range root.Required {
 		if root.Properties[name] == nil {
@@ -120,7 +132,7 @@ func parseContract(raw []byte) (*Contract, error) {
 	fields := slices.Clone(rows.Items.Required)
 	for _, name := range fields {
 		if rows.Items.Properties[name] == nil {
-			return nil, fmt.Errorf("rows 的 required 里的 %s 没有定义", name)
+			return nil, fmt.Errorf("%s 的 required 里的 %s 没有定义", itemsKey, name)
 		}
 	}
 	// 不在 required 里的字段按名字排在后面，契约里同样列出。
@@ -131,11 +143,14 @@ func parseContract(raw []byte) (*Contract, error) {
 		}
 	}
 	slices.Sort(extra)
-	return &Contract{ID: root.ID, Title: root.Title, raw: raw, root: &root, rows: rows.Items, fields: append(fields, extra...)}, nil
+	return &Contract{ID: root.ID, Title: root.Title, raw: raw, root: &root, itemsKey: itemsKey, rows: rows.Items, fields: append(fields, extra...)}, nil
 }
 
 // Lines 表示模型一镜一行输出（JSON Lines），不是整段 JSON 对象。
 func (c *Contract) Lines() bool { return c.root.Prose.Layout == contractLayoutLines }
+
+// Blocks 表示模型一项一块输出（一行 JSON 头加若干行正文），不是整段 JSON 对象。
+func (c *Contract) Blocks() bool { return c.root.Prose.Layout == contractLayoutBlocks }
 
 // Schema 是契约的 JSON Schema 原文。
 func (c *Contract) Schema() []byte { return slices.Clone(c.raw) }
@@ -169,8 +184,11 @@ func (c *Contract) Text(requirement string, opts ContractTextOptions) string {
 		}
 	}
 	shape := fmt.Sprintf("- 顶层固定为 %s，%s。%s", c.topLevelShape(), c.rowsMinText(), requirement)
-	if c.Lines() {
+	switch {
+	case c.Lines():
 		shape = "- 至少输出 1 个镜头。" + requirement
+	case c.Blocks():
+		shape = "- 至少输出 1 项。" + requirement
 	}
 	lines := []string{prose.Heading, "- " + prose.Format, shape, "- " + prose.RowsIntro}
 	lines = append(lines, wrapFieldList(list)...)
@@ -212,11 +230,11 @@ func (c *Contract) topLevelShape() string {
 }
 
 func (c *Contract) rowsMinText() string {
-	rows := c.root.Properties["rows"]
+	rows := c.root.Properties[c.itemsKey]
 	if rows.MinItems != nil && *rows.MinItems > 0 {
-		return fmt.Sprintf("rows 至少 %d 项", *rows.MinItems)
+		return fmt.Sprintf("%s 至少 %d 项", c.itemsKey, *rows.MinItems)
 	}
-	return "rows 可以为空"
+	return c.itemsKey + " 可以为空"
 }
 
 func jsonTypeName(n *contractNode) string {

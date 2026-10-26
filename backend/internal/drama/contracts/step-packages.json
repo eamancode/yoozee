@@ -3,6 +3,19 @@
   "hashFile": "package.hash.json",
   "steps": [
     {
+      "id": "script.adapt",
+      "contract": "script.adapt@1",
+      "skillBudgetChars": 32000,
+      "skillLinkedFiles": 3,
+      "evalSet": [
+        {
+          "id": "qichuang-novel-c01",
+          "profile": "live-realism",
+          "label": "《七床》小说第一章（悬疑·真人剧）"
+        }
+      ]
+    },
+    {
       "id": "chapter.shots",
       "contract": "chapter.shots@3",
       "skillBudgetChars": 32000,

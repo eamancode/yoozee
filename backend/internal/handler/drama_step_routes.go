@@ -10,7 +10,8 @@ import (
 	"yingce/backend/internal/service"
 )
 
-// registerDramaStepRoutes 是短剧流程步骤（M6）的接口：风格档案列表、一步用哪个技能、服务端组装提示词并建任务、
+// registerDramaStepRoutes 是短剧流程步骤（M6）的接口：风格档案列表、一步用哪个技能、服务端组装提示词并建任务（按章节，
+// 或项目级的剧本优化）、项目的剧集与来源、
 // 管理员读写「风格档案 × 步骤 → 技能」绑定，以及流程技能包的上传（随即真跑评测）、版本列表、重跑评测和启用（回退就是启用历史版本；
 // 评测没通过的要强制并写明原因）。
 func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
@@ -76,6 +77,45 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		ok(c, result)
+	})
+	// 项目级步骤（剧本优化）：来源单元、改编方式、集数由请求点名，一个运行一个任务。
+	r.POST("/projects/:id/drama/steps/:step/run", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		policy, available := loadRuntimePolicy(c, svc)
+		if !available || !enforceRateLimit(c, "tasks:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req service.DramaScriptAdaptRunRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("运行步骤的请求格式无效"))
+			return
+		}
+		req.TraceID = TraceID(c)
+		req.RequestID = RequestID(c)
+		result, err := svc.RunDramaProjectStep(user.ID, c.Param("id"), c.Param("step"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+	r.GET("/projects/:id/drama/episodes", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		view, err := svc.DramaEpisodes(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, view)
 	})
 	r.GET("/admin/drama/step-bindings", func(c *gin.Context) {
 		actor, err := currentUser(c, svc)

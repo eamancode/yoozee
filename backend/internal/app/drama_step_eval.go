@@ -239,11 +239,17 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 		Step: step.ID, StepLabel: step.Label, Contract: step.Contract, Bound: true, Profile: dramaProfileRef(c.Profile),
 		Skill: DramaStepSkillRef{ID: skillRef.ID, Name: skillRef.Name, VersionID: skillRef.VersionID, Version: skillRef.Version, ContentHash: skillRef.ContentHash},
 	}
-	plan, err := chapterShotsPlan(in.project, in.unit, in.assets, usage, skillRef)
+	var plan *dramaStepPlan
+	if step.ID == drama.StepScriptAdapt {
+		// 剧本优化的评测：这一章改编成一集。
+		plan, err = scriptAdaptPlan(in.project, []model.ProjectUnit{*in.unit}, drama.ScriptAdaptModeAdapt, 1, 0, nil, usage, skillRef)
+	} else {
+		plan, err = chapterShotsPlan(in.project, in.unit, in.assets, usage, skillRef)
+	}
 	if err != nil {
 		return CreateTaskRequest{}, fmt.Errorf("评测章节 %s 组装提示词：%w", c.ID, err)
 	}
-	req := dramaStepTaskRequest("", "", plan, DramaStepRunRequest{Model: sel.Model, LogicalModelID: sel.LogicalModelID, Config: sel.Config})
+	req := dramaStepTaskRequest("", "", plan, dramaStepTaskOptions{Model: sel.Model, LogicalModelID: sel.LogicalModelID, Config: sel.Config})
 	metadata := req.Input["metadata"].(map[string]any)
 	delete(metadata, "domainProjectId")
 	delete(metadata, "chapterId")
@@ -602,7 +608,7 @@ func (s *Service) finishDramaStepEval(run *model.DramaEvalRun, tasks []dramaStep
 				return err
 			}
 		}
-		res, infraErr := dramaStepEvalChapterResult(c, t.TaskID, task, phrases)
+		res, infraErr := dramaStepEvalChapterResult(step, c, t.TaskID, task, phrases)
 		if infraErr != "" {
 			infra = append(infra, fmt.Sprintf("%s（%s）：%s", c.Label, map[string]string{dramaStepEvalRoleCandidate: "候选", dramaStepEvalRoleBaseline: "对照"}[t.Role], infraErr))
 		}
@@ -640,9 +646,9 @@ func (s *Service) finishDramaStepEval(run *model.DramaEvalRun, tasks []dramaStep
 	return nil
 }
 
-// dramaStepEvalChapterResult 把一章的任务结果交给解析器、资产绑定、镜头表检查和装段，得出门槛指标。
+// dramaStepEvalChapterResult 把一章的任务结果交给解析器、资产绑定、镜头表检查和装段，得出门槛指标（剧本优化是剧集解析和检查）。
 // 第二个返回值非空表示任务没跑成（上游失败、任务不见了、数据坏了），不是包的问题。
-func dramaStepEvalChapterResult(c drama.StepEvalChapter, taskID string, task *model.Task, phrases *drama.CompileProfile) (drama.StepEvalChapterResult, string) {
+func dramaStepEvalChapterResult(step drama.Step, c drama.StepEvalChapter, taskID string, task *model.Task, phrases *drama.CompileProfile) (drama.StepEvalChapterResult, string) {
 	r := drama.StepEvalChapterResult{Chapter: c.ID, Label: c.Label, Profile: c.Profile, TaskID: taskID}
 	if task == nil {
 		r.Failure = "评测任务不见了"
@@ -673,6 +679,9 @@ func dramaStepEvalChapterResult(c drama.StepEvalChapter, taskID string, task *mo
 		Text string `json:"text"`
 	}
 	_ = json.Unmarshal([]byte(firstNonEmpty(task.ResultJSON, "{}")), &output)
+	if step.ID == drama.StepScriptAdapt {
+		return scriptAdaptEvalResult(r, in, output.Text), ""
+	}
 	rows, _, err := drama.StoryboardRowsFromText(output.Text)
 	if err != nil {
 		r.Failure = err.Error()
@@ -726,6 +735,28 @@ func dramaStepEvalChapterResult(c drama.StepEvalChapter, taskID string, task *mo
 		r.SegmentSeconds += seg.Dur
 	}
 	return r, ""
+}
+
+// scriptAdaptEvalResult 是剧本优化一章的指标：改编出的一集带场次头、检查没有 error 才算解析成功；Rows 是集数，Shots 是场数。
+func scriptAdaptEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInput, text string) drama.StepEvalChapterResult {
+	episodes, stats := drama.ScriptAdaptEpisodesFromText(text)
+	paragraphs := map[string]int{in.unit.ID: len(drama.ScriptAdaptParagraphs(chapterEditorText(in.unit.SourceText)))}
+	report := drama.CheckScriptAdapt(episodes, drama.ScriptAdaptCheckContext{Mode: drama.ScriptAdaptModeAdapt, Paragraphs: paragraphs, Episodes: 1})
+	r.Rows, r.Errors, r.Warnings = len(episodes), report.Errors, report.Warnings
+	for _, ep := range episodes {
+		r.Shots += len(ep.Scenes)
+	}
+	for _, item := range report.Items {
+		if r.Rules == nil {
+			r.Rules = map[string]int{}
+		}
+		r.Rules[item.Rule]++
+	}
+	r.Parsed = stats.Episodes > 0 && stats.Episodes == stats.Blocks && report.Errors == 0
+	if !r.Parsed {
+		r.Failure = fmt.Sprintf("解析出 %d 集，%d 集带场次头，检查 %d 个 error", stats.Blocks, stats.Episodes, report.Errors)
+	}
+	return r
 }
 
 // autoActivateDramaStepPackage 在评测通过后启用候选版本：评测期间启用版本换过、上传的人已不是管理员时不启用，写进评测的说明。

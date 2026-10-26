@@ -50,6 +50,9 @@ export type CanvasUnitLink = {
 export type ProjectUnit = {
     id: string;
     projectId: string;
+    /** 剧集（kind=episode）的主要来源章节；完整来源在剧集正文开头的来源注释里。 */
+    parentId?: string;
+    /** chapter 是原文章节，episode 是剧集（剧本优化写出，或导入剧本）。 */
     kind: "chapter" | "episode" | string;
     title: string;
     sourceText: string;

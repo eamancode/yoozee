@@ -28,6 +28,9 @@ func jsTrim(s string) string { return strings.TrimFunc(s, jsSpace) }
 // JSTrim 是 JS 的 String.prototype.trim（服务端拼提示词时与前端同一套空白）。
 func JSTrim(s string) string { return jsTrim(s) }
 
+// JSLen 是 JS 字符串长度（UTF-16 码元数），提示词预算和字数上限都按它算。
+func JSLen(s string) int { return jsLen(s) }
+
 // jsLen 是 JS 的 string.length。
 func jsLen(s string) int {
 	n := 0

@@ -1,5 +1,6 @@
 // 短剧流程步骤（M6）：按项目风格档案查绑定、取技能当前版本，在服务端组装提示词（技能上下文 + 代码变量 + 按 schema 生成的契约），
-// 再创建文本任务；前端只说「对这一章跑这一步」。另有管理员读写「风格档案 × 步骤 → 技能」绑定表的接口。
+// 再创建文本任务；前端只说「对这一章跑这一步」（生成分段）或「对这个项目跑这一步」（剧本优化，见 project_drama_script_adapt.go）。
+// 另有管理员读写「风格档案 × 步骤 → 技能」绑定表的接口。
 
 package app
 
@@ -84,16 +85,17 @@ type dramaStepCharacterRecord struct {
 	Definition map[string]any `json:"definition"`
 }
 
-// dramaChapterShotsPlan 是组装好的一次生成分段。
-type dramaChapterShotsPlan struct {
-	usage      DramaStepUsage
-	prompt     drama.ChapterShotsPrompt
-	skill      drama.StepSkill
-	style      styleProfileDocument
-	assets     []dramaStepAssetRecord
-	characters []dramaStepCharacterRecord
-	// scenes 是逐场续写的场（正文按场次头切；不到两场为空，整章一轮）。
+// dramaStepPlan 是组装好的一次步骤运行。
+type dramaStepPlan struct {
+	usage  DramaStepUsage
+	prompt drama.StepPrompt
+	skill  drama.StepSkill
+	// scenes 是逐轮续写的轮次：生成分段一场一轮（正文按场次头切，不到两场为空，整章一轮），剧本优化一集一轮。
 	scenes []drama.ShotsScene
+	// record 是写进任务 input 的记录字段（资产清单、画风、角色、来源单元；只作记录，模型看的是提示词）。
+	record map[string]any
+	// adapt 是剧本优化的运行参数（metadata.dramaAdapt），收尾按它写剧集。
+	adapt *dramaAdaptMeta
 }
 
 func dramaStep(stepID string) (drama.Step, error) {
@@ -179,7 +181,7 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 			return DramaStepRunResult{}, err
 		}
 	}
-	taskReq := dramaStepTaskRequest(project.ID, unitID, plan, req)
+	taskReq := dramaStepTaskRequest(project.ID, unitID, plan, dramaStepTaskOptions{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config, Rule: req.Rule, TraceID: req.TraceID, RequestID: req.RequestID})
 	taskReq.Input["metadata"].(map[string]any)["dramaRun"] = run
 	task, err := s.CreateTask(userID, taskReq)
 	if err != nil {
@@ -188,42 +190,53 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	return DramaStepRunResult{Task: task, Usage: plan.usage}, nil
 }
 
-// dramaStepTaskRequest 是这一步的文本任务：与原先前端发的章节分镜任务同一形状（canvas_text / storyboard，metadata.source 不变），
-// metadata 另记步骤、契约、风格档案、技能版本和内容哈希。input 里的资产、画风、角色只作记录，模型看的是提示词。
-func dramaStepTaskRequest(projectID string, unitID string, plan *dramaChapterShotsPlan, req DramaStepRunRequest) CreateTaskRequest {
+// dramaStepTaskOptions 是建步骤任务时请求带来的模型选择、段长规则和追踪标识。
+type dramaStepTaskOptions struct {
+	Model          string
+	LogicalModelID string
+	Config         map[string]any
+	Rule           *DramaShotlistRule
+	TraceID        string
+	RequestID      string
+}
+
+// dramaStepTaskRequest 是这一步的文本任务：与原先前端发的章节分镜任务同一形状（canvas_text / storyboard，metadata.source 按步骤），
+// metadata 另记步骤、契约、风格档案、技能版本和内容哈希。input 里的资产、画风、角色、来源只作记录，模型看的是提示词。
+// unitID 为空是项目级步骤（剧本优化），metadata 不带 chapterId。
+func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, req dramaStepTaskOptions) CreateTaskRequest {
 	step, _ := drama.StepByID(plan.usage.Step)
 	skillFiles := make([]map[string]any, 0, len(plan.prompt.Files))
 	for _, f := range plan.prompt.Files {
 		skillFiles = append(skillFiles, map[string]any{"skillId": plan.skill.ID, "path": f.Path, "sha256": f.SHA256})
 	}
-	input := map[string]any{
-		// 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
-		"mode":                "text",
-		"canvasAssets":        plan.assets,
-		"requirements":        "输出可直接写入分镜制作并继续生成分镜图、动作预演和镜头视频的分镜表。",
-		"projectStyle":        map[string]any{"presetId": plan.style.PresetID, "title": plan.style.Title, "prompt": plan.style.Prompt},
-		"characters":          plan.characters,
-		"shotDurationSeconds": 0,
-		"shotCount":           0,
-		"metadata": map[string]any{
-			"domainProjectId": projectID,
-			"chapterId":       unitID,
-			"source":          step.TaskSource,
-			"skillIds":        []string{plan.skill.ID},
-			"skillVersions":   []map[string]any{{"skillId": plan.skill.ID, "versionId": plan.skill.VersionID, "version": plan.skill.Version}},
-			"skillFiles":      skillFiles,
-			"dramaStep": map[string]any{
-				"step":         plan.usage.Step,
-				"contract":     plan.usage.Contract,
-				"styleProfile": plan.usage.Profile.ID,
-				"bound":        plan.usage.Bound,
-				"skillId":      plan.skill.ID,
-				"versionId":    plan.skill.VersionID,
-				"version":      plan.skill.Version,
-				"contentHash":  plan.skill.ContentHash,
-				"rule":         req.Rule,
-			},
+	metadata := map[string]any{
+		"domainProjectId": projectID,
+		"source":          step.TaskSource,
+		"skillIds":        []string{plan.skill.ID},
+		"skillVersions":   []map[string]any{{"skillId": plan.skill.ID, "versionId": plan.skill.VersionID, "version": plan.skill.Version}},
+		"skillFiles":      skillFiles,
+		"dramaStep": map[string]any{
+			"step":         plan.usage.Step,
+			"contract":     plan.usage.Contract,
+			"styleProfile": plan.usage.Profile.ID,
+			"bound":        plan.usage.Bound,
+			"skillId":      plan.skill.ID,
+			"versionId":    plan.skill.VersionID,
+			"version":      plan.skill.Version,
+			"contentHash":  plan.skill.ContentHash,
+			"rule":         req.Rule,
 		},
+	}
+	if unitID != "" {
+		metadata["chapterId"] = unitID
+	}
+	if plan.adapt != nil {
+		metadata["dramaAdapt"] = plan.adapt
+	}
+	// 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
+	input := map[string]any{"mode": "text", "metadata": metadata}
+	for k, v := range plan.record {
+		input[k] = v
 	}
 	if req.Config != nil {
 		input["config"] = req.Config
@@ -262,11 +275,14 @@ func taskDramaStep(inputJSON string) *dramaStepTaskMeta {
 	return input.Metadata.DramaStep
 }
 
-// planDramaStep 读章节、画风、资产、需求文档和绑定技能，组装提示词。本期只有 chapter.shots。
-func (s *Service) planDramaStep(userID string, project *model.Project, unitID string, stepID string) (*dramaChapterShotsPlan, error) {
+// planDramaStep 读章节、画风、资产、需求文档和绑定技能，组装提示词。按单元跑的只有 chapter.shots（章节或剧集都行）。
+func (s *Service) planDramaStep(userID string, project *model.Project, unitID string, stepID string) (*dramaStepPlan, error) {
 	step, err := dramaStep(stepID)
 	if err != nil {
 		return nil, err
+	}
+	if step.Scope == drama.StepScopeProject {
+		return nil, BadAuthRequest(fmt.Sprintf("「%s」是项目级步骤，请用 POST /projects/:id/drama/steps/%s/run", step.Label, step.ID))
 	}
 	if step.ID != drama.StepChapterShots {
 		return nil, BadAuthRequest(fmt.Sprintf("步骤 %s 还不能在服务端运行", step.ID))
@@ -306,7 +322,7 @@ func projectStyleSnapshot(project *model.Project) styleProfileDocument {
 }
 
 // chapterShotsPlan 把项目、章节、资产清单和技能版本组装成提示词（不读库，测试直接拿接口 JSON 喂进来）。
-func chapterShotsPlan(project *model.Project, unit *model.ProjectUnit, assets []ProjectAssetSummary, usage DramaStepUsage, skill drama.StepSkill) (*dramaChapterShotsPlan, error) {
+func chapterShotsPlan(project *model.Project, unit *model.ProjectUnit, assets []ProjectAssetSummary, usage DramaStepUsage, skill drama.StepSkill) (*dramaStepPlan, error) {
 	style := projectStyleSnapshot(project)
 	stepAssets, assetRecords := chapterShotsAssets(assets)
 	characters, characterRecords := chapterShotsCharacters(assets)
@@ -323,7 +339,15 @@ func chapterShotsPlan(project *model.Project, unit *model.ProjectUnit, assets []
 		return nil, err
 	}
 	scenes := drama.ChapterShotsScenes(chapterPlainText(unit.SourceText), unit.Title)
-	return &dramaChapterShotsPlan{usage: usage, prompt: prompt, skill: skill, style: style, assets: assetRecords, characters: characterRecords, scenes: scenes}, nil
+	record := map[string]any{
+		"canvasAssets":        assetRecords,
+		"requirements":        "输出可直接写入分镜制作并继续生成分镜图、动作预演和镜头视频的分镜表。",
+		"projectStyle":        map[string]any{"presetId": style.PresetID, "title": style.Title, "prompt": style.Prompt},
+		"characters":          characterRecords,
+		"shotDurationSeconds": 0,
+		"shotCount":           0,
+	}
+	return &dramaStepPlan{usage: usage, prompt: prompt, skill: skill, scenes: scenes, record: record}, nil
 }
 
 // briefEpisodeSeconds 是需求文档顶层的 episode_seconds（项目设置里的每集时长）；没设或不是正数返回 0。

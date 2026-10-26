@@ -889,6 +889,11 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 		return shots[i].Position < shots[j].Position
 	})
 	input := drama.ProgressInput{Model: m, AuthMode: project.AuthMode, BriefJSON: project.BriefJSON, BibleJSON: project.BibleJSON}
+	for _, unit := range units {
+		if unit.Kind == model.ProjectUnitKindEpisode {
+			input.Episodes = append(input.Episodes, drama.EpisodeInput{ID: unit.ID, Title: unit.Title, WordCount: unit.WordCount})
+		}
+	}
 	for i := range shots {
 		shot := shots[i]
 		row := drama.ShotInput{ID: shot.ID, UnitID: shot.UnitID, UnitTitle: unitTitle[shot.UnitID], Title: shot.Title, Position: shot.Position, DurationMs: shot.DurationMs, RefCount: refCount[shot.ID]}

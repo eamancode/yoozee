@@ -65,7 +65,9 @@ describe("需求文档与连戏表的前端入口", () => {
 
     test("概览终态卡给出打开需求文档、连戏表的入口", async () => {
         const source = await Bun.file(new URL("../src/pages/projects/detail/drama-panels.tsx", import.meta.url)).text();
-        expect(source).toContain('const DOCUMENT_BY_END_STATE: Record<string, "brief" | "bible" | undefined> = { brief: "brief", script: "bible", refs: "bible" };');
+        expect(source).toContain('const DOCUMENT_BY_END_STATE: Record<string, "brief" | "bible" | undefined> = { brief: "brief", refs: "bible" };');
+        // 「剧本定了」看剧集（章节页的剧本优化），不再挂连戏表入口。
+        expect(source).not.toContain('script: "bible"');
         expect(source).toContain('putDramaBrief(projectId, mode === "json" ? parseDocumentJson(jsonText) : formDocument())');
         expect(source).toContain("<DramaBibleModal projectId={projectId}");
     });
