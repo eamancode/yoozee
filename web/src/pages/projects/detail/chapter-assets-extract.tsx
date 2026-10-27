@@ -57,7 +57,7 @@ function AssetsRunGroups(stream: AssetsExtractStreamState) {
                         <span className="w-8 shrink-0 text-[var(--fs-micro)] text-foreground/45">{row.category ? CATEGORY_LABEL[row.category] : "？"}</span>
                         <span className="shrink-0 font-medium text-foreground/85">{row.name}</span>
                         <span className="min-w-0 flex-1 truncate text-foreground/55" title={row.appearance || undefined}>
-                            {row.appearance || (row.aliases.length ? `已有，补别名：${row.aliases.join("、")}` : "已有")}
+                            {row.appearance || (row.aliases.length ? `补别名：${row.aliases.join("、")}` : "没写外观")}
                         </span>
                     </li>
                 ))}
@@ -232,6 +232,10 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
     ) : outcome ? (
         <span>
             新增 {outcome.created} · 合并 {outcome.merged} · 跳过 {outcome.skipped}
+        </span>
+    ) : resume ? (
+        <span>
+            上一次写到第 {resume.from} 场停了（共 {resume.total} 场）
         </span>
     ) : stop?.kind === "failed" ? (
         <span>{stop.status === "cancelled" ? "上一次提取资产已取消" : "上一次提取资产失败"}</span>
