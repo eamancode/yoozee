@@ -178,6 +178,8 @@ func (w *taskLifecycleCoordinator) cancelTaskWithIntent(_ context.Context, userI
 		_ = s.log(task.UserID, task.ID, "error", "取消任务后归并文本回放失败", err.Error())
 	}
 	_ = s.log(task.UserID, task.ID, "warn", "任务取消请求已保存", task.CancellationSource)
+	// 短剧出图任务取消后，这一张记成失败、接着排后面等空位的（worker 侧看到已取消不会再调）。
+	s.afterDramaImageTaskEnded(*task)
 
 	if task.ProviderRequestID != "" {
 		// 上游取消可能需要轮询确认，不能阻塞取消接口；请求上下文也不能因

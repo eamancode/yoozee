@@ -9,13 +9,14 @@ import { Tooltip } from "@/components/ui/base/tooltip";
 import { Callout } from "@/components/ui/product/callout";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaAssetsExtractOutcomeOf, dramaRunProgressOf, getDramaStepUsage, type DramaAssetsExtractOutcome } from "@/services/api/drama";
-import type { ProjectDetail, ProjectUnit } from "@/services/api/projects";
+import type { DramaImageStatus, ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { assetsExtractStreamFromResult, parseAssetsExtractStream, resumedAssetsExtractStream, type AssetsExtractStreamState, type AssetsStreamCategory } from "./assets-extract-stream";
 import { storyboardRunStop } from "./chapter-shot-stream";
 import { assetImageTaskTemplate } from "./drama-image-task";
+import { dramaImageSummaryText, useDramaImageStatuses } from "./drama-image-summary";
 import { DramaRunPanel } from "./drama-run-panel";
 import { chapterTaskIdentity, followDramaRunTask, runAssetsExtract } from "./project-chapter-ai";
 import { turnaroundImageModel } from "./project-character-media";
@@ -79,8 +80,16 @@ function countsText(outcome: DramaAssetsExtractOutcome) {
     return parts.join("；");
 }
 
-/** 出图的一句话：排上几个、等空位几个、没排上几个。 */
-function imagesText(outcome: DramaAssetsExtractOutcome) {
+/** 这次新建的资产和排了出图的资产（去重）：侧栏摘要按它们当前的出图状态算。 */
+function imageAssetIds(outcome?: DramaAssetsExtractOutcome) {
+    if (!outcome) return [];
+    const created = outcome.assets.filter((item) => item.action === "created").map((item) => item.assetId);
+    return [...new Set([...created, ...outcome.images.queued, ...outcome.images.waiting, ...outcome.images.failed])];
+}
+
+/** 出图的一句话：读到资产当前的出图状态时按它算（statuses），否则按收尾时排上几个、等空位几个、没排上几个。 */
+function imagesText(outcome: DramaAssetsExtractOutcome, statuses?: DramaImageStatus[]) {
+    if (statuses?.length) return `出图：${dramaImageSummaryText(statuses, "个", "资产上")}`;
     const { queued, waiting, failed } = outcome.images;
     if (!queued.length && !waiting.length && !failed.length) return outcome.created ? "这次没有出图，到资产页点「继续出图」可以补。" : "";
     return [`出图已排 ${queued.length} 个`, waiting.length ? `${waiting.length} 个等前面的出完接着排` : "", failed.length ? `${failed.length} 个没排上（原因写在资产上）` : ""].filter(Boolean).join("，") + "。";
@@ -120,6 +129,9 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
     const outcome = taskDetail?.status === "succeeded" ? dramaAssetsExtractOutcomeOf(taskDetail) : undefined;
     const stop = useMemo(() => (taskDetail ? storyboardRunStop(taskDetail, dramaRunProgressOf(taskDetail)) : undefined), [taskDetail]);
     const resume = stop?.kind === "resume" ? stop : undefined;
+    const imageIds = imageAssetIds(outcome);
+    // 侧栏打开时按资产当前的出图状态重算摘要：收尾之后接着排、出完、失败，资产页「继续出图」重出的都算进去。
+    const imageStatuses = useDramaImageStatuses(projectId, imageIds, panelOpen && !running);
     const liveStream = stream.unitId === unitId ? stream : undefined;
     const streamState = useMemo(() => {
         if (liveStream && (running || (liveStream.text && (liveStream.taskId === taskDetail?.id || !taskDetail)))) return resumedAssetsExtractStream(parseAssetsExtractStream(liveStream.text), resumeView);
@@ -373,7 +385,7 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
                             </Button>
                         }
                     >
-                        {[countsText(outcome), imagesText(outcome)].filter(Boolean).join("。")}
+                        {[countsText(outcome), imagesText(outcome, imageStatuses)].filter(Boolean).join("。")}
                         {warnings.length ? (
                             <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto pl-0" aria-label="提取资产检查提醒">
                                 {warnings.map((item, index) => (

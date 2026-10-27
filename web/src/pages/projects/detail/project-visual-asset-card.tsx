@@ -62,7 +62,9 @@ export function ProjectVisualAssetCard({
                         {prompt}
                     </p>
                 ) : null}
-                {asset.image?.status === "failed" && asset.image.error && !resourceId ? <p className="mt-1 line-clamp-2 text-[var(--fs-micro)] text-red-600 dark:text-red-400">{asset.image.error}</p> : null}
+                {(asset.image?.status === "failed" || asset.image?.status === "waiting") && asset.image.error && !resourceId ? (
+                    <p className={`mt-1 line-clamp-2 text-[var(--fs-micro)] ${asset.image.status === "failed" ? "text-red-600 dark:text-red-400" : "text-foreground/50"}`}>{asset.image.error}</p>
+                ) : null}
                 <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
                     <Button size="small" icon={<Sparkles className="size-3.5" />} loading={generating} disabled={busy} onClick={onGenerate}>
                         {resourceId ? "重新生成" : "生成图片"}

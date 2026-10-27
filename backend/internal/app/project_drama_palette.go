@@ -397,11 +397,7 @@ func (s *Service) afterDramaPaletteImageTask(task model.Task, inputJSON string) 
 	if err := s.recordPaletteImage(task, input.Metadata.AssetID, result.Status); err != nil {
 		_ = s.log(task.UserID, task.ID, "warn", "色卡取色校验没有写上", err.Error())
 	}
-	if template := taskPaletteImageTemplate(decrypted); template != nil {
-		if _, err := s.queueDramaPaletteImages(task.UserID, projectID, *template, task.ID, nil); err != nil {
-			_ = s.log(task.UserID, task.ID, "warn", "接着排色卡出图失败", err.Error())
-		}
-	}
+	s.continueDramaImages(task, projectID, decrypted, true)
 }
 
 // recordPaletteImage 记下一张色卡的出图结果：绑上图的按色块取色校验，结果写进版本主图的 metadata.paletteCheck 和资产 payload；

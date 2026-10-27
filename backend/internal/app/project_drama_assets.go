@@ -881,11 +881,7 @@ func (s *Service) afterDramaAssetImageTask(task model.Task, inputJSON string) {
 	if err := s.putDramaImageState(task.UserID, assetID, assetImageKey, state); err != nil {
 		_ = s.log(task.UserID, task.ID, "warn", "资产出图状态没有写上", err.Error())
 	}
-	if template := taskAssetImageTemplate(decrypted); template != nil {
-		if _, err := s.queueDramaAssetImages(task.UserID, projectID, *template, task.ID, nil); err != nil {
-			_ = s.log(task.UserID, task.ID, "warn", "接着排资产出图失败", err.Error())
-		}
-	}
+	s.continueDramaImages(task, projectID, decrypted, false)
 }
 
 // ProjectAssetImageSummary 是资产设计建的资产在资产清单里的出图状态（none / waiting / queued / bound / stale / failed）。

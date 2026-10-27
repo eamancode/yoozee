@@ -64,6 +64,11 @@ export function ChannelModelSettings({ channel, onChange }: { channel: ModelChan
     const inferredProtocol = activeModel ? defaultProtocolForModel(activeModel, availableProtocols) : "";
     const activeProtocol = activeModelCost?.protocol || inferredProtocol;
     const activeCapability = activeModelCost?.capability || modelProtocolCapability(activeProtocol, availableProtocols) || (activeModel ? inferCapabilityFromModel(activeModel) : "text");
+    // 没存过配置的模型，编辑器里显示的是按模型名推断的协议；关闭时把它存下来，请求时才找得到协议（只显示不保存会报「未选择可用请求协议」）。
+    const closeEditor = () => {
+        if (activeModel && !activeModelCost && activeProtocol && !protocolLoading) updateCost(activeModel, {});
+        setActiveModel(null);
+    };
 
     return (
         <div className="mt-4">
@@ -113,7 +118,7 @@ export function ChannelModelSettings({ channel, onChange }: { channel: ModelChan
                 subtitle={activeModel || ""}
                 activeKey={editorTab}
                 onTabChange={setEditorTab}
-                onClose={() => setActiveModel(null)}
+                onClose={closeEditor}
                 footer={
                     <div className="model-editor-footer">
                         <span className="text-xs text-foreground/50">更改实时保存到云端渠道配置</span>
@@ -126,7 +131,7 @@ export function ChannelModelSettings({ channel, onChange }: { channel: ModelChan
                             >
                                 测试模型
                             </Button>
-                            <Button type="primary" disabled={Boolean(testingModel)} onClick={() => setActiveModel(null)}>完成</Button>
+                            <Button type="primary" disabled={Boolean(testingModel)} onClick={closeEditor}>完成</Button>
                         </div>
                     </div>
                 }
