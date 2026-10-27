@@ -341,6 +341,9 @@ func assetsRowDefinition(row drama.AssetsExtractRow, episode int, colors []drama
 		for _, c := range accents {
 			parts = append(parts, strings.TrimSpace(firstNonEmpty(c.NameEn, c.NameZh)+" "+c.Hex))
 		}
+		if !strings.HasSuffix(prompt, ".") {
+			prompt += "."
+		}
 		prompt += " Color accents: " + strings.Join(parts, ", ") + "."
 	}
 	definition := map[string]any{"aliases": slices.Clone(row.Aliases)}
@@ -587,6 +590,16 @@ func (s *Service) mergedAssetWrite(entry *dramaAssetEntry, now time.Time) (repos
 		next, version, reps, voice, err := s.prepareNextCharacterVersion(&asset, asset.Title, string(encoded), nil, nil, false)
 		if err != nil {
 			return repository.DramaAssetWrite{}, err
+		}
+		// 角色加版本会重建 payload：资产层面的 metadata（出图排队状态）要带过去，不然还在等空位的角色就排不上三视图了。
+		if metadata, ok := assetPayload(&asset)["metadata"].(map[string]any); ok && len(metadata) > 0 {
+			payload := assetPayload(&next)
+			payload["metadata"] = metadata
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				return repository.DramaAssetWrite{}, err
+			}
+			next.PayloadJSON = string(raw)
 		}
 		version.Note = firstNonEmpty(version.Note, "资产设计补充")
 		return repository.DramaAssetWrite{Asset: &next, Version: &version, ExpectedVersionID: entry.version.ID, Representations: reps, Voice: voice}, nil

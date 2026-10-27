@@ -132,7 +132,7 @@ func TestAssetsExtractWritesConfirmedAssetsThroughWorker(t *testing.T) {
 	if zhou.Status != model.AssetVersionStatusConfirmed || zhou.Character == nil || zhou.Image == nil || zhou.Image.Status != dramaImageNone {
 		t.Fatalf("周岸直接已确认、记出图状态：%+v", zhou)
 	}
-	if def := zhou.Character.Definition; def["appearance"] != "三十岁男性，条纹病号服，右手缠绷带" || !strings.HasSuffix(def["multiViewPrompt"].(string), "Color accents: Ward Stripe #7FA7C9.") || def["firstScene"] != "E01S02" || def["paletteHint"] != "病号服条纹" {
+	if def := zhou.Character.Definition; def["appearance"] != "三十岁男性，条纹病号服，右手缠绷带" || !strings.HasSuffix(def["multiViewPrompt"].(string), "hospital gown. Color accents: Ward Stripe #7FA7C9.") || def["firstScene"] != "E01S02" || def["paletteHint"] != "病号服条纹" {
 		t.Fatalf("角色外观提示词写进 appearance / multiViewPrompt：%+v", def)
 	}
 	hall := assets["病房走廊"]
@@ -183,6 +183,9 @@ func TestAssetsExtractWritesConfirmedAssetsThroughWorker(t *testing.T) {
 	assets = projectAssetsByTitle(t, svc, project.ID)
 	if len(assets) != 6 || assets["周岸"].ID != zhou.ID || strings.Join(definitionAliases(assets["周岸"].Character.Definition), "/") != "周哥/岸哥" {
 		t.Fatalf("周岸不重建、补别名：%d %+v", len(assets), assets["周岸"].Character)
+	}
+	if assets["周岸"].Image == nil || assets["周岸"].Image.Status != dramaImageNone {
+		t.Fatalf("合并加版本后出图状态还在（还没出图的照样能继续出图）：%+v", assets["周岸"].Image)
 	}
 }
 
