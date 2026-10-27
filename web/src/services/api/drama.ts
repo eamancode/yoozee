@@ -205,9 +205,10 @@ export function listDramaSegments(projectId: string, unitId: string, signal?: Ab
 
 /**
  * 按段号写入一章的段（后端按项目生成模型校验段长）。拆段、合段时给 order：本章全部段号的新顺序，
- * 不在其中的段连同生成结果删除；只改段内容时不给。
+ * 不在其中的段连同生成结果删除；只改段内容时不给。inherit 是「段号 → 从哪几段继承资产引用」：
+ * 拆段时新段继承原段，合段、挪镜头时接收的段并上来源段（后端按版本和用途去重）。
  */
-export function writeDramaSegments(projectId: string, input: { unitId: string; segments: DramaSegment[]; order?: string[] }) {
+export function writeDramaSegments(projectId: string, input: { unitId: string; segments: DramaSegment[]; order?: string[]; inherit?: Record<string, string[]> }) {
     return http.put<{ segments: DramaSegmentView[] }>(`/projects/${projectId}/drama/segments`, input);
 }
 

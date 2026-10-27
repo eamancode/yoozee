@@ -16,8 +16,8 @@ import (
 // dramaSegmentsWriteDescription 是 drama_segments_write 给 Agent 的用法说明；order 的语义由 drama.PlanSegmentOrder 把关。
 const dramaSegmentsWriteDescription = "按段号写一章的分段：已有段号写新版本（只让依赖输入真的变了的产物过期），新段号新建一段并排到本章末尾。每段必须符合契约 segment，时长不超过项目生成模型的上限（Seedance 2.0 / MiniMax-H3 15 秒，Seedance 2.5 30 秒），否则整批拒绝。" +
 	"只改段内容时不传 order，不会删段。拆段或合段要传 order：先 drama_segments_read 取本章全部段号，order 是本章全部段号的新顺序（没改动的段和 derived 的旧镜头也要列），段按它排位置，segments 里至少写一段，写入的段号都要在 order 里。" +
-	"拆段：S02 拆成两段时，S02 写成前半，后半用 S02b（原段号加小写字母，已占用就用 S02c），order 写 [\"S01\",\"S02\",\"S02b\",\"S03\"]，新段紧跟在原段后面而不是排到章末。" +
-	"合段：S03 并进 S02 时，写合并后的 S02，order 里不写 S03。没出现在 order 里的已有段会连同它的候选视频、分镜图和证据一起删除，无法恢复，所以只在合段时省略，其余段一个不落。"
+	"拆段：S02 拆成两段时，S02 写成前半，后半用 S02b（原段号加小写字母，已占用就用 S02c），order 写 [\"S01\",\"S02\",\"S02b\",\"S03\"]，新段紧跟在原段后面而不是排到章末；同时传 inherit {\"S02b\":[\"S02\"]}，新段才带上原段的人物、场景、道具和本场色卡引用。" +
+	"合段：S03 并进 S02 时，写合并后的 S02，order 里不写 S03，传 inherit {\"S02\":[\"S03\"]} 把 S03 的引用并进 S02。没出现在 order 里的已有段会连同它的候选视频、分镜图和证据一起删除，无法恢复，所以只在合段时省略，其余段一个不落。"
 
 // dramaShotlistWriteDescription 是 drama_shotlist_write 给 Agent 的用法说明；校验与装段规则在 internal/drama。
 const dramaShotlistWriteDescription = "写一章的镜头表并整章重装段：服务端把章节正文转成台词表，分镜行的 spec 转成镜头表（台词按原文对回台词 id），按 R-SHOT 规则检查，有 error 就整批拒绝并返回规则项与镜头（reason=shotlist_check_failed），没有 error 才按场装段、替换本章全部段（旧段连同候选、证据一起删除）。" +

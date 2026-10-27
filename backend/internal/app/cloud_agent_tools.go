@@ -196,6 +196,7 @@ func compileCloudAgentTools(req CloudAgentRequest, includeProfileTool bool) []ma
 				"unitId":   str("章节 ID，来自 drama_chapters_read"),
 				"segments": map[string]any{"type": "array", "minItems": 1, "maxItems": 60, "items": dramaObject("一段中性分段（契约 segment）")},
 				"order":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "可选，只在拆段、合段时给：本章全部段号的新顺序，含没改动的段和 derived 的旧镜头。不在其中的已有段连同候选视频、证据一起删除。只改段内容时不要传。"},
+				"inherit":  map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "description": "可选，拆段、合段时给：段号 → 从哪几段继承资产引用。拆段 {\"S02b\":[\"S02\"]}，合段 {\"S02\":[\"S03\"]}；键是这次写入的段号，来源是本章已有的段号。"},
 			}, "unitId", "segments")
 			add("drama_shotlist_write", dramaShotlistWriteDescription, map[string]any{
 				"unitId": str("章节 ID，来自 drama_chapters_read"),

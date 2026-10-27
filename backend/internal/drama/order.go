@@ -22,7 +22,7 @@ func PlanSegmentOrder(order []string, written []string, existing []ExistingSegme
 	for i, raw := range order {
 		id := strings.TrimSpace(raw)
 		if !segmentIDPattern.MatchString(id) {
-			return nil, fmt.Errorf("段顺序里的段号「%s」无效：应为 S01、S12b 这样的格式，取自 drama_segments_read", echoSegmentID(raw))
+			return nil, fmt.Errorf("段顺序里的段号「%s」无效：应为 S01、S12b 这样的格式，取自 drama_segments_read", EchoSegmentID(raw))
 		}
 		if _, dup := position[id]; dup {
 			return nil, fmt.Errorf("段顺序里 %s 出现了两次", id)
@@ -55,9 +55,9 @@ func PlanSegmentOrder(order []string, written []string, existing []ExistingSegme
 	return removed, nil
 }
 
-// echoSegmentID 把 Agent 传来的无效段号截短，只留字母、数字和 -_. 再放进报错：
+// EchoSegmentID 把 Agent 传来的无效段号截短，只留字母、数字和 -_. 再放进报错：
 // 错误要原样回给 Agent，不能被长串（比如把镜头 ID 当段号）、换行或引号撑坏。
-func echoSegmentID(raw string) string {
+func EchoSegmentID(raw string) string {
 	runes := make([]rune, 0, 24)
 	for _, r := range raw {
 		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' && r != '_' && r != '.' {
