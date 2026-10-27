@@ -5,6 +5,31 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M7.2 第 6 阶段：生成分段按场判戏类、绑色卡、换版本跟随、预演闸门、待审列表
+
+- 生成分段：第一轮之前用同一个文本模型判一次各场戏类（武戏 / 文戏 / 悬疑戏 / 单人情绪戏），判定失败或判不出的场按文戏，任务照常写完。之后每一轮在续写指令后面接【本场色卡】（导演风格色彩脚本里这一场的颜色，中文名 + HEX + 用途）和本场戏类的卡（同一戏类第一次整张带上，之后只提一句）；整章提示词另带【全局风格锚】（含镜头语言）。侧栏每场写「武戏 · 14 镜」。「从第 N 场继续」沿用上一次的判定。
+- 戏类卡在 `yz-chapter-shots` 2.3.0 包的 `cards/戏类-*.md`：已经装过 2.2.1 的环境不会自动换，要在后台「流程技能」上传 `build.py --package yz-chapter-shots` 打的包并启用（评测跑完或强制启用）；没换之前只写判定结果、不带卡。
+- 装段时每段以 `role=style` 绑本场色卡（场次已不存在的色卡不绑）；制作台「镜头资产」里标「色卡」，不作视频参考图。
+- 资产换版本跟随：重跑导演风格（同一场色卡加版本）、色卡或场景道具重新出图、角色换定妆或改设定、资产设计合并加版本时，引用这个资产旧版本的镜头引用换到新版本，只有这些镜头的产物显示过期。
+- 预演闸门：项目设置「视频前预演闸门」（跟授权档位 / 开 / 关，存 `brief_json.previz_gate`）。生效时（默认每步确认）这一段没有选中的黑白预演，制作台视频按钮禁用并在费用行提示「预演闸门：先生成并选中黑白预演」（点了去动作预演）；后端同样拒绝（`previz_required`），Agent 建视频任务也拦。`POST /tasks` 顺带改成把 `segment_too_long`、`previz_required` 这类带原因的 400 原样返回 reason。
+- 总览段级进度下面「待审 N 段」：已生成、还没过审的段跨章节列出（还没选定候选 / 缺哪几项证据），点了跳到制作台这一段（`?shot=`）。
+
+自动化覆盖：
+
+- [x] `internal/drama`：`TestParseSceneGenresNormalizesAndFallsBack`、`TestSceneGenrePromptSectionGivesCardOnce`、`TestScenePalettePromptListsHex`、`TestFitPromptBudgetTruncatesLaterSectionsFirst`、`TestBuildChapterShotsPromptWithAnchor`、`TestPrevizGateEnabledAndBrief`。
+- [x] `internal/app`：`TestChapterShotsInjectsSceneGenreAndPaletteThenFollowsPaletteVersion`（七床三场判出文戏 / 悬疑戏 / 武戏，每轮只带本场卡和本场 HEX；每段绑本场色卡；第 2 场色卡加版本后只有第 2 场的段换引用、产物过期）、`TestChapterShotsGenreFailureFallsBackToDrama`、`TestDramaPrevizGate`、`TestCharacterVersionFollowsShotReferences`；原有逐场续写用例（含从第 3 场继续不再判戏类）照过。
+- [x] 前端：`chapter-shot-stream.test.ts`（回合标记与结果里的戏类）、`drama-review-queue.test.ts`（待审筛选与缺口文字、预演闸门读写需求文档）。
+- [x] 本机联调（第 5 阶段数据拷贝 + 假上游，上传并强制启用 2.3.0 包）：新建七床第一章项目跑导演风格（三张色卡出图）后生成分段：判出 E01S01 文戏、E01S02 悬疑戏、E01S03 武戏，三轮提示词各只带本场的卡和本场色卡，第一轮带风格锚，6 段各绑本场色卡；给 E01S02 色卡重新出图后，S03、S04 换到新版本、分镜图过期，S01、S02 不动；判定上游返回 500 时三场按文戏写完、第 2、3 场只提一句；没有预演时 `POST /tasks` 返回 `previz_required`，选中预演后、闸门关掉后不再拦；总览列出 3 段待审并跳到对应段；项目设置改闸门保存后需求文档是 `previz_gate: off`。
+- [ ] 线上：七床第 1 集用真模型跑一次生成分段，看判出的戏类是否合理、各轮提示词长度（戏类卡第一次整张带上，文戏卡约 7200 字）。
+- [ ] 线上：上传 yz-chapter-shots 2.3.0 包跑评测（`qichuang-e01`），看门槛指标与 2.2.1 比。
+
+未做 / 已知边界：
+
+- 戏类判定结果写在任务结果 `result.dramaRun`（`genres`、`scenes[i].genre`），没有写回任务输入 `metadata.dramaRun.scenes`：任务输入建好后不改，续跑比对轮次也只看场编号和场次头。
+- 32000 字预算只管第一轮的项目记忆（本集时长、风格锚、角色外观、项目画风、资产清单）；每轮的色卡段和戏类卡不算在里面（戏类卡单独按 8000 字截）。
+- 镜头引用跟随只在主版本换成新的已确认版本时做；`CreateProjectAssetVersion` 建的草稿版本不跟。
+- 换版本时引用旧版本的所有镜头都跟上（不区分用户是不是有意钉在旧版本）。
+
 ## M7.2 第 5 阶段收口：出图失败接着排、库忙重试、侧栏摘要、模板描述、个人图片渠道
 
 - 出图队列（色卡与资产共用）：出图任务失败或取消落库后，那一张记成「出图失败」（原因写在卡片上，不自动重试），接着排后面「等空位」的；资产页「继续出图」只重出没图的（失败、等空位、当时没开出图），已出完的不动。
