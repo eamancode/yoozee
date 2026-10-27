@@ -38,7 +38,7 @@ func TestBuiltinChapterShotsDeclaresSpecOutputField(t *testing.T) {
 		if item.skill.ID != "yz-chapter-shots" {
 			continue
 		}
-		if item.skill.Tag != "drama" || item.skill.Name != "yoozee · 章节分镜（镜头表）" || item.archive.Metadata.Version != "2.2.1" {
+		if item.skill.Tag != "drama" || item.skill.Name != "yoozee · 章节分镜（镜头表）" || item.archive.Metadata.Version != "2.3.0" {
 			t.Fatalf("skill = %s / %s / %s", item.skill.Name, item.skill.Tag, item.archive.Metadata.Version)
 		}
 		if !strings.Contains(item.skill.Instruction, `  outputFields: [{"name": "spec", "type": "object"`) {

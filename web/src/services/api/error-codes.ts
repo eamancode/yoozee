@@ -30,6 +30,8 @@ export const API_ERROR_REASON = {
     PackageEvalNotPassed: "package_eval_not_passed",
     /** 剧本优化会替换已有剧集（或改写有镜头表的剧集），请求没带 `replace: true`；`ApiError.details.episodes` 列出影响面。 */
     DramaEpisodesReplace: "drama_episodes_replace_required",
+    /** 预演闸门生效时给镜头建视频任务，这一段还没有选中的黑白预演（action_board）。 */
+    PrevizRequired: "previz_required",
 } as const;
 
 export type ApiErrorReason = (typeof API_ERROR_REASON)[keyof typeof API_ERROR_REASON];

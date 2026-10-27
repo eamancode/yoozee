@@ -58,7 +58,7 @@ func TestDramaEvalSetFixtures(t *testing.T) {
 		if in.project.StyleProfile != c.Profile || in.project.GenerationModel == "" || briefEpisodeSeconds(in.project.BriefJSON) != 90 {
 			t.Fatalf("%s 项目：%+v", c.ID, in.project)
 		}
-		plan, err := chapterShotsPlan(in.project, in.unit, in.assets, DramaStepUsage{}, stepSkillOf(pkg))
+		plan, err := chapterShotsPlan(in.project, in.unit, []model.ProjectUnit{*in.unit}, in.assets, DramaStepUsage{}, stepSkillOf(pkg))
 		if err != nil {
 			t.Fatalf("%s：%v", c.ID, err)
 		}

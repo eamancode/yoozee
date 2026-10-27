@@ -42,13 +42,18 @@ func qichuangSceneRows(t *testing.T) map[string][]string {
 }
 
 // streamingShotsUpstream 是假的流式 Chat Completions 上游：按对话里已有几轮判断在写第几场，一行一个 SSE 增量吐出这一场的镜头；
-// fail 返回非 0 时这次调用直接返回该状态码。
+// fail 返回非 0 时这次调用直接返回该状态码。生成分段第一轮之前的戏类判定单独应答（genres 是回复正文，genreStatus 非 0 时
+// 判定调用返回该状态码），不计进 calls / histories；prompts 记每次续写调用的本轮提示词。
 type streamingShotsUpstream struct {
-	mu        sync.Mutex
-	scenes    map[string][]string
-	calls     int
-	histories []int
-	fail      func(call int, scene int) int
+	mu          sync.Mutex
+	scenes      map[string][]string
+	calls       int
+	histories   []int
+	prompts     []string
+	fail        func(call int, scene int) int
+	genres      string
+	genreStatus int
+	genreCalls  int
 }
 
 func (u *streamingShotsUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +62,26 @@ func (u *streamingShotsUpstream) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		Stream   bool              `json:"stream"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	var last struct {
+		Content string `json:"content"`
+	}
+	if len(body.Messages) > 0 {
+		_ = json.Unmarshal(body.Messages[len(body.Messages)-1], &last)
+	}
+	if strings.Contains(last.Content, "先给每一场判戏类") {
+		u.mu.Lock()
+		u.genreCalls++
+		u.mu.Unlock()
+		if u.genreStatus != 0 {
+			w.WriteHeader(u.genreStatus)
+			fmt.Fprint(w, `{"error":{"message":"upstream unavailable"}}`)
+			return
+		}
+		u.reply(w, body.Stream, []string{u.genres})
+		return
+	}
 	u.mu.Lock()
+	u.prompts = append(u.prompts, last.Content)
 	u.calls++
 	call := u.calls
 	history := len(body.Messages) - 1
@@ -71,8 +95,12 @@ func (u *streamingShotsUpstream) ServeHTTP(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	lines := u.scenes[fmt.Sprintf("E01S%02d", scene)]
-	if !body.Stream {
+	u.reply(w, body.Stream, u.scenes[fmt.Sprintf("E01S%02d", scene)])
+}
+
+// reply 按请求是否流式回一段正文（流式时一行一个增量）。
+func (u *streamingShotsUpstream) reply(w http.ResponseWriter, stream bool, lines []string) {
+	if !stream {
 		reply, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": strings.Join(lines, "\n")}, "finish_reason": "stop"}}})
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(reply)

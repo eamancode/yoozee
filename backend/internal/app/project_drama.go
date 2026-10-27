@@ -983,7 +983,10 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 		return drama.Progress{}, err
 	}
 	input.Evidence = evidenceStates(evidence)
-	return drama.Derive(input), nil
+	progress := drama.Derive(input)
+	progress.PrevizGateSetting = briefPrevizGate(project.BriefJSON)
+	progress.PrevizGate = drama.PrevizGateEnabled(progress.PrevizGateSetting, project.AuthMode)
+	return progress, nil
 }
 
 // ---------------------------------------------------------------- 量数：转写、抽帧、门禁
@@ -1217,6 +1220,26 @@ func (s *Service) enforceDramaModelFamily(userID string, input map[string]any, n
 		return BadAuthRequest(fmt.Sprintf("这次选的视频模型属于 %s，项目的生成模型是 %s：请换成 %s 的视频模型，或在项目设置里改生成模型", family.Label, m.Label, m.Label))
 	}
 	return nil
+}
+
+// enforceDramaPrevizGate 是视频前的预演闸门（brief_json.previz_gate，auto 跟授权档位）：闸门生效时，给镜头建视频任务要求这一段
+// 有选中、没过期的黑白预演（action_board），否则拒绝（reason previz_required）。不是带项目和镜头的视频任务、项目读不到时放行。
+func (s *Service) enforceDramaPrevizGate(userID string, input map[string]any) error {
+	projectID, shotID := dramaTaskTarget(input)
+	if projectID == "" || shotID == "" {
+		return nil
+	}
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil || !projectPrevizGate(project) {
+		return nil
+	}
+	ready, err := s.repo.SelectedShotArtifactReady(projectID, shotID, drama.ArtifactActionBoard)
+	if err != nil || ready {
+		return err
+	}
+	appErr := NewAppError(http.StatusBadRequest, "这一段还没有选中的黑白预演：先生成并选中黑白预演，再生成视频（预演闸门可在项目设置里关掉）")
+	appErr.Reason = ReasonPrevizRequired
+	return appErr
 }
 
 func (s *Service) enforceDramaSegmentTaskDuration(userID string, input map[string]any) error {

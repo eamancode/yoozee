@@ -249,7 +249,8 @@ export type ShotAssetReference = {
     id: string;
     shotId: string;
     assetVersionId: string;
-    role: "reference" | "start_frame" | "end_frame" | "keyframe" | "storyboard" | "output" | string;
+    /** style 是生成分段装段时绑的本场色卡：进产物输入指纹，换版本让产物过期；不作视频参考图。 */
+    role: "reference" | "start_frame" | "end_frame" | "keyframe" | "storyboard" | "output" | "style" | string;
     status: string;
     createdAt: string;
     asset?: ProjectAsset;
@@ -484,8 +485,8 @@ export function createProject(input: { name: string; type: string; aspectRatio: 
     return http.post<{ project: Project }>("/projects", input);
 }
 
-/** segmentSeconds 改单段最长秒数（0 去掉这一项），与生成模型一起按模型上限校验。 */
-export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "authMode" | "styleProfile" | "status">> & { segmentSeconds?: number }) {
+/** segmentSeconds 改单段最长秒数（0 去掉这一项），与生成模型一起按模型上限校验；previzGate 改视频前的预演闸门（写进 brief_json.previz_gate）。 */
+export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "authMode" | "styleProfile" | "status">> & { segmentSeconds?: number; previzGate?: "auto" | "on" | "off" }) {
     return http.patch<{ project: Project }>(`/projects/${encodeURIComponent(projectId)}`, input);
 }
 

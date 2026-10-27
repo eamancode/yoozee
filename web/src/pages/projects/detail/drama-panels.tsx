@@ -19,6 +19,7 @@ import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setCheckli
 import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
 import { editSubShot, mergeWithNext, moveEdgeShot, segmentLacksReferences, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
 import { StyleBibleEditor } from "./drama-style-bible-editor";
+import { EVIDENCE_LABELS, pendingReviewSegments, reviewGap } from "./drama-review-queue";
 import { applyBriefFacts, bibleSummary, BRIEF_FACTS, BRIEF_STATUSES, briefConfirmedCount, briefFactsFromDocument, dramaBriefKey, parseDocumentJson, type BriefFactDraft, type BriefFactKey } from "./drama-brief";
 
 export const dramaProgressKey = (projectId: string) => ["project", projectId, "drama", "progress"] as const;
@@ -47,7 +48,6 @@ const SEGMENT_CELLS: Array<{ key: keyof Pick<DramaSegmentProgress, "script" | "r
     { key: "accepted", label: "验收" },
 ];
 
-const EVIDENCE_LABELS: Record<string, string> = { faces: "人脸核对", frames: "抽帧核对", transcript: "台词转写" };
 
 /** 项目概览里的「终态」面板：一句进度、十个可验证终态和每段六格证据。 */
 export function DramaOverviewPanel({ projectId }: { projectId: string }) {
@@ -98,7 +98,29 @@ export function DramaOverviewPanel({ projectId }: { projectId: string }) {
                     {progress.segments.length > 12 ? <Button className="mt-2" size="small" type="link" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : `展开全部 ${progress.segments.length} 段`}</Button> : null}
                 </div>
             ) : null}
+            <DramaReviewQueue projectId={projectId} segments={progress.segments} />
         </section>
+    );
+}
+
+/** 总览的跨章节待审列表：章节 / 段 / 缺什么，点了跳到制作台的这一段（视频阶段）。不建审片表。 */
+function DramaReviewQueue({ projectId, segments }: { projectId: string; segments: DramaSegmentProgress[] }) {
+    const pending = pendingReviewSegments(segments);
+    if (!pending.length) return null;
+    return (
+        <div className="mt-4 border-t border-border/50 pt-3">
+            <h3 className="text-xs font-medium">待审 {pending.length} 段<span className="ml-1.5 font-normal text-foreground/45">已生成、还没过审，按章节顺序</span></h3>
+            <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                {pending.map((segment) => (
+                    <li key={segment.shotId}>
+                        <Link to={`/projects/${projectId}/workflow/${segment.unitId}/video?shot=${encodeURIComponent(segment.shotId)}`} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-xs hover:border-[var(--workspace-accent)]/50">
+                            <span className="min-w-0 flex-1 truncate"><span className="text-foreground/50">{segment.unitTitle || "未命名章节"} · </span><span className="font-medium">{segment.segmentId}</span> <span className="text-foreground/60">{segment.title.startsWith(segment.segmentId) ? segment.title.slice(segment.segmentId.length).trim() : segment.title}</span></span>
+                            <span className="shrink-0 text-[var(--fs-label)] text-amber-600 dark:text-amber-400">{reviewGap(segment)}</span>
+                        </Link>
+                    </li>
+                ))}
+            </ul>
+        </div>
     );
 }
 

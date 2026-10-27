@@ -47,6 +47,8 @@ type ReplaceProjectUnitShotsRequest struct {
 type ReplaceProjectUnitShotInput struct {
 	CreateProjectShotRequest
 	AssetVersionIDs []string `json:"assetVersionIds"`
+	// StyleVersionIDs 是以 role=style 绑到这一段的资产版本（生成分段装段时绑本场色卡）；不占 6 个参考的名额，也不进视频参考图。
+	StyleVersionIDs []string `json:"styleVersionIds,omitempty"`
 }
 
 type LinkShotAssetRequest struct {
@@ -180,6 +182,18 @@ func (s *Service) replaceProjectUnitShots(userID string, projectID string, unitI
 			}
 			seenVersions[versionID] = true
 			references = append(references, model.ShotAssetReference{ID: newID(), ShotID: shotID, AssetVersionID: versionID, Role: "reference", Status: "linked", CreatedAt: now})
+		}
+		seenStyles := map[string]bool{}
+		for _, rawVersionID := range input.StyleVersionIDs {
+			versionID := strings.TrimSpace(rawVersionID)
+			if versionID == "" || seenStyles[versionID] {
+				continue
+			}
+			if _, err := s.repo.AssetVersionForProject(projectID, versionID); err != nil {
+				return nil, err
+			}
+			seenStyles[versionID] = true
+			references = append(references, model.ShotAssetReference{ID: newID(), ShotID: shotID, AssetVersionID: versionID, Role: shotAssetRoleStyle, Status: "linked", CreatedAt: now})
 		}
 	}
 	if shotlist != nil {
@@ -482,9 +496,12 @@ func addAssetCandidateIdentityKeys(known map[string]struct{}, category model.Ass
 	}
 }
 
+// shotAssetRoleStyle 是风格类引用（本场色卡）：进产物输入指纹，换版本时让产物过期；不作视频参考图。
+const shotAssetRoleStyle = "style"
+
 func validShotAssetRole(role string) bool {
 	switch role {
-	case "reference", "start_frame", "end_frame", "keyframe", "storyboard", "output":
+	case "reference", "start_frame", "end_frame", "keyframe", "storyboard", "output", shotAssetRoleStyle:
 		return true
 	default:
 		return false

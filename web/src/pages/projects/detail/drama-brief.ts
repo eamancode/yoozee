@@ -1,4 +1,4 @@
-import type { DramaBible } from "@/services/api/drama";
+import type { DramaBible, DramaPrevizGate } from "@/services/api/drama";
 
 /** 需求文档的六项事实（契约 brief），概览终态 1「需求问透了」要求每项都是已确认或已授权。 */
 export const BRIEF_FACTS = [
@@ -59,6 +59,27 @@ export function withSegmentSeconds(document: Record<string, unknown>, seconds: n
     else delete next.segment_seconds;
     return next;
 }
+
+/** 视频前的预演闸门（brief_json.previz_gate）；没写或不认识的按 auto（跟授权档位）。 */
+export function briefPrevizGate(document: Record<string, unknown> | undefined): DramaPrevizGate {
+    const value = document?.previz_gate;
+    return value === "on" || value === "off" ? value : "auto";
+}
+
+/** 把预演闸门写回需求文档；auto 时去掉这一项（同后端 withBriefPrevizGate）。 */
+export function withPrevizGate(document: Record<string, unknown>, gate: DramaPrevizGate) {
+    const next: Record<string, unknown> = { ...document };
+    if (gate === "auto") delete next.previz_gate;
+    else next.previz_gate = gate;
+    return next;
+}
+
+/** 预演闸门的选项：auto 跟授权档位。 */
+export const PREVIZ_GATE_OPTIONS: Array<{ value: DramaPrevizGate; label: string }> = [
+    { value: "auto", label: "跟授权档位（每步确认时开）" },
+    { value: "on", label: "开：先选中黑白预演再生成视频" },
+    { value: "off", label: "关：直接生成视频" },
+];
 
 /** 只有「已确认」「默认，已授权」能拿去花钱，见 backend/internal/drama/brief.go 的 BriefStatuses。 */
 export const BRIEF_STATUSES = ["已确认", "默认，待确认", "默认，已授权", "待答"] as const;

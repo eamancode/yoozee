@@ -49,8 +49,10 @@ type UpdateProjectRequest struct {
 	AuthMode          *string `json:"authMode"`
 	StyleProfile      *string `json:"styleProfile"`
 	// SegmentSeconds 改单段最长秒数（brief_json.segment_seconds）；0 去掉这一项。
-	SegmentSeconds *int   `json:"segmentSeconds"`
-	Status         string `json:"status"`
+	SegmentSeconds *int `json:"segmentSeconds"`
+	// PrevizGate 改视频前的预演闸门（brief_json.previz_gate：auto / on / off）；auto 去掉这一项（跟授权档位）。
+	PrevizGate *string `json:"previzGate"`
+	Status     string  `json:"status"`
 }
 
 type CreateProjectUnitRequest struct {
@@ -422,6 +424,14 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 				return model.Project{}, err
 			}
 		}
+	}
+	if req.PrevizGate != nil && strings.TrimSpace(*req.PrevizGate) != briefPrevizGate(project.BriefJSON) {
+		briefJSON, briefErr := withBriefPrevizGate(project.BriefJSON, strings.TrimSpace(*req.PrevizGate))
+		if briefErr != nil {
+			return model.Project{}, briefErr
+		}
+		project.BriefJSON = briefJSON
+		briefChanged = true
 	}
 	if err := validateStyleProfilePreset(project.StylePresetID, project.StyleProfileJSON); err != nil {
 		return model.Project{}, BadAuthRequest(err.Error())

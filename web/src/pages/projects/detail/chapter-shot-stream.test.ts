@@ -116,3 +116,25 @@ test("storyboardOutcomeSummary 段数按本章现在的段说，重新装段后�
     assert.equal(storyboardOutcomeSummary(draft, { segmentCount: 6 }), "已写入 41 镜，检查有 1 个问题，还没装段");
     assert.equal(storyboardOutcomeSummary(draft, { segmentCount: 8, draft: false }), "已写入 41 镜，按 3 场装成 8 段");
 });
+
+test("回合标记带戏类：每场标上本场戏类，第一轮的标记带全部场的判定；结果还原时按 dramaRun.genres 标", () => {
+    const genres = [
+        { scene: "E01S01", genre: "文戏", reason: "对话" },
+        { scene: "E01S02", genre: "武戏", reason: "扭打", fallback: false },
+    ];
+    const first = JSON.stringify({ "@turn": { index: 1, total: 2, scene: "E01S01", heading: "内·病房走廊·夜", attempt: 1, genre: "文戏", genreReason: "对话", genres } });
+    const second = JSON.stringify({ "@turn": { index: 2, total: 2, scene: "E01S02", heading: "内·电梯口·夜", attempt: 1, genre: "武戏" } });
+    const state = parseShotStream([first, shot(1, "推门"), second, shot(2, "扭打")].join("\n") + "\n");
+    assert.deepEqual(
+        state.scenes.map((scene) => [scene.scene, scene.genre]),
+        [
+            ["E01S01", "文戏"],
+            ["E01S02", "武戏"],
+        ],
+    );
+    assert.equal(state.genres.length, 2);
+    assert.equal(state.genres[1].genre, "武戏");
+    const restored = shotStreamFromResult(JSON.stringify({ dramaRun: { total: 2, genres, turns: [{ index: 1, scene: "E01S01", heading: "内·病房走廊·夜", text: shot(1, "推门") }] } }));
+    assert.equal(restored.scenes[0].genre, "文戏");
+    assert.equal(restored.genres.length, 2);
+});

@@ -53,6 +53,8 @@ const (
 	ReasonPackageEvalNotPassed ErrorReason = "package_eval_not_passed"
 	// ReasonDramaEpisodesReplace 是剧本优化会替换已有剧集（或改写有镜头表的剧集），请求没带 replace=true；details.episodes 列出影响面。
 	ReasonDramaEpisodesReplace ErrorReason = "drama_episodes_replace_required"
+	// ReasonPrevizRequired 是预演闸门生效时给镜头建视频任务，这一段还没有选中的黑白预演（action_board）。
+	ReasonPrevizRequired ErrorReason = "previz_required"
 )
 
 func ReasonForStatus(status int) ErrorReason {

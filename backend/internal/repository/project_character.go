@@ -253,5 +253,7 @@ func saveCharacterVersion(tx *gorm.DB, asset *model.Asset, version *model.AssetV
 	if result.RowsAffected != 1 {
 		return gorm.ErrRecordNotFound
 	}
-	return nil
+	// 新版本就是主版本：引用旧版本的镜头跟上（换定妆、改设定、资产设计合并加版本都走这里）。
+	_, err := followAssetVersion(tx, asset.ID, version.ID, asset.UpdatedAt)
+	return err
 }

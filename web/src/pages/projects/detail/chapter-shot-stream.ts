@@ -17,8 +17,14 @@ export type StreamScene = {
     scene: string;
     heading: string;
     attempt: number;
+    /** 这一场判出的戏类（武戏 / 文戏 / 悬疑戏 / 单人情绪戏；判定失败按文戏），来自回合标记。 */
+    genre?: string;
+    genreReason?: string;
     shots: StreamShot[];
 };
+
+/** 一场的戏类判定（第一轮的回合标记带全部场的，结果里是 dramaRun.genres）。 */
+export type StreamGenre = { scene: string; genre: string; reason?: string; fallback?: boolean };
 
 export type ShotStreamState = {
     /** 一共几场（来自回合标记；还没收到时为 0）。 */
@@ -27,6 +33,8 @@ export type ShotStreamState = {
     /** 正在写的场（最后一个标记的场序号）。 */
     current: number;
     shotCount: number;
+    /** 各场戏类（第一轮之前判出，没有时为空）。 */
+    genres: StreamGenre[];
 };
 
 /** 回合标记行的键（与后端 drama.ShotLinesMarkerKey 一致）。 */
@@ -45,7 +53,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
 
 /** 解析文本流里已经写完（以换行结尾）的行；最后一行没写完的不算。 */
 export function parseShotStream(text: string): ShotStreamState {
-    const state: ShotStreamState = { total: 0, scenes: [], current: 0, shotCount: 0 };
+    const state: ShotStreamState = { total: 0, scenes: [], current: 0, shotCount: 0, genres: [] };
     const complete = text.slice(0, text.lastIndexOf("\n") + 1);
     let scene: StreamScene | undefined;
     let markers = false;
@@ -66,6 +74,9 @@ export function parseShotStream(text: string): ShotStreamState {
             state.total = Number(marker.total) || state.total;
             state.current = index;
             const next: StreamScene = { index, scene: textOf(marker.scene), heading: textOf(marker.heading), attempt: Number(marker.attempt) || 1, shots: [] };
+            const genre = textOf(marker.genre);
+            if (genre) Object.assign(next, { genre, genreReason: textOf(marker.genreReason) || undefined });
+            if (Array.isArray(marker.genres)) state.genres = streamGenres(marker.genres);
             const existing = state.scenes.findIndex((item) => item.index === index);
             if (existing >= 0) state.scenes[existing] = next;
             else state.scenes.push(next);
@@ -95,8 +106,12 @@ export function parseShotStream(text: string): ShotStreamState {
     return state;
 }
 
-type ResultTurn = { index?: number; scene?: string; heading?: string; text?: string };
-type ResultRun = { total?: number; scenes?: Array<{ scene: string; heading: string }>; turns?: ResultTurn[] };
+function streamGenres(value: unknown[]): StreamGenre[] {
+    return value.map(record).flatMap((item) => (item && textOf(item.genre) ? [{ scene: textOf(item.scene), genre: textOf(item.genre), reason: textOf(item.reason) || undefined, fallback: item.fallback === true || undefined }] : []));
+}
+
+type ResultTurn = { index?: number; scene?: string; heading?: string; genre?: string; text?: string };
+type ResultRun = { total?: number; scenes?: Array<{ scene: string; heading: string; genre?: string; genreReason?: string }>; turns?: ResultTurn[]; genres?: unknown[] };
 
 /**
  * 已经结束的任务从结果还原镜头视图（不再订阅文本流）：没写完的任务结果里每场带着输出原文；
@@ -111,10 +126,13 @@ export function shotStreamFromResult(resultJson?: string): ShotStreamState {
     }
     const run = result.dramaRun || {};
     const total = Number(run.total) || 0;
-    const marker = (index: number, scene = "", heading = "") => JSON.stringify({ [SHOT_TURN_MARKER]: { index, total, scene, heading, attempt: 1 } });
+    const genres = Array.isArray(run.genres) ? streamGenres(run.genres) : [];
+    const genreOf = (scene = "") => genres.find((item) => item.scene === scene);
+    const marker = (index: number, scene = "", heading = "") => JSON.stringify({ [SHOT_TURN_MARKER]: { index, total, scene, heading, attempt: 1, genre: genreOf(scene)?.genre, genreReason: genreOf(scene)?.reason } });
+    const withGenres = (state: ShotStreamState): ShotStreamState => ({ ...state, genres });
     const turns = (run.turns || []).filter((turn) => typeof turn.text === "string" && turn.text);
     if (turns.length) {
-        return parseShotStream(turns.map((turn, i) => `${marker(turn.index || i + 1, turn.scene, turn.heading)}\n${String(turn.text).trim()}\n`).join(""));
+        return withGenres(parseShotStream(turns.map((turn, i) => `${marker(turn.index || i + 1, turn.scene, turn.heading)}\n${String(turn.text).trim()}\n`).join("")));
     }
     const text = typeof result.text === "string" ? result.text : "";
     const scenes = run.scenes || [];
@@ -136,7 +154,7 @@ export function shotStreamFromResult(resultJson?: string): ShotStreamState {
         }
         lines.push(line);
     }
-    return parseShotStream(lines.length ? lines.join("\n") + "\n" : "");
+    return withGenres(parseShotStream(lines.length ? lines.join("\n") + "\n" : ""));
 }
 
 /** 上一次生成分段任务停下来的样子：写完 ≥1 场的可以从下一场续写（resume），一场都没写完或收尾失败的只能重新生成（failed）。 */

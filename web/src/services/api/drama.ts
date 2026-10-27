@@ -118,9 +118,15 @@ export type DramaSegmentProgress = {
 
 export type DramaEndState = { key: string; label: string; done: boolean; detail: string; skill: string };
 
+/** 视频前的预演闸门（brief_json.previz_gate）：auto 跟授权档位（每步确认强制、全权跳过）。 */
+export type DramaPrevizGate = "auto" | "on" | "off";
+
 export type DramaProgress = {
     model: DramaModel;
     authMode: DramaAuthMode | "";
+    /** 预演闸门是否生效：生效时没有选中的黑白预演不能生成视频（后端拒绝，reason previz_required）。 */
+    previzGate: boolean;
+    previzGateSetting: DramaPrevizGate;
     segments: DramaSegmentProgress[];
     counts: { segments: number; script: number; refs: number; generated: number; takes: number; reviewed: number; inCut: number; accepted: number; overLimit: number };
     line: string;

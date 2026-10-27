@@ -103,6 +103,8 @@ type dramaStepPlan struct {
 	style *dramaStyleMeta
 	// assets 是资产设计的运行参数（metadata.dramaAssets），收尾按它取本集色彩脚本、排资产出图。
 	assets *dramaAssetsMeta
+	// shots 是生成分段的逐场注入（metadata.dramaShots）：戏类判定的提示词、每场的色卡段和戏类卡。
+	shots *dramaShotsMeta
 }
 
 func dramaStep(stepID string) (drama.Step, error) {
@@ -241,6 +243,9 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 			"rule":         req.Rule,
 		},
 	}
+	if len(plan.prompt.Truncated) > 0 {
+		metadata["dramaStep"].(map[string]any)["truncated"] = plan.prompt.Truncated
+	}
 	if unitID != "" {
 		metadata["chapterId"] = unitID
 	}
@@ -252,6 +257,9 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	}
 	if plan.assets != nil {
 		metadata["dramaAssets"] = plan.assets
+	}
+	if plan.shots != nil {
+		metadata["dramaShots"] = plan.shots
 	}
 	// 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
 	input := map[string]any{"mode": "text", "metadata": metadata}
@@ -336,7 +344,11 @@ func (s *Service) planDramaStep(userID string, project *model.Project, unitID st
 	if err != nil {
 		return nil, err
 	}
-	return chapterShotsPlan(project, unit, assets, usage, skill)
+	units, err := s.repo.ProjectUnits(project.ID)
+	if err != nil {
+		return nil, err
+	}
+	return chapterShotsPlan(project, unit, units, assets, usage, skill)
 }
 
 func projectStyleSnapshot(project *model.Project) styleProfileDocument {
@@ -349,8 +361,10 @@ func projectStyleSnapshot(project *model.Project) styleProfileDocument {
 }
 
 // chapterShotsPlan 把项目、章节、资产清单和技能版本组装成提示词（不读库，测试直接拿接口 JSON 喂进来）。
-func chapterShotsPlan(project *model.Project, unit *model.ProjectUnit, assets []ProjectAssetSummary, usage DramaStepUsage, skill drama.StepSkill) (*dramaStepPlan, error) {
+// units 是项目全部单元（按导演风格的编号找本单元每场的色彩脚本；评测只给这一章）。
+func chapterShotsPlan(project *model.Project, unit *model.ProjectUnit, units []model.ProjectUnit, assets []ProjectAssetSummary, usage DramaStepUsage, skill drama.StepSkill) (*dramaStepPlan, error) {
 	style := projectStyleSnapshot(project)
+	anchor, _ := projectStyleBible(project.BibleJSON)
 	stepAssets, assetRecords := chapterShotsAssets(assets)
 	characters, characterRecords := chapterShotsCharacters(assets)
 	prompt, err := drama.BuildChapterShotsPrompt(drama.ChapterShotsInput{
@@ -360,12 +374,14 @@ func chapterShotsPlan(project *model.Project, unit *model.ProjectUnit, assets []
 		Characters:     characters,
 		Assets:         stepAssets,
 		EpisodeSeconds: briefEpisodeSeconds(project.BriefJSON),
+		Anchor:         anchor,
 		Skill:          skill,
 	})
 	if err != nil {
 		return nil, err
 	}
 	scenes := drama.ChapterShotsScenes(chapterPlainText(unit.SourceText), unit.Title)
+	shots := chapterShotsSceneMeta(project, unit, units, skill)
 	record := map[string]any{
 		"canvasAssets":        assetRecords,
 		"requirements":        "输出可直接写入分镜制作并继续生成分镜图、动作预演和镜头视频的分镜表。",
@@ -374,7 +390,7 @@ func chapterShotsPlan(project *model.Project, unit *model.ProjectUnit, assets []
 		"shotDurationSeconds": 0,
 		"shotCount":           0,
 	}
-	return &dramaStepPlan{usage: usage, prompt: prompt, skill: skill, scenes: scenes, record: record}, nil
+	return &dramaStepPlan{usage: usage, prompt: prompt, skill: skill, scenes: scenes, record: record, shots: shots}, nil
 }
 
 // briefEpisodeSeconds 是需求文档顶层的 episode_seconds（项目设置里的每集时长）；没设或不是正数返回 0。

@@ -130,13 +130,13 @@ func TestFlowPackageUploadChangesAssembledPrompt(t *testing.T) {
 
 	data := chapterShotsPackageZip(t, func(files map[string][]byte) {
 		files["SKILL.md"] = []byte(strings.Replace(string(files["SKILL.md"]), "你是这一章的导演。", "你是这一章的总导演。", 1))
-		bumpManifest(t, files, func(m *drama.StepPackageManifest) { m.Version = "2.2.2" })
+		bumpManifest(t, files, func(m *drama.StepPackageManifest) { m.Version = "2.3.1" })
 	})
 	uploaded, err := svc.UploadFlowPackage(admin, packageFileHeader(t, data), "", DramaStepEvalModel{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if uploaded.Version.Active || uploaded.Version.VersionLabel != "2.2.2" || uploaded.Package.VersionCount != 2 || uploaded.Version.Eval != nil || uploaded.EvalError == "" {
+	if uploaded.Version.Active || uploaded.Version.VersionLabel != "2.3.1" || uploaded.Package.VersionCount != 2 || uploaded.Version.Eval != nil || uploaded.EvalError == "" {
 		t.Fatalf("上传结果：%+v", uploaded)
 	}
 	if got := promptNow(); got.Prompt != golden {
@@ -147,14 +147,14 @@ func TestFlowPackageUploadChangesAssembledPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed := promptNow()
-	if changed.Usage.Skill.Version != "2.2.2" || changed.Usage.Skill.VersionID != uploaded.Version.ID || changed.Prompt != strings.Replace(strings.Replace(golden, "你是这一章的导演。", "你是这一章的总导演。", 1), `version="2.2.1"`, `version="2.2.2"`, 1) {
+	if changed.Usage.Skill.Version != "2.3.1" || changed.Usage.Skill.VersionID != uploaded.Version.ID || changed.Prompt != strings.Replace(strings.Replace(golden, "你是这一章的导演。", "你是这一章的总导演。", 1), `version="2.3.0"`, `version="2.3.1"`, 1) {
 		t.Fatalf("启用后提示词应只多这处改动和版本号：\n%s", firstDiff(golden, changed.Prompt))
 	}
 
 	if _, err := svc.ActivateFlowPackageVersion(admin, "yz-chapter-shots", original.ID, FlowPackageActivateRequest{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := promptNow(); got.Prompt != golden || got.Usage.Skill.Version != "2.2.1" {
+	if got := promptNow(); got.Prompt != golden || got.Usage.Skill.Version != "2.3.0" {
 		t.Fatalf("回退后应恢复原样：\n%s", firstDiff(golden, got.Prompt))
 	}
 
@@ -166,7 +166,7 @@ func TestFlowPackageUploadChangesAssembledPrompt(t *testing.T) {
 			delete(files, "cards/情绪弧索引.md")
 			bumpManifest(t, files, func(m *drama.StepPackageManifest) {
 				m.Version = "2.2.3"
-				m.Files = []string{"SKILL.md", "cards/相机四维编码.md", "cards/镜头表规则速查.md"}
+				m.Files = []string{"SKILL.md", "cards/相机四维编码.md", "cards/镜头表规则速查.md", "cards/戏类-武戏.md", "cards/戏类-文戏.md", "cards/戏类-悬疑戏.md", "cards/戏类-单人情绪戏.md"}
 			})
 		}, drama.PackageRuleRequiredCard},
 		"契约版本不符": {func(files map[string][]byte) {

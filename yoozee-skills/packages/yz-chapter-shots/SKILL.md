@@ -2,7 +2,7 @@
 name: "yoozee · 章节分镜（镜头表）"
 description: "柚子「生成分镜」槽位专用：把一章剧情文本拆成可装段、可编译的镜头表。每镜在柚子分镜行字段之外附一个 spec 对象，装着 yoozee 2.2 镜头表契约的字段（坐标机位、站位锚点、情绪弧、灯光七项、台词三元、衔接），下游 Go 装段与编译直接读。真人剧、短剧视感、3D 动漫、打斗档案都适用。"
 metadata:
-  version: "2.2.1"
+  version: "2.3.0"
   author: "柚子"
   owner: "yingce-system"
   skillId: "yz-chapter-shots"
