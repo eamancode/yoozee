@@ -37,17 +37,20 @@ describe("media fallback", () => {
 });
 
 describe("task cancellation policy", () => {
-    test("does not expose cancellation after a task is created", () => {
+    // 任务中心只对还没提交给第三方的任务放开取消，和画布共用 canCancelGenerationTask；已提交的置灰并写原因，后端同样拒绝。
+    test("only exposes cancellation before a task is submitted upstream", () => {
         const list = source("../src/pages/tasks/task-list-row.tsx");
         const grid = source("../src/pages/tasks/task-grid-card.tsx");
         const page = source("../src/pages/tasks/index.tsx");
 
         expect(list).not.toContain("isTaskCancellable");
-        expect(list).not.toContain("取消任务");
+        expect(list).toContain("const cancellable = canCancelGenerationTask(task);");
+        expect(list).toContain("disabled={!cancellable}");
+        expect(list).toContain("generationTaskCancelBlockedReason(task)");
         expect(grid).not.toContain("isTaskCancellable");
-        expect(grid).not.toContain("取消任务");
-        expect(page).not.toContain("cancelGenerationTask");
+        expect(grid).toContain("<TaskCancelButton");
         expect(page).not.toContain('runAction(detailTask.id, "cancel")');
+        expect(page.match(/cancelGenerationTask\(/g)).toHaveLength(1);
         expect(page).toContain('if (task.status === "queued" || task.status === "running")');
     });
 
