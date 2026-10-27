@@ -67,6 +67,20 @@ type contractNode struct {
 	Prose       *contractProse           `json:"x-contract"`
 	Shape       string                   `json:"x-shape"`
 	Section     string                   `json:"x-section"`
+	// OneOf 是几种可接受的写法；契约文字按第一种写（首选写法），其余是解析容错。
+	OneOf []*contractNode `json:"oneOf"`
+}
+
+// preferred 是契约文字用的形状：没写 type、写了 oneOf 的字段取第一种写法，说明用字段自己的。
+func (n *contractNode) preferred() *contractNode {
+	if n.Type != "" || len(n.OneOf) == 0 {
+		return n
+	}
+	p := *n.OneOf[0]
+	if n.Description != "" {
+		p.Description = n.Description
+	}
+	return &p
 }
 
 // Contract 是一个步骤输出契约（schema 原文与解析结果）。
@@ -184,7 +198,7 @@ func (c *Contract) Text(requirement string, opts ContractTextOptions) string {
 				shaped = append(shaped, c.FieldInstruction(name))
 			}
 		default:
-			list = append(list, fieldLabel(name, field))
+			list = append(list, fieldLabel(name, field.preferred()))
 		}
 	}
 	shape := fmt.Sprintf("- 顶层固定为 %s，%s。%s", c.topLevelShape(), c.rowsMinText(), requirement)
@@ -213,7 +227,7 @@ func (c *Contract) FieldInstruction(name string) string {
 	if field == nil {
 		return ""
 	}
-	label := typeLabel(field)
+	label := typeLabel(field.preferred())
 	if field.Shape == "skill" {
 		label += "，形状见技能说明，每个镜头都要写，不能省略"
 	}

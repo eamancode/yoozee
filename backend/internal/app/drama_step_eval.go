@@ -791,7 +791,7 @@ func styleBibleEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInpu
 	}
 	r.Parsed = stats.Anchor && rate >= 0.9
 	if !r.Parsed {
-		r.Failure = fmt.Sprintf("解析出 %d/%d 场，风格锚%s", parsed, len(scenes), boolWord(stats.Anchor, "有", "没有"))
+		r.Failure = fmt.Sprintf("解析出 %d/%d 场，%s", parsed, len(scenes), firstNonEmpty(out.AnchorProblem(), "有风格锚"))
 	}
 	return r
 }
@@ -825,13 +825,6 @@ func assetsExtractEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterI
 		r.Failure = fmt.Sprintf("读出 %d 行，%d 行读不出，%d 行不合格", stats.Rows, stats.Invalid, checked.Skipped)
 	}
 	return r
-}
-
-func boolWord(ok bool, yes, no string) string {
-	if ok {
-		return yes
-	}
-	return no
 }
 
 // autoActivateDramaStepPackage 在评测通过后启用候选版本：评测期间启用版本换过、上传的人已不是管理员时不启用，写进评测的说明。
