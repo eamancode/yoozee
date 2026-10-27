@@ -333,8 +333,8 @@ export function recommendDramaStyleProfile(styleMap: DramaStyleProfiles["styleMa
     return rule?.profile || styleMap.default;
 }
 
-/** 短剧流程步骤：script.adapt 是剧本优化、style.bible 是导演风格（项目级），chapter.shots 是生成分段（按章节或剧集）。 */
-export type DramaStepId = "chapter.shots" | "script.adapt" | "style.bible";
+/** 短剧流程步骤：script.adapt 是剧本优化、style.bible 是导演风格（项目级），assets.extract 是资产设计、chapter.shots 是生成分段（按章节或剧集）。 */
+export type DramaStepId = "chapter.shots" | "script.adapt" | "style.bible" | "assets.extract";
 
 /** 一个项目跑这一步用哪个技能版本（风格档案查绑定；bound 为 false 时是步骤默认技能）。 */
 export type DramaStepUsage = {
@@ -351,11 +351,16 @@ export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?:
 }
 
 /**
- * 对这一章跑这一步：提示词（技能上下文、画风、角色、资产与锚点、每集时长、契约）由服务端组装，这里只带文本模型选择。
- * 服务端在一个任务里按场续写，任务成功前解析、绑资产、写镜头表并装段（结果摘要在任务 result.dramaStep）。
- * rule 是视频渠道实际能提交的段长（只收紧）；resumeTaskId 是「从第 N 场继续」的上一次任务。
+ * 对这一章跑这一步：提示词由服务端组装，这里只带文本模型选择。服务端在一个任务里按场续写，任务成功前写库（结果摘要在任务 result.dramaStep）：
+ * 生成分段解析、绑资产、写镜头表并装段，rule 是视频渠道实际能提交的段长（只收紧）；资产设计写已确认资产，带了 imageTask 时接着给新资产排出图。
+ * resumeTaskId 是「从第 N 场继续」的上一次任务。
  */
-export function runDramaStep(projectId: string, unitId: string, step: DramaStepId, input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: { maxSeconds: number; minSeconds: number }; resumeTaskId?: string }) {
+export function runDramaStep(
+    projectId: string,
+    unitId: string,
+    step: "chapter.shots" | "assets.extract",
+    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: { maxSeconds: number; minSeconds: number }; resumeTaskId?: string; imageTask?: DramaImageTaskTemplate },
+) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
 }
 
@@ -396,12 +401,17 @@ export function runDramaProjectStep(
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
 }
 
-/** 一次排色卡出图：queued 建了任务，waiting 等空位（同时任务数有上限，前面的出完图自动接着排），failed 没建成（原因记在色卡上）。 */
-export type DramaPaletteQueueResult = { queued: string[]; waiting: string[]; failed: string[] };
+/** 一次排出图：queued 建了任务，waiting 等空位（同时任务数有上限，前面的出完图自动接着排），failed 没建成（原因记在资产上）。 */
+export type DramaImageQueueResult = { queued: string[]; waiting: string[]; failed: string[] };
 
 /** 给色卡出图 / 重新出图：assetIds 为空时排全部还没出图或出图失败的色卡。 */
 export function queueDramaPaletteImages(projectId: string, input: { assetIds?: string[]; imageTask: DramaImageTaskTemplate }) {
-    return http.post<DramaPaletteQueueResult>(`/projects/${encodeURIComponent(projectId)}/drama/palettes/images`, input);
+    return http.post<DramaImageQueueResult>(`/projects/${encodeURIComponent(projectId)}/drama/palettes/images`, input);
+}
+
+/** 资产页「继续出图」：assetIds 为空时排资产设计建的、还没有图也没在出图的角色（三视图）、场景和道具（概念图）。 */
+export function queueDramaAssetImages(projectId: string, input: { assetIds?: string[]; imageTask: DramaImageTaskTemplate }) {
+    return http.post<DramaImageQueueResult>(`/projects/${encodeURIComponent(projectId)}/drama/assets/images`, input);
 }
 
 /** 重跑剧本优化会动到的一集：adapt 整体替换（连同镜头表和段），rhythm 原地改写正文。 */
@@ -458,7 +468,28 @@ export type DramaStyleBibleOutcome = {
     items?: DramaCheckReport["items"];
     /** retired 是这次运行范围内场次已不存在、标成过期的旧色卡（不删）。 */
     palettes: { created: number; versioned: number; retired?: number };
-    images: DramaPaletteQueueResult;
+    images: DramaImageQueueResult;
+};
+
+/** 资产设计写出的一个资产：created 新建，updated 已有资产补了别名或外观，merged 已有、没有可补的。 */
+export type DramaAssetsOutcomeItem = { assetId: string; name: string; category: "character" | "environment" | "prop"; action: "created" | "updated" | "merged" };
+export type DramaAssetsCategoryCount = { created: number; merged: number; skipped: number };
+
+/** 资产设计收尾的摘要（任务 result.dramaStep）：新增 / 合并 / 跳过（按分类）、写出的资产、出图排上和等空位的资产。 */
+export type DramaAssetsExtractOutcome = {
+    step: "assets.extract";
+    status: "written";
+    unitId: string;
+    parse: { rows: number; invalid: number };
+    created: number;
+    merged: number;
+    skipped: number;
+    byCategory: Partial<Record<"character" | "environment" | "prop", DramaAssetsCategoryCount>>;
+    errors: number;
+    warnings: number;
+    items?: DramaCheckReport["items"];
+    assets: DramaAssetsOutcomeItem[];
+    images: DramaImageQueueResult;
 };
 
 /** 逐轮续写的进度（任务 result.dramaRun）：completed / total 场（剧本优化是集）；任务失败时前面写完的仍在，可从第 completed + 1 场继续。 */
@@ -508,6 +539,11 @@ export function dramaStepOutcomeOf(task: Pick<GenerationTask, "resultJson">): Dr
 export function dramaScriptAdaptOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaScriptAdaptOutcome | undefined {
     const outcome = taskResultRecord(task).dramaStep as DramaScriptAdaptOutcome | undefined;
     return outcome && outcome.step === "script.adapt" && Array.isArray(outcome.episodes) ? outcome : undefined;
+}
+
+export function dramaAssetsExtractOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaAssetsExtractOutcome | undefined {
+    const outcome = taskResultRecord(task).dramaStep as DramaAssetsExtractOutcome | undefined;
+    return outcome && outcome.step === "assets.extract" && Array.isArray(outcome.assets) ? outcome : undefined;
 }
 
 export function dramaStyleBibleOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaStyleBibleOutcome | undefined {

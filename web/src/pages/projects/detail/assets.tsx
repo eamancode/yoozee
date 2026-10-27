@@ -32,6 +32,7 @@ import {
     linkProjectAsset,
     listProjectAssetCandidates,
     listProjectAssetFolders,
+    listProjectAssets,
     listProjectAssetsPage,
     moveProjectAsset,
     replaceProjectCharacterRepresentations,
@@ -44,9 +45,9 @@ import {
     type ProjectAsset,
     type ProjectAssetFolder,
 } from "@/services/api/projects";
-import { sceneAnchorList } from "@/lib/canvas/chapter-asset-breakdown";
+import { sceneAnchorList } from "@/lib/canvas/scene-anchors";
 import { listGenerationTasks } from "@/services/api/task-center";
-import { queueDramaPaletteImages } from "@/services/api/drama";
+import { queueDramaAssetImages, queueDramaPaletteImages } from "@/services/api/drama";
 import { loadAssetsForUse, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { useAssetStore, type Asset, type AssetCategory, type AssetStatus, type EntityAsset, type ImageAsset } from "@/stores/use-asset-store";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -61,7 +62,7 @@ import { generateCharacterTurnaround, pendingTurnaroundAssetIds, turnaroundImage
 import { generateProjectVisualImage, projectVisualTaskAssetId } from "./project-visual-asset";
 import { ProjectVisualAssetCard } from "./project-visual-asset-card";
 import { paletteCheckSummary, paletteImageStatusLabel, PaletteSwatches, ProjectPaletteCard } from "./project-palette-card";
-import { paletteImageTaskTemplate } from "./palette-image-task";
+import { assetImageTaskTemplate, paletteImageTaskTemplate } from "./drama-image-task";
 import { categoryLabels, categoryLabel, mediaLabel, StatusPill, formatTime, textValue, type ProjectDetailViewProps } from "./shared";
 
 const categories = ["all", ...ASSET_CATEGORIES];
@@ -151,6 +152,12 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         queryKey: ["project", detail.project.id, "asset-candidates", candidatePage, candidatePageSize, candidateCategory || "all", "pending_confirmation", debouncedKeyword],
         queryFn: () => listProjectAssetCandidates(detail.project.id, { page: candidatePage, pageSize: candidatePageSize, category: candidateCategory, status: "pending_confirmation", query: debouncedKeyword || undefined }),
     });
+    // 资产设计建的资产（服务端记了出图状态）里还没图、也没在出图的：页头「继续出图」按它们算。
+    const pendingImageQuery = useQuery({
+        queryKey: ["project", detail.project.id, "assets", "drama-image-pending"],
+        queryFn: async () => (await listProjectAssets(detail.project.id)).assets.filter((asset) => asset.image && asset.image.status !== "bound" && asset.image.status !== "queued"),
+    });
+    const pendingImageAssets = pendingImageQuery.data || [];
     const assets = assetsQuery.data?.assets || [];
     const assetFolders = foldersQuery.data?.folders || [];
     const pendingCandidates = candidatesQuery.data?.candidates || [];
@@ -428,6 +435,27 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         },
         onError: failed("色卡出图失败"),
     });
+    // 资产设计建的角色、场景、道具没出完的图（出图失败、等空位、当时没开出图）由服务端接着排：角色三视图，场景、道具概念图。
+    const assetImagesMutation = useMutation({
+        mutationKey: ["project-drama-asset-images", detail.project.id],
+        mutationFn: async () => {
+            const model = turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
+            const config = { ...effectiveConfig, model };
+            if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
+            return queueDramaAssetImages(detail.project.id, { imageTask: await assetImageTaskTemplate(config, model) });
+        },
+        onSuccess: async (result) => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }),
+                queryClient.invalidateQueries({ queryKey: ["project-visual-image-tasks", detail.project.id] }),
+                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "character-turnaround-tasks"] }),
+            ]);
+            if (result.failed.length) message.warning(`有 ${result.failed.length} 个资产没排上出图，原因写在卡片上`);
+            else if (!result.queued.length && !result.waiting.length) message.info("没有要出图的资产");
+            else message.success(result.waiting.length ? `已排 ${result.queued.length} 个资产出图，${result.waiting.length} 个等前面的出完接着排` : `已排 ${result.queued.length} 个资产出图`);
+        },
+        onError: failed("资产出图失败"),
+    });
     const bindVisualMutation = useMutation({
         mutationFn: async (picked: AssetLibraryPickerItem) => {
             if (!imageAsset?.primaryVersionId) throw new Error("资产版本未加载，请刷新");
@@ -522,6 +550,11 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5 sm:pl-4">
+                    {pendingImageAssets.length ? (
+                        <Button className="!h-9 !px-3" icon={<RefreshCw className="size-3.5" />} loading={assetImagesMutation.isPending} onClick={() => assetImagesMutation.mutate()} aria-label={`继续出图，${pendingImageAssets.length} 个提取的资产还没出图`}>
+                            继续出图（{pendingImageAssets.length}）
+                        </Button>
+                    ) : null}
                     <Button type="text" className="!h-9 !px-3" icon={<FolderPlus className="size-3.5" />} onClick={() => openFolderEditor()}>新建文件夹</Button>
                     <Button type="text" className="!h-9 !px-3" icon={<Link2 className="size-3.5" />} onClick={() => setAddOpen(true)}>引用素材</Button>
                     <Button type="primary" className="!h-9 !px-3.5" icon={<Plus className="size-3.5" />} onClick={() => openCharacterEditor("new")}>新建角色</Button>
@@ -552,7 +585,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     {showPendingCandidates && pendingCandidates.length ? (
                         <section className="mb-4" aria-label={`待确认${candidateLabel}`}>
                             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                <div className="flex items-center gap-1.5 text-xs font-medium"><Sparkles className="size-3.5 text-foreground/50" />剧情识别出的{candidateLabel}</div>
+                                <div className="flex items-center gap-1.5 text-xs font-medium"><Sparkles className="size-3.5 text-foreground/50" />待确认的{candidateLabel}</div>
                                 <span className="text-[var(--fs-tiny)] tabular-nums text-foreground/42">剩余 {candidatesQuery.data?.total || 0} 个待确认</span>
                             </div>
                             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -564,7 +597,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                             <span className="grid size-12 shrink-0 place-items-center rounded-md bg-foreground/[.045] text-foreground/25">{isCharacter ? <UserRound className="size-5" /> : <Box className="size-5" />}</span>
                                             <div className="min-w-0 flex-1">
                                                 <div className="truncate text-xs font-semibold">{candidate.name}</div>
-                                                <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">待确认{categoryLabel(candidate.category)} · 来自章节分析</div>
+                                                <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">待确认{categoryLabel(candidate.category)} · {candidate.source === "agent" ? "来自 Agent" : "来自章节分析"}</div>
                                                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1">
                                                     <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={Boolean(confirmingCandidateId) && !confirming} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认新角色" : "确认新增"}</Button>
                                                     {isCharacter && characterAssets.length ? <Dropdown trigger={["click"]} menu={{ items: characterAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId)}>归并到角色<ChevronDown className="size-3" /></Button></Dropdown> : null}

@@ -9,9 +9,9 @@ describe("章节生成任务刷新恢复", () => {
             clientContext: {
                 domainProjectId: "project-1",
                 chapterId: "chapter-1",
-                chapterOperation: "characters",
+                chapterOperation: "assets",
             },
-        }))).toEqual({ chapterId: "chapter-1", kind: "characters" });
+        }))).toEqual({ chapterId: "chapter-1", kind: "assets" });
     });
 
     test("任务详情可从脱敏输入 metadata 恢复分镜操作", () => {
@@ -24,6 +24,10 @@ describe("章节生成任务刷新恢复", () => {
                 },
             }),
         }))).toEqual({ chapterId: "chapter-2", kind: "storyboard" });
+    });
+
+    test("任务详情可从脱敏输入 metadata 恢复资产设计操作", () => {
+        expect(chapterTaskIdentity(task({ inputJson: JSON.stringify({ metadata: { chapterId: "chapter-3", source: "short-drama-assets-extract" } }) }))).toEqual({ chapterId: "chapter-3", kind: "assets" });
     });
 
     test("无关、缺少章节或损坏的任务输入不会关联章节按钮", () => {

@@ -4,6 +4,7 @@ import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/ass
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import type { ProjectAsset } from "@/services/api/projects";
+import { assetImageQueueLabel } from "./project-visual-asset";
 import { categoryLabel } from "./shared";
 
 export function ProjectVisualAssetCard({
@@ -29,6 +30,8 @@ export function ProjectVisualAssetCard({
 }) {
     const resourceId = asset.mediaType === "image" ? resourceIdFromStorageKey(asset.storageKey) : "";
     const description = typeof asset.visual?.definition.description === "string" ? asset.visual.definition.description : "";
+    const prompt = typeof asset.visual?.definition.prompt === "string" ? asset.visual.definition.prompt : "";
+    const queue = resourceId ? "" : assetImageQueueLabel(asset.image);
     return (
         <AssetLibraryCard className="project-asset-library-card">
             <AssetLibraryCardMedia className="relative aspect-[4/3] overflow-hidden bg-foreground/[.05]">
@@ -46,7 +49,7 @@ export function ProjectVisualAssetCard({
                     <span className="rounded bg-black/60 px-1.5 py-0.5">
                         {categoryLabel(asset.category)} · v{asset.versionCount}
                     </span>
-                    <span className="rounded bg-black/60 px-1.5 py-0.5">{resourceId ? "图片已就绪" : "待生成图片"}</span>
+                    <span className="rounded bg-black/60 px-1.5 py-0.5">{resourceId ? "图片已就绪" : queue || "待生成图片"}</span>
                 </div>
             </AssetLibraryCardMedia>
             <div className="p-3">
@@ -54,6 +57,12 @@ export function ProjectVisualAssetCard({
                     {asset.title}
                 </button>
                 <p className="mt-2 line-clamp-2 min-h-9 text-[var(--fs-label)] leading-[18px] text-foreground/55">{description || "查看资产设定与提示词"}</p>
+                {prompt ? (
+                    <p className="mt-1 truncate font-mono text-[var(--fs-micro)] text-foreground/40" title={prompt}>
+                        {prompt}
+                    </p>
+                ) : null}
+                {asset.image?.status === "failed" && asset.image.error && !resourceId ? <p className="mt-1 line-clamp-2 text-[var(--fs-micro)] text-red-600 dark:text-red-400">{asset.image.error}</p> : null}
                 <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
                     <Button size="small" icon={<Sparkles className="size-3.5" />} loading={generating} disabled={busy} onClick={onGenerate}>
                         {resourceId ? "重新生成" : "生成图片"}
