@@ -32,6 +32,8 @@ type dramaStyleLockMeta struct {
 	Images      []string `json:"images,omitempty"`
 	// Source 是 analysis（有文字或参考图）或 preset（只按画风生成）。
 	Source string `json:"source"`
+	// AutoLock 是收尾直接锁定（建项目时只选了画风预设：按画风当场生成主色卡存在项目上，不用再点锁定）。
+	AutoLock bool `json:"autoLock,omitempty"`
 }
 
 // DramaStyleLockOutcome 是风格锁定收尾写进 result.dramaStep 的候选：用户点「锁定此风格」时取它写进项目。
@@ -46,10 +48,15 @@ type DramaStyleLockOutcome struct {
 	Errors        int                       `json:"errors"`
 	Warnings      int                       `json:"warnings"`
 	Items         []drama.CheckItem         `json:"items,omitempty"`
+	// Locked 是收尾直接锁定（AutoLock）写进项目的锁定记录。
+	Locked *drama.StyleLockRecord `json:"locked,omitempty"`
 }
 
-// DramaStyleLockOutcomeCandidate 是风格锁定任务结果的状态：候选，等用户锁定。
-const DramaStyleLockOutcomeCandidate = "candidate"
+// 风格锁定任务结果的状态：candidate 是候选，等用户锁定；locked 是收尾已直接锁定。
+const (
+	DramaStyleLockOutcomeCandidate = "candidate"
+	DramaStyleLockOutcomeLocked    = "locked"
+)
 
 // DramaStyleLockRequest 是「锁定此风格」：TaskID（风格分析任务的候选）和 LibraryID（平台风格库的条目）二选一。
 type DramaStyleLockRequest struct {
@@ -150,7 +157,7 @@ func (s *Service) planStyleLock(userID string, project *model.Project, step dram
 	if err != nil {
 		return nil, err
 	}
-	plan, err := styleLockPlan(project, &dramaStyleLockMeta{ProjectType: projectType, Text: text, Images: ids, Source: source}, usage, skill)
+	plan, err := styleLockPlan(project, &dramaStyleLockMeta{ProjectType: projectType, Text: text, Images: ids, Source: source, AutoLock: req.LockOnFinish}, usage, skill)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +206,8 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 	if lock == nil || projectID == "" {
 		return DramaStyleLockOutcome{}, errors.New("风格锁定任务缺少项目或运行参数")
 	}
-	if _, err := s.activeProjectForUser(task.UserID, projectID); err != nil {
+	project, err := s.activeProjectForUser(task.UserID, projectID)
+	if err != nil {
 		return DramaStyleLockOutcome{}, err
 	}
 	text, _ := result["text"].(string)
@@ -220,6 +228,16 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 		if len(outcome.Items) < dramaAdaptOutcomeItems {
 			outcome.Items = append(outcome.Items, item)
 		}
+	}
+	if lock.AutoLock {
+		locked, err := s.applyDramaStyleLock(task.UserID, project, styleLockInput{Anchor: out.Anchor, Palette: out.Palette, Title: project.Name, Record: drama.StyleLockRecord{Source: lock.Source, ProjectType: lock.ProjectType, TaskID: task.ID}})
+		if err != nil {
+			return DramaStyleLockOutcome{}, fmt.Errorf("风格已分析出来，锁定写入失败：%w", err)
+		}
+		if locked.ImageError != "" {
+			_ = s.log(task.UserID, task.ID, "warn", "主色卡图没有绑上", locked.ImageError)
+		}
+		outcome.Status, outcome.Locked = DramaStyleLockOutcomeLocked, &locked.StyleLock
 	}
 	return outcome, nil
 }

@@ -301,12 +301,46 @@ func TestPlanStyleLockValidates(t *testing.T) {
 	if err != nil || preset.lock.Source != drama.StyleLockSourcePreset || !strings.Contains(preset.prompt.Text, "按【项目画风】") {
 		t.Fatalf("只按画风：%v %+v", err, preset)
 	}
+	if auto, err := plan(&project, DramaProjectStepRunRequest{ProjectType: "live-action", LockOnFinish: true}); err != nil || !auto.lock.AutoLock {
+		t.Fatalf("建项目只选画风时收尾直接锁定：%v", err)
+	}
 	blank, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "空白", GenerationModel: "seedance-2.5"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := plan(&blank, DramaProjectStepRunRequest{ProjectType: "live-action"}); err == nil || !strings.Contains(err.Error(), "风格描述") {
 		t.Fatalf("什么都没有：%v", err)
+	}
+}
+
+// 建项目时只选了画风预设：按画风生成，收尾直接锁定（主色卡存在项目上，没有风格库条目）。
+func TestStyleLockPresetAutoLocks(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, _ := seedNovelProject(t, svc, db)
+	upstream := &visionUpstream{reply: styleLockReply}
+	server := httptest.NewServer(upstream)
+	defer server.Close()
+	queueStyleLockTask(t, svc, db, project.ID, server.URL, DramaProjectStepRunRequest{ProjectType: "live-action", LockOnFinish: true})
+	done, err := runQueuedTask(t, svc)
+	if err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("按画风生成：%v %s %q", err, done.Status, done.Error)
+	}
+	if len(upstream.images) != 0 || !strings.Contains(upstream.texts[0], "按【项目画风】") {
+		t.Fatalf("没有参考图、按画风定：%d", len(upstream.images))
+	}
+	var result struct {
+		DramaStep DramaStyleLockOutcome `json:"dramaStep"`
+	}
+	_ = json.Unmarshal([]byte(done.ResultJSON), &result)
+	if result.DramaStep.Status != DramaStyleLockOutcomeLocked || result.DramaStep.Locked == nil || result.DramaStep.Locked.Source != drama.StyleLockSourcePreset {
+		t.Fatalf("收尾直接锁定：%+v", result.DramaStep)
+	}
+	_, palette, record, locked := projectLockedStyle(mustProjectBible(t, svc, "user-1", project.ID))
+	if !locked || record.Source != drama.StyleLockSourcePreset || record.LibraryID != "" || len(palette.Colors()) != 10 || record.AssetID == "" {
+		t.Fatalf("锁在项目上、不回写风格库：%+v", record)
+	}
+	if list, _ := svc.DramaStyleLibrary(&model.User{ID: "user-1"}, ""); len(list.Items) != 0 {
+		t.Fatalf("不回写风格库：%+v", list.Items)
 	}
 }
 

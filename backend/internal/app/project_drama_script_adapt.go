@@ -37,6 +37,8 @@ type DramaProjectStepRunRequest struct {
 	ProjectType     string   `json:"projectType,omitempty"`
 	StyleText       string   `json:"styleText,omitempty"`
 	ReferenceImages []string `json:"referenceImages,omitempty"`
+	// LockOnFinish 是风格锁定收尾直接锁定（建项目时只选了画风预设，按画风当场生成主色卡）。
+	LockOnFinish bool `json:"lockOnFinish,omitempty"`
 	// Mode 是 adapt（小说转剧本，默认）或 rhythm（已是剧本，只调节奏）。
 	Mode string `json:"mode,omitempty"`
 	// TargetEpisodes / EpisodeSeconds 二选一：写几集，或每集多少秒（按原文字数估集数）；都不给时取需求文档每集时长，再没有就一章一集。
