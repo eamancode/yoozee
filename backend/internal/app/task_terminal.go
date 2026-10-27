@@ -22,6 +22,8 @@ type taskTerminalCoordinator struct {
 	outputs           taskOutputLifecycle
 	userFacingMessage func(error) string
 	logFailedAttempt  func(model.Task, error)
+	// afterFailed 在 worker 把任务写成失败或取消之后跑（短剧出图接着排下一张）；用户取消走 cancelTaskWithIntent，那里单独调。
+	afterFailed func(model.Task)
 }
 
 type taskTerminalRepository interface {
@@ -73,6 +75,7 @@ func newTaskTerminalCoordinator(s *Service) *taskTerminalCoordinator {
 		outputs:           s,
 		userFacingMessage: s.UserFacingErrorMessage,
 		logFailedAttempt:  s.ensureFailedProviderAttemptLogged,
+		afterFailed:       s.afterDramaImageTaskEnded,
 	}
 }
 
@@ -304,6 +307,9 @@ func (c *taskTerminalCoordinator) markTerminalState(task *model.Task) error {
 		if err := leases.ReleaseCloudAgentResourceLeases(task.UserID, "task:"+task.ID); err != nil {
 			return fmt.Errorf("释放任务资源租约失败：%w", err)
 		}
+	}
+	if c.afterFailed != nil {
+		c.afterFailed(*task)
 	}
 	return nil
 }
