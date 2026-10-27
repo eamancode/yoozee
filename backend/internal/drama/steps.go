@@ -3,10 +3,14 @@ package drama
 import "slices"
 
 // 短剧流程的步骤表（M6）：流程（步骤、顺序、输出契约、代码负责组装的变量、解析与检查）写在代码里，改了要发版；
-// 每一步「怎么想、怎么写」交给按项目风格档案绑定的技能（drama_step_bindings）。现有 script.adapt（剧本优化，项目级）
-// 、style.bible（导演风格，项目级）、assets.extract（资产设计，按章节或剧集）和 chapter.shots（生成分段，按章节或剧集）。
+// 每一步「怎么想、怎么写」交给按项目风格档案绑定的技能（drama_step_bindings）。现有 style.lock（风格锁定，项目级）、
+// script.adapt（剧本优化，项目级）、style.bible（导演风格，项目级）、assets.extract（资产设计，按章节或剧集）和 chapter.shots（生成分段，按章节或剧集）。
 
 const (
+	// StepStyleLock 是风格锁定（建项目时的导演风格分析）：项目类型 + 风格文字 + 参考图 + 画风 → 全局风格锚 + 主基调色卡（分组色板）。
+	StepStyleLock = "style.lock"
+	// ContractStyleLock 是风格锁定的输出契约：第一行风格锚，之后每组一行色板。
+	ContractStyleLock = "style.lock@1"
 	// StepChapterShots 是生成分段：一章正文 → 镜头行（带 spec）。
 	StepChapterShots = "chapter.shots"
 	// ContractChapterShots 是生成分段的输出契约版本；改契约就加版本号并换 schema 文件。
@@ -135,6 +139,37 @@ type Step struct {
 }
 
 var steps = []Step{
+	{
+		ID:       StepStyleLock,
+		Label:    "风格锁定",
+		Scope:    StepScopeProject,
+		Contract: ContractStyleLock,
+		Inputs: []StepInput{
+			{Name: "skill", Label: "技能上下文（skill-context）与用户任务：【项目类型】【用户的风格描述】【参考图】", Source: "按项目风格档案绑定的技能当前版本；项目类型、风格文字（2000 字）由请求带来；参考图是请求点名的本人图片资源（最多 6 张），以图片引用随任务发给文本模型（input.referenceImages），提示词里只写张数"},
+			{Name: "brief", Label: "【项目需求】", Source: "需求文档 brief_json 的片名、用途、平台、口味、约束、不做的事等，共 1500 字"},
+			{Name: "projectStyle", Label: "【项目画风：…】", Source: "项目画风快照 styleProfileJson 的 title、selection 与 prompt，按小节取到 1200 字；没选画风时不写"},
+			{Name: "profile", Label: "【风格档案：…】", Source: "项目风格档案（profiles/*.json）的名称、画面质感段（style_block.zh，600 字）与光线政策"},
+			{Name: "contract", Label: "【受保护输出契约】", Source: "style.lock@1 schema 生成（第一行风格锚，之后每组一行色板）"},
+		},
+		Parser:           "一轮；StyleLockFromText 逐行解析风格锚和分组色板（缺括号补齐、字段类型不符单字段降级），CountStyleLockTurn 当轮校验；收尾只写进任务结果，用户点「锁定此风格」才写 bible_json 并合成主色卡",
+		Checks:           []string{"CheckStyleLock（R-LOCK-*：有风格锚、至少 4 色、HEX 是 #RRGGBB；缺主角组或环境组、缺色名、HEX 重复、字段降级读出是 warn）"},
+		SkillBudgetChars: 32_000,
+		SkillLinkedFiles: 3,
+		DefaultSkill:     "yz-style-lock",
+		// 闸门先宽：只看解析率（有风格锚且主基调色卡至少 4 色才算解析成功）。
+		Gate:            StepGate{Metrics: []string{GateParseRate}, ParseRate: 0.9},
+		EvalConcurrency: 1,
+		EvalSet: []StepEvalChapter{
+			{ID: "qichuang-e01", Profile: "live-realism", Label: "《七床》第一集（悬疑·真人剧，按画风定风格）"},
+		},
+		TaskSource: "short-drama-style-lock",
+		Turns: TurnPlan{
+			Unit:  "轮",
+			Intro: func([]ShotsScene) string { return "" },
+			Next:  func([]ShotsScene, int, int) string { return "" },
+			Count: CountStyleLockTurn,
+		},
+	},
 	{
 		ID:       StepScriptAdapt,
 		Label:    "剧本优化",

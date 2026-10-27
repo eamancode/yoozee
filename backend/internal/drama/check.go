@@ -19,9 +19,12 @@ type Bible struct {
 	Props       []BibleProp      `json:"props"`
 	SpatialMaps []SpatialMap     `json:"spatial_maps"`
 	Plants      []BiblePlant     `json:"plants"`
-	// StyleAnchor / ColorScript 是导演风格写的全局风格锚和逐场色彩脚本（装段、检查暂不读）。
+	// StyleAnchor / ColorScript 是导演风格写的全局风格锚和逐场色彩脚本（装段、检查暂不读）。风格锁定（M8）也写 StyleAnchor。
 	StyleAnchor *StyleAnchor       `json:"style_anchor,omitempty"`
 	ColorScript []ColorScriptEntry `json:"color_script,omitempty"`
+	// MasterPalette / StyleLock 是项目锁定的主基调色卡和锁定来源（风格锁定或平台风格库写，装段、检查暂不读）。
+	MasterPalette *MasterPalette   `json:"master_palette,omitempty"`
+	StyleLock     *StyleLockRecord `json:"style_lock,omitempty"`
 }
 
 type BibleVariant struct {

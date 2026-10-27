@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "style.lock@1",
+  "title": "项目风格锁定（风格锚 + 主基调色卡）",
+  "description": "建项目时的导演风格分析（风格锁定）：按项目类型、用户的风格文字、参考图和画风预设，定下全片的风格锚，并给出主基调色卡（分组色板：主角组、配角组、道具组、环境组）。一行一个 JSON：第一行风格锚，之后每组一行。用户确认锁定后写进 bible_json.style_anchor 与 bible_json.master_palette，主色卡图由代码按色值合成（色块 + HEX + 色名），不调图片模型。契约文字由 drama.Contract.Text 按本文件生成。",
+  "type": "object",
+  "required": [
+    "style_anchor",
+    "groups"
+  ],
+  "x-contract": {
+    "heading": "【受保护输出契约】",
+    "layout": "blocks",
+    "items": "groups",
+    "format": "先单独一行写全局风格锚 {\"style_anchor\": {…}}，之后每个色板分组单独一行写一个 JSON 对象，按主角组、配角组、道具组、环境组的顺序。每个 JSON 对象写在同一行里，不要换行；不要 Markdown 代码块、表格、分析过程或任何解释文字。",
+    "rowsIntro": "每组一行，字段如下：",
+    "requirement": "四个分组都要写；某一类确实没有（比如没有配角）时可以不写那一组，但主角组和环境组必须写。",
+    "rules": [
+      "style_anchor 是对象，字段：medium（画风 / 媒介，与【项目类型】【项目画风】一致）、art_style（美术风格）、lighting（光比与光线政策：主光方向、明暗比、实景光源、冷暖分区）、camera（镜头语言：景别倾向、焦段、运镜克制程度）、grading（调色倾向：整体色温、饱和度、对比、肤色处理）、forbidden（禁用项，字符串数组）；可另写 era（时代）、genre（类型）、render_quality（画质）。",
+      "group 只写「主角组」「配角组」「道具组」「环境组」之一；每组 2 到 5 个颜色，全片合计 8 到 16 个，每个颜色都有明确的角色、道具或环境用途，不凑数。",
+      "每个颜色写成 {\"name_zh\": \"中文色名\", \"name_en\": \"English Color Name\", \"hex\": \"#RRGGBB\", \"usage\": \"用途\"}：hex 是 # 加 6 位十六进制；name_en 是两三个英文单词的色名；usage 写这个颜色用在哪个角色的服装发色肤色、哪件道具、哪类环境或光源上。",
+      "有参考图时按参考图反推风格和颜色（取图里真实出现的主色），用户写了风格文字时以文字为准补足；都没有时按【项目画风】定。主基调色卡是全片的底色，后面每一场的色卡、角色道具场景的外观都从这里取色。"
+    ]
+  },
+  "properties": {
+    "style_anchor": {
+      "type": "object",
+      "description": "全局风格锚（bible_json.style_anchor），字段与 style.bible@1 相同",
+      "properties": {
+        "medium": {"type": "string"},
+        "art_style": {"type": "string"},
+        "lighting": {"type": "string"},
+        "camera": {"type": "string"},
+        "grading": {"type": "string"},
+        "forbidden": {"type": "array", "items": {"type": "string"}},
+        "era": {"type": "string"},
+        "genre": {"type": "string"},
+        "render_quality": {"type": "string"}
+      }
+    },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "description": "主基调色卡的分组（bible_json.master_palette.groups）",
+      "items": {
+        "type": "object",
+        "required": [
+          "group",
+          "colors"
+        ],
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "分组名：主角组、配角组、道具组、环境组"
+          },
+          "colors": {
+            "type": "array",
+            "description": "这一组的颜色，每个是 {name_zh, name_en, hex, usage}",
+            "items": {"$ref": "#/$defs/color"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "color": {
+      "type": "object",
+      "required": [
+        "name_zh",
+        "name_en",
+        "hex",
+        "usage"
+      ],
+      "properties": {
+        "name_zh": {"type": "string"},
+        "name_en": {"type": "string"},
+        "hex": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+        "usage": {"type": "string"}
+      }
+    }
+  }
+}

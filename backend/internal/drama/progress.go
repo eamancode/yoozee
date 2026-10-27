@@ -406,7 +406,7 @@ func Derive(in ProgressInput) Progress {
 	out.EndStates = []EndState{
 		{"brief", "需求问透了", briefOK, briefDetail, "yz-brief"},
 		{"script", "剧本定了", scriptOK, scriptDetail, "yz-script-adapt"},
-		{"style", "风格定了", styleOK, styleDetail, "yz-style-bible"},
+		{"style", "风格定了", styleOK, styleDetail, "yz-style-lock"},
 		{"palette", "色卡齐了", paletteOK, paletteDetail, "yz-style-bible"},
 		{"refs", "参考齐了", refsOK, refsDetail, "yz-cast"},
 		{"review", "每段过审了", reviewedOK, fmt.Sprintf("%d/%d 段三项证据齐", c.Reviewed, c.Segments), "yz-shoot"},
@@ -425,24 +425,45 @@ func Derive(in ProgressInput) Progress {
 	return out
 }
 
-// styleBibleState 是「风格定了」（风格锚非空，色彩脚本和当前场次表一场不差）和「色卡齐了」（当前每一场都有色卡资产，
-// 且已确认的主版本有图；色彩脚本对不上时不算齐）。
+// styleBibleState 是「风格定了」（M8 起看锁定结果：风格锚非空、主基调色卡至少一个颜色）和「色卡齐了」（当前每一场都有色卡资产，
+// 且已确认的主版本有图；色彩脚本对不上当前场次表时不算齐）。
 func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRef, fromChapters bool) (bool, string, bool, string) {
 	var doc struct {
-		StyleAnchor *StyleAnchor `json:"style_anchor"`
-		ColorScript []struct {
+		StyleAnchor   *StyleAnchor     `json:"style_anchor"`
+		MasterPalette *MasterPalette   `json:"master_palette"`
+		StyleLock     *StyleLockRecord `json:"style_lock"`
+		ColorScript   []struct {
 			Episode int `json:"episode"`
 			SceneNo int `json:"scene_no"`
 		} `json:"color_script"`
 	}
-	_ = json.Unmarshal([]byte(strings.TrimSpace(bibleJSON)), &doc)
+	raw := strings.TrimSpace(bibleJSON)
+	if json.Unmarshal([]byte(raw), &doc) != nil {
+		// 形状不对的字段（手改坏了）分开读，别让一个字段连累另一个。
+		var loose map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(raw), &loose)
+		_ = json.Unmarshal(loose["style_anchor"], &doc.StyleAnchor)
+		_ = json.Unmarshal(loose["master_palette"], &doc.MasterPalette)
+		_ = json.Unmarshal(loose["style_lock"], &doc.StyleLock)
+		_ = json.Unmarshal(loose["color_script"], &doc.ColorScript)
+	}
 	anchorOK := !doc.StyleAnchor.Empty()
+	locked := anchorOK && !doc.MasterPalette.Empty()
+	styleDetail := "还没有锁定项目风格：建项目时选风格库或写风格、传参考图，也可以在章节页点「分析项目风格」"
+	switch {
+	case locked:
+		source := map[string]string{StyleLockSourceLibrary: "取自平台风格库", StyleLockSourceAnalysis: "风格分析后锁定", StyleLockSourcePreset: "按画风生成后锁定"}
+		how := ""
+		if doc.StyleLock != nil {
+			how = source[doc.StyleLock.Source]
+		}
+		styleDetail = strings.TrimPrefix(fmt.Sprintf("%s，风格锚与 %d 色主基调色卡", how, len(doc.MasterPalette.Colors())), "，")
+	case anchorOK:
+		styleDetail = "有风格锚但没有主基调色卡：在章节页点「分析项目风格」重新锁定"
+	}
 	if len(scenes) == 0 {
 		detail := "项目还没有剧集或章节"
-		if anchorOK {
-			detail = "全局风格锚已写；" + detail
-		}
-		return false, detail, false, detail
+		return locked, styleDetail, false, detail
 	}
 	unit, units := "集", "剧集"
 	if fromChapters {
@@ -477,13 +498,6 @@ func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRe
 	if len(extra) > 0 {
 		scriptDetail += "，" + sceneList(extra, label) + "已不在当前" + units + "里"
 	}
-	styleDetail := "还没有全局风格锚：在章节页点「导演风格」"
-	switch {
-	case anchorOK && aligned:
-		styleDetail = fmt.Sprintf("全局风格锚已写，%d 场色彩脚本", total)
-	case anchorOK:
-		styleDetail = scriptDetail + "：重跑导演风格"
-	}
 
 	imaged := map[string]bool{}
 	has := map[string]bool{}
@@ -509,7 +523,7 @@ func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRe
 	if !aligned {
 		paletteDetail += "；" + scriptDetail
 	}
-	return anchorOK && aligned, styleDetail, aligned && done == total, paletteDetail
+	return locked, styleDetail, aligned && done == total, paletteDetail
 }
 
 // sceneList 把几场写成「第 2 集第 1 场、第 2 集第 2 场」，超过三场只写前三场加「等 N 场」。
