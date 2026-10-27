@@ -14,8 +14,8 @@ import (
 // 规则：
 //   - 场次头：「## 」开头的行，或以「第N场」「场 N」「INT.」「EXT.」「内·」「外·」「【场景N】」开头的行（【场景1】地点｜内｜夜
 //     是剧本优化技能的原生写法，剧本优化写回剧集前已规整成「## 内·地点·夜」，导入的剧本可能还是原样）。
-//   - 同一集里相邻的两个场次头，地点相同（去空白、全角转半角、英文不分大小写后相同）就并成一场；内外、时间不要求相同，
-//     时间变化记在 Times 里、写进合并后的场次头（「内·电梯口·夜→晨」）。不相邻的同地点（走廊→电梯口→走廊）不合并。
+//   - 同一集里相邻的两个场次头，地点相同（去空白、全角转半角、英文不分大小写后相同）且内外相同就并成一场（「外·医院门口」
+//     接「内·医院门口」不合并）；时间不要求相同，时间变化记在 Times 里、写进合并后的场次头（「内·电梯口·夜→晨」）。不相邻的同地点（走廊→电梯口→走廊）不合并。
 //     读不出地点的场次头（只有「第3场」）不和任何场合并。
 //   - 第一个场次头之前有正文时，这段正文单独算一场「未命名场」（与原来的台词表一致，不并进第一场）。
 //   - 整章没有场次头时整章算一场，场次头用标题。
@@ -175,7 +175,7 @@ func SplitScenes(plainText string, title string) []Scene {
 			legacy++
 			h := ParseSceneHeading(ln)
 			h.Line = lineNo
-			if n := len(scenes); n > 0 && len(scenes[n-1].Sources) > 0 && sameSceneLocation(scenes[n-1].Location, h.Location) {
+			if n := len(scenes); n > 0 && len(scenes[n-1].Sources) > 0 && sameSceneLocation(scenes[n-1].Sources[0], h) {
 				cur := &scenes[n-1]
 				h.bodyAt = len(cur.Body)
 				cur.Sources = append(cur.Sources, h)
@@ -210,10 +210,10 @@ func SplitScenes(plainText string, title string) []Scene {
 	return scenes
 }
 
-// sameSceneLocation 是两个场次头的地点相同（读不出地点的不算相同）。
-func sameSceneLocation(a, b string) bool {
-	ka := SceneLocationKey(a)
-	return ka != "" && ka == SceneLocationKey(b)
+// sameSceneLocation 是两个场次头可以并成一场：地点相同（读不出地点的不算相同）且内外相同（都没写内外也算相同）；时间不比。
+func sameSceneLocation(a, b SceneHeading) bool {
+	ka := SceneLocationKey(a.Location)
+	return ka != "" && ka == SceneLocationKey(b.Location) && a.InOut == b.InOut
 }
 
 // mergedSceneHeading 是并在一起的几个场次头的展示名、内外和时间变化：都一样时用第一个场次头原文。
@@ -326,8 +326,8 @@ type SceneMove struct {
 }
 
 // RenumberColorScript 把规则改变前（一个场次头一场）写的色彩脚本条目按新场次重排：旧第 k 场找到它现在所在的场（SceneOfLegacy），
-// 地点也对得上（条目记的场次头读出的地点与现在这一场相同；条目没记场次头时不比）才换成新编号、补上规则标记；
-// 新编号已经有色彩脚本（新规则写的，或排在前面的旧场先占了）时这一场去掉，以已有的为准；找不到、地点对不上、
+// 地点和内外也对得上（条目记的场次头读出的地点、内外与现在这一场相同；条目没记场次头时不比）才换成新编号、补上规则标记；
+// 新编号已经有色彩脚本（新规则写的，或排在前面的旧场先占了）时这一场去掉，以已有的为准；找不到、地点或内外对不上、
 // 记的单元不是这一集的保留原样并记 note。新规则写的条目不动；inherits_from 跟着换编号，换完指向自己时清空。
 // 返回重排后的条目（按集号、场序排好）和每个旧条目的去向。
 func RenumberColorScript(entries []ColorScriptEntry, episodes map[int]SceneRenumberEpisode) ([]ColorScriptEntry, []SceneMove) {
@@ -367,8 +367,8 @@ func RenumberColorScript(entries []ColorScriptEntry, episodes map[int]SceneRenum
 			move.Note = "现在的场次表里没有这一场，原样保留"
 		case e.UnitID != "" && e.UnitID != ep.UnitID:
 			move.Note = "写它时所在的单元已经不是这一集，原样保留"
-		case e.Scene != "" && !sameSceneLocation(ParseSceneHeading(e.Scene).Location, target.Location):
-			move.Note = fmt.Sprintf("地点对不上：色彩脚本写的是「%s」，现在的 %s 是「%s」，原样保留", e.Scene, SceneCode(e.Episode, target.No), target.Heading)
+		case e.Scene != "" && !sameSceneLocation(ParseSceneHeading(e.Scene), SceneHeading{Location: target.Location, InOut: target.InOut}):
+			move.Note = fmt.Sprintf("地点或内外对不上：色彩脚本写的是「%s」，现在的 %s 是「%s」，原样保留", e.Scene, SceneCode(e.Episode, target.No), target.Heading)
 		default:
 			move.To = SceneCode(e.Episode, target.No)
 			renamed[move.From] = move.To

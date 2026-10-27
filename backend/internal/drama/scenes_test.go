@@ -168,8 +168,8 @@ func TestRenumberColorScriptAlignsLegacyByLocation(t *testing.T) {
 		t.Fatalf("挪过的条目补上规则标记和单元：%+v", out[2])
 	}
 	mismatch, moved := RenumberColorScript([]ColorScriptEntry{{Episode: 1, SceneNo: 3, Scene: "内·厨房·夜"}}, episodes)
-	if mismatch[0].SceneNo != 3 || mismatch[0].SceneRule != 0 || !strings.Contains(moved[0].Note, "地点对不上") {
-		t.Fatalf("地点对不上原样保留：%+v %+v", mismatch, moved)
+	if mismatch[0].SceneNo != 3 || mismatch[0].SceneRule != 0 || !strings.Contains(moved[0].Note, "地点或内外对不上") {
+		t.Fatalf("地点或内外对不上原样保留：%+v %+v", mismatch, moved)
 	}
 }
 
@@ -185,5 +185,20 @@ func TestLegacyScriptFromTextMatchesPython(t *testing.T) {
 	diffJSON(t, "legacy script from-md", got, want)
 	if legacy := LegacyScriptFromText("（开场。）\n## 内·走廊·夜\n张三：走。\n## 内·走廊·晨\n李四：到。", "t"); len(legacy.Scenes) != 3 || legacy.Scenes[2].ID != "E01S03" || legacy.Scenes[2].Beats[0].ID != "E01S03L01" || legacy.Scenes[0].Heading != UntitledSceneHeading {
 		t.Fatalf("开场一场、并起来的两场拆回去：%+v", legacy.Scenes)
+	}
+}
+
+// 并场要求地点和内外都相同，时间可以不同：门口外接门口内是两场；同是内景、夜接晨是一场。
+func TestSplitScenesRequiresSameInOut(t *testing.T) {
+	split := SplitScenes("## 外·医院门口·夜\n（雨。）\n## 内·医院门口·夜\n（进门。）", "t")
+	if got := sceneIDs(split); !slices.Equal(got, []string{"E01S01 外·医院门口·夜", "E01S02 内·医院门口·夜"}) {
+		t.Fatalf("内外不同的同地点不合并：%v", got)
+	}
+	merged := SplitScenes("## 内·医院门口·夜\n（等。）\n## 内·医院门口·晨\n（天亮。）", "t")
+	if got := sceneIDs(merged); !slices.Equal(got, []string{"E01S01 内·医院门口·夜→晨"}) || !slices.Equal(merged[0].Times, []string{"夜", "晨"}) {
+		t.Fatalf("内外相同、时间不同合并成一场：%v %+v", got, merged)
+	}
+	if got := sceneIDs(SplitScenes("第1场 医院门口\n（等。）\n第2场 医院门口 夜\n（还在等。）", "t")); len(got) != 1 {
+		t.Fatalf("都没写内外、地点相同合并：%v", got)
 	}
 }
