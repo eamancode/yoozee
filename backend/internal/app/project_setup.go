@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"yingce/backend/internal/drama"
+	"yingce/backend/internal/model"
 )
 
 // projectAspectRatios 是项目画幅的可选值（建项目对话框和项目设置同一份）。
@@ -63,4 +64,47 @@ func withBriefSegmentSeconds(briefJSON string, seconds int) (string, error) {
 		return "", err
 	}
 	return string(encoded), nil
+}
+
+// briefPrevizGate 读需求文档的预演闸门（brief_json.previz_gate）；没写或不认识的按 auto。
+func briefPrevizGate(briefJSON string) string {
+	doc := map[string]any{}
+	if raw := strings.TrimSpace(briefJSON); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &doc)
+	}
+	if value, _ := doc["previz_gate"].(string); drama.ValidPrevizGate(value) {
+		return value
+	}
+	return drama.PrevizGateAuto
+}
+
+// withBriefPrevizGate 把预演闸门写进需求文档，其他字段原样保留；auto 时去掉这一项（跟授权档位）。
+func withBriefPrevizGate(briefJSON string, gate string) (string, error) {
+	if !drama.ValidPrevizGate(gate) {
+		return "", BadAuthRequest("预演闸门只能是 auto（跟授权档位）、on 或 off")
+	}
+	doc := map[string]any{}
+	if raw := strings.TrimSpace(briefJSON); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+			return "", BadAuthRequest("需求文档不是合法 JSON，先在需求文档里修好再改预演闸门")
+		}
+	}
+	if gate == drama.PrevizGateAuto {
+		delete(doc, "previz_gate")
+	} else {
+		doc["previz_gate"] = gate
+	}
+	if len(doc) == 0 {
+		return "", nil
+	}
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+// projectPrevizGate 是项目的预演闸门是否生效（previz_gate 覆盖，auto 跟授权档位）。
+func projectPrevizGate(project *model.Project) bool {
+	return drama.PrevizGateEnabled(briefPrevizGate(project.BriefJSON), project.AuthMode)
 }

@@ -51,26 +51,28 @@ type Brief struct {
 	// EpisodeSeconds 是每集目标时长（秒，项目设置里填）：生成分镜的提示词和 R-SEG-008 读它。
 	EpisodeSeconds *float64 `json:"episode_seconds,omitempty"`
 	// SegmentSeconds 是单段最长秒数（建项目选 15 / 30，项目设置可改）：装段时只收紧生成模型一段的上限，不放宽。
-	SegmentSeconds *int            `json:"segment_seconds,omitempty"`
-	Episodes       []BriefEpisode  `json:"episodes,omitempty"`
-	Purpose        *BriefFact      `json:"purpose,omitempty"`
-	Platform       *BriefFact      `json:"platform,omitempty"`
-	Duration       *BriefFact      `json:"duration,omitempty"`
-	Taste          *BriefFact      `json:"taste,omitempty"`
-	Budget         *BriefFact      `json:"budget,omitempty"`
-	Acceptance     *BriefFact      `json:"acceptance,omitempty"`
-	Items          []BriefItem     `json:"items,omitempty"`
-	NotDoing       []string        `json:"not_doing,omitempty"`
-	Constraints    []string        `json:"constraints,omitempty"`
-	Questions      []BriefQuestion `json:"questions,omitempty"`
-	DecidedForYou  []string        `json:"decided_for_you,omitempty"`
+	SegmentSeconds *int `json:"segment_seconds,omitempty"`
+	// PrevizGate 是视频前的预演闸门（auto / on / off，不写是 auto）：auto 跟授权档位，每步确认要先有选中的黑白预演，全权跳过。
+	PrevizGate    string          `json:"previz_gate,omitempty"`
+	Episodes      []BriefEpisode  `json:"episodes,omitempty"`
+	Purpose       *BriefFact      `json:"purpose,omitempty"`
+	Platform      *BriefFact      `json:"platform,omitempty"`
+	Duration      *BriefFact      `json:"duration,omitempty"`
+	Taste         *BriefFact      `json:"taste,omitempty"`
+	Budget        *BriefFact      `json:"budget,omitempty"`
+	Acceptance    *BriefFact      `json:"acceptance,omitempty"`
+	Items         []BriefItem     `json:"items,omitempty"`
+	NotDoing      []string        `json:"not_doing,omitempty"`
+	Constraints   []string        `json:"constraints,omitempty"`
+	Questions     []BriefQuestion `json:"questions,omitempty"`
+	DecidedForYou []string        `json:"decided_for_you,omitempty"`
 }
 
 // BriefStatuses 是事实可用的状态；只有「已确认」「默认，已授权」能拿去花钱。
 var BriefStatuses = []string{"已确认", "默认，待确认", "默认，已授权", "待答"}
 
 // BriefShape 是写给 Agent 和人看的字段说明，出错时一并返回。
-const BriefShape = "需求文档字段：title；video_model；auth_mode（step/full）；purpose、platform、duration、taste、budget、acceptance 各是 {value, status, quote?, date?}，status 只能是 已确认 / 默认，待确认 / 默认，已授权 / 待答；items 是 [{id: R-001, content, status, quote?, date?, segments?}]；questions 是 [{id: Q-001, question, blocking, status}]；not_doing、constraints、decided_for_you 是字符串数组；episode_seconds 是每集目标秒数（数字）；segment_seconds 是单段最长秒数（整数，不超过生成模型一段的上限）；episodes 是 [{no, target_seconds?, hook_requirement?}]；style_profile 是 yoozee 风格档案 ID（不写按项目画风对照）。画幅、平台写进 platform，片长写进 duration。"
+const BriefShape = "需求文档字段：title；video_model；auth_mode（step/full）；purpose、platform、duration、taste、budget、acceptance 各是 {value, status, quote?, date?}，status 只能是 已确认 / 默认，待确认 / 默认，已授权 / 待答；items 是 [{id: R-001, content, status, quote?, date?, segments?}]；questions 是 [{id: Q-001, question, blocking, status}]；not_doing、constraints、decided_for_you 是字符串数组；episode_seconds 是每集目标秒数（数字）；segment_seconds 是单段最长秒数（整数，不超过生成模型一段的上限）；episodes 是 [{no, target_seconds?, hook_requirement?}]；style_profile 是 yoozee 风格档案 ID（不写按项目画风对照）；previz_gate 是视频前的预演闸门 auto / on / off（不写是 auto，跟授权档位）。画幅、平台写进 platform，片长写进 duration。"
 
 var (
 	briefItemID     = regexp.MustCompile(`^R-[0-9]{3}$`)
@@ -103,6 +105,9 @@ func ParseBrief(raw []byte) (Brief, error) {
 	}
 	if brief.AuthMode != "" && brief.AuthMode != AuthStep && brief.AuthMode != AuthFull {
 		problems = append(problems, "auth_mode 只能是 step 或 full")
+	}
+	if brief.PrevizGate != "" && !ValidPrevizGate(brief.PrevizGate) {
+		problems = append(problems, "previz_gate 只能是 auto、on 或 off")
 	}
 	if s := brief.EpisodeSeconds; s != nil && (*s < 5 || *s > 3600) {
 		problems = append(problems, "episode_seconds 是每集秒数，应在 5 到 3600 之间")
@@ -164,7 +169,7 @@ func containsString(items []string, value string) bool {
 
 var briefFactFields = []string{"purpose", "platform", "duration", "taste", "budget", "acceptance"}
 
-var briefKnownFields = map[string]bool{"title": true, "video_model": true, "auth_mode": true, "style_profile": true, "episode_seconds": true, "segment_seconds": true, "episodes": true, "purpose": true, "platform": true, "duration": true, "taste": true, "budget": true, "acceptance": true, "items": true, "not_doing": true, "constraints": true, "questions": true, "decided_for_you": true}
+var briefKnownFields = map[string]bool{"title": true, "video_model": true, "auth_mode": true, "style_profile": true, "episode_seconds": true, "segment_seconds": true, "previz_gate": true, "episodes": true, "purpose": true, "platform": true, "duration": true, "taste": true, "budget": true, "acceptance": true, "items": true, "not_doing": true, "constraints": true, "questions": true, "decided_for_you": true}
 
 // NormalizeBrief 把早期写进来的不合契约的需求文档整理成契约形状（读的时候用，不丢内容）：
 // 事实写成字符串的改成 {value, status: 默认，待确认}；问题、要求写成字符串的补上编号；
@@ -232,4 +237,27 @@ func (b Brief) EpisodeTargetSeconds(episode int) float64 {
 		}
 	}
 	return 0
+}
+
+// 预演闸门（brief_json.previz_gate）。
+const (
+	PrevizGateAuto = "auto"
+	PrevizGateOn   = "on"
+	PrevizGateOff  = "off"
+)
+
+// ValidPrevizGate 是否是预演闸门的取值。
+func ValidPrevizGate(value string) bool {
+	return value == PrevizGateAuto || value == PrevizGateOn || value == PrevizGateOff
+}
+
+// PrevizGateEnabled 是闸门是否生效：on 强制、off 跳过；auto（或没写）跟授权档位，每步确认（step，空也算）强制、全权跳过。
+func PrevizGateEnabled(setting string, authMode string) bool {
+	switch setting {
+	case PrevizGateOn:
+		return true
+	case PrevizGateOff:
+		return false
+	}
+	return authMode != AuthFull
 }

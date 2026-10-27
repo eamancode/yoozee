@@ -110,13 +110,16 @@ type ProgressCounts struct {
 }
 
 type Progress struct {
-	Model     Model             `json:"model"`
-	AuthMode  string            `json:"authMode"`
-	Segments  []SegmentProgress `json:"segments"`
-	Counts    ProgressCounts    `json:"counts"`
-	Line      string            `json:"line"`
-	EndStates []EndState        `json:"endStates"`
-	Next      *EndState         `json:"next,omitempty"`
+	Model    Model  `json:"model"`
+	AuthMode string `json:"authMode"`
+	// PrevizGate 是视频前的预演闸门是否生效；PrevizGateSetting 是需求文档里的设置（auto / on / off）。由 app 按项目填。
+	PrevizGate        bool              `json:"previzGate"`
+	PrevizGateSetting string            `json:"previzGateSetting"`
+	Segments          []SegmentProgress `json:"segments"`
+	Counts            ProgressCounts    `json:"counts"`
+	Line              string            `json:"line"`
+	EndStates         []EndState        `json:"endStates"`
+	Next              *EndState         `json:"next,omitempty"`
 }
 
 // ProgressInput 汇总一个项目的生产数据。
