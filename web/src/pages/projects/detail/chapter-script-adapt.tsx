@@ -23,8 +23,6 @@ import { queryGenerationTask, type GenerationTask } from "@/services/api/task-ce
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { storyboardRunStop } from "./chapter-shot-stream";
-import { paletteImageTaskTemplate } from "./drama-image-task";
-import { turnaroundImageModel } from "./project-character-media";
 import { briefEpisodeSeconds, dramaBriefKey, EPISODE_SECONDS_RANGE } from "./drama-brief";
 import { followDramaRunTask, isScriptAdaptTask, runScriptAdapt } from "./project-chapter-ai";
 import { scriptAdaptDefaultMode } from "./script-adapt-mode";
@@ -41,8 +39,6 @@ type ScriptAdaptControlProps = {
     disabled?: boolean;
     /** 写完以后切到剧集视图，选中第一集。 */
     onWritten: (outcome: DramaScriptAdaptOutcome) => void;
-    /** 写完剧集后服务端自动接着建了导演风格任务：交给导演风格按钮接上它的流。 */
-    onChained?: (taskId: string) => void;
 };
 
 type Settings = { mode: DramaScriptAdaptMode; sourceIds: string[]; countBy: "episodes" | "seconds"; targetEpisodes: number; episodeSeconds: number; textModel: string };
@@ -62,7 +58,7 @@ function previousAdaptRun(task?: GenerationTask) {
  * 章节页的「剧本优化」（项目级步骤 script.adapt）：对话框选原文章节（默认全部还没改编的）或已有剧集（只调节奏）、
  * 集数或每集秒数、文本模型，技能由项目风格档案的绑定决定；进度侧栏按集流式显示。会替换已有剧集时先列出影响面确认。
  */
-export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled, onWritten, onChained }: ScriptAdaptControlProps) {
+export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled, onWritten }: ScriptAdaptControlProps) {
     const { message, modal } = App.useApp();
     const queryClient = useQueryClient();
     const projectId = detail.project.id;
@@ -185,10 +181,6 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
         setResumeView(options.resumeTaskId && resume ? { from: resume.from, total: resume.total, episodes: scriptAdaptStreamFromResult(taskDetail?.resultJson).episodes.filter((episode) => episode.index < resume.from) } : undefined);
         setPanelOpen(true);
         try {
-            // 剧本写完后服务端自动接着跑导演风格：用项目默认图片模型给色卡出图；图片模型没配好就只建色卡、不出图。
-            const imageModel = turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
-            const imageConfig = { ...effectiveConfig, model: imageModel };
-            const paletteImages = imageModel && isAiConfigReady(imageConfig, imageModel) ? await paletteImageTaskTemplate(imageConfig, imageModel).catch(() => undefined) : undefined;
             const result = await runScriptAdapt(
                 {
                     projectId,
@@ -200,7 +192,6 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                     ...(!previous && mode === "adapt" && settings.countBy === "seconds" ? { episodeSeconds: settings.episodeSeconds } : {}),
                     replace: options.replace || previous?.replace,
                     resumeTaskId: options.resumeTaskId,
-                    paletteImages,
                 },
                 {
                     onTaskUpdate: (task) => {
@@ -214,11 +205,6 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             if (result.outcome) {
                 message.success(result.outcome.mode === "rhythm" ? `已改写 ${result.outcome.episodes.length} 集剧集` : `已写入 ${result.outcome.episodes.length} 集剧集，技能：${result.usage.skill.name} ${result.usage.skill.version}`);
                 onWritten(result.outcome);
-                const chainedTaskId = result.outcome.chained?.taskId;
-                if (chainedTaskId) {
-                    setPanelOpen(false);
-                    onChained?.(chainedTaskId);
-                }
             }
         } catch (error) {
             const impact = dramaEpisodesReplaceImpact(error);

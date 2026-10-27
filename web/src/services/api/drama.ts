@@ -175,13 +175,42 @@ export type DramaBibleVariant = { label: string; age?: string; face_hair?: strin
 export type DramaBibleCharacter = { name: string; speaks?: boolean; variants: DramaBibleVariant[] };
 export type DramaBibleProp = { name: string; image?: string; states?: Array<{ when?: string; desc?: string; image?: string }>; checked?: boolean };
 export type DramaBibleLocation = { name: string; plate?: string; side_a?: string; side_b?: string; fixtures?: string; light?: string; checked?: boolean };
-/** 全局风格锚（导演风格 style.bible 写入 bible_json.style_anchor）。 */
+/** 全局风格锚（bible_json.style_anchor：建项目时风格锁定 style.lock 写入，导演风格 style.bible 也会合并）。 */
 export type DramaStyleAnchor = { medium?: string; art_style?: string; lighting?: string; camera?: string; grading?: string; forbidden?: string[]; era?: string; genre?: string; render_quality?: string };
 /** 色彩脚本里的一个颜色。 */
 export type DramaPaletteColor = { name_zh: string; name_en: string; hex: string; usage: string };
 /** 一场的色彩脚本（bible_json.color_script 的一项，也是这一场色卡的设定）：场编号是 E{episode}S{scene_no}。 */
 export type DramaColorScriptEntry = { episode: number; scene_no: number; scene: string; inherits_from: string; shared_colors: DramaPaletteColor[]; new_colors: DramaPaletteColor[]; purpose?: string; references?: string };
-export type DramaBible = { characters?: DramaBibleCharacter[]; props?: DramaBibleProp[]; locations?: DramaBibleLocation[]; style_anchor?: DramaStyleAnchor; color_script?: DramaColorScriptEntry[]; [key: string]: unknown };
+/** 主基调色卡的分组键：主角组、配角组、道具组、环境组；认不出的分组是 other。 */
+export type DramaMasterPaletteGroupKey = "protagonist" | "supporting" | "props" | "environment" | "other";
+/** 主基调色卡（bible_json.master_palette，也随风格存进平台风格库）：按分组的色板。 */
+export type DramaMasterPalette = { groups: Array<{ key: DramaMasterPaletteGroupKey; name: string; colors: DramaPaletteColor[] }> };
+/** 项目锁定风格的来源（bible_json.style_lock）：analysis 风格分析后锁定，library 取自平台风格库，preset 按画风当场生成。 */
+export type DramaStyleLockRecord = {
+    source: "analysis" | "library" | "preset";
+    library_id?: string;
+    project_type?: string;
+    task_id?: string;
+    asset_id?: string;
+    resource_id?: string;
+    locked_at?: string;
+    locked_by?: string;
+};
+export type DramaBible = {
+    characters?: DramaBibleCharacter[];
+    props?: DramaBibleProp[];
+    locations?: DramaBibleLocation[];
+    style_anchor?: DramaStyleAnchor;
+    color_script?: DramaColorScriptEntry[];
+    master_palette?: DramaMasterPalette;
+    style_lock?: DramaStyleLockRecord;
+    [key: string]: unknown;
+};
+
+/** 主基调色卡的全部颜色（按分组顺序）。 */
+export function masterPaletteColors(palette?: DramaMasterPalette) {
+    return (palette?.groups || []).flatMap((group) => group.colors || []);
+}
 
 /** 场编号 E01S02（第 1 集第 2 场）。 */
 export function dramaSceneCode(episode: number, sceneNo: number) {
@@ -340,8 +369,8 @@ export function recommendDramaStyleProfile(styleMap: DramaStyleProfiles["styleMa
     return rule?.profile || styleMap.default;
 }
 
-/** 短剧流程步骤：script.adapt 是剧本优化、style.bible 是导演风格（项目级），assets.extract 是资产设计、chapter.shots 是生成分段（按章节或剧集）。 */
-export type DramaStepId = "chapter.shots" | "script.adapt" | "style.bible" | "assets.extract";
+/** 短剧流程步骤：style.lock 是风格锁定、script.adapt 是剧本优化、style.bible 是导演风格（项目级），assets.extract 是资产设计、chapter.shots 是生成分段（按章节或剧集）。 */
+export type DramaStepId = "chapter.shots" | "style.lock" | "script.adapt" | "style.bible" | "assets.extract";
 
 /** 一个项目跑这一步用哪个技能版本（风格档案查绑定；bound 为 false 时是步骤默认技能）。 */
 export type DramaStepUsage = {
@@ -381,17 +410,18 @@ export type DramaScriptAdaptMode = "adapt" | "rhythm";
 
 /**
  * 色卡出图的图片任务模板：前端按项目默认图片模型组好的任务（模型选择、input.config 等，16:9），服务端每张色卡换上自己的
- * 提示词和资产出图 metadata 后建任务。导演风格（以及剧本优化跑完自动接着的导演风格）带上它才给色卡出图。
+ * 提示词和资产出图 metadata 后建任务。导演风格带上它才给色卡出图。
  */
 export type DramaImageTaskTemplate = { model: string; logicalModelId?: string; provider?: string; input: Record<string, unknown> };
 
 /**
- * 导演风格（项目级步骤 style.bible）：服务端按项目记忆为全部剧集（没有剧集时是原文章节）写全局风格锚和逐场色彩脚本，一轮一集；
- * 收尾合并写进 bible_json，每场建一张色卡资产（category=palette，重跑同一场加版本），带了 paletteImages 时接着排色卡出图。
+ * 项目级步骤：风格锁定（style.lock，建项目时按类型、风格文字、参考图和画风出风格锚和主基调色卡，收尾只出候选，lockOnFinish 时直接锁定）、
+ * 剧本优化（script.adapt）、导演风格（style.bible：为全部剧集写全局风格锚和逐场色彩脚本，一轮一集，收尾写进 bible_json、每场建色卡，
+ * 带了 paletteImages 时接着排色卡出图）。
  */
 export function runDramaProjectStep(
     projectId: string,
-    step: "script.adapt" | "style.bible",
+    step: "style.lock" | "script.adapt" | "style.bible",
     input: {
         model: string;
         logicalModelId?: string;
@@ -403,6 +433,11 @@ export function runDramaProjectStep(
         replace?: boolean;
         resumeTaskId?: string;
         paletteImages?: DramaImageTaskTemplate;
+        /** 风格锁定：项目类型（live-action …）、风格文字、参考图资源 ID（最多 6 张）、收尾直接锁定。 */
+        projectType?: string;
+        styleText?: string;
+        referenceImages?: string[];
+        lockOnFinish?: boolean;
     },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
@@ -459,8 +494,6 @@ export type DramaScriptAdaptOutcome = {
     errors: number;
     warnings: number;
     items?: DramaCheckReport["items"];
-    /** 写完剧集后自动接着建的导演风格任务；error 是没建成的原因（已写的剧集不受影响）。 */
-    chained?: { step: "style.bible"; taskId?: string; error?: string };
 };
 
 /** 导演风格收尾的摘要（任务 result.dramaStep）：写了几集几场、色卡新建 / 加版本几张、出图排上和等空位的色卡。 */
@@ -476,6 +509,21 @@ export type DramaStyleBibleOutcome = {
     /** retired 是这次运行范围内场次已不存在、标成过期的旧色卡（不删）。 */
     palettes: { created: number; versioned: number; retired?: number };
     images: DramaImageQueueResult;
+};
+
+/** 风格锁定收尾的结果（任务 result.dramaStep）：candidate 是候选（等用户点「锁定此风格」），locked 是建项目时只选了画风、收尾已直接锁定。 */
+export type DramaStyleLockOutcome = {
+    step: "style.lock";
+    status: "candidate" | "locked";
+    source: "analysis" | "preset";
+    projectType: string;
+    styleAnchor: DramaStyleAnchor;
+    masterPalette: DramaMasterPalette;
+    parse: { groups: number; colors: number; invalid: number; anchor: boolean };
+    errors: number;
+    warnings: number;
+    items?: DramaCheckReport["items"];
+    locked?: DramaStyleLockRecord;
 };
 
 /** 资产设计写出的一个资产：created 新建，updated 已有资产补了别名或外观，merged 已有、没有可补的。 */
@@ -551,6 +599,11 @@ export function dramaScriptAdaptOutcomeOf(task: Pick<GenerationTask, "resultJson
 export function dramaAssetsExtractOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaAssetsExtractOutcome | undefined {
     const outcome = taskResultRecord(task).dramaStep as DramaAssetsExtractOutcome | undefined;
     return outcome && outcome.step === "assets.extract" && Array.isArray(outcome.assets) ? outcome : undefined;
+}
+
+export function dramaStyleLockOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaStyleLockOutcome | undefined {
+    const outcome = taskResultRecord(task).dramaStep as DramaStyleLockOutcome | undefined;
+    return outcome && outcome.step === "style.lock" && outcome.masterPalette && Array.isArray(outcome.masterPalette.groups) ? outcome : undefined;
 }
 
 export function dramaStyleBibleOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaStyleBibleOutcome | undefined {

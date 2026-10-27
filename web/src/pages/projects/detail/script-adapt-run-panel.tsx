@@ -99,8 +99,6 @@ export function ScriptAdaptRunPanel({ open, onClose, running, stage, stream, out
                     }
                 >
                     {warnings.length ? `检查有 ${warnings.length} 条提醒，台词写法不对的行生成分段会当成动作：` : "检查没有问题。提取资产、生成分段在剧集上照常用。"}
-                    {outcome.chained?.taskId ? <div className="mt-1">接着生成全局风格…（进度在「风格进度」里）</div> : null}
-                    {outcome.chained?.error ? <div className="mt-1">导演风格没有自动开始：{outcome.chained.error}，可以在章节页点「导演风格」手动跑。</div> : null}
                     {warnings.length ? (
                         <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto pl-0" aria-label="剧本检查提醒">
                             {warnings.map((item, index) => (
