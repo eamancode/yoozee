@@ -86,6 +86,8 @@ type SegmentProgress struct {
 	Takes              int      `json:"takes"`
 	SelectedArtifactID string   `json:"selectedArtifactId,omitempty"`
 	MissingEvidence    []string `json:"missingEvidence,omitempty"`
+	// Issues 是带问题装段后挂在这一段镜头上的镜头表检查 error 条数（由 app 按镜头表填）。
+	Issues int `json:"issues,omitempty"`
 }
 
 // EndState 是片子做完要满足的八件事之一。
@@ -107,6 +109,8 @@ type ProgressCounts struct {
 	InCut     int `json:"inCut"`
 	Accepted  int `json:"accepted"`
 	OverLimit int `json:"overLimit"`
+	// Issues 是带问题的段数（由 app 填，见 SegmentProgress.Issues）。
+	Issues int `json:"issues"`
 }
 
 type Progress struct {
