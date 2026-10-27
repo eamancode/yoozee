@@ -66,4 +66,8 @@ test("paletteCheckSummary 说清哪几块偏了", () => {
         /第 2 块 #6E6E6E 取到 #2E7D32（ΔE 30\.1）/,
     );
     assert.equal(paletteCheckSummary({ blocks: [], passed: false, threshold: 12, note: "图片太小，无法取色" }), "取色校验没做：图片太小，无法取色");
+    assert.equal(
+        paletteCheckSummary({ blocks: [{ hex: "#111111", sampled: "#121212", deltaE: 0.3 }], passed: true, threshold: 12, note: "色带上找到 1 块、色彩脚本是 2 块，按色带整体等分取色" }),
+        "取色校验通过（每块 ΔE ≤ 12）（色带上找到 1 块、色彩脚本是 2 块，按色带整体等分取色）",
+    );
 });

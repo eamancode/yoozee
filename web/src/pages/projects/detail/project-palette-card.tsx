@@ -24,10 +24,11 @@ export function paletteImageStatusLabel(palette: ProjectAssetPalette) {
 /** 取色校验的一句话：通过、哪几块偏了，或没法校验的原因。 */
 export function paletteCheckSummary(check?: PaletteCheck) {
     if (!check) return "";
-    if (check.note) return `取色校验没做：${check.note}`;
-    if (check.passed) return `取色校验通过（每块 ΔE ≤ ${check.threshold}）`;
+    if (check.note && check.blocks.length === 0) return `取色校验没做：${check.note}`;
+    const how = check.note ? `（${check.note}）` : "";
+    if (check.passed) return `取色校验通过（每块 ΔE ≤ ${check.threshold}）${how}`;
     const off = check.blocks.map((block, index) => ({ ...block, index })).filter((block) => block.deltaE < 0 || block.deltaE > check.threshold);
-    return `取色偏差：${off.map((block) => `第 ${block.index + 1} 块 ${block.hex} 取到 ${block.sampled}（ΔE ${block.deltaE.toFixed(1)}）`).join("；")}`;
+    return `取色偏差：${off.map((block) => `第 ${block.index + 1} 块 ${block.hex} 取到 ${block.sampled}（ΔE ${block.deltaE.toFixed(1)}）`).join("；")}${how}`;
 }
 
 /** 一排色块：色块、中文名、HEX、用途（悬停看全）。 */

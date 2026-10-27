@@ -94,6 +94,7 @@ export type DramaImageStatus = "none" | "waiting" | "queued" | "bound" | "stale"
 export type ProjectAssetImageQueue = { status: DramaImageStatus; taskId?: string; error?: string };
 
 /** 色卡取色校验：每块取到的颜色与 HEX 的 ΔE2000；任一块超过阈值 passed=false（只是警告，图保留）。 */
+/** note：blocks 为空时是没法校验的原因；不空时是取色方式说明（没按色块定位、退回等分）。 */
 export type PaletteCheck = { blocks: Array<{ hex: string; sampled: string; deltaE: number }>; passed: boolean; threshold: number; note?: string };
 
 export type ProjectAssetPalette = {
