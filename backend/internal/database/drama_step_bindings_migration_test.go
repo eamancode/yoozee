@@ -46,7 +46,11 @@ func TestDramaStepBindingsMigrationBackfillsProfilesAndSeedsBindings(t *testing.
 			t.Fatalf("%s：style_profile=%q updated_at=%v，期望 %q 且不动 updated_at", id, p.StyleProfile, p.UpdatedAt, profile)
 		}
 	}
-	if err := db.Model(&model.DramaStepBinding{}).Count(&count).Error; err != nil || count != 5 {
+	if err := db.Model(&model.DramaStepBinding{}).Where("step = ?", "chapter.shots").Count(&count).Error; err != nil || count != 5 {
 		t.Fatalf("重跑不重复插入默认绑定：%d（%v）", count, err)
+	}
+	// 迁移 67 给五个档案种了风格锁定的默认绑定。
+	if err := db.Model(&model.DramaStepBinding{}).Where("step = ? AND skill_id = ?", "style.lock", "yz-style-lock").Count(&count).Error; err != nil || count != 5 {
+		t.Fatalf("风格锁定默认绑定 5 格，得到 %d（%v）", count, err)
 	}
 }
