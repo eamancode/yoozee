@@ -29,7 +29,7 @@ export function ProjectCharacterCard({ asset, folderItems, generating, removing,
     const role = textValue(character?.definition.role) || "未填写剧情定位";
     const appearance = textValue(character?.definition.appearance) || textValue(character?.definition.consistencyPrompt) || "角色设定待完善";
     const queue = character?.visualStatus === "ready" ? "" : assetImageQueueLabel(asset.image);
-    const imageStatus = character?.visualStatus === "ready" ? "图片已绑定" : queue ? `三视图${queue}${asset.image?.status === "failed" && asset.image.error ? `：${asset.image.error}` : ""}` : character?.visualStatus === "partial" ? "图片待补全" : "图片未绑定";
+    const imageStatus = character?.visualStatus === "ready" ? "图片已绑定" : queue ? `三视图${queue}${(asset.image?.status === "failed" || asset.image?.status === "waiting") && asset.image.error ? `：${asset.image.error}` : ""}` : character?.visualStatus === "partial" ? "图片待补全" : "图片未绑定";
     const multiViewPrompt = textValue(character?.definition.multiViewPrompt);
     const voiceStatus = character?.voiceStatus === "ready" ? `声音已绑定 · ${character.voice?.profile.name}` : character?.voiceStatus === "unavailable" ? "声音需处理" : "声音未绑定";
     const readinessLabel = character?.visualStatus === "ready" ? character.voiceStatus === "ready" ? "可直接用于生成" : "形象已就绪" : "设定进行中";

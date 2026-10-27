@@ -8,13 +8,14 @@ import { ModelPicker } from "@/components/model-picker";
 import { Callout } from "@/components/ui/product/callout";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaRunProgressOf, dramaSceneCode, dramaStyleBibleOutcomeOf, getDramaStepUsage, type DramaStyleAnchor, type DramaStyleBibleOutcome } from "@/services/api/drama";
-import type { ProjectDetail, ProjectUnit } from "@/services/api/projects";
+import type { DramaImageStatus, ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { storyboardRunStop } from "./chapter-shot-stream";
 import { DramaRunPanel } from "./drama-run-panel";
 import { paletteImageTaskTemplate } from "./drama-image-task";
+import { dramaImageSummaryText, useDramaImageStatuses } from "./drama-image-summary";
 import { followDramaRunTask, isStyleBibleTask, runStyleBible } from "./project-chapter-ai";
 import { turnaroundImageModel } from "./project-character-media";
 import { parseStyleBibleStream, resumedStyleBibleStream, styleBibleStreamFromResult, type StyleBibleStreamState } from "./style-bible-stream";
@@ -138,10 +139,16 @@ function StyleBibleRunGroups(stream: StyleBibleStreamState) {
     ];
 }
 
-/** 色卡出图的一句话：排上几张、等空位几张、没排上几张。 */
-function imagesText(outcome: DramaStyleBibleOutcome) {
+/** 这次排了出图的色卡（排上、等空位、没排上）。 */
+function imageAssetIds(outcome?: DramaStyleBibleOutcome) {
+    return outcome ? [...outcome.images.queued, ...outcome.images.waiting, ...outcome.images.failed] : [];
+}
+
+/** 色卡出图的一句话：读到色卡当前的出图状态时按它算（statuses），否则按收尾时排上几张、等空位几张、没排上几张。 */
+function imagesText(outcome: DramaStyleBibleOutcome, statuses?: DramaImageStatus[]) {
     const { queued, waiting, failed } = outcome.images;
     if (!queued.length && !waiting.length && !failed.length) return "这次没有给色卡出图，到资产页的「色卡」里可以出图。";
+    if (statuses?.length) return `色卡：${dramaImageSummaryText(statuses, "张", "色卡上")}`;
     return [`色卡出图已排 ${queued.length} 张`, waiting.length ? `${waiting.length} 张等前面的出完接着排` : "", failed.length ? `${failed.length} 张没排上（原因写在色卡上）` : ""].filter(Boolean).join("，") + "。";
 }
 
@@ -180,6 +187,9 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
     const taskDetail = detailQuery.data;
     const outcome = taskDetail?.status === "succeeded" ? dramaStyleBibleOutcomeOf(taskDetail) : undefined;
     const stop = useMemo(() => (taskDetail ? storyboardRunStop(taskDetail, dramaRunProgressOf(taskDetail)) : undefined), [taskDetail]);
+    const imageIds = imageAssetIds(outcome);
+    // 侧栏打开时按色卡当前的出图状态重算摘要：收尾之后接着排、出完、失败，「继续出图」重出的都算进去。
+    const imageStatuses = useDramaImageStatuses(projectId, imageIds, panelOpen && !running);
     const resume = stop?.kind === "resume" ? stop : undefined;
     const streamState = useMemo(() => {
         if (running || (stream.text && (stream.taskId === taskDetail?.id || !taskDetail))) return resumedStyleBibleStream(parseStyleBibleStream(stream.text), resumeView);
@@ -471,7 +481,7 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
                             </Button>
                         }
                     >
-                        {imagesText(outcome)}
+                        {imagesText(outcome, imageStatuses)}
                         {warnings.length ? (
                             <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto pl-0" aria-label="导演风格检查提醒">
                                 {warnings.map((item, index) => (

@@ -80,7 +80,7 @@ export default function StoryboardPromptsPage() {
     const filtered = useMemo(() => templates.filter((template) => {
         const definition = definitionByOperation.get(template.operation);
         const normalizedKeyword = keyword.trim().toLowerCase();
-        if (normalizedKeyword && !`${template.name} ${template.content} ${definition?.label || ""}`.toLowerCase().includes(normalizedKeyword)) return false;
+        if (normalizedKeyword && !`${template.name} ${template.content} ${definition?.label || ""} ${definition?.description || ""}`.toLowerCase().includes(normalizedKeyword)) return false;
         if (operationFilter !== "all" && template.operation !== operationFilter) return false;
         if (status === "enabled" && !template.enabled) return false;
         if (status === "disabled" && template.enabled) return false;
@@ -168,7 +168,7 @@ export default function StoryboardPromptsPage() {
     };
 
     const columns: ColumnsType<PromptTemplate> = [
-        { title: "模板类型", dataIndex: "operation", width: 180, render: (operation: string) => { const definition = definitionByOperation.get(operation); return <div><div className="font-medium">{definition?.label || operation}</div><div className="mt-1 text-xs text-foreground/45">{definition?.category || "--"}</div></div>; } },
+        { title: "模板类型", dataIndex: "operation", width: 260, render: (operation: string) => { const definition = definitionByOperation.get(operation); return <div><div className="font-medium">{definition?.label || operation}</div><div className="mt-1 text-xs text-foreground/45">{definition?.category || "--"}</div>{definition?.description ? <div className="mt-1 line-clamp-2 text-xs leading-[18px] text-foreground/55" title={definition.description}>{definition.description}</div> : null}</div>; } },
         { title: "版本", dataIndex: "name", render: (_, template) => <div><div className="font-medium">{template.name}</div><div className="mt-1 text-xs text-foreground/45">v{template.version} · {template.content.length} 字符</div></div> },
         { title: "输出", dataIndex: "outputType", width: 120, align: "center", render: (outputType: string, template) => <span className="inline-flex items-center gap-1.5 text-xs text-foreground/65">{outputType === "json" ? <FileJson className="size-3.5" /> : <FileText className="size-3.5" />}{outputType === "json" ? definitionByOperation.get(template.operation)?.schemaKey || "JSON" : "文本"}</span> },
         { title: "状态", dataIndex: "enabled", width: 100, align: "center", render: (enabled) => <AdminStatusBadge label={enabled ? "启用中" : "历史版"} tone={enabled ? "success" : "neutral"} /> },
@@ -183,7 +183,7 @@ export default function StoryboardPromptsPage() {
                 toolbarActive={hasFilters}
                 toolbarFilters={<><Select aria-label="筛选提示词类型" className="w-40" value={operationFilter} onChange={(value) => updateUrl({ operation: value })} options={[{ label: "全部类型", value: "all" }, ...definitions.map((item) => ({ label: item.label, value: item.operation }))]} /><Select aria-label="筛选提示词状态" className="w-32" value={status} onChange={(value) => updateUrl({ status: value })} options={[{ label: "全部状态", value: "all" }, { label: "启用中", value: "enabled" }, { label: "历史版本", value: "disabled" }]} /></>}
                 onReset={() => updateUrl({ filter: "", operation: "all", status: "all" })}
-                table={{ className: "app-data-table", size: "small", rowKey: "id", loading, pagination: false, columns, dataSource: paginatedTemplates, scroll: { x: 1120 }, expandable: { expandedRowRender: (template) => <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-muted/50 p-3 text-xs leading-5 text-foreground/75">{template.content}</pre> } }}
+                table={{ className: "app-data-table", size: "small", rowKey: "id", loading, pagination: false, columns, dataSource: paginatedTemplates, scroll: { x: 1200 }, expandable: { expandedRowRender: (template) => <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-muted/50 p-3 text-xs leading-5 text-foreground/75">{template.content}</pre> } }}
                 empty={<AdminTableEmpty filtered={hasFilters} />}
                 footer={<PaginationBar alwaysShow current={page} pageSize={pageSize} total={filtered.length} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} />}
             />
@@ -202,7 +202,7 @@ export default function StoryboardPromptsPage() {
             >
                 <Form form={form} layout="vertical" requiredMark={false} className="flex min-h-full flex-col">
                     <div className="grid shrink-0 gap-4 border-b border-border p-4 md:grid-cols-3">
-                        <Form.Item label="模板类型" className="mb-0">
+                        <Form.Item label="模板类型" className="mb-0" extra={selectedDefinition?.description}>
                             <Select value={draftOperation} disabled={Boolean(baseTemplate)} options={definitions.map((item) => ({ label: `${item.category} · ${item.label}`, value: item.operation }))} onChange={switchOperation} />
                         </Form.Item>
                         <Form.Item name="name" label="版本名称" className="mb-0" rules={[{ required: true, whitespace: true, message: "请填写版本名称" }]}>

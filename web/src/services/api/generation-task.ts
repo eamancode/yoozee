@@ -440,7 +440,8 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
         secretKey: requestConfig.secretKey,
         model: requestConfig.model,
         ...generationOptions,
-        capabilityConfig: modelCapabilityConfigFor(config, requestConfig.model),
+        // 按带渠道的选择值找能力配置：只用模型名会落到第一个有同名模型的渠道（个人模型与系统模型同名时拿到系统模型的能力）。
+        capabilityConfig: modelCapabilityConfigFor(config, config.model),
         systemPrompt: config.systemPrompt,
     };
 }
