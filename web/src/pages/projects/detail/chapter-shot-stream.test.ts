@@ -160,3 +160,14 @@ test("回合标记带戏类：每场标上本场戏类，第一轮的标记带�
     assert.equal(restored.scenes[0].genre, "文戏");
     assert.equal(restored.genres.length, 2);
 });
+
+test("parseShotStream 记下「重新生成问题场」要重写的场（回合标记的 only）", () => {
+    const only = JSON.stringify({ "@turn": { index: 2, total: 3, scene: "E01S02", heading: "内·电梯口·夜", attempt: 1, only: ["E01S02", "E01S03"] } });
+    const state = parseShotStream([only, shot(1, "电梯门")].join("\n") + "\n");
+    assert.deepEqual(state.only, ["E01S02", "E01S03"]);
+    assert.deepEqual(
+        state.scenes.map((scene) => [scene.index, scene.scene, scene.shots.length]),
+        [[2, "E01S02", 1]],
+    );
+    assert.equal(parseShotStream([marker(1), shot(1, "推门")].join("\n") + "\n").only, undefined);
+});

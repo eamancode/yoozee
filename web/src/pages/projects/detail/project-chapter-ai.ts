@@ -48,6 +48,8 @@ type ChapterStoryboardGenerationInput = {
     rule?: { maxSeconds: number; minSeconds: number };
     /** 「从第 N 场继续」：上一次没写完的任务。 */
     resumeTaskId?: string;
+    /** 「重新生成问题场」：只重写这几场（场编号），其余场的镜头行取镜头表里已有的。 */
+    onlyScenes?: string[];
 };
 
 // 逐场续写的任务在服务端按场计时（每场一次分镜超时），总时长随场数变；页面只是订阅，不替后端判超时。
@@ -66,6 +68,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         config: backendProviderConfig(config, "text") as Record<string, unknown>,
         ...(input.rule ? { rule: input.rule } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
+        ...(input.onlyScenes?.length ? { onlyScenes: input.onlyScenes } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);
