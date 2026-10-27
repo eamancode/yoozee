@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { App, Button } from "antd";
 import { EmptyState } from "@/components/ui/product/empty-state";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { formatShotOrdinal } from "@/lib/shot-label";
 import { saveProjectShot, type ProjectDetail } from "@/services/api/projects";
@@ -27,8 +27,14 @@ export default function ProjectWorkflowView({ detail, projectId, unitId, stage }
     const unit = orderedUnits.find((item) => item.id === unitId) || orderedUnits[0];
     const activeStage = workflowStages.some((item) => item.key === stage) ? stage as ShortDramaWorkflowStage : "video";
     const shots = useMemo(() => (detail.shots || []).filter((item) => item.unitId === unit?.id).slice().sort((left, right) => left.position - right.position), [detail.shots, unit?.id]);
-    const rememberedShotId = sessionStorage.getItem(`project-workflow-selected-shot:${projectId}`) || "";
+    // 总览待审列表带 ?shot= 跳过来，优先选中那一段。
+    const [searchParams] = useSearchParams();
+    const requestedShotId = searchParams.get("shot") || "";
+    const rememberedShotId = requestedShotId || sessionStorage.getItem(`project-workflow-selected-shot:${projectId}`) || "";
     const [selectedShotId, setSelectedShotId] = useState(rememberedShotId);
+    useEffect(() => {
+        if (requestedShotId) setSelectedShotId(requestedShotId);
+    }, [requestedShotId]);
     const selectedShot = shots.find((item) => item.id === selectedShotId) || shots[0];
     const productionStage = activeStage === "storyboard" || activeStage === "previz" || activeStage === "video";
 

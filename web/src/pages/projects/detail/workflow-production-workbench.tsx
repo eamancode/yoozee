@@ -63,7 +63,7 @@ import { applyShotReferenceChange } from "./project-cache";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
 import { compileProjectShot, getDramaBrief, writeDramaSegments, type DramaSegment } from "@/services/api/drama";
 import { dramaFamilyOf, findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
-import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useInvalidateDrama } from "./drama-panels";
+import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useDramaProgress, useInvalidateDrama } from "./drama-panels";
 import { Select } from "@/components/ui/base/select";
 
 type ShotEditorValues = Omit<ShotRevisionInput, "durationMs"> & {
@@ -82,6 +82,8 @@ type Props = {
     onAddShot: () => void;
     addingShot: boolean;
 };
+
+const PREVIZ_REQUIRED_HINT = "先生成并选中黑白预演";
 
 const productionStageCopy: Record<"storyboard" | "previz" | "video", { label: string; action: string; empty: string }> = {
     storyboard: { label: "分镜图", action: "生成分镜图", empty: "生成静态分镜图，确认构图、景别与角色位置" },
@@ -175,6 +177,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const segmentSpecJson = revision?.specJson || "";
     const segmentSpecShots = useMemo(() => segmentShotCount(segmentSpecJson), [segmentSpecJson]);
     const invalidateDrama = useInvalidateDrama(projectId);
+    // 预演闸门（项目设置，auto 跟授权档位）：生效时这一段要先有选中、没过期的黑白预演才能生成视频；后端同样拦（previz_required）。
+    const dramaProgressQuery = useDramaProgress(projectId);
+    const previzReady = useMemo(() => (detail.shotArtifacts || []).some((item) => item.shotId === selectedShot?.id && item.type === "action_board" && item.selected && item.status !== "stale" && item.status !== "failed"), [detail.shotArtifacts, selectedShot?.id]);
+    const previzBlocked = activeStage === "video" && Boolean(dramaProgressQuery.data?.previzGate) && !previzReady;
     const currentDurationSeconds = Number(watchedDuration || Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
     const generationSeconds = String(Math.max(1, Math.round(currentDurationSeconds)));
     const generationReferenceAudios = generationCapability === "video" ? shotAssetReferenceContext.referenceAudios : [];
@@ -385,6 +391,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     const generateArtifact = async () => {
         if (!selectedShot || submittingShotIds.has(selectedShot.id)) return;
+        if (previzBlocked) {
+            message.warning(PREVIZ_REQUIRED_HINT);
+            return;
+        }
         const submittingShot = selectedShot;
         setSubmittingShotIds((current) => new Set(current).add(submittingShot.id));
         try {
@@ -642,7 +652,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             <div className="workflow-generation-cost" aria-live="polite">
                                 {creditsEnabled && formattedGenerationCredits ? <><CreditSymbol /><span title={routeQuote ? modelQuoteDescription(routeQuote) : undefined}>本次{routeQuote?.estimated ? "预估" : "费用"} {formattedGenerationCredits} 积分</span></> : creditsEnabled && routedModel ? <span>本次费用将在提交时按实际规格计算</span> : null}
                             </div>
-                            <div className="flex items-center gap-2"><Button danger icon={<Trash2 className="size-4" />} loading={deleteShot.isPending} disabled={saveShot.isPending || selectedShotSubmitting || changeAssetBinding.isPending} onClick={requestDeleteShot}>删除镜头</Button><Button htmlType="submit" icon={<Save className="size-4" />} loading={saveShot.isPending} disabled={!editorDirty || deleteShot.isPending}>保存脚本</Button><Button type="primary" icon={<Play className="size-4" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} disabled={deleteShot.isPending} onClick={() => void generateArtifact()}>{selectedShotSubmitting ? `${stageCopy.action}（正在提交）` : shotTask?.status === "queued" || shotTask?.status === "running" ? `${stageCopy.action}（${shotTaskElapsed}）` : shotTask?.status === "failed" ? `${stageCopy.action}（上次失败，可重试）` : shotTask?.status === "succeeded" && !newestArtifact ? `${stageCopy.action}（已完成，正在同步）` : newestArtifact ? `${stageCopy.action}（已生成）` : stageCopy.action}</Button></div>
+                            <div className="flex items-center gap-2"><Button danger icon={<Trash2 className="size-4" />} loading={deleteShot.isPending} disabled={saveShot.isPending || selectedShotSubmitting || changeAssetBinding.isPending} onClick={requestDeleteShot}>删除镜头</Button><Button htmlType="submit" icon={<Save className="size-4" />} loading={saveShot.isPending} disabled={!editorDirty || deleteShot.isPending}>保存脚本</Button>{previzBlocked ? <Link to={`/projects/${projectId}/workflow/${unitId}/previz`} className="text-[var(--fs-label)] text-foreground/55 hover:text-[var(--workspace-accent)]">{PREVIZ_REQUIRED_HINT}</Link> : null}<Button type="primary" icon={<Play className="size-4" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} disabled={deleteShot.isPending || previzBlocked} title={previzBlocked ? PREVIZ_REQUIRED_HINT : undefined} onClick={() => void generateArtifact()}>{selectedShotSubmitting ? `${stageCopy.action}（正在提交）` : shotTask?.status === "queued" || shotTask?.status === "running" ? `${stageCopy.action}（${shotTaskElapsed}）` : shotTask?.status === "failed" ? `${stageCopy.action}（上次失败，可重试）` : shotTask?.status === "succeeded" && !newestArtifact ? `${stageCopy.action}（已完成，正在同步）` : newestArtifact ? `${stageCopy.action}（已生成）` : stageCopy.action}</Button></div>
                         </footer>
                     </Form>
                 </section>
@@ -666,7 +676,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         {shotFailureReason ? <div className="workflow-failure-note" role="status"><CircleAlert aria-hidden /><div className="min-w-0"><strong>上次{stageCopy.label}生成失败</strong><p>{shotFailureReason}</p><Link to="/tasks?status=failed">到任务中心查看详情</Link></div></div> : null}
                         {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
                         <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? `${formatDuration(selectedShot.durationMs)} · ${resolution}p · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
-                        <div className="workflow-preview-actions"><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
+                        <div className="workflow-preview-actions"><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} disabled={previzBlocked} title={previzBlocked ? PREVIZ_REQUIRED_HINT : undefined} onClick={() => void generateArtifact()}>重新生成</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
                         {activeStage === "video" ? <DramaTakeCompare projectId={projectId} shotId={selectedShot.id} artifacts={artifacts} activeId={previewArtifact?.id} onOpen={(artifactId) => { setPreviewArtifactId(artifactId); setPreviewTab("latest"); }} /> : null}
                         {activeStage === "video" && previewArtifact?.status === "ready" ? <DramaTakeEvidencePanel projectId={projectId} shotId={selectedShot.id} artifact={previewArtifact} characterImages={shotAssetReferenceContext.referenceImages} onPicked={onRefresh} /> : null}
                         <ArtifactHistory artifacts={artifacts.slice(0, 4)} activeId={previewArtifact?.id} onSelect={(artifact) => setPreviewArtifactId(artifact.id)} compact />
@@ -781,7 +791,7 @@ function BoundAssets({ detail, shotId, changing, onPick, onUnlink }: { detail: P
                         const previewUrl = asset ? assetPreviewUrl(asset) : "";
                         return <div key={reference.id} className="workflow-bound-asset-chip">
                             <span className="workflow-bound-asset-preview">{previewUrl ? <Image src={previewUrl} alt={`${title}预览`} width={40} height={40} loading="lazy" preview={{ mask: "预览" }} /> : <Box aria-hidden />}</span>
-                            <span className="workflow-bound-asset-copy"><em>{asset ? assetCategoryLabel(asset.category) : "历史"}</em><strong title={title}>{title}</strong></span>
+                            <span className="workflow-bound-asset-copy"><em>{reference.role === "style" ? "色卡" : asset ? assetCategoryLabel(asset.category) : "历史"}</em><strong title={title}>{title}</strong></span>
                             <button type="button" disabled={changing} aria-label={`取消引用 ${title}`} onClick={() => onUnlink(reference)}><X aria-hidden /></button>
                         </div>;
                     }) : <button type="button" className="workflow-bound-assets-empty" disabled={changing} onClick={onPick}>尚未绑定角色、场景或道具，点击选择</button>}

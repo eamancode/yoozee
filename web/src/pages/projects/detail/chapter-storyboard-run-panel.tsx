@@ -91,7 +91,7 @@ export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running
                 key: scene.index,
                 title: `第 ${scene.index} 场`,
                 heading: scene.heading,
-                meta: `${scene.shots.length} 镜${scene.attempt > 1 ? ` · 第 ${scene.attempt} 次` : ""}`,
+                meta: `${scene.genre ? `${scene.genre} · ` : ""}${scene.shots.length} 镜${scene.attempt > 1 ? ` · 第 ${scene.attempt} 次` : ""}`,
                 body: (
                     <ol className="space-y-1 pl-0">
                         {scene.shots.map((shot, index) => (

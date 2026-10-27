@@ -28,7 +28,8 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
     const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
     const seenAssetIds = new Set<string>();
     const entries = (detail.shotReferences || []).flatMap((reference) => {
-        if (reference.shotId !== shotId || reference.status !== "linked") return [];
+        // 色卡（role=style）只管画面色彩和产物过期，不作视频参考图。
+        if (reference.shotId !== shotId || reference.status !== "linked" || reference.role === "style") return [];
         const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
         if (!asset || seenAssetIds.has(asset.id)) return [];
         const image = projectAssetReferenceImage(asset, reference);
