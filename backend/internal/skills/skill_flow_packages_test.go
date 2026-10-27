@@ -123,7 +123,7 @@ func TestFlowPackageSeededOnFirstInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(versions) != 1 || versions[0].Origin != SkillOriginPackage || !versions[0].Active || versions[0].VersionLabel != "2.2.1" || versions[0].Check.Status != FlowPackageCheckPassed {
+	if len(versions) != 1 || versions[0].Origin != SkillOriginPackage || !versions[0].Active || versions[0].VersionLabel != "2.3.0" || versions[0].Check.Status != FlowPackageCheckPassed {
 		t.Fatalf("versions = %+v", versions)
 	}
 	if summary.Step != drama.StepChapterShots || summary.Contract != drama.ContractChapterShots || summary.StepContract != drama.ContractChapterShots || skill.CurrentVersionID != versions[0].ID {
@@ -169,7 +169,7 @@ func TestFlowPackageUploadActivateRollback(t *testing.T) {
 		t.Fatal("上传不该直接启用")
 	}
 	pkg, err := svc.StepSkillPackage(chapterShotsSkillID)
-	if err != nil || pkg.Version != "2.2.1" {
+	if err != nil || pkg.Version != "2.3.0" {
 		t.Fatalf("未启用时运行时仍读旧版本：%v %v", pkg, err)
 	}
 
@@ -198,7 +198,7 @@ func TestFlowPackageUploadActivateRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.CurrentVersion == nil || summary.CurrentVersion.ID != original || pkg.Version != "2.2.1" || strings.Contains(stepEntry(pkg), "总导演") || stepEntry(pkg) != string(seed["SKILL.md"]) {
+	if summary.CurrentVersion == nil || summary.CurrentVersion.ID != original || pkg.Version != "2.3.0" || strings.Contains(stepEntry(pkg), "总导演") || stepEntry(pkg) != string(seed["SKILL.md"]) {
 		t.Fatalf("回退后 = %s", pkg.Version)
 	}
 

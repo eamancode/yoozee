@@ -3,7 +3,7 @@
   "step": "chapter.shots",
   "contract": "chapter.shots@3",
   "profiles": ["action-epic", "anime-3d", "duanju-shiga", "game-ip", "live-realism"],
-  "version": "2.2.1",
-  "files": ["SKILL.md", "cards/情绪弧索引.md", "cards/相机四维编码.md", "cards/镜头表规则速查.md"],
+  "version": "2.3.0",
+  "files": ["SKILL.md", "cards/情绪弧索引.md", "cards/相机四维编码.md", "cards/镜头表规则速查.md", "cards/戏类-武戏.md", "cards/戏类-文戏.md", "cards/戏类-悬疑戏.md", "cards/戏类-单人情绪戏.md"],
   "eval": ["qichuang-e01"]
 }

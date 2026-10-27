@@ -10,3 +10,4 @@
 | AI 角色表情、动作与镜头表演提示词手册 | kb-performance | 32 组情绪时间轴、101 条表情控制词、12 组动作与双人互动，按章节拆卡，正文原样保留 |
 | Runware：ByteDance Seedance 2.0 文档 | kb-dialects/seedance-2.0 | 时长、参考数量、首尾帧互斥、提示词长度（2026-10 查阅） |
 | Sogni：Seedance 2.5 文档 | kb-dialects/seedance-2.5 | 时长、分辨率、帧率、参考数量、价格（2026-10 查阅） |
+| 资产库【34】一线导演剧本创作 Skill（script-writing-studio） | yz-chapter-shots 的 `cards/戏类-武戏.md` | `references/04b-free-combat.md` 正文原样；另外三张戏类卡取本套 kb 原卡：`戏类-文戏.md` = kb-director「镜头第一判断与对话戏」，`戏类-悬疑戏.md` = kb-director「类型戏-打斗追逐悬疑」，`戏类-单人情绪戏.md` = kb-performance「表演词库-情绪转可见表演」，正文原样；由柚子按每场判出的戏类挑一张注入 |
