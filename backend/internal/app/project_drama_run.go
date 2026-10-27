@@ -191,7 +191,7 @@ func (s *Service) resumeDramaRun(userID string, projectID string, unitID string,
 	case progress.Completed >= progress.Total:
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("上一次各%s都已写完，请重新%s", unit, label))
 	case !sameShotsScenes(run.Scenes, plan.scenes):
-		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("正文的%s次改过了，不能从中间继续，请重新%s", unit, label))
+		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("正文的%s次改过了（或场次规则已更新：连续同地点的场次头并成一场），不能从中间继续，请重新%s", unit, label))
 	}
 	return dramaRunMeta{RunID: run.RunID, Step: run.Step, UnitID: unitID, Scenes: run.Scenes, Sources: run.Sources, Turns: run.Turns, ResumeFrom: progress.Completed + 1, ResumeTaskID: previous.ID}, nil
 }
@@ -201,7 +201,8 @@ func sameShotsScenes(a []drama.ShotsScene, b []drama.ShotsScene) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		x, y := a[i], b[i]
+		if x.ID != y.ID || x.Heading != y.Heading || x.Opening != y.Opening || x.Genre != y.Genre || x.GenreReason != y.GenreReason || !slices.Equal(x.SourceHeadings, y.SourceHeadings) {
 			return false
 		}
 	}

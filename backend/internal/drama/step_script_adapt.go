@@ -304,11 +304,6 @@ func normalizeAdaptLine(line string) string {
 	return adaptBoldSpeaker.ReplaceAllString(line, "$1$2")
 }
 
-// isSceneHeadingLine 是 ScriptFromText 认作场次头的行。
-func isSceneHeadingLine(line string) bool {
-	return sceneHeadingPrefix.MatchString(line) || strings.HasPrefix(line, "## ")
-}
-
 // adaptHeader 读一行 JSON 头：要是对象，带 no 或 title；回合标记不算。
 func adaptHeader(line string) (map[string]any, bool) {
 	if !strings.HasPrefix(line, "{") {

@@ -168,10 +168,12 @@ func styleBibleSceneRefs(units []model.ProjectUnit) ([]drama.SceneRef, bool) {
 	return out, fromChapters
 }
 
-// styleSceneSlot 是当前场次表里的一场：所在单元和场次头。
+// styleSceneSlot 是当前场次表里的一场：所在单元和场次头。LegacyShifted 是切场规则改成「连续同地点并成一场」后，
+// 规则改变前写的同编号数据（一个场次头一场）已经不是这一场了（前面有并起来的场，编号往前挪了）。
 type styleSceneSlot struct {
-	UnitID  string
-	Heading string
+	UnitID        string
+	Heading       string
+	LegacyShifted bool
 }
 
 // styleSceneTable 是项目当前的场次表，按场编号（选单元、编集号、切场与导演风格同一套）。项目里没有剧集也没有章节时返回空表。
@@ -184,21 +186,22 @@ func styleSceneTable(units []model.ProjectUnit) map[string]styleSceneSlot {
 		return table
 	}
 	for _, u := range all {
-		for _, sc := range drama.StyleBibleScenes(chapterPlainText(u.SourceText), u.Title, drama.StyleBibleMinExcerptChars) {
-			table[drama.SceneCode(numbers[u.ID], sc.No)] = styleSceneSlot{UnitID: u.ID, Heading: sc.Heading}
+		for _, sc := range drama.SplitScenes(chapterPlainText(u.SourceText), u.Title) {
+			table[drama.SceneCode(numbers[u.ID], sc.No)] = styleSceneSlot{UnitID: u.ID, Heading: sc.Heading, LegacyShifted: !slices.Contains(sc.LegacyNos, sc.No)}
 		}
 	}
 	return table
 }
 
 // colorScriptCurrent 是这一场的色彩脚本还对得上当前场次表：场编号还在，且写它时所在的单元就是现在这一场的单元
-// （改编出剧集后，原文章节版同编号的条目对不上）；没记单元的旧条目按场次头对。table 为 nil（评测，不知道项目的场次）时都算对得上。
+// （改编出剧集后，原文章节版同编号的条目对不上）；没记单元的旧条目按场次头对。切场规则改变前写的条目，编号错位了也对不上
+// （要重跑导演风格，或用 RenumberDramaScenes 按新场次重排）。table 为 nil（评测，不知道项目的场次）时都算对得上。
 func colorScriptCurrent(e drama.ColorScriptEntry, table map[string]styleSceneSlot) bool {
 	if table == nil {
 		return true
 	}
 	slot, ok := table[e.Code()]
-	if !ok {
+	if !ok || (e.SceneRule == 0 && slot.LegacyShifted) {
 		return false
 	}
 	if e.UnitID != "" {
@@ -387,9 +390,12 @@ func (s *Service) applyStyleBibleTask(task model.Task, meta *dramaStepTaskMeta, 
 	}
 	entries := styleBibleRunEntries(out.Script, runEpisodes)
 	for i := range entries {
-		entries[i].UnitID = runUnits[entries[i].Episode]
+		entries[i].UnitID, entries[i].SceneRule = runUnits[entries[i].Episode], drama.SceneRuleMerged
 	}
-	merged, err := mergeStyleBibleDocument(project.BibleJSON, out.Anchor, existing, entries)
+	// 别的集里切场规则改变前写的、编号错位的条目原样留着（不当承接用），色卡也不标。
+	keptAll := append(slices.Clone(existing), legacyShiftedKept(current, runEpisodes, units, styleSceneTable(units))...)
+	sortColorScript(keptAll)
+	merged, err := mergeStyleBibleDocument(project.BibleJSON, out.Anchor, keptAll, entries)
 	if err != nil {
 		return DramaStyleBibleOutcome{}, err
 	}
@@ -400,7 +406,7 @@ func (s *Service) applyStyleBibleTask(task model.Task, meta *dramaStepTaskMeta, 
 	}
 	// 合并后色彩脚本里不再有的场（这次重写的集里没写到的，和 keptColorScript 去掉的），色卡标成场次已不存在。
 	kept := map[string]bool{}
-	for _, e := range existing {
+	for _, e := range keptAll {
 		kept[e.Code()] = true
 	}
 	retire := func(m paletteMeta) bool { return !kept[m.Code] }

@@ -16,25 +16,25 @@ import (
 	"yingce/backend/internal/model"
 )
 
-// qichuangGenreReply 是戏类判定的回复：第 1 场文戏、第 2 场悬疑戏、第 3 场武戏。
+// qichuangGenreReply 是戏类判定的回复：第 1 场文戏、第 2 场悬疑戏；七床三个场次头并成两场，模型按旧场次多判的 E01S03 不算数。
 const qichuangGenreReply = `{"scene": "E01S01", "genre": "文戏", "reason": "护士和家属对话"}
 {"scene": "E01S02", "genre": "悬疑", "reason": "电梯口的异响"}
 {"scene": "E01S03", "genre": "武戏", "reason": "走廊里扭打"}`
 
-// qichuangPaletteHex 是三场色卡各自独有的一个颜色（断言提示词里只出现本场的）。
+// qichuangPaletteHex 是各场色卡独有的一个颜色（断言提示词里只出现本场的）。
 var qichuangPaletteHex = []string{"#1A2B3C", "#4D5E6F", "#7A8B9C"}
 
-// seedQichuangStyle 给七床第一章写风格锚和三场色彩脚本，并建三张色卡（与导演风格收尾同一条写库路径）。
+// seedQichuangStyle 给七床第一章写风格锚和两场色彩脚本（新规则：三个场次头并成两场），并建两张色卡（与导演风格收尾同一条写库路径）。
 func seedQichuangStyle(t *testing.T, svc *Service, project model.Project, unit model.ProjectUnit) []drama.ColorScriptEntry {
 	t.Helper()
 	scenes := drama.ChapterShotsScenes(chapterPlainText(unit.SourceText), unit.Title)
-	if len(scenes) != 3 {
-		t.Fatalf("七床第一章三场：%d", len(scenes))
+	if len(scenes) != 2 {
+		t.Fatalf("七床第一章两场：%d", len(scenes))
 	}
 	entries := make([]drama.ColorScriptEntry, 0, len(scenes))
 	for i, sc := range scenes {
 		entries = append(entries, drama.ColorScriptEntry{
-			Episode: 1, SceneNo: i + 1, Scene: sc.Heading, UnitID: unit.ID, Purpose: "第" + sc.ID + "场的冷暖对比",
+			Episode: 1, SceneNo: i + 1, Scene: sc.Heading, UnitID: unit.ID, SceneRule: drama.SceneRuleMerged, Purpose: "第" + sc.ID + "场的冷暖对比",
 			NewColors: []drama.PaletteColor{{NameZh: "主色", NameEn: "key", Hex: qichuangPaletteHex[i], Usage: "墙面"}, {NameZh: "辅色", NameEn: "fill", Hex: "#F0F0F0", Usage: "灯"}, {NameZh: "点缀", NameEn: "accent", Hex: "#C0392B", Usage: "呼叫灯"}},
 		})
 	}
@@ -71,7 +71,7 @@ func shotReferencesByRole(t *testing.T, db *gorm.DB, shotID string, role string)
 	return refs
 }
 
-// 七床第一集（已有色卡、风格锚）生成分段：第一轮之前判出三场戏类，每一轮只带本场的戏类卡和本场色卡；
+// 七床第一集（已有色卡、风格锚）生成分段：第一轮之前判出两场戏类，每一轮只带本场的戏类卡和本场色卡；
 // 装段后每段以 role=style 绑本场色卡；重跑导演风格让第 2 场色卡加版本后，只有第 2 场的段换到新版本、产物过期。
 func TestChapterShotsInjectsSceneGenreAndPaletteThenFollowsPaletteVersion(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
@@ -85,17 +85,17 @@ func TestChapterShotsInjectsSceneGenreAndPaletteThenFollowsPaletteVersion(t *tes
 	defer server.Close()
 
 	queued := queueDramaStepTask(t, svc, db, project, unit, server.URL, "")
-	if shots := taskDramaShots(queued.InputJSON); shots == nil || len(shots.Cards) != 4 || len(shots.Palettes) != 3 {
-		t.Fatalf("任务带上四张戏类卡和三场色卡：%+v", shots)
+	if shots := taskDramaShots(queued.InputJSON); shots == nil || len(shots.Cards) != 4 || len(shots.Palettes) != 2 {
+		t.Fatalf("任务带上四张戏类卡和两场色卡：%+v", shots)
 	}
 	done, err := runQueuedTask(t, svc)
 	if err != nil || done.Status != model.TaskStatusSucceeded {
 		t.Fatalf("生成分段：%v %s %q", err, done.Status, done.Error)
 	}
-	if upstream.genreCalls != 1 || upstream.calls != 3 {
-		t.Fatalf("判一次戏类、三场三轮：%d %d", upstream.genreCalls, upstream.calls)
+	if upstream.genreCalls != 1 || upstream.calls != 2 {
+		t.Fatalf("判一次戏类、两场两轮：%d %d", upstream.genreCalls, upstream.calls)
 	}
-	wantGenre := []string{"文戏", "悬疑戏", "武戏"}
+	wantGenre := []string{"文戏", "悬疑戏"}
 	for i, prompt := range upstream.prompts {
 		if !strings.Contains(prompt, "【戏类卡："+wantGenre[i]+"】") {
 			t.Fatalf("第 %d 场带%s卡：%.300s", i+1, wantGenre[i], prompt[max(0, len(prompt)-3000):])
@@ -130,10 +130,10 @@ func TestChapterShotsInjectsSceneGenreAndPaletteThenFollowsPaletteVersion(t *tes
 	if err := json.Unmarshal([]byte(done.ResultJSON), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.DramaRun.Genres) != 3 || result.DramaRun.Genres[1].Genre != "悬疑戏" || result.DramaRun.Genres[1].Fallback {
+	if len(result.DramaRun.Genres) != 2 || result.DramaRun.Genres[1].Genre != "悬疑戏" || result.DramaRun.Genres[1].Fallback {
 		t.Fatalf("结果记下各场戏类：%+v", result.DramaRun.Genres)
 	}
-	if result.DramaRun.Scenes[2].Genre != "武戏" || result.DramaRun.Turns[2].Genre != "武戏" {
+	if result.DramaRun.Scenes[1].Genre != "悬疑戏" || result.DramaRun.Turns[1].Genre != "悬疑戏" {
 		t.Fatalf("进度里每场标戏类：%+v %+v", result.DramaRun.Scenes, result.DramaRun.Turns)
 	}
 	deltas, err := svc.repo.TaskTextDeltas("user-1", done.ID, 0, 1000)

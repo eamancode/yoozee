@@ -23,7 +23,9 @@ import (
 	"yingce/backend/internal/repository"
 )
 
-// qichuangSceneRows 是七床线上输出按场分好的镜头行（一镜一行）。
+// qichuangSceneRows 是七床线上输出按场分好的镜头行（一镜一行）。线上那次是旧规则（一个场次头一场，三场）写的；
+// 现在第 2、3 个场次头（都是「内·电梯口·夜」）并成一场，按新规则模型会把第三个场次头下的镜头接着写在 E01S02 里：
+// 这里把 E01S03 的镜头改成 E01S02、spec.id 接着第 2 场往下编。
 func qichuangSceneRows(t *testing.T) map[string][]string {
 	t.Helper()
 	var payload struct {
@@ -34,7 +36,12 @@ func qichuangSceneRows(t *testing.T) map[string][]string {
 	}
 	out := map[string][]string{}
 	for _, row := range payload.Rows {
-		scene, _ := row["spec"].(map[string]any)["scene"].(string)
+		spec, _ := row["spec"].(map[string]any)
+		scene, _ := spec["scene"].(string)
+		if scene == "E01S03" {
+			scene = "E01S02"
+			spec["scene"], spec["id"] = scene, fmt.Sprintf("E01S02-%02d", len(out[scene])+1)
+		}
 		encoded, _ := json.Marshal(row)
 		out[scene] = append(out[scene], string(encoded))
 	}
@@ -207,14 +214,14 @@ func runQueuedTask(t *testing.T, svc *Service) (*model.Task, error) {
 	return stored, runErr
 }
 
-// 七床第一集走真实 worker 路径：一个任务内三场三轮、流式输出进同一条文本流、收尾写镜头表和段；
-// 第三场一直 503 时任务失败但保留前两场，「从第 3 场继续」的新任务只写第三场就写完整集。
+// 七床第一集走真实 worker 路径：三个场次头并成两场（走廊、电梯口），一个任务内两场两轮、流式输出进同一条文本流、收尾写镜头表和段；
+// 第二场一直 503 时任务失败但保留第一场，「从第 2 场继续」的新任务只写第二场就写完整集。
 func TestDramaStepTaskRunsScenesAndFinalizesThroughWorker(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, unit := seedQichuang(t, svc, db)
-	failScene3 := true
+	failScene2 := true
 	upstream := &streamingShotsUpstream{scenes: qichuangSceneRows(t), fail: func(call int, scene int) int {
-		if failScene3 && scene == 3 {
+		if failScene2 && scene == 2 {
 			return http.StatusServiceUnavailable
 		}
 		return 0
@@ -223,32 +230,32 @@ func TestDramaStepTaskRunsScenesAndFinalizesThroughWorker(t *testing.T) {
 	defer server.Close()
 
 	first := queueDramaStepTask(t, svc, db, project, unit, server.URL, "")
-	if timeout := taskExecutionTimeout(first, RuntimeTaskPolicy{TextTimeoutMinutes: 8, StoryboardTimeoutMinutes: 20}); timeout != 3*3*20*time.Minute+3*2*dramaTurnBackoffCap {
-		t.Fatalf("三场的任务总时限：%s", timeout)
+	if timeout := taskExecutionTimeout(first, RuntimeTaskPolicy{TextTimeoutMinutes: 8, StoryboardTimeoutMinutes: 20}); timeout != 2*3*20*time.Minute+2*2*dramaTurnBackoffCap {
+		t.Fatalf("两场的任务总时限：%s", timeout)
 	}
 	failed, err := runQueuedTask(t, svc)
-	if err == nil || failed.Status != model.TaskStatusFailed || !strings.Contains(failed.Error, "第 3 场") {
-		t.Fatalf("第三场失败：%v %s %q", err, failed.Status, failed.Error)
+	if err == nil || failed.Status != model.TaskStatusFailed || !strings.Contains(failed.Error, "第 2 场") {
+		t.Fatalf("第二场失败：%v %s %q", err, failed.Status, failed.Error)
 	}
 	progress := taskDramaRunProgress(failed.ResultJSON)
-	if progress == nil || progress.Completed != 2 || progress.Total != 3 || progress.Turns[1].Text == "" {
-		t.Fatalf("失败的任务保留前两场：%+v", progress)
+	if progress == nil || progress.Completed != 1 || progress.Total != 2 || progress.Turns[0].Text == "" || len(progress.Scenes[1].SourceHeadings) != 2 {
+		t.Fatalf("失败的任务保留第一场：%+v", progress)
 	}
-	if upstream.calls != 2+dramaTurnMaxAttempts {
-		t.Fatalf("第三场重试用尽：%d 次调用", upstream.calls)
+	if upstream.calls != 1+dramaTurnMaxAttempts {
+		t.Fatalf("第二场重试用尽：%d 次调用", upstream.calls)
 	}
 	if segments, _ := svc.DramaSegments("user-1", project.ID, unit.ID); len(segments) != 0 {
 		t.Fatalf("没写完不写库：%d 段", len(segments))
 	}
 
-	failScene3, upstream.calls, upstream.histories = false, 0, nil
+	failScene2, upstream.calls, upstream.histories = false, 0, nil
 	queueDramaStepTask(t, svc, db, project, unit, server.URL, failed.ID)
 	done, err := runQueuedTask(t, svc)
 	if err != nil || done.Status != model.TaskStatusSucceeded {
-		t.Fatalf("从第 3 场继续：%v %s %q", err, done.Status, done.Error)
+		t.Fatalf("从第 2 场继续：%v %s %q", err, done.Status, done.Error)
 	}
-	if upstream.calls != 1 || upstream.histories[0] != 4 {
-		t.Fatalf("只写第三场、带前两场对话：%d %v", upstream.calls, upstream.histories)
+	if upstream.calls != 1 || upstream.histories[0] != 2 {
+		t.Fatalf("只写第二场、带第一场对话：%d %v", upstream.calls, upstream.histories)
 	}
 	var result struct {
 		Text      string               `json:"text"`
@@ -258,10 +265,10 @@ func TestDramaStepTaskRunsScenesAndFinalizesThroughWorker(t *testing.T) {
 	if err := json.Unmarshal([]byte(done.ResultJSON), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.DramaRun.Completed != 3 || result.DramaRun.Turns[0].TaskID != failed.ID || result.DramaRun.Turns[0].Text != "" {
+	if result.DramaRun.Completed != 2 || result.DramaRun.Turns[0].TaskID != failed.ID || result.DramaRun.Turns[0].Text != "" {
 		t.Fatalf("成功后的进度只留摘要：%+v", result.DramaRun)
 	}
-	if result.DramaStep.Status != DramaStepOutcomeWritten || result.DramaStep.Parse.Rows != 41 || result.DramaStep.Segments == 0 || result.DramaStep.Scenes != 3 {
+	if result.DramaStep.Status != DramaStepOutcomeWritten || result.DramaStep.Parse.Rows != 41 || result.DramaStep.Segments == 0 || result.DramaStep.Scenes != 2 {
 		t.Fatalf("收尾写镜头表并装段：%+v", result.DramaStep)
 	}
 	segments, err := svc.DramaSegments("user-1", project.ID, unit.ID)
@@ -272,6 +279,14 @@ func TestDramaStepTaskRunsScenesAndFinalizesThroughWorker(t *testing.T) {
 	if err != nil || view == nil || view.Draft || len(view.Shotlist.Shots) != 41 || view.Check.Parse == nil {
 		t.Fatalf("镜头表落库：%v %+v", err, view)
 	}
+	for _, sh := range view.Shotlist.Shots {
+		if sh.Scene != "E01S01" && sh.Scene != "E01S02" {
+			t.Fatalf("镜头只有 E01S01、E01S02 两场：%s %s", sh.ID, sh.Scene)
+		}
+	}
+	if view.Script == nil || len(view.Script.Scenes) != 2 || view.Script.SceneRule != drama.SceneRuleMerged {
+		t.Fatalf("台词表按新规则两场：%+v", view.Script)
+	}
 	deltas, err := svc.repo.TaskTextDeltas("user-1", done.ID, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
@@ -280,10 +295,10 @@ func TestDramaStepTaskRunsScenesAndFinalizesThroughWorker(t *testing.T) {
 	for _, d := range deltas {
 		stream.WriteString(d.Content)
 	}
-	if !strings.HasPrefix(stream.String(), `{"@turn":{"index":3,"total":3,"scene":"E01S03"`) {
-		t.Fatalf("续写任务的文本流从第三场的标记开始：%.120s", stream.String())
+	if !strings.HasPrefix(stream.String(), `{"@turn":{"index":2,"total":2,"scene":"E01S02"`) {
+		t.Fatalf("续写任务的文本流从第二场的标记开始：%.120s", stream.String())
 	}
-	if rows, _, _ := drama.StoryboardRowsFromText(stream.String()); len(rows) != 14 {
-		t.Fatalf("文本流里是第三场的 14 镜：%d", len(rows))
+	if rows, _, _ := drama.StoryboardRowsFromText(stream.String()); len(rows) != 30 {
+		t.Fatalf("文本流里是第二场（并场后）的 30 镜：%d", len(rows))
 	}
 }

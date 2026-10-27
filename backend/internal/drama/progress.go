@@ -139,6 +139,8 @@ type ProgressInput struct {
 	// 「风格定了」「色卡齐了」以它为准，色彩脚本缺场、多场都算没齐。StyleFromChapters 表示取自原文章节。
 	StyleScenes       []SceneRef
 	StyleFromChapters bool
+	// StyleRuleShifted 是切场规则改成「连续同地点并成一场」后，旧规则写的、编号已经错位的色彩脚本场数：说明里提示重跑导演风格。
+	StyleRuleShifted int
 	// Assets 是项目里角色、场景、道具的概况：「参考齐了」的规则不看它，只在说明里区分资产未提取和有资产还没出图。
 	Assets AssetsInput
 }
@@ -376,7 +378,7 @@ func Derive(in ProgressInput) Progress {
 	}
 	hasCharacters, bibleChecked, unchecked := bibleState(in.BibleJSON)
 	scriptOK, scriptDetail := episodesWritten(in.Episodes)
-	styleOK, styleDetail, paletteOK, paletteDetail := styleBibleState(in.BibleJSON, in.Palettes, in.StyleScenes, in.StyleFromChapters)
+	styleOK, styleDetail, paletteOK, paletteDetail := styleBibleState(in.BibleJSON, in.Palettes, in.StyleScenes, in.StyleFromChapters, in.StyleRuleShifted)
 	refsOK := all(func(r SegmentProgress) bool { return r.Refs }) && bibleChecked && hasCharacters
 	reviewedOK := all(func(r SegmentProgress) bool { return r.Reviewed })
 	gateOK := filmGate != nil && passed(filmGate) && filmGate.CreatedAt.After(lastSelection)
@@ -427,7 +429,7 @@ func Derive(in ProgressInput) Progress {
 
 // styleBibleState 是「风格定了」（M8 起看锁定结果：风格锚非空、主基调色卡至少一个颜色）和「色卡齐了」（当前每一场都有色卡资产，
 // 且已确认的主版本有图；色彩脚本对不上当前场次表时不算齐）。
-func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRef, fromChapters bool) (bool, string, bool, string) {
+func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRef, fromChapters bool, ruleShifted int) (bool, string, bool, string) {
 	var doc struct {
 		StyleAnchor   *StyleAnchor     `json:"style_anchor"`
 		MasterPalette *MasterPalette   `json:"master_palette"`
@@ -497,6 +499,9 @@ func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRe
 	}
 	if len(extra) > 0 {
 		scriptDetail += "，" + sceneList(extra, label) + "已不在当前" + units + "里"
+	}
+	if ruleShifted > 0 {
+		scriptDetail += fmt.Sprintf("（场次规则已更新：同一%s里连续同地点的场次头并成一场，%d 场旧色彩脚本的场编号对不上）", unit, ruleShifted)
 	}
 
 	imaged := map[string]bool{}

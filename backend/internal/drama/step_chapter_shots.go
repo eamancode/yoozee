@@ -358,6 +358,8 @@ type ShotsScene struct {
 	ID      string `json:"scene"`
 	Heading string `json:"heading"`
 	Opening string `json:"opening"`
+	// SourceHeadings 是并成这一场的正文场次头（连续同地点，两个以上才有）。
+	SourceHeadings []string `json:"sourceHeadings,omitempty"`
 	// Genre / GenreReason 是生成分段这一场判出的戏类（只在任务结果的进度里有，轮次表本身不带）。
 	Genre       string `json:"genre,omitempty"`
 	GenreReason string `json:"genreReason,omitempty"`
@@ -365,23 +367,27 @@ type ShotsScene struct {
 
 const shotsSceneOpeningChars = 30
 
-// ChapterShotsScenes 按正文的场次头切场（ScriptFromText 的规则：「## 」「内·」「外·」「第N场」等开头的行）；
-// 不到两场时返回 nil，整章一轮写完。
+// ChapterShotsScenes 是逐场续写的轮次表：一轮一场，场取自 SplitScenes（连续同地点并成一场）；不到两场时返回 nil，整章一轮写完。
 func ChapterShotsScenes(plainText string, title string) []ShotsScene {
-	script := ScriptFromText(plainText, title)
-	if len(script.Scenes) < 2 {
+	scenes := SplitScenes(plainText, title)
+	if len(scenes) < 2 {
 		return nil
 	}
-	out := make([]ShotsScene, 0, len(script.Scenes))
-	for _, sc := range script.Scenes {
+	out := make([]ShotsScene, 0, len(scenes))
+	for _, sc := range scenes {
 		scene := ShotsScene{ID: sc.ID, Heading: sc.Heading}
-		if len(sc.Beats) > 0 {
-			b := sc.Beats[0]
+		if beats, _ := sceneBeats(sc.Body); len(beats) > 0 {
+			b := beats[0]
 			text := b.Text
 			if b.Speaker != "" {
 				text = b.Speaker + "：" + text
 			}
 			scene.Opening = firstSentence(text, shotsSceneOpeningChars)
+		}
+		if len(sc.Sources) > 1 {
+			for _, h := range sc.Sources {
+				scene.SourceHeadings = append(scene.SourceHeadings, h.Text)
+			}
 		}
 		out = append(out, scene)
 	}
@@ -404,8 +410,15 @@ func firstSentence(text string, limit int) string {
 
 func shotsSceneLabel(s ShotsScene) string {
 	label := "「" + s.Heading + "」"
+	var notes []string
 	if s.Opening != "" {
-		label += "（从「" + s.Opening + "」起）"
+		notes = append(notes, "从「"+s.Opening+"」起")
+	}
+	if len(s.SourceHeadings) > 1 {
+		notes = append(notes, fmt.Sprintf("正文里连续 %d 个同地点的场次头算这一场，一起写完", len(s.SourceHeadings)))
+	}
+	if len(notes) > 0 {
+		label += "（" + strings.Join(notes, "；") + "）"
 	}
 	return label
 }

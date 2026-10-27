@@ -206,7 +206,7 @@ var steps = []Step{
 		Scope:    StepScopeProject,
 		Contract: ContractStyleBible,
 		Inputs: []StepInput{
-			{Name: "skill", Label: "技能上下文（skill-context）与用户任务：各集的场次表（场编号、场次头、每场开头 300 字）", Source: "按项目风格档案绑定的技能当前版本；场次取各剧集（kind=episode，没有剧集时取原文章节）保存的 HTML 转成的纯文本，按场次头切场，超过总字数预算时每场摘录同比缩短（不少于 80 字）"},
+			{Name: "skill", Label: "技能上下文（skill-context）与用户任务：各集的场次表（场编号、场次头、每场开头 300 字）", Source: "按项目风格档案绑定的技能当前版本；场次取各剧集（kind=episode，没有剧集时取原文章节）保存的 HTML 转成的纯文本，按场次头切场（SplitScenes：同一集里连续同地点的场次头并成一场），超过总字数预算时每场摘录同比缩短（不少于 80 字）"},
 			{Name: "brief", Label: "【项目需求】", Source: "需求文档 brief_json 的片名、用途、平台、口味、约束、不做的事等，共 1500 字"},
 			{Name: "projectStyle", Label: "【项目画风：…】", Source: "项目画风快照 styleProfileJson 的 title、selection 与 prompt，按小节取到 1200 字"},
 			{Name: "profile", Label: "【风格档案：…】", Source: "项目风格档案（profiles/*.json）的名称、画面质感段（style_block.zh，600 字）与光线政策"},

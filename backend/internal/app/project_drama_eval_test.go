@@ -17,7 +17,7 @@ func TestAdminDramaEvalComparesCompileProfilesOnStoredShotlist(t *testing.T) {
 	if _, err := service.AdminDramaEval(admin, DramaEvalRequest{ProjectID: project.ID}); err == nil {
 		t.Fatal("没有镜头表的项目不能评测视频提示词阶段")
 	}
-	written, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: loadOnlineRowsRaw(t)})
+	written, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: loadOnlineRowsRaw(t), LegacyScenes: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestRepackDramaShotlistUsesActiveCompileProfile(t *testing.T) {
 	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuangAssets(t, db, project, unit)
 	admin := &model.User{ID: "admin-1", Role: model.UserRoleAdmin}
-	written, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: loadOnlineRowsRaw(t)})
+	written, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: loadOnlineRowsRaw(t), LegacyScenes: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestEvalDramaCompileOnOnlineFixture(t *testing.T) {
 	def, _ := drama.DefaultCompileProfile()
 	for model, want := range map[string]int{"seedance-2.5": 6, "seedance-2.0": 10} {
 		m, _ := drama.ModelByID(model)
-		run, err := EvalDramaCompile([]DramaEvalInput{{Label: "七床·第一章", Rows: doc.Rows, ChapterText: string(chapter), Title: "七床", Assets: assets}}, m, def, def)
+		run, err := EvalDramaCompile([]DramaEvalInput{{Label: "七床·第一章", Rows: doc.Rows, ChapterText: string(chapter), Title: "七床", Assets: assets, LegacyScenes: true}}, m, def, def)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -177,11 +177,11 @@ func TestEvalStoredShotlistMatchesRowsReplayWithImagelessAssets(t *testing.T) {
 				t.Fatal(err)
 			}
 			chapter, _ := os.ReadFile(onlineQichuangDir + "/chapter.md")
-			replay, err := EvalDramaCompile([]DramaEvalInput{{Label: "on3", Rows: doc.Rows, ChapterText: string(chapter), Title: "七床", Assets: assets, Imaged: imaged}}, m, def, def)
+			replay, err := EvalDramaCompile([]DramaEvalInput{{Label: "on3", Rows: doc.Rows, ChapterText: string(chapter), Title: "七床", Assets: assets, Imaged: imaged, LegacyScenes: true}}, m, def, def)
 			if err != nil {
 				t.Fatal(err)
 			}
-			legacy, err := EvalDramaCompile([]DramaEvalInput{{Label: "on3", Shotlist: &stored.Shotlist, Segments: stored.Segments, ChapterText: string(chapter), Title: "七床", Assets: assets, Imaged: imaged}}, m, def, def)
+			legacy, err := EvalDramaCompile([]DramaEvalInput{{Label: "on3", Shotlist: &stored.Shotlist, Segments: stored.Segments, ChapterText: string(chapter), Title: "七床", Assets: assets, Imaged: imaged, LegacyScenes: true}}, m, def, def)
 			if err != nil {
 				t.Fatal(err)
 			}

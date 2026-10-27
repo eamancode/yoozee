@@ -1021,6 +1021,7 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 	}
 	input.StyleScenes, input.StyleFromChapters = styleBibleSceneRefs(units)
 	input.BibleJSON = currentColorScriptBible(project.BibleJSON, styleSceneTable(units))
+	input.StyleRuleShifted = legacyShiftedColorScript(project.BibleJSON, units)
 	assets, err := s.ProjectAssets(userID, projectID)
 	if err != nil {
 		return drama.Progress{}, err

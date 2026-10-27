@@ -128,7 +128,8 @@ func TestWriteDramaShotlistChecksPacksAndStores(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := loadOnlineRowsRaw(t)
-	result, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows})
+	// 线上实测输出是切场规则改变前写的（三场，E01S03 是第三个场次头），按旧规则的台词表装（与重装旧镜头表同一条路）。
+	result, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows, LegacyScenes: true})
 	if err != nil {
 		t.Fatalf("线上实测输出应能保存：%v", err)
 	}
@@ -160,7 +161,7 @@ func TestWriteDramaShotlistChecksPacksAndStores(t *testing.T) {
 	if err != nil || view == nil || len(view.Shotlist.Shots) != 29 || view.Script == nil || view.Script.LineCount() != 16 {
 		t.Fatalf("读回镜头表与台词表：%v %+v", err, view)
 	}
-	again, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows})
+	again, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows, LegacyScenes: true})
 	if err != nil || again.Shotlist.Version != 2 {
 		t.Fatalf("重写镜头表版本加一：%v %+v", err, again.Shotlist.Version)
 	}
@@ -199,8 +200,8 @@ func TestWriteDramaShotlistChecksPacksAndStores(t *testing.T) {
 	}
 }
 
-// 线上实测 on3：一章两场都叫「内·电梯口·夜」（E01S02 对话、E01S03 打斗），模型给两场绑的是同一个场景资产。
-// 段按镜头表场号装、参考取各自镜头，对话场的段不能挂只在打斗场出现的阿坤。
+// 线上实测 on3（切场规则改变前写的）：一章两场都叫「内·电梯口·夜」（E01S02 对话、E01S03 打斗），模型给两场绑的是同一个场景资产。
+// 段按镜头表场号装、参考取各自镜头，对话场的段不能挂只在打斗场出现的阿坤。按旧规则的台词表装（重装旧镜头表的路径）。
 func TestShotlistSameNamedScenesKeepTheirOwnCast(t *testing.T) {
 	const dir = "../drama/testdata/online-qichuang-on3"
 	var doc struct {
@@ -237,7 +238,7 @@ func TestShotlistSameNamedScenesKeepTheirOwnCast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := drama.ScriptFromText(string(body), "七床")
+	script := drama.LegacyScriptFromText(string(body), "七床")
 	if script.Scenes[1].Heading != script.Scenes[2].Heading {
 		t.Fatalf("夹具前提：第二、三场同名，得到 %q / %q", script.Scenes[1].Heading, script.Scenes[2].Heading)
 	}
@@ -337,7 +338,8 @@ func loadOn3(t *testing.T) ([]shotlistRow, []ProjectAssetSummary, drama.Script) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rows, assets, drama.ScriptFromText(string(body), "七床")
+	// on3 是切场规则改变前的输出（三场），台词表按旧规则切。
+	return rows, assets, drama.LegacyScriptFromText(string(body), "七床")
 }
 
 // 线上复测：资产都只有文字设定时，段参考里不能有它们（编译出 @图片N 却没有文件，提交会错号或缺文件）；

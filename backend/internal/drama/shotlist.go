@@ -302,8 +302,10 @@ func ParseShot(raw []byte) (Shot, []string, error) {
 
 // Script 是剧本契约：台词有全局唯一 id，下游只引用 id。
 type Script struct {
-	Title      string        `json:"title"`
-	Scenes     []ScriptScene `json:"scenes"`
+	Title  string        `json:"title"`
+	Scenes []ScriptScene `json:"scenes"`
+	// SceneRule 是切场规则（SceneRuleMerged）；没有（0）是规则改变前一个场次头一场切出来的台词表。
+	SceneRule  int `json:"scene_rule,omitempty"`
 	ScreenText []struct {
 		Text string `json:"text"`
 	} `json:"screen_text,omitempty"`

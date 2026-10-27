@@ -81,6 +81,9 @@ type ColorScriptEntry struct {
 	References string `json:"references,omitempty"`
 	// UnitID 是写这一场时它所在的单元（剧集或原文章节），收尾时由服务端填；改编出剧集后，原文章节版同编号的条目靠它认出来。
 	UnitID string `json:"unit_id,omitempty"`
+	// SceneRule 是写这一场时的切场规则（SceneRuleMerged，收尾时由服务端填）；没有（0）是规则改变前一个场次头一场时写的，
+	// 场编号可能和现在的场次表错位，见 LegacySceneCurrent。
+	SceneRule int `json:"scene_rule,omitempty"`
 	// Coerced 是解析时字段类型不符、降级读出的说明（检查报 warn），不写库。
 	Coerced []string `json:"-"`
 }
@@ -179,29 +182,16 @@ type StyleBibleInput struct {
 	Skill    StepSkill
 }
 
-// StyleBibleScenes 按场次头切一集的正文（ScriptFromText 的规则），每场摘录开头 limit 个字；
-// 没有场次头时整集算一场，场次头用标题。
+// StyleBibleScenes 是导演风格一集的场次表：场取自 SplitScenes（连续同地点并成一场），每场摘录开头 limit 个字；
+// 没有场次头时整集算一场，场次头用标题，摘录取整集正文。
 func StyleBibleScenes(plainText string, title string, limit int) []StyleBibleScene {
-	script := ScriptFromText(plainText, title)
-	headed := slices.ContainsFunc(lineBreakPattern.Split(plainText, -1), func(line string) bool { return isSceneHeadingLine(strings.TrimSpace(line)) })
-	if !headed || len(script.Scenes) == 0 {
-		text := jsCompact(plainText)
-		if text == "" {
-			return nil
-		}
-		return []StyleBibleScene{{No: 1, Heading: jsTrim(title), Excerpt: jsTruncate(text, limit)}}
+	scenes := SplitScenes(plainText, title)
+	if len(scenes) == 1 && len(scenes[0].Sources) == 0 {
+		return []StyleBibleScene{{No: 1, Heading: scenes[0].Heading, Excerpt: jsTruncate(jsCompact(plainText), limit)}}
 	}
-	out := make([]StyleBibleScene, 0, len(script.Scenes))
-	for i, sc := range script.Scenes {
-		parts := make([]string, 0, len(sc.Beats))
-		for _, b := range sc.Beats {
-			text := b.Text
-			if b.Speaker != "" {
-				text = b.Speaker + "：" + text
-			}
-			parts = append(parts, text)
-		}
-		out = append(out, StyleBibleScene{No: i + 1, Heading: sc.Heading, Excerpt: jsTruncate(jsCompact(strings.Join(parts, " ")), limit)})
+	out := make([]StyleBibleScene, 0, len(scenes))
+	for _, sc := range scenes {
+		out = append(out, StyleBibleScene{No: sc.No, Heading: sc.Heading, Excerpt: sceneExcerpt(sc, limit)})
 	}
 	return out
 }

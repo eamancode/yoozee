@@ -42,6 +42,8 @@ type DramaShotlistWriteRequest struct {
 	KeepDraft bool `json:"-"`
 	// Parse 是服务端解析模型输出的统计，记进检查结果。
 	Parse *drama.ShotLinesStats `json:"-"`
+	// LegacyScenes 是重装切场规则改变前写的镜头表：台词表按旧规则（一个场次头一场）切，镜头保持原场编号，色卡按旧场所在的新场找。
+	LegacyScenes bool `json:"-"`
 }
 
 // DramaShotlistView 是一章的镜头表、台词表与最近一次检查结果。
@@ -478,6 +480,41 @@ func dramaCheckContext(script *drama.Script, pc dramaProjectContext, assets []Pr
 	return drama.CheckContext{Script: checkScript, Bible: bible, Profile: profile, Vocab: vocab, Rules: rules}, profile, nil
 }
 
+// dramaShotlistScript 是写镜头表用的台词表：正文切不出场时为 nil。legacy 为 true 时按旧规则切（重装、评测规则改变前写的镜头表）。
+func dramaShotlistScript(unit *model.ProjectUnit, legacy bool) *drama.Script {
+	text := chapterPlainText(unit.SourceText)
+	parsed := drama.ScriptFromText(text, unit.Title)
+	if legacy {
+		parsed = drama.LegacyScriptFromText(text, unit.Title)
+	}
+	if len(parsed.Scenes) == 0 {
+		return nil
+	}
+	return &parsed
+}
+
+// legacyScenePalettes 把按新场编号的色卡换成按旧场编号：旧第 k 场用它现在所在那一场的色卡（同一地点）。
+func legacyScenePalettes(unit *model.ProjectUnit, palettes map[string]string) map[string]string {
+	if len(palettes) == 0 {
+		return palettes
+	}
+	out := map[string]string{}
+	for _, sc := range drama.SplitScenes(chapterPlainText(unit.SourceText), unit.Title) {
+		if v := palettes[sc.ID]; v != "" {
+			for _, no := range sc.LegacyNos {
+				out[drama.SceneCode(1, no)] = v
+			}
+		}
+	}
+	return out
+}
+
+// storedScriptLegacy 是存下的台词表是切场规则改变前（一个场次头一场）切的。
+func storedScriptLegacy(scriptJSON string) bool {
+	var stored drama.Script
+	return strings.TrimSpace(scriptJSON) != "" && json.Unmarshal([]byte(scriptJSON), &stored) == nil && stored.SceneRule == 0
+}
+
 // WriteDramaShotlist 把一章的分镜行转成镜头表、检查、装段并整章替换段：检查有 error 时整批拒绝，不落库
 // （KeepDraft 时改为只存草稿，见 DramaShotlistWriteRequest）。
 func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID string, req DramaShotlistWriteRequest) (DramaShotlistWriteResult, error) {
@@ -504,10 +541,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	var script *drama.Script
-	if parsed := drama.ScriptFromText(chapterPlainText(unit.SourceText), unit.Title); len(parsed.Scenes) > 0 {
-		script = &parsed
-	}
+	script := dramaShotlistScript(unit, req.LegacyScenes)
 	assets, err := s.ProjectAssets(userID, projectID)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
@@ -539,6 +573,9 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	palettes, err := s.unitScenePalettes(userID, project, unitID)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
+	}
+	if req.LegacyScenes {
+		palettes = legacyScenePalettes(unit, palettes)
 	}
 	inputs := make([]ReplaceProjectUnitShotInput, 0, len(segments))
 	for _, seg := range segments {
@@ -802,7 +839,16 @@ func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID st
 	// 解析统计只在生成分段收尾时有，重装沿用上一次的。
 	var previous drama.CheckReport
 	_ = json.Unmarshal([]byte(firstNonEmpty(record.CheckJSON, "{}")), &previous)
-	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, Parse: previous.Parse})
+	// 切场规则改变前写的镜头表（正文有并起来的场）：分镜行里的场编号是旧的，重装仍按旧规则切台词表，不换编号；要换成新场次就重新生成分段。
+	legacy := false
+	if storedScriptLegacy(record.ScriptJSON) {
+		unit, err := s.repo.ProjectUnit(projectID, unitID)
+		if err != nil {
+			return DramaShotlistWriteResult{}, err
+		}
+		legacy = drama.ScenesRenumbered(drama.SplitScenes(chapterPlainText(unit.SourceText), unit.Title))
+	}
+	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, Parse: previous.Parse, LegacyScenes: legacy})
 }
 
 // DramaShotlist 读一章的镜头表、台词表与最近一次检查结果；这一章还没有镜头表时返回 nil。
