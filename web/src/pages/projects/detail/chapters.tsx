@@ -70,7 +70,7 @@ import {
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { dramaEpisodesKey, dramaRunProgressOf, dramaStepOutcomeOf, getDramaBrief, getDramaEpisodes, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure, type DramaScriptAdaptOutcome } from "@/services/api/drama";
+import { dramaEpisodesKey, dramaScenesKey, dramaRunProgressOf, dramaStepOutcomeOf, getDramaBrief, getDramaEpisodes, getDramaScenes, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure, type DramaScriptAdaptOutcome } from "@/services/api/drama";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
@@ -85,6 +85,7 @@ import { chapterTaskIdentity, followDramaRunTask, generateChapterStoryboard, isS
 import { AssetsExtractControl } from "./chapter-assets-extract";
 import { ScriptAdaptControl } from "./chapter-script-adapt";
 import { StyleLockControl } from "./chapter-style-lock";
+import { ChapterSceneList } from "./chapter-scene-list";
 import { withEpisodeSourcesComment } from "./episode-sources";
 
 const CHAPTER_ROW_HEIGHT = 62;
@@ -229,6 +230,12 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         enabled: Boolean(selectedUnitId),
     });
     const shotlist = shotlistQuery.data;
+    // 场次表按已保存的正文实时切：正文保存时间变了重新读；规则改变后旧数据编号错位时带 notice（正文上方和生成分段侧栏提示）。
+    const scenesQuery = useQuery({
+        queryKey: [...dramaScenesKey(detail.project.id, selectedUnitId), selectedUnit?.updatedAt || ""],
+        queryFn: ({ signal }) => getDramaScenes(detail.project.id, selectedUnitId, signal),
+        enabled: Boolean(selectedUnitId),
+    });
     const chapterStoryboardTasks = useMemo(() => (chapterTasksQuery.data || []).filter((task) => {
         const identity = chapterTaskIdentity(task);
         return identity?.kind === "storyboard" && identity.chapterId === selectedUnitId;
@@ -776,6 +783,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         </header>
                         {originalLocked ? <div className="shrink-0 border-b border-border/70 px-4 py-2"><Callout tone="info" title={adaptedOriginal ? "这一章已改编成剧集，原文只读" : "已有剧集，原文只读"} action={<Button size="small" onClick={() => (adaptedEpisodeTarget ? selectChapter(adaptedEpisodeTarget.unitId) : switchUnitView("episode"))}>{adaptedEpisodeTarget ? `去${adaptedEpisodeLabel}` : "看剧集"}</Button>}>{adaptedOriginal ? "原文只作改编依据：改剧情、提取资产、生成分段都到剧集上操作；要按原文重来，点「剧本优化」勾选这一章重新改编，新剧本会替换由它改编的剧集。" : "原文只作改编依据。这一章还没改编：点「剧本优化」勾选它改编成剧集。"}</Callout></div> : null}
                         <EditorToolbar editor={originalLocked ? null : editor} />
+                        <ChapterSceneList scenes={scenesQuery.data} editor={editor} dirty={dirty} />
                         <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">
                             <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>
                         </div>
@@ -799,6 +807,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 onRepack={() => void repackStoryboard()}
                 repacking={repackMutation.isPending}
                 onRegenerate={() => { setRunPanelOpen(false); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
+                sceneNotice={scenesQuery.data?.notice}
                 onOpenProduction={() => { if (selectedUnit) navigate(`/projects/${detail.project.id}/workflow/${selectedUnit.id}/video`); }}
             />
             <Modal className="library-modal" title={`生成${selectedUnitNoun}分段`} open={storyboardOpen} width={560} okText={storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard()} styles={{ body: { paddingTop: 12 } }}>

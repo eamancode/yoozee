@@ -1,7 +1,7 @@
 import { Button } from "antd";
 
 import { Callout } from "@/components/ui/product/callout";
-import type { DramaShotlistView, DramaStepOutcome } from "@/services/api/drama";
+import type { DramaSceneRuleNotice, DramaShotlistView, DramaStepOutcome } from "@/services/api/drama";
 
 import { storyboardOutcomeSummary, type ShotStreamState, type StoryboardRunStop } from "./chapter-shot-stream";
 import { DramaRunPanel } from "./drama-run-panel";
@@ -24,6 +24,8 @@ type ChapterStoryboardRunPanelProps = {
     repacking: boolean;
     onRegenerate: () => void;
     onOpenProduction: () => void;
+    /** 切场规则改变后，本章已有的镜头表 / 色彩脚本 / 色卡还是旧场次编号：提示重新生成。 */
+    sceneNotice?: DramaSceneRuleNotice;
 };
 
 /**
@@ -31,7 +33,7 @@ type ChapterStoryboardRunPanelProps = {
  * 镜头表检查有 error 时服务端只存了草稿、没装段，这里列出问题行，处理后「重新装段」。
  * 镜头表已写入（非草稿）时也能「重新装段」：项目单段时长、资产或编译档案改了以后不调模型重装。
  */
-export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running, stage, stream, outcome, shotlist, stop, segmentCount, onResume, onRepack, repacking, onRegenerate, onOpenProduction }: ChapterStoryboardRunPanelProps) {
+export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running, stage, stream, outcome, shotlist, stop, segmentCount, onResume, onRepack, repacking, onRegenerate, onOpenProduction, sceneNotice }: ChapterStoryboardRunPanelProps) {
     const draftErrors = shotlist?.draft ? shotlist.check.items.filter((item) => item.level === "error") : [];
     const parse = shotlist?.check.parse;
     const failed = stop?.kind === "failed" ? stop : undefined;
@@ -109,6 +111,19 @@ export function ChapterStoryboardRunPanel({ open, onClose, chapterTitle, running
                 ),
             }))}
         >
+            {sceneNotice && !running ? (
+                <Callout
+                    tone="warning"
+                    title="场次规则已更新，建议重新生成"
+                    action={
+                        <Button size="small" onClick={onRegenerate}>
+                            重新生成
+                        </Button>
+                    }
+                >
+                    {sceneNotice.message}
+                </Callout>
+            ) : null}
             {draftErrors.length ? (
                 <Callout
                     tone="error"
