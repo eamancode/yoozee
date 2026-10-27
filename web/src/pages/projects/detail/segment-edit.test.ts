@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DramaSegment, DramaSegmentView } from "@/services/api/drama";
 import { segmentDurationRule } from "./chapter-segments";
-import { mergeWithNext, moveEdgeShot, splitSegment } from "./segment-edit";
+import { failedSegmentEditHint, mergeWithNext, moveEdgeShot, splitSegment } from "./segment-edit";
 
 const rule = segmentDurationRule(15);
 
@@ -42,4 +42,13 @@ test("拆段时新段继承原段的资产引用，合段、挪镜头时接收�
 
     assert.deepEqual(moveEdgeShot(list, 1, "prev", rule).inherit, { S01: ["S02"] });
     assert.deepEqual(moveEdgeShot(list, 0, "next", rule).inherit, { S02: ["S01"] });
+});
+
+test("段编辑保存失败（如网关 502）时说清哪些段的改动还没写进去，改动保留可重试", () => {
+    const list = [view("S01", [{ file: "lin.png", role: "人物" }]), view("S02", [{ file: "corridor.png", role: "场景" }])];
+    const edit = moveEdgeShot(list, 1, "prev", rule);
+    const hint = failedSegmentEditHint(edit, "后端服务暂时不可用，请稍后重试");
+    assert.match(hint, /后端服务暂时不可用/);
+    assert.match(hint, /S01、S02 的改动还没写进分段表/);
+    assert.match(hint, /重试/);
 });
