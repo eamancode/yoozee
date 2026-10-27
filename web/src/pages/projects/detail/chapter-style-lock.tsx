@@ -106,7 +106,9 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         enabled: open,
     });
     const latestTask = useMemo(() => (tasks || []).find(isStyleLockTask), [tasks]);
-    const running = starting || Boolean(latestTask && (latestTask.status === "queued" || latestTask.status === "running"));
+    // following：接上的任务（建项目时起的）还没出现在任务列表里，也按正在跑显示。
+    const [following, setFollowing] = useState(false);
+    const running = starting || following || Boolean(latestTask && (latestTask.status === "queued" || latestTask.status === "running"));
     const terminal = latestTask && latestTask.status !== "queued" && latestTask.status !== "running" ? latestTask : undefined;
     const detailQuery = useQuery({ queryKey: ["generation-task", terminal?.id, terminal?.status], queryFn: () => queryGenerationTask(terminal!.id), enabled: Boolean(terminal), staleTime: Infinity });
     const taskDetail = detailQuery.data;
@@ -174,9 +176,11 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
     const follow = (task: GenerationTask) => {
         followedRef.current.add(task.id);
         setStream({ taskId: task.id, text: "" });
+        setFollowing(true);
         void followDramaRunTask(task, { onStreamText: (text) => setStream({ taskId: task.id, text }) })
             .then(() => refresh())
-            .catch(() => void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] }));
+            .catch(() => void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] }))
+            .finally(() => setFollowing(false));
     };
     useEffect(() => {
         const task = latestTask;
@@ -288,6 +292,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                             autoSize={{ minRows: 3, maxRows: 8 }}
                             maxLength={STYLE_LOCK_TEXT_CHARS}
                             showCount
+                            className="!mb-5"
                             placeholder="例如：都市冷调悬疑，低饱和、实景光源，少用霓虹；人物写实不精修"
                         />
                     </label>

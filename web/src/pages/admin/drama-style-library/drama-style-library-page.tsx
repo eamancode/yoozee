@@ -109,6 +109,7 @@ export default function DramaStyleLibraryPage() {
         },
         {
             title: "名称与风格锚",
+            width: 300,
             render: (_, item) => (
                 <div>
                     <div className="font-medium">{item.name}</div>

@@ -167,6 +167,11 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 		taskReq.Input["paletteImageTask"] = req.PaletteImages
 	}
 	task, err := s.CreateTask(userID, taskReq)
+	var modelErr *ModelError
+	if len(plan.referenceImages) > 0 && errors.As(err, &modelErr) && modelErr.AppError != nil && modelErr.ErrorCode == ErrCodeModelCapabilityNotSupported {
+		// 风格分析带了参考图、所选文本模型没开图片输入：说清楚是要换能读图的模型（原错误只说「不支持当前请求」）。
+		modelErr.AppError.Message = "参考图要用能读图的文本模型：所选模型不支持图片输入，换一个模型，或去掉参考图只写风格描述"
+	}
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}

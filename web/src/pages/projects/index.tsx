@@ -409,7 +409,7 @@ export default function ProjectsPage() {
                             ))}
                         </div>
                         {styleMode === "library" ? <StyleLibraryPicker projectType={createContentType} value={styleLibraryItem?.id} onChange={setStyleLibraryItem} /> : null}
-                        {styleMode === "text" ? <Input.TextArea value={styleText} onChange={(event) => setStyleText(event.target.value)} autoSize={{ minRows: 3, maxRows: 6 }} maxLength={STYLE_LOCK_TEXT_CHARS} showCount placeholder="例如：都市冷调悬疑，低饱和、实景光源，少用霓虹；人物写实不精修" /> : null}
+                        {styleMode === "text" ? <Input.TextArea value={styleText} onChange={(event) => setStyleText(event.target.value)} autoSize={{ minRows: 3, maxRows: 6 }} maxLength={STYLE_LOCK_TEXT_CHARS} showCount className="!mb-5" placeholder="例如：都市冷调悬疑，低饱和、实景光源，少用霓虹；人物写实不精修" /> : null}
                         {styleMode === "images" ? <StyleReferenceImagesPicker value={styleImages} onChange={setStyleImages} /> : null}
                         {styleMode !== "library" ? (
                             <div className="mt-2 grid gap-1">
