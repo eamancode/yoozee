@@ -45,7 +45,6 @@ import {
     Trash2,
     Underline,
     Undo2,
-    UsersRound,
     X,
 } from "lucide-react";
 
@@ -53,13 +52,11 @@ import { useNavigate, useParams } from "react-router";
 
 import { ModelPicker } from "@/components/model-picker";
 import { WorkspaceState } from "@/components/layout/workspace-state";
-import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { parseStyleProfile } from "@/lib/canvas/style-profile";
 import { decodeNovelText, splitTextIntoChapters } from "@/lib/canvas/canvas-document";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import {
-    createProjectAssetCandidates,
     createProjectUnit,
     deleteProjectUnit,
     getProjectUnit,
@@ -84,14 +81,15 @@ import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
 import { consumeChapterImportQuery } from "./chapter-import-query";
-import { chapterAssetsFromGenerationTask, chapterTaskIdentity, extractChapterAssets, followDramaRunTask, generateChapterStoryboard, isScriptAdaptTask, isStyleBibleTask } from "./project-chapter-ai";
+import { chapterTaskIdentity, followDramaRunTask, generateChapterStoryboard, isScriptAdaptTask, isStyleBibleTask } from "./project-chapter-ai";
+import { AssetsExtractControl } from "./chapter-assets-extract";
 import { ScriptAdaptControl } from "./chapter-script-adapt";
 import { followChainedStyleBible, StyleBibleControl } from "./chapter-style-bible";
 import { withEpisodeSourcesComment } from "./episode-sources";
 
 const CHAPTER_ROW_HEIGHT = 62;
 const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
-type ChapterOperationKind = "characters" | "storyboard";
+type ChapterOperationKind = "storyboard";
 // queued：任务还在排队（或刚提交、还没开始跑），按钮显示「排队中」而不是从 0 秒开始的「已运行」。
 type ChapterOperation = { startedAt: number; taskId?: string; queued?: boolean };
 // 生成分段的文本流（各场输出与回合标记），按章节存，侧栏解析成按场分组的镜头。
@@ -127,7 +125,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const [draftTitle, setDraftTitle] = useState("");
     const [draftHtml, setDraftHtml] = useState("");
     const [dirty, setDirty] = useState(false);
-    const [characterExtractOpen, setCharacterExtractOpen] = useState(false);
     const [storyboardOpen, setStoryboardOpen] = useState(false);
     const [chapterOperations, setChapterOperations] = useState<Record<string, ChapterOperation>>({});
     const [completedChapterOperations, setCompletedChapterOperations] = useState<Record<string, true>>({});
@@ -141,7 +138,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const listRef = useRef<HTMLDivElement>(null);
     const locallyOwnedTaskIdsRef = useRef(new Set<string>());
     const recoveredTaskIdsRef = useRef(new Set<string>());
-    const recoveringTaskIdsRef = useRef(new Set<string>());
     const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLocaleLowerCase("zh-CN"));
     const orderedUnits = useMemo(() => {
         const byId = new Map(detail.units.map((unit) => [unit.id, unit]));
@@ -259,7 +255,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         for (const task of chapterTasksQuery.data || []) {
             if (task.status !== "queued" && task.status !== "running") continue;
             const identity = chapterTaskIdentity(task);
-            if (!identity) continue;
+            if (identity?.kind !== "storyboard") continue;
             const key = chapterOperationKey(identity.chapterId, identity.kind);
             if (!operations.has(key)) operations.set(key, chapterOperationFromTask(task));
         }
@@ -269,14 +265,13 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         const latest = new Map<string, GenerationTask>();
         for (const task of chapterTasksQuery.data || []) {
             const identity = chapterTaskIdentity(task);
-            if (!identity) continue;
+            if (identity?.kind !== "storyboard") continue;
             const key = chapterOperationKey(identity.chapterId, identity.kind);
             if (!latest.has(key)) latest.set(key, task);
         }
         return new Set([...latest].filter(([, task]) => task.status === "succeeded").map(([key]) => key));
     }, [chapterTasksQuery.data]);
     const runningOperationCount = new Set([...Object.keys(chapterOperations), ...serverChapterOperations.keys()]).size;
-    const characterOperation = selectedUnit ? chapterOperations[chapterOperationKey(selectedUnit.id, "characters")] || serverChapterOperations.get(chapterOperationKey(selectedUnit.id, "characters")) : undefined;
     const storyboardOperation = selectedUnit ? chapterOperations[chapterOperationKey(selectedUnit.id, "storyboard")] || serverChapterOperations.get(chapterOperationKey(selectedUnit.id, "storyboard")) : undefined;
     const storyboardRunning = Boolean(storyboardOperation);
     const storyboardStreamState = useMemo(() => {
@@ -289,7 +284,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (!carried.length) return live;
         return { ...live, scenes: [...carried, ...live.scenes], shotCount: live.shotCount + carried.reduce((sum, scene) => sum + scene.shots.length, 0) };
     }, [liveStoryboardStream, storyboardRunning, storyboardTaskDetail]);
-    const charactersGenerated = Boolean(selectedUnit && (completedChapterOperations[chapterOperationKey(selectedUnit.id, "characters")] || serverCompletedOperations.has(chapterOperationKey(selectedUnit.id, "characters")) || detail.assetCandidates.some((candidate) => candidate.unitId === selectedUnit.id && candidate.category === "character")));
     const storyboardGenerated = Boolean(selectedUnit && (completedChapterOperations[chapterOperationKey(selectedUnit.id, "storyboard")] || serverCompletedOperations.has(chapterOperationKey(selectedUnit.id, "storyboard")) || storyboardImpact.shotCount > 0));
     const visibleUnits = useMemo(() => {
         if (!deferredSearchQuery) return viewUnits;
@@ -440,28 +434,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
 
     const wordCount = useMemo(() => editor?.storage.characterCount?.characters?.() || stripHtml(draftHtml).length || 0, [draftHtml, editor]);
     const chapterCanvasCount = (unitId: string) => canvasCountByUnitId.get(unitId) || 0;
-    const chapterAnalysisInput = (textModel: string) => {
-        const unit = selectedUnit;
-        if (!unit) throw new Error("章节正文尚未加载完成");
-        if (dirty) throw new Error("请先保存当前章节，再运行 AI 分析");
-        if (adaptedOriginal) throw new Error(adaptedOriginalHint);
-        const sourceText = editor?.getText().trim() || stripHtml(unit.sourceText);
-        if (!sourceText) throw new Error("当前章节没有可分析的正文");
-        const config = { ...effectiveConfig, model: textModel, textModel };
-        if (!textModel || !isAiConfigReady(config, textModel)) {
-            navigateToSettings({ continueCreation: true });
-            return null;
-        }
-        return {
-            projectId: detail.project.id,
-            projectName: detail.project.name,
-            chapterId: unit.id,
-            chapterTitle: unit.title,
-            sourceText,
-            projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt || "",
-            config,
-        };
-    };
     const beginChapterOperation = (unitId: string, kind: ChapterOperationKind) => {
         const key = chapterOperationKey(unitId, kind);
         const startedAt = Date.now();
@@ -492,20 +464,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const markChapterOperationCompleted = (unitId: string, kind: ChapterOperationKind) => {
         setCompletedChapterOperations((current) => ({ ...current, [chapterOperationKey(unitId, kind)]: true }));
     };
-    const storeExtractedAssets = async (unitId: string, assets: Awaited<ReturnType<typeof extractChapterAssets>>) => {
-        // 去重由服务端按分类、名称及别名统一完成，避免使用页面分页快照漏判。
-        const candidates = [
-            ...assets.characters.map((asset) => ({ unitId, name: asset.name, category: "character" as const, details: { ...asset } })),
-            ...assets.scenes.map((asset) => ({ unitId, name: asset.name, category: "environment" as const, details: { ...asset } })),
-            ...assets.props.map((asset) => ({ unitId, name: asset.name, category: "prop" as const, details: { ...asset } })),
-        ];
-        const created = candidates.length
-            ? await createProjectAssetCandidates(detail.project.id, candidates, "chapter_character_extract")
-            : { candidates: [] };
-        markChapterOperationCompleted(unitId, "characters");
-        refreshProject();
-        return created.candidates.length;
-    };
     const refreshStoryboardResult = async (unitId: string) => {
         await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
@@ -532,28 +490,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "drama-shotlist"] });
         },
     });
-    const extractCharacters = async () => {
-        let operationUnitId = "";
-        try {
-            const input = chapterAnalysisInput(selectedTextModel);
-            if (!input) return;
-            operationUnitId = input.chapterId;
-            setCharacterExtractOpen(false);
-            beginChapterOperation(operationUnitId, "characters");
-            message.info("角色、场景与道具提取任务已开始，可继续编辑或切换章节");
-            const assets = await extractChapterAssets(input, { onTaskUpdate: (task) => updateChapterOperation(operationUnitId, "characters", task) });
-            const freshCount = await storeExtractedAssets(operationUnitId, assets);
-            if (!freshCount) {
-                message.info("没有新增资产：提取为空或资产已存在");
-                return;
-            }
-            message.success(`已提取 ${freshCount} 个角色、场景或道具，请到项目资产确认`);
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "章节资产提取失败");
-        } finally {
-            if (operationUnitId) finishChapterOperation(operationUnitId, "characters");
-        }
-    };
     const createStoryboard = async (options: { replaceConfirmed?: boolean; resumeTaskId?: string } = {}) => {
         const unit = selectedUnit;
         if (!unit) return message.warning("章节正文尚未加载完成");
@@ -646,34 +582,22 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     });
 
     useEffect(() => {
-        const latestByOperation = new Map<string, { task: GenerationTask; chapterId: string; kind: ChapterOperationKind }>();
+        const latestByOperation = new Map<string, { task: GenerationTask; chapterId: string }>();
         for (const task of chapterTasksQuery.data || []) {
             const identity = chapterTaskIdentity(task);
-            if (!identity) continue;
+            if (identity?.kind !== "storyboard") continue;
             const key = chapterOperationKey(identity.chapterId, identity.kind);
-            if (!latestByOperation.has(key)) latestByOperation.set(key, { task, ...identity });
+            if (!latestByOperation.has(key)) latestByOperation.set(key, { task, chapterId: identity.chapterId });
         }
-        for (const { task, chapterId: taskChapterId, kind } of latestByOperation.values()) {
-            if (task.status !== "succeeded" || locallyOwnedTaskIdsRef.current.has(task.id) || recoveredTaskIdsRef.current.has(task.id) || recoveringTaskIdsRef.current.has(task.id)) continue;
-            if (chapterTaskResultAlreadyApplied(task, taskChapterId, kind, detail)) {
-                recoveredTaskIdsRef.current.add(task.id);
-                markChapterOperationCompleted(taskChapterId, kind);
+        for (const { task, chapterId: taskChapterId } of latestByOperation.values()) {
+            if (task.status !== "succeeded" || locallyOwnedTaskIdsRef.current.has(task.id) || recoveredTaskIdsRef.current.has(task.id)) continue;
+            recoveredTaskIdsRef.current.add(task.id);
+            if (chapterTaskResultAlreadyApplied(task, taskChapterId, detail)) {
+                markChapterOperationCompleted(taskChapterId, "storyboard");
                 continue;
             }
-            if (kind === "storyboard") {
-                // 分段由服务端在任务收尾时写好了，这里只刷新本章的段和镜头表。
-                recoveredTaskIdsRef.current.add(task.id);
-                void refreshStoryboardResult(taskChapterId);
-                continue;
-            }
-            recoveringTaskIdsRef.current.add(task.id);
-            void queryGenerationTask(task.id).then(async (completedTask) => {
-                await storeExtractedAssets(taskChapterId, chapterAssetsFromGenerationTask(completedTask));
-                message.success("已恢复刷新前完成的章节资产提取结果");
-                recoveredTaskIdsRef.current.add(task.id);
-            }).catch((error) => {
-                message.error(error instanceof Error ? `任务结果恢复失败：${error.message}` : "任务结果恢复失败");
-            }).finally(() => recoveringTaskIdsRef.current.delete(task.id));
+            // 分段由服务端在任务收尾时写好了，这里只刷新本章的段和镜头表。
+            void refreshStoryboardResult(taskChapterId);
         }
     }, [chapterTasksQuery.data, detail]);
 
@@ -841,7 +765,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                             <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5">
                                 <ScriptAdaptControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} onWritten={showWrittenEpisodes} onChained={(taskId) => followChainedStyleBible(detail.project.id, taskId)} />
                                 <StyleBibleControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} />
-                                <Tooltip title={adaptedOriginal ? adaptedOriginalHint : undefined}><Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnit || dirty || adaptedOriginal || Boolean(characterOperation)} loading={Boolean(characterOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setCharacterExtractOpen(true); }} aria-label={characterOperation ? `提取角色、场景与道具，${chapterOperationLabel(characterOperation, operationNow)}` : "提取角色、场景与道具"}>{characterOperation ? `提取资产（${chapterOperationLabel(characterOperation, operationNow)}）` : charactersGenerated ? "提取资产（已生成）" : "提取角色、场景与道具"}</Button></Tooltip>
+                                <AssetsExtractControl detail={detail} unit={selectedUnit} unitNoun={unitKind(selectedUnit) === "episode" ? "集" : "章"} tasks={chapterTasksQuery.data} disabled={dirty || adaptedOriginal} disabledReason={adaptedOriginal ? adaptedOriginalHint : undefined} />
                                 <Tooltip title={adaptedOriginal ? adaptedOriginalHint : undefined}><Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || adaptedOriginal || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button></Tooltip>
                                 {storyboardOperation || storyboardStreamState.shotCount || shotlist || storyboardStop ? <Button size="small" onClick={() => setRunPanelOpen(true)} aria-label="查看生成分段进度">进度</Button> : null}
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending || originalLocked} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
@@ -857,19 +781,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             </section>
             <CreateChapterModal open={createOpen} kind={unitView} onClose={() => setCreateOpen(false)} loading={createMutation.isPending} onSubmit={(values) => createMutation.mutate(values)} />
             <ImportNovelModal open={importOpen} kind={importKind} loading={importMutation.isPending} onClose={() => setImportOpen(false)} onImport={(chapters) => importMutation.mutate(chapters)} />
-            <Modal className="library-modal" title={`提取${selectedUnitNoun}角色、场景与道具`} open={characterExtractOpen} width={500} okText="开始提取" cancelText="取消" okButtonProps={{ disabled: !selectedTextModel }} onCancel={() => setCharacterExtractOpen(false)} onOk={() => void extractCharacters()} styles={{ body: { paddingTop: 12 } }}>
-                <div className="grid gap-4">
-                    <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
-                        <div className="text-[var(--fs-tiny)] text-foreground/42">当前{selectedUnitNoun}</div>
-                        <div className="mt-1 truncate text-sm font-medium text-foreground/85">{selectedUnit?.title}</div>
-                        <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文会交给本次选择的文本模型分析，提取结果进入“角色与资产”待确认列表。</div>
-                    </div>
-                    <label className="block">
-                        <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
-                        <ModelPicker config={effectiveConfig} capability="text" value={selectedTextModel} onChange={setSelectedTextModel} variant="creation" fullWidth placeholder="选择用于提取角色、场景与道具的文本模型" showSelectedPrice={false} onMissingConfig={() => navigateToSettings({ continueCreation: true })} />
-                    </label>
-                </div>
-            </Modal>
             <ChapterStoryboardRunPanel
                 open={runPanelOpen}
                 onClose={() => setRunPanelOpen(false)}
@@ -896,7 +807,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文将作为分段依据：一场戏一组镜头，一段 = 一次视频生成。按场景切段，每段目标 {segmentTargetLabel(segmentRule.maxSeconds)}（{segmentLimit.byBrief ? `项目单段最长 ${segmentMaxSeconds} 秒，${dramaModel?.label || "项目生成模型"}上限 ${modelSegmentMaxSeconds} 秒` : `${dramaModel?.label || "项目生成模型"}最长 ${segmentMaxSeconds} 秒`}，视频渠道 {segmentRule.label}），不在接话之间切；结果写入“分镜制作”。</div>
                     </div>
                     {segmentRule.problem ? <Callout tone="warning" title="当前视频渠道交不了这种段长" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去项目设置</Button>}>{segmentRule.problem}。按这个渠道装出来的段提交时必然被拒，先换默认视频模型或项目生成模型。</Callout> : null}
-                    {assetsNotReady ? <Callout tone="warning" title="先确认资产，段才会自动带上参考" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/assets`); }}>去确认资产</Button>}>{pendingCandidateCount ? `项目里还有 ${pendingCandidateCount} 个待确认的角色、场景或道具。` : ""}{referenceAssetCount ? "确认后再生成，同一场的段会带上这一场绑定的全部资产作为参考。" : "现在没有已确认的资产，生成的段都不带参考，人物和场景在段与段之间容易不一致。"}也可以先生成，之后在分镜制作页给段绑定资产。</Callout> : null}
+                    {assetsNotReady ? <Callout tone="warning" title={referenceAssetCount ? "还有待确认的资产" : "先提取资产，段才会自动带上参考"} action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/assets`); }}>去资产页</Button>}>{pendingCandidateCount ? `项目里还有 ${pendingCandidateCount} 个待确认的候选（手动或 Agent 加的）。` : ""}{referenceAssetCount ? "确认后再生成，同一场的段会带上这一场绑定的全部资产作为参考。" : "现在项目里没有资产，生成的段都不带参考，人物和场景在段与段之间容易不一致；先点「提取资产」。"}也可以先生成，之后在分镜制作页给段绑定资产。</Callout> : null}
                     {storyboardImpact.shotCount ? <Callout tone="warning" title={`本章已有 ${storyboardImpact.shotCount} 段`}>继续后会先生成新分段；生成成功后，再整体替换旧段及其关联数据。</Callout> : null}
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
@@ -937,13 +848,13 @@ function chapterOperationFromTask(task: GenerationTask): ChapterOperation {
     return { startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(), taskId: task.id, queued: task.status === "queued" };
 }
 
-function chapterTaskResultAlreadyApplied(task: GenerationTask, chapterId: string, kind: ChapterOperationKind, detail: ProjectDetail) {
+function chapterTaskResultAlreadyApplied(task: GenerationTask, chapterId: string, detail: ProjectDetail) {
     const completedAt = Date.parse(task.completedAt || task.updatedAt);
     if (!Number.isFinite(completedAt)) return false;
-    const updatedAt = kind === "characters"
-        ? detail.assetCandidates.filter((candidate) => candidate.unitId === chapterId && candidate.category === "character").map((candidate) => Date.parse(candidate.updatedAt))
-        : detail.shots.filter((shot) => shot.unitId === chapterId).map((shot) => Date.parse(shot.updatedAt));
-    return updatedAt.some((timestamp) => Number.isFinite(timestamp) && timestamp >= completedAt);
+    return detail.shots.filter((shot) => shot.unitId === chapterId).some((shot) => {
+        const updatedAt = Date.parse(shot.updatedAt);
+        return Number.isFinite(updatedAt) && updatedAt >= completedAt;
+    });
 }
 
 function chapterOperationLabel(operation: ChapterOperation, now: number) {

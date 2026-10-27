@@ -1,6 +1,6 @@
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
 import { resolveStyleExecutionPlan, serializeStyleProfile, type StyleProfileSnapshot } from "@/lib/canvas/style-profile";
-import type { ProjectAsset } from "@/services/api/projects";
+import type { ProjectAsset, ProjectAssetImageQueue } from "@/services/api/projects";
 import type { GenerationTask } from "@/services/api/task-center";
 import { logicalModelIDForConfig, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
@@ -58,4 +58,20 @@ export async function generateProjectVisualImage(input: VisualImageInput) {
     const result = await runBackendCanvasGenerationTask(projectVisualImageRequest(input));
     if (result.projectAssetImageStatus === "stale") throw new Error("图片已生成并保留在任务结果中，但资产版本已变化，未覆盖当前图片；请从任务结果选择图片重新绑定");
     if (result.projectAssetImageStatus !== "bound") throw new Error("图片尚未绑定到资产，请在任务中心检查结果");
+}
+
+/** 资产设计建的资产在服务端出图队列里的状态（还没出图时显示）；不是资产设计建的、或还没排的返回空串。 */
+export function assetImageQueueLabel(image?: ProjectAssetImageQueue) {
+    switch (image?.status) {
+        case "waiting":
+            return "等空位出图";
+        case "queued":
+            return "出图中";
+        case "failed":
+            return "出图失败";
+        case "stale":
+            return "图没绑上";
+        default:
+            return "";
+    }
 }

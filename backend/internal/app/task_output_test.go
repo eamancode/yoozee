@@ -161,9 +161,9 @@ func TestTaskSummaryPreservesCanvasNodeWithoutExposingInput(t *testing.T) {
 }
 
 func TestTaskClientContextProjectsChapterOperations(t *testing.T) {
-	characters := taskClientContext(`{"metadata":{"domainProjectId":"project-1","chapterId":"chapter-1","operation":"chapter_character_breakdown"}}`)
-	if characters == nil || characters.DomainProjectID != "project-1" || characters.ChapterID != "chapter-1" || characters.ChapterOperation != "characters" {
-		t.Fatalf("character task context was not decoded: %+v", characters)
+	assets := taskClientContext(`{"metadata":{"source":"short-drama-assets-extract","domainProjectId":"project-1","chapterId":"chapter-1"}}`)
+	if assets == nil || assets.DomainProjectID != "project-1" || assets.ChapterID != "chapter-1" || assets.ChapterOperation != "assets" {
+		t.Fatalf("assets task context was not decoded: %+v", assets)
 	}
 	storyboard := taskClientContext(`{"metadata":{"source":"short-drama-chapter-storyboard","domainProjectId":"project-1","chapterId":"chapter-2"}}`)
 	if storyboard == nil || storyboard.ChapterID != "chapter-2" || storyboard.ChapterOperation != "storyboard" {

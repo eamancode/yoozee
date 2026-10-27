@@ -4,10 +4,10 @@ import { MoveRight, Palette, Sparkles, Trash2 } from "lucide-react";
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import type { DramaPaletteColor } from "@/services/api/drama";
-import type { PaletteCheck, ProjectAsset, ProjectAssetPalette } from "@/services/api/projects";
+import type { DramaImageStatus, PaletteCheck, ProjectAsset, ProjectAssetPalette } from "@/services/api/projects";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 
-const IMAGE_STATUS_LABELS: Record<ProjectAssetPalette["imageStatus"], string> = {
+export const IMAGE_STATUS_LABELS: Record<DramaImageStatus, string> = {
     none: "还没出图",
     waiting: "等空位出图",
     queued: "出图中",

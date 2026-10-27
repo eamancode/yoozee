@@ -1,23 +1,19 @@
-import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
-import { PromptTemplateOperation, promptTemplateTaskPlaceholder } from "@/lib/prompts";
-import { parseChapterAssetBreakdown, type ChapterAssetBreakdown } from "@/lib/canvas/chapter-asset-breakdown";
-import { parseCharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
-import { backendProviderConfig, parseBackendGenerationResult } from "@/services/api/generation-task";
-import { dramaRunProgressOf, dramaScriptAdaptOutcomeOf, dramaStepOutcomeOf, dramaStyleBibleOutcomeOf, runDramaProjectStep, runDramaStep, type DramaImageTaskTemplate, type DramaScriptAdaptMode } from "@/services/api/drama";
+import { backendProviderConfig } from "@/services/api/generation-task";
+import {
+    dramaAssetsExtractOutcomeOf,
+    dramaRunProgressOf,
+    dramaScriptAdaptOutcomeOf,
+    dramaStepOutcomeOf,
+    dramaStyleBibleOutcomeOf,
+    runDramaProjectStep,
+    runDramaStep,
+    type DramaImageTaskTemplate,
+    type DramaScriptAdaptMode,
+} from "@/services/api/drama";
 import { announceCreatedGenerationTask, queryGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
 
 import { SHOT_TURN_MARKER } from "./chapter-shot-stream";
-
-type ChapterAnalysisInput = {
-    projectId: string;
-    projectName: string;
-    chapterId: string;
-    chapterTitle: string;
-    sourceText: string;
-    projectStyle: string;
-    config: AiConfig;
-};
 
 type ChapterTaskOptions = {
     onTaskUpdate?: (task: GenerationTask) => void;
@@ -25,39 +21,22 @@ type ChapterTaskOptions = {
     onStreamText?: (text: string) => void;
 };
 
-export type ChapterTaskKind = "characters" | "storyboard";
+export type ChapterTaskKind = "assets" | "storyboard";
+
+/** 资产设计任务的 metadata.source（与后端步骤表 TaskSource 一致）。 */
+export const ASSETS_EXTRACT_TASK_SOURCE = "short-drama-assets-extract";
 
 export function chapterTaskIdentity(task: GenerationTask): { chapterId: string; kind: ChapterTaskKind } | null {
     const context = task.clientContext;
-    if (context?.chapterId && (context.chapterOperation === "characters" || context.chapterOperation === "storyboard")) {
+    if (context?.chapterId && (context.chapterOperation === "assets" || context.chapterOperation === "storyboard")) {
         return { chapterId: context.chapterId, kind: context.chapterOperation };
     }
     const metadata = generationTaskMetadata(task.inputJson);
     const chapterId = typeof metadata.chapterId === "string" ? metadata.chapterId : "";
     if (!chapterId) return null;
-    if (metadata.operation === "chapter_character_breakdown") return { chapterId, kind: "characters" };
+    if (metadata.source === ASSETS_EXTRACT_TASK_SOURCE) return { chapterId, kind: "assets" };
     if (metadata.source === "short-drama-chapter-storyboard") return { chapterId, kind: "storyboard" };
     return null;
-}
-
-export function chapterAssetsFromGenerationTask(task: GenerationTask) {
-    const result = parseBackendGenerationResult(task);
-    if (!result.text?.trim()) throw new Error("模型没有返回可用的章节资产提取结果");
-    // 历史角色任务的输出契约只有角色；仅按明确的模板操作恢复，不能给新任务缺字段兜底。
-    if (generationTaskMetadata(task.inputJson).promptTemplateOperation === PromptTemplateOperation.CharacterExtract) {
-        return { characters: parseCharacterBreakdown(result.text), scenes: [], props: [] };
-    }
-    return parseChapterAssetBreakdown(result.text);
-}
-
-export async function extractChapterAssets(input: ChapterAnalysisInput, options?: ChapterTaskOptions): Promise<ChapterAssetBreakdown> {
-    const result = await runProjectTextTask(input, "chapter_character_breakdown", {
-        项目名称: input.projectName,
-        章节名称: input.chapterTitle,
-        项目画风: input.projectStyle || "项目尚未指定画风，保持视觉描述中性、可执行。",
-        章节正文: input.sourceText,
-    }, options);
-    return parseChapterAssetBreakdown(result);
 }
 
 type ChapterStoryboardGenerationInput = {
@@ -91,6 +70,35 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
     options?.onTaskUpdate?.(task);
     const completed = await followDramaRunTask(task, options);
     return { task: completed, usage, outcome: dramaStepOutcomeOf(completed), progress: dramaRunProgressOf(completed) };
+}
+
+type AssetsExtractInput = {
+    projectId: string;
+    unitId: string;
+    config: AiConfig;
+    /** 给新资产出图的图片任务模板；不给时只建资产不出图。 */
+    imageTask?: DramaImageTaskTemplate;
+    resumeTaskId?: string;
+};
+
+/**
+ * 资产设计（流程步骤 assets.extract，按章节或剧集）：服务端按项目记忆一场一轮提取角色、场景、道具和外观提示词，任务成功前
+ * 按名字和别名并进已有资产、其余直接建成已确认资产，带了 imageTask 时接着排出图。页面只订阅任务文本流按场显示。
+ */
+export async function runAssetsExtract(input: AssetsExtractInput, options?: ChapterTaskOptions) {
+    const model = input.config.textModel || input.config.model;
+    const config = { ...input.config, model };
+    const { task, usage } = await runDramaStep(input.projectId, input.unitId, "assets.extract", {
+        model,
+        ...(logicalModelIDForConfig(config) ? { logicalModelId: logicalModelIDForConfig(config) } : {}),
+        config: backendProviderConfig(config, "text") as Record<string, unknown>,
+        ...(input.imageTask ? { imageTask: input.imageTask } : {}),
+        ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
+    });
+    announceCreatedGenerationTask(task);
+    options?.onTaskUpdate?.(task);
+    const completed = await followDramaRunTask(task, options);
+    return { task: completed, usage, outcome: dramaAssetsExtractOutcomeOf(completed) };
 }
 
 /** 剧本优化任务的 metadata.source（与后端步骤表 TaskSource 一致）。 */
@@ -179,7 +187,7 @@ export async function runStyleBible(input: StyleBibleInput, options?: ChapterTas
     return { task: completed, usage, outcome: dramaStyleBibleOutcomeOf(completed) };
 }
 
-/** 订阅一个逐轮续写的步骤任务（生成分段、剧本优化、导演风格）直到结束，刷新页面后接回正在跑的任务也用它；失败时抛错，错误信息里有写到第几场 / 集。 */
+/** 订阅一个逐轮续写的步骤任务（生成分段、资产设计、剧本优化、导演风格）直到结束，刷新页面后接回正在跑的任务也用它；失败时抛错，错误信息里有写到第几场 / 集。 */
 export function followDramaRunTask(task: GenerationTask, options?: ChapterTaskOptions) {
     // 流结束时的 terminal 事件带的是结果正文（各场拼好的镜头行，没有回合标记），不能拿它盖掉按场分好的流。
     let streamedMarkers = false;
@@ -195,21 +203,6 @@ export function followDramaRunTask(task: GenerationTask, options?: ChapterTaskOp
         if (latest && (latest.status === "failed" || latest.status === "cancelled") && latest.error) throw new Error(latest.error);
         throw error;
     });
-}
-
-async function runProjectTextTask(input: ChapterAnalysisInput, operation: string, promptTemplateVariables: Record<string, string>, options?: ChapterTaskOptions) {
-    const model = input.config.textModel || input.config.model;
-    const result = await runBackendCanvasGenerationTask({
-        projectId: input.projectId,
-        nodeId: `${operation}:${input.chapterId}`,
-        mode: "text",
-        prompt: promptTemplateTaskPlaceholder("章节角色、场景与道具提取"),
-        config: { ...input.config, model },
-        metadata: { domainProjectId: input.projectId, chapterId: input.chapterId, operation, promptTemplateOperation: PromptTemplateOperation.ChapterAssetsExtract, promptTemplateVariables },
-        onTaskCreated: options?.onTaskUpdate,
-    });
-    if (!result.text?.trim()) throw new Error("模型没有返回可用结果");
-    return result.text;
 }
 
 function generationTaskMetadata(inputJson?: string): Record<string, unknown> {

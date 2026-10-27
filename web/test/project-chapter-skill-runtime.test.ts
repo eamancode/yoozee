@@ -13,10 +13,16 @@ test("章节页直接生成分段到分镜制作，技能由项目风格档案�
     expect(source).toContain("/video`");
     expect(source).not.toContain("SkillRuntimePicker");
     expect(source).toContain('getDramaStepUsage(detail.project.id, "chapter.shots"');
-    expect(source.match(/<ModelPicker config=\{effectiveConfig\} capability="text"/g)).toHaveLength(2);
-    expect(source).toContain("chapterAnalysisInput(selectedTextModel)");
+    expect(source.match(/<ModelPicker config=\{effectiveConfig\} capability="text"/g)).toHaveLength(1);
     expect(source).toContain("const textModel = selectedTextModel");
     expect(source).toContain("generateChapterStoryboard");
+    // 提取资产也走服务端步骤（assets.extract），页面不再解析模板输出、不再写待确认候选。
+    expect(source).toContain("<AssetsExtractControl");
+    expect(source).not.toContain("extractChapterAssets");
+    expect(source).not.toContain("createProjectAssetCandidates");
+    const control = await Bun.file(new URL("../src/pages/projects/detail/chapter-assets-extract.tsx", import.meta.url)).text();
+    expect(control).toContain('getDramaStepUsage(projectId, "assets.extract"');
+    expect(control).toContain("runAssetsExtract(");
 });
 
 test("镜头画面使用已绑定资产的 @ 引用编辑器", async () => {

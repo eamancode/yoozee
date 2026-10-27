@@ -14,7 +14,7 @@ import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { storyboardRunStop } from "./chapter-shot-stream";
 import { DramaRunPanel } from "./drama-run-panel";
-import { paletteImageTaskTemplate } from "./palette-image-task";
+import { paletteImageTaskTemplate } from "./drama-image-task";
 import { followDramaRunTask, isStyleBibleTask, runStyleBible } from "./project-chapter-ai";
 import { turnaroundImageModel } from "./project-character-media";
 import { parseStyleBibleStream, resumedStyleBibleStream, styleBibleStreamFromResult, type StyleBibleStreamState } from "./style-bible-stream";

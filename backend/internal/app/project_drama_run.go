@@ -254,6 +254,10 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		written += t.Rows
 	}
 	for k := len(turns) + 1; k <= total; k++ {
+		// 用户可以在轮与轮之间取消（task_lifecycle 对逐轮续写放行）：取消落库后，别的实例上的 worker 在下一轮开始前停下。
+		if latest, err := s.repo.Task(task.ID); err == nil && latest.Status == model.TaskStatusCancelled {
+			return nil, context.Canceled
+		}
 		prompt := input.Prompt
 		if k == 1 && len(run.Scenes) > 1 {
 			prompt += "\n\n" + plan.Intro(run.Scenes)

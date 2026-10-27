@@ -65,6 +65,8 @@ type ProjectAssetSummary struct {
 	Visual           *ProjectAssetVisualSummary `json:"visual,omitempty"`
 	// Palette 是色卡（category=palette）的色彩脚本、出图状态和取色校验。
 	Palette *ProjectAssetPaletteSummary `json:"palette,omitempty"`
+	// Image 是资产设计建的角色、场景、道具的出图排队状态（别的资产没有）。
+	Image *ProjectAssetImageSummary `json:"image,omitempty"`
 }
 
 type ProjectAssetFilter struct {
@@ -507,35 +509,11 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 	var asset model.Asset
 	var version model.AssetVersion
 	if createAsset {
-		assetID = newID()
-		versionID := newID()
-		kind := "text"
-		var payload []byte
-		var marshalErr error
-		if candidate.Category == model.AssetCategoryCharacter {
-			kind = "entity"
-			var characterPayload string
-			characterPayload, marshalErr = characterAssetPayload(assetID, versionID, candidate.Name, json.RawMessage(candidate.DetailsJSON), now, now)
-			payload = []byte(characterPayload)
-		} else {
-			if projectVisualCategory(candidate.Category) {
-				kind = "entity"
-			}
-			data := map[string]any{"content": ""}
-			if kind == "entity" {
-				data = map[string]any{"definition": json.RawMessage(candidate.DetailsJSON)}
-			}
-			payload, marshalErr = json.Marshal(map[string]any{
-				"id": assetID, "kind": kind, "category": candidate.Category, "status": model.AssetVersionStatusConfirmed,
-				"primaryVersionId": versionID, "title": candidate.Name, "coverUrl": "", "tags": []string{}, "data": data,
-				"createdAt": now.Format(time.RFC3339Nano), "updatedAt": now.Format(time.RFC3339Nano),
-			})
+		var buildErr error
+		if asset, version, buildErr = assetFromCandidate(userID, candidate, now); buildErr != nil {
+			return ProjectAssetSummary{}, buildErr
 		}
-		if marshalErr != nil {
-			return ProjectAssetSummary{}, marshalErr
-		}
-		asset = model.Asset{ID: assetID, UserID: userID, Kind: kind, Category: candidate.Category, Status: model.AssetVersionStatusConfirmed, PrimaryVersionID: versionID, Title: candidate.Name, PayloadJSON: string(payload), CreatedAt: now, UpdatedAt: now}
-		version = model.AssetVersion{ID: versionID, AssetID: assetID, Version: 1, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: candidate.DetailsJSON, CreatedAt: now, UpdatedAt: now}
+		assetID = asset.ID
 	} else {
 		existing, assetErr := s.repo.AssetForUser(userID, assetID)
 		if assetErr != nil {
@@ -561,6 +539,40 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 	return s.projectAssetSummary(userID, projectID, &asset)
 }
 
+// assetFromCandidate 按候选建一个已确认资产和它的第 1 个版本（资产页确认候选、资产设计自动确认共用）：角色、场景、道具是 entity，
+// 设定就是候选详情；其余分类建成空文本资产。
+func assetFromCandidate(userID string, candidate *model.ProjectAssetCandidate, now time.Time) (model.Asset, model.AssetVersion, error) {
+	assetID, versionID := newID(), newID()
+	kind := "text"
+	var payload []byte
+	var err error
+	if candidate.Category == model.AssetCategoryCharacter {
+		kind = "entity"
+		var characterPayload string
+		characterPayload, err = characterAssetPayload(assetID, versionID, candidate.Name, json.RawMessage(candidate.DetailsJSON), now, now)
+		payload = []byte(characterPayload)
+	} else {
+		if projectVisualCategory(candidate.Category) {
+			kind = "entity"
+		}
+		data := map[string]any{"content": ""}
+		if kind == "entity" {
+			data = map[string]any{"definition": json.RawMessage(candidate.DetailsJSON)}
+		}
+		payload, err = json.Marshal(map[string]any{
+			"id": assetID, "kind": kind, "category": candidate.Category, "status": model.AssetVersionStatusConfirmed,
+			"primaryVersionId": versionID, "title": candidate.Name, "coverUrl": "", "tags": []string{}, "data": data,
+			"createdAt": now.Format(time.RFC3339Nano), "updatedAt": now.Format(time.RFC3339Nano),
+		})
+	}
+	if err != nil {
+		return model.Asset{}, model.AssetVersion{}, err
+	}
+	asset := model.Asset{ID: assetID, UserID: userID, Kind: kind, Category: candidate.Category, Status: model.AssetVersionStatusConfirmed, PrimaryVersionID: versionID, Title: candidate.Name, PayloadJSON: string(payload), CreatedAt: now, UpdatedAt: now}
+	version := model.AssetVersion{ID: versionID, AssetID: assetID, Version: 1, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: candidate.DetailsJSON, CreatedAt: now, UpdatedAt: now}
+	return asset, version, nil
+}
+
 func mergeCharacterCandidateDefinition(currentJSON string, candidateJSON string, currentName string, candidateName string) (string, error) {
 	current := map[string]any{}
 	candidate := map[string]any{}
@@ -576,30 +588,47 @@ func mergeCharacterCandidateDefinition(currentJSON string, candidateJSON string,
 		}
 		current[key] = value
 	}
-	aliases := make([]string, 0)
-	seen := map[string]bool{}
-	appendAlias := func(value string) {
-		value = strings.TrimSpace(value)
-		key := strings.ToLower(value)
-		if value == "" || seen[key] || strings.EqualFold(value, strings.TrimSpace(currentName)) {
-			return
-		}
-		seen[key] = true
-		aliases = append(aliases, value)
-	}
-	for _, value := range []any{current["aliases"], candidate["aliases"]} {
-		if list, ok := value.([]any); ok {
-			for _, item := range list {
-				if text, valid := item.(string); valid {
-					appendAlias(text)
-				}
-			}
-		}
-	}
-	appendAlias(candidateName)
-	current["aliases"] = aliases
+	mergeAssetAliases(current, currentName, current["aliases"], candidate["aliases"], candidateName)
 	encoded, err := json.Marshal(current)
 	return string(encoded), err
+}
+
+// mergeAssetAliases 把别名并进设定的 aliases：按给的先后（已有的在前），去掉空的、重复的（不分大小写）和与资产名相同的。
+// values 每一项是别名数组（[]any、[]string）或单个别名。
+func mergeAssetAliases(definition map[string]any, assetName string, values ...any) {
+	aliases := make([]string, 0)
+	seen := map[string]bool{}
+	for _, value := range values {
+		for _, text := range aliasStrings(value) {
+			text = strings.TrimSpace(text)
+			key := strings.ToLower(text)
+			if text == "" || seen[key] || strings.EqualFold(text, strings.TrimSpace(assetName)) {
+				continue
+			}
+			seen[key] = true
+			aliases = append(aliases, text)
+		}
+	}
+	definition["aliases"] = aliases
+}
+
+// aliasStrings 把别名字段读成字符串列表：[]any 里的字符串、[]string，或单个字符串。
+func aliasStrings(value any) []string {
+	switch v := value.(type) {
+	case string:
+		return []string{v}
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if text, ok := item.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 func emptyCharacterDefinitionValue(value any) bool {
@@ -657,6 +686,13 @@ func (s *Service) projectAssetSummary(userID string, projectID string, asset *mo
 	}
 	if asset.Category == model.AssetCategoryPalette {
 		summary.Palette = s.paletteAssetSummary(userID, asset, versions)
+	}
+	if asset.Category == model.AssetCategoryCharacter || projectVisualCategory(asset.Category) {
+		imaged := asset.Kind == "image"
+		if summary.Character != nil {
+			imaged = summary.Character.VisualStatus == "ready"
+		}
+		summary.Image = s.assetImageSummary(userID, asset, imaged)
 	}
 	if projectVisualCategory(asset.Category) && asset.PrimaryVersionID != "" {
 		for _, version := range versions {

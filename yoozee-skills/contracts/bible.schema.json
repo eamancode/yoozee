@@ -178,7 +178,8 @@
           "shared_colors": {"type": "array", "items": {"$ref": "#/$defs/color"}},
           "new_colors": {"type": "array", "items": {"$ref": "#/$defs/color"}},
           "purpose": {"type": "string"},
-          "references": {"type": "string"}
+          "references": {"type": "string"},
+          "unit_id": {"type": "string", "description": "写这一场时它所在的单元（剧集或原文章节），服务端填"}
         }
       }
     },

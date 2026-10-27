@@ -83,8 +83,15 @@ export type ProjectAsset = {
     visual?: { definition: Record<string, unknown>; status: "missing" | "ready" };
     /** 色卡（category=palette）：这一场的色彩脚本、出图状态和取色校验。 */
     palette?: ProjectAssetPalette;
+    /** 资产设计建的角色、场景、道具：服务端出图的排队状态（别的资产没有）。 */
+    image?: ProjectAssetImageQueue;
     source?: string;
 };
+
+/** 服务端出图的排队状态：none 还没排，waiting 等空位，queued 出图中，bound 已出图，stale 出图期间换了版本没绑上，failed 失败。 */
+export type DramaImageStatus = "none" | "waiting" | "queued" | "bound" | "stale" | "failed";
+
+export type ProjectAssetImageQueue = { status: DramaImageStatus; taskId?: string; error?: string };
 
 /** 色卡取色校验：每块取到的颜色与 HEX 的 ΔE2000；任一块超过阈值 passed=false（只是警告，图保留）。 */
 export type PaletteCheck = { blocks: Array<{ hex: string; sampled: string; deltaE: number }>; passed: boolean; threshold: number; note?: string };
@@ -98,7 +105,7 @@ export type ProjectAssetPalette = {
     prompt: string;
     /** 这一场在当前剧集里已不存在（重跑导演风格时标的）：色卡保留，不再出图，不计入「色卡齐了」。 */
     sceneGone?: boolean;
-    imageStatus: "none" | "waiting" | "queued" | "bound" | "stale" | "failed";
+    imageStatus: DramaImageStatus;
     taskId?: string;
     imageError?: string;
     check?: PaletteCheck;
@@ -158,6 +165,8 @@ export type ProjectAssetCandidate = {
     name: string;
     category: AssetCategory;
     status: "pending_confirmation" | "confirmed" | "ignored" | string;
+    /** 从哪来：agent（Agent 加的）、chapter_character_extract（旧的章节提取），drama_assets_extract（资产设计自动确认，不在候选区出现）。 */
+    source?: string;
     detailsJson: string;
     resolvedAssetId?: string;
     createdAt: string;

@@ -190,8 +190,8 @@ func taskClientContext(raw string) *TaskClientContext {
 		return context
 	}
 	chapterOperation := ""
-	if metadata.Operation == "chapter_character_breakdown" {
-		chapterOperation = "characters"
+	if metadata.Source == "short-drama-assets-extract" {
+		chapterOperation = "assets"
 	} else if metadata.Source == "short-drama-chapter-storyboard" {
 		chapterOperation = "storyboard"
 	}

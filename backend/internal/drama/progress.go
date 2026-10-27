@@ -136,6 +136,14 @@ type ProgressInput struct {
 	// 「风格定了」「色卡齐了」以它为准，色彩脚本缺场、多场都算没齐。StyleFromChapters 表示取自原文章节。
 	StyleScenes       []SceneRef
 	StyleFromChapters bool
+	// Assets 是项目里角色、场景、道具的概况：「参考齐了」的规则不看它，只在说明里区分资产未提取和有资产还没出图。
+	Assets AssetsInput
+}
+
+// AssetsInput 是项目里角色、场景、道具一共几个（不含归档的），其中几个还没出图（角色没有三视图，场景、道具没有图）。
+type AssetsInput struct {
+	Total    int
+	Unimaged int
 }
 
 // SceneRef 是一场的集号和场序（场编号 E01S02）。
@@ -373,6 +381,12 @@ func Derive(in ProgressInput) Progress {
 	acceptedOK := deliveredOK && filmAcceptance != nil && passed(filmAcceptance) && filmAcceptance.CreatedAt.After(filmDelivery.CreatedAt)
 	reusableOK := refsOK && deliveredOK
 	refsDetail := fmt.Sprintf("%d/%d 段已挂参考", c.Refs, c.Segments)
+	switch {
+	case in.Assets.Total == 0:
+		refsDetail = "资产未提取（章节页「提取资产」）；" + refsDetail
+	case in.Assets.Unimaged > 0:
+		refsDetail += fmt.Sprintf("；%d/%d 个资产还没出图", in.Assets.Unimaged, in.Assets.Total)
+	}
 	if unchecked > 0 {
 		refsDetail += fmt.Sprintf("；连戏表还有 %d 项没校验", unchecked)
 	}

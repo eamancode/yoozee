@@ -23,7 +23,7 @@ import { queryGenerationTask, type GenerationTask } from "@/services/api/task-ce
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { storyboardRunStop } from "./chapter-shot-stream";
-import { paletteImageTaskTemplate } from "./palette-image-task";
+import { paletteImageTaskTemplate } from "./drama-image-task";
 import { turnaroundImageModel } from "./project-character-media";
 import { briefEpisodeSeconds, dramaBriefKey, EPISODE_SECONDS_RANGE } from "./drama-brief";
 import { followDramaRunTask, isScriptAdaptTask, runScriptAdapt } from "./project-chapter-ai";

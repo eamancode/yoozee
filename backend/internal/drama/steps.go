@@ -4,7 +4,7 @@ import "slices"
 
 // 短剧流程的步骤表（M6）：流程（步骤、顺序、输出契约、代码负责组装的变量、解析与检查）写在代码里，改了要发版；
 // 每一步「怎么想、怎么写」交给按项目风格档案绑定的技能（drama_step_bindings）。现有 script.adapt（剧本优化，项目级）
-// 、style.bible（导演风格，项目级）和 chapter.shots（生成分段，按章节或剧集）。
+// 、style.bible（导演风格，项目级）、assets.extract（资产设计，按章节或剧集）和 chapter.shots（生成分段，按章节或剧集）。
 
 const (
 	// StepChapterShots 是生成分段：一章正文 → 镜头行（带 spec）。
@@ -20,6 +20,10 @@ const (
 	StepStyleBible = "style.bible"
 	// ContractStyleBible 是导演风格的输出契约：第一行风格锚，之后一集一块（一行 JSON 头加每场一行色彩脚本）。
 	ContractStyleBible = "style.bible@1"
+	// StepAssetsExtract 是资产设计：一集（或一章）剧本 → 角色、场景、道具和它们的外观提示词，收尾直接写成已确认资产并排出图。
+	StepAssetsExtract = "assets.extract"
+	// ContractAssetsExtract 是资产设计的输出契约：一个资产一行（JSON Lines）。
+	ContractAssetsExtract = "assets.extract@1"
 )
 
 // 步骤作用的范围（Step.Scope）。
@@ -82,7 +86,7 @@ type TurnContext struct {
 	Sources []string
 }
 
-// TurnPlan 是一步把一次运行切成多轮的方式（M7.2 逐轮续写）：生成分段一轮一场，剧本优化、导演风格一轮一集。
+// TurnPlan 是一步把一次运行切成多轮的方式（M7.2 逐轮续写）：生成分段、资产设计一轮一场，剧本优化、导演风格一轮一集。
 // 轮次本身（场次表、集次表）在建任务时算好存进 metadata.dramaRun.scenes，这里只管每一轮怎么说、怎么验。
 type TurnPlan struct {
 	// Unit 是一轮叫什么（场、集），用在进度和错误文字里。
@@ -191,6 +195,39 @@ var steps = []Step{
 			Intro: StyleBibleTurnPlan,
 			Next:  func(turns []ShotsScene, k int, _ int) string { return StyleBibleTurnPrompt(turns, k) },
 			Count: CountStyleBibleTurn,
+		},
+	},
+	{
+		ID:       StepAssetsExtract,
+		Label:    "资产设计",
+		Scope:    StepScopeUnit,
+		Contract: ContractAssetsExtract,
+		Inputs: []StepInput{
+			{Name: "skill", Label: "技能上下文（skill-context）与用户任务：剧集或章节标题、正文", Source: "按项目风格档案绑定的技能当前版本；正文取单元保存的 HTML，按编辑器 getText 的规则转成纯文本"},
+			{Name: "known", Label: "【项目已有资产】", Source: "项目资产清单里的角色、场景、道具（不含归档的），名字、别名和是否缺外观，最多 120 项、4000 字"},
+			{Name: "anchor", Label: "【全局风格锚】", Source: "bible_json.style_anchor（导演风格写的）"},
+			{Name: "colorScript", Label: "【本集色彩脚本】", Source: "bible_json.color_script 里这一集的各场（集号按导演风格的编号：有剧集看剧集序号，没有剧集看原文章节序号），2400 字"},
+			{Name: "profile", Label: "【风格档案：…】", Source: "项目风格档案（profiles/*.json）的名称、画面质感段（600 字）与光线政策"},
+			{Name: "projectStyle", Label: "【项目画风：…】", Source: "项目画风快照 styleProfileJson 的 title 与 prompt，按小节取到 1200 字"},
+			{Name: "contract", Label: "【受保护输出契约】", Source: "assets.extract@1 schema 生成（一个资产一行）"},
+		},
+		Parser:           "每一轮 CountAssetsExtractTurn 当轮校验（至少一行能用的资产，写了外观要有 prompt_en）；任务收尾时 AssetsExtractFromText 解析全部轮次的输出",
+		Checks:           []string{"CheckAssetsExtract（R-ASSET-*：名字非空、分类合法、新资产有 prompt_en；与已有资产同名或同别名的标成合并，同一资产写了几行并成一行）"},
+		SkillBudgetChars: 32_000,
+		SkillLinkedFiles: 3,
+		DefaultSkill:     "yz-assets-extract",
+		// 闸门先宽：只看解析率（能用的资产行占读出的行 ≥ 0.9，且至少一行）。
+		Gate:            StepGate{Metrics: []string{GateParseRate}, ParseRate: 0.9},
+		EvalConcurrency: 1,
+		EvalSet: []StepEvalChapter{
+			{ID: "qichuang-e01", Profile: "live-realism", Label: "《七床》第一集（悬疑·真人剧）"},
+		},
+		TaskSource: "short-drama-assets-extract",
+		Turns: TurnPlan{
+			Unit:  "场",
+			Intro: AssetsExtractTurnPlan,
+			Next:  func(turns []ShotsScene, k int, _ int) string { return AssetsExtractTurnPrompt(turns, k) },
+			Count: CountAssetsExtractTurn,
 		},
 	},
 	{

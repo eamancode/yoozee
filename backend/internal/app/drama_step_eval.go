@@ -244,9 +244,12 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 	case drama.StepScriptAdapt:
 		// 剧本优化的评测：这一章改编成一集。
 		plan, err = scriptAdaptPlan(in.project, []model.ProjectUnit{*in.unit}, drama.ScriptAdaptModeAdapt, 1, 0, nil, usage, skillRef)
+	case drama.StepAssetsExtract:
+		// 资产设计的评测：评测集的资产清单当已有资产，提取这一章（只出资产行，不写资产、不出图）。
+		plan, err = assetsExtractPlan(in.project, in.unit, []model.ProjectUnit{*in.unit}, in.assets, usage, skillRef)
 	case drama.StepStyleBible:
 		// 导演风格的评测：这一章当第 1 集定风格（只出风格锚和色彩脚本，不建色卡、不出图）。
-		plan, err = styleBiblePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, usage, skillRef)
+		plan, err = styleBiblePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, nil, usage, skillRef)
 	default:
 		plan, err = chapterShotsPlan(in.project, in.unit, in.assets, usage, skillRef)
 	}
@@ -688,6 +691,8 @@ func dramaStepEvalChapterResult(step drama.Step, c drama.StepEvalChapter, taskID
 		return scriptAdaptEvalResult(r, in, output.Text), ""
 	case drama.StepStyleBible:
 		return styleBibleEvalResult(r, in, output.Text), ""
+	case drama.StepAssetsExtract:
+		return assetsExtractEvalResult(r, in, output.Text), ""
 	}
 	rows, _, err := drama.StoryboardRowsFromText(output.Text)
 	if err != nil {
@@ -787,6 +792,37 @@ func styleBibleEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInpu
 	r.Parsed = stats.Anchor && rate >= 0.9
 	if !r.Parsed {
 		r.Failure = fmt.Sprintf("解析出 %d/%d 场，风格锚%s", parsed, len(scenes), boolWord(stats.Anchor, "有", "没有"))
+	}
+	return r
+}
+
+// assetsExtractEvalResult 是资产设计一章的指标：能用的资产行占读出的行 ≥ 0.9、至少一行才算解析成功；Rows 是能用的行（合并后），
+// Shots 是其中新资产的个数。
+func assetsExtractEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInput, text string) drama.StepEvalChapterResult {
+	rows, stats := drama.AssetsExtractFromText(text)
+	known, _ := assetsKnownFromSummaries(in.assets)
+	scenes := max(1, len(drama.ChapterShotsScenes(chapterPlainText(in.unit.SourceText), in.unit.Title)))
+	checked := drama.CheckAssetsExtract(rows, drama.AssetsExtractCheckContext{Known: known, Scenes: scenes})
+	r.Rows, r.Errors, r.Warnings = len(checked.Rows), checked.Report.Errors, checked.Report.Warnings
+	for _, row := range checked.Rows {
+		if !row.Merge {
+			r.Shots++
+		}
+	}
+	for _, item := range checked.Report.Items {
+		if r.Rules == nil {
+			r.Rules = map[string]int{}
+		}
+		r.Rules[item.Rule]++
+	}
+	read := stats.Rows + stats.Invalid
+	rate := 0.0
+	if read > 0 {
+		rate = float64(read-stats.Invalid-checked.Skipped) / float64(read)
+	}
+	r.Parsed = len(checked.Rows) > 0 && rate >= 0.9
+	if !r.Parsed {
+		r.Failure = fmt.Sprintf("读出 %d 行，%d 行读不出，%d 行不合格", stats.Rows, stats.Invalid, checked.Skipped)
 	}
 	return r
 }

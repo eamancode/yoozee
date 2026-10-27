@@ -8,6 +8,7 @@ import type { ProjectAsset } from "@/services/api/projects";
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
 
 import { projectCharacterCover } from "./project-character-cover";
+import { assetImageQueueLabel } from "./project-visual-asset";
 import { textValue } from "./shared";
 
 export function ProjectCharacterCard({ asset, folderItems, generating, removing, onOpen, onEdit, onGenerate, onBindImages, onBindVoice, onMove, onRemove }: {
@@ -27,7 +28,9 @@ export function ProjectCharacterCard({ asset, folderItems, generating, removing,
     const cover = projectCharacterCover(character?.representations);
     const role = textValue(character?.definition.role) || "未填写剧情定位";
     const appearance = textValue(character?.definition.appearance) || textValue(character?.definition.consistencyPrompt) || "角色设定待完善";
-    const imageStatus = character?.visualStatus === "ready" ? "图片已绑定" : character?.visualStatus === "partial" ? "图片待补全" : "图片未绑定";
+    const queue = character?.visualStatus === "ready" ? "" : assetImageQueueLabel(asset.image);
+    const imageStatus = character?.visualStatus === "ready" ? "图片已绑定" : queue ? `三视图${queue}${asset.image?.status === "failed" && asset.image.error ? `：${asset.image.error}` : ""}` : character?.visualStatus === "partial" ? "图片待补全" : "图片未绑定";
+    const multiViewPrompt = textValue(character?.definition.multiViewPrompt);
     const voiceStatus = character?.voiceStatus === "ready" ? `声音已绑定 · ${character.voice?.profile.name}` : character?.voiceStatus === "unavailable" ? "声音需处理" : "声音未绑定";
     const readinessLabel = character?.visualStatus === "ready" ? character.voiceStatus === "ready" ? "可直接用于生成" : "形象已就绪" : "设定进行中";
     return (
@@ -44,6 +47,7 @@ export function ProjectCharacterCard({ asset, folderItems, generating, removing,
             <div className="p-3">
                 <div className="flex items-start justify-between gap-3"><button type="button" className="project-character-title-button" onClick={onOpen}><h3 className="truncate text-sm font-semibold">{asset.title}</h3><p className="mt-0.5 truncate text-[var(--fs-label)] text-foreground/48">{role}</p></button><Button type="text" size="small" className="!h-7 !px-1.5" icon={<Pencil className="size-3.5" />} onClick={onEdit} aria-label={`编辑 ${asset.title}`} /></div>
                 <p className="mt-2 line-clamp-2 min-h-9 text-[var(--fs-label)] leading-[18px] text-foreground/55">{appearance}</p>
+                {multiViewPrompt ? <p className="mt-1 truncate font-mono text-[var(--fs-micro)] text-foreground/40" title={multiViewPrompt}>{multiViewPrompt}</p> : null}
                 <div className="mt-2 grid gap-1.5">
                     <StatusLine icon={<ImageIcon className="size-3.5" />} ready={character?.visualStatus === "ready"} label={imageStatus} action={character?.visualStatus === "ready" ? "更换" : "初始化"} onClick={character?.visualStatus === "ready" ? onBindImages : onGenerate} />
                     <StatusLine icon={<Volume2 className="size-3.5" />} ready={character?.voiceStatus === "ready"} label={voiceStatus} action={character?.voiceStatus === "ready" ? "调整" : "选择"} onClick={onBindVoice} />
