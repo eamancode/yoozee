@@ -39,11 +39,14 @@ func TestSceneGenrePromptSectionGivesCardOnce(t *testing.T) {
 	if !strings.Contains(first, "【戏类卡：武戏】本场判为武戏（走廊扭打）") || !strings.Contains(first, "发起、接触、结果") || !strings.Contains(first, `<skill-file path="cards/戏类-武戏.md">`) {
 		t.Fatalf("第一次整张带上：%s", first)
 	}
+	if !strings.HasSuffix(first, "</skill-file>\n"+SceneGenreCardPrecedence) || !strings.Contains(SceneGenreCardPrecedence, "每句台词仍各占一镜") || !strings.Contains(SceneGenreCardPrecedence, "情绪弧索引") {
+		t.Fatalf("卡后面写明与技能规则冲突时按技能规则：%s", first)
+	}
 	if !SceneGenreCardGiven([]string{"前面", first}, SceneGenreAction) || SceneGenreCardGiven([]string{first}, SceneGenreDrama) {
 		t.Fatal("按卡标题认出给过的戏类")
 	}
 	again := SceneGenrePromptSection(g, &cards[0], true)
-	if strings.Contains(again, "发起、接触") || !strings.Contains(again, "按前面给过的【戏类卡：武戏】拍") {
+	if strings.Contains(again, "发起、接触") || !strings.Contains(again, "按前面给过的【戏类卡：武戏】拍") || !strings.HasSuffix(again, SceneGenreCardPrecedence) {
 		t.Fatalf("给过的只提一句：%s", again)
 	}
 	if none := SceneGenrePromptSection(SceneGenre{Genre: SceneGenreSuspense}, nil, false); none != "【戏类：悬疑戏】本场判为悬疑戏。" {

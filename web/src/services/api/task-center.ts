@@ -57,8 +57,13 @@ export type GenerationTask = {
     completedAt?: string;
     createdAt: string;
     updatedAt: string;
+    /** 逐轮续写的文本任务（生成分段、剧本优化等）：运行中也能取消，只丢正在写的一轮。 */
+    dramaRun?: boolean;
     billing?: {
+        /** 建单时的预授权额。 */
         amountMicrocredits: number;
+        /** 结算后的实扣（Token 计费可能补扣差额或退回一部分）；未结算时没有。 */
+        actualAmountMicrocredits?: number;
         status: TaskBillingStatus;
     };
     clientContext?: {
@@ -77,6 +82,15 @@ export type GenerationTask = {
     created_at?: string;
     updated_at?: string;
 };
+
+/** 任务卡该显示的费用：结算后是实扣，与预授权不同时附上预授权额。 */
+export function taskBillingCharge(billing: NonNullable<GenerationTask["billing"]>): { amountMicrocredits: number; preAuthMicrocredits?: number } {
+    if (billing.status !== "settled" || typeof billing.actualAmountMicrocredits !== "number") return { amountMicrocredits: billing.amountMicrocredits };
+    return {
+        amountMicrocredits: billing.actualAmountMicrocredits,
+        preAuthMicrocredits: billing.actualAmountMicrocredits === billing.amountMicrocredits ? undefined : billing.amountMicrocredits,
+    };
+}
 
 export type ProviderTaskQueryResult = {
     task: GenerationTask;

@@ -76,7 +76,7 @@ import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } fro
 import { chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
 import { chapterDialogueCoverage, segmentDurationRule, segmentTargetLabel } from "./chapter-segments";
 import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
-import { parseShotStream, shotStreamFromResult, storyboardRunStop } from "./chapter-shot-stream";
+import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardRunStop } from "./chapter-shot-stream";
 import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
@@ -229,10 +229,13 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         enabled: Boolean(selectedUnitId),
     });
     const shotlist = shotlistQuery.data;
-    const latestStoryboardTask = useMemo(() => (chapterTasksQuery.data || []).find((task) => {
+    const chapterStoryboardTasks = useMemo(() => (chapterTasksQuery.data || []).filter((task) => {
         const identity = chapterTaskIdentity(task);
         return identity?.kind === "storyboard" && identity.chapterId === selectedUnitId;
     }), [chapterTasksQuery.data, selectedUnitId]);
+    const latestStoryboardTask = chapterStoryboardTasks[0];
+    // 最近一次成功写入：之后的重跑停下了不给续写，侧栏说明当前结果来自那次运行。
+    const lastStoryboardWrite = useMemo(() => latestStoryboardWrite(chapterStoryboardTasks), [chapterStoryboardTasks]);
     const latestStoryboardTerminal = latestStoryboardTask && latestStoryboardTask.status !== "queued" && latestStoryboardTask.status !== "running" ? latestStoryboardTask : undefined;
     // 结束了的任务读详情（带结果）：成功的取写库摘要，失败的取已写完几场给「从第 N 场继续」，一场没写完的给失败原因。
     const storyboardTaskDetailQuery = useQuery({
@@ -243,7 +246,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     });
     const storyboardTaskDetail = storyboardTaskDetailQuery.data;
     const storyboardOutcome = storyboardTaskDetail?.status === "succeeded" ? dramaStepOutcomeOf(storyboardTaskDetail) : undefined;
-    const storyboardStop = useMemo(() => (storyboardTaskDetail ? storyboardRunStop(storyboardTaskDetail, dramaRunProgressOf(storyboardTaskDetail)) : undefined), [storyboardTaskDetail]);
+    const storyboardStop = useMemo(() => (storyboardTaskDetail ? storyboardRunStop(storyboardTaskDetail, dramaRunProgressOf(storyboardTaskDetail), lastStoryboardWrite) : undefined), [lastStoryboardWrite, storyboardTaskDetail]);
     const storyboardResume = storyboardStop?.kind === "resume" ? storyboardStop : undefined;
     const liveStoryboardStream = selectedUnitId ? storyboardStreams[selectedUnitId] : undefined;
     // 台词覆盖率和超长段：拿本章正文里引号中的台词，对照各段 lines；超过项目模型上限的段要拆。

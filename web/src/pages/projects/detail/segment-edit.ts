@@ -94,6 +94,12 @@ export function editSubShot(list: DramaSegmentView[], index: number, shotIndex: 
 }
 
 /** 段没有人物/场景参考（纯文本，或锁人物却一个参考都没挂）：人物在段与段之间只靠文字保持一致。有首帧的锁首帧段不算。 */
+/** 段编辑保存失败时卡片上的说明：哪些段的改动还没写进分段表、为什么，改动留着可以重试。 */
+export function failedSegmentEditHint(edit: SegmentEdit, error: string) {
+    const ids = edit.segments.map((segment) => segment.id);
+    return `保存失败：${error}。${ids.join("、")} 的改动还没写进分段表，已保留在这里，可以重试或放弃。`;
+}
+
 export function segmentLacksReferences(segment: DramaSegment) {
     if (segment.mode === "lock_first_frame") return !segment.first_frame;
     return segment.mode === "text_only" || !segment.refs?.length;

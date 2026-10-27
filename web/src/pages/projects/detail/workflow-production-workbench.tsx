@@ -570,7 +570,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         <div className="workflow-shot-heading">
                             <span className="workflow-shot-number">{formatShotOrdinal(shotIndex)}</span>
                             {customShotTitle(watchedTitle || selectedShot.title, shotIndex) ? <h2>{customShotTitle(watchedTitle || selectedShot.title, shotIndex)}</h2> : null}
-                            <StatusBadge tone={saveShot.isPending ? "loading" : editorDirty ? "warning" : revision ? "success" : "neutral"} label={saveShot.isPending ? "保存中" : editorDirty ? "有未保存修改" : revision ? "已保存" : "草稿"} className="m-0" />
+                            <StatusBadge tone={saveShot.isPending ? "loading" : saveShot.isError && editorDirty ? "error" : editorDirty ? "warning" : revision ? "success" : "neutral"} label={saveShot.isPending ? "保存中" : saveShot.isError && editorDirty ? "保存失败，修改还在" : editorDirty ? "有未保存修改" : revision ? "已保存" : "草稿"} title={saveShot.isError && editorDirty && saveShot.error instanceof Error ? saveShot.error.message : undefined} className="m-0" />
                         </div>
                         <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
                     </header>

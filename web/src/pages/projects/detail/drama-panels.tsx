@@ -17,7 +17,7 @@ import type { ReferenceImage } from "@/types/image";
 import { dramaAuthLabel } from "../drama-model";
 import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
 import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
-import { editSubShot, mergeWithNext, moveEdgeShot, segmentLacksReferences, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
+import { editSubShot, failedSegmentEditHint, mergeWithNext, moveEdgeShot, segmentLacksReferences, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
 import { StyleBibleEditor } from "./drama-style-bible-editor";
 import { EVIDENCE_LABELS, pendingReviewSegments, reviewGap } from "./drama-review-queue";
 import { applyBriefFacts, bibleSummary, BRIEF_FACTS, BRIEF_STATUSES, briefConfirmedCount, briefFactsFromDocument, dramaBriefKey, parseDocumentJson, type BriefFactDraft, type BriefFactKey } from "./drama-brief";
@@ -438,7 +438,8 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingShot, setEditingShot] = useState<number | null>(null);
-    const [saveError, setSaveError] = useState("");
+    // 保存失败的改动留在这里（拆合、移镜头、改镜头），可以重试或放弃；不能因为网关 502 之类的失败让改动悄悄没了。
+    const [failed, setFailed] = useState<{ edit: SegmentEdit; success: string; error: string } | null>(null);
     const spec = useMemo(() => {
         try {
             return JSON.parse(specJson) as DramaSegment;
@@ -462,21 +463,17 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     const index = list.findIndex((view) => view.shotId === shotId);
     useEffect(() => {
         setEditingShot(null);
-        setSaveError("");
+        setFailed(null);
     }, [shotId]);
     const save = useMutation({
         mutationFn: (edit: SegmentEdit) => writeDramaSegments(projectId, { unitId, segments: edit.segments, ...(edit.order ? { order: edit.order } : {}), ...(edit.inherit ? { inherit: edit.inherit } : {}) }),
         onSuccess: async (result, edit) => {
-            setSaveError("");
+            setFailed(null);
             setEditingShot(null);
             queryClient.setQueryData(dramaSegmentsKey(projectId, unitId), result.segments);
             await onEdited?.(edit.selectShotId);
         },
-        onError: (error) => {
-            const text = error instanceof Error ? error.message : "段保存失败";
-            setSaveError(text);
-            message.error(`段保存失败：${text}`);
-        },
+        onError: (error) => message.error(`段保存失败：${error instanceof Error ? error.message : "未知错误"}`),
     });
     if (!spec) return null;
     const result = compileQuery.data?.result;
@@ -485,6 +482,12 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     const next = index >= 0 && index < list.length - 1 && !list[index + 1].derived ? list[index + 1] : undefined;
     const takesOf = (id: string) => takeCounts?.[id] || 0;
 
+    /** 写回一次段编辑：成功提示 success；失败把改动和原因留在卡片上（重试或放弃），不吞掉。 */
+    const submitEdit = (edit: SegmentEdit, success: string) =>
+        save.mutateAsync(edit).then(
+            () => { message.success(success); },
+            (error: unknown) => { setFailed({ edit, success, error: error instanceof Error ? error.message : "未知错误" }); },
+        );
     /** 先在前端算出要写回的段，再按影响确认：被删的段和已有生成结果的段都要说清楚。 */
     const apply = (build: (rule: SegmentDurationRule) => SegmentEdit, success: (edit: SegmentEdit) => string, confirm?: (edit: SegmentEdit) => { title: string; lines: string[]; danger?: boolean }) => {
         if (!durationRule || save.isPending) return;
@@ -501,7 +504,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
             message.warning(`${busy.spec.id} 正在生成，等它结束再改`);
             return;
         }
-        const submit = () => save.mutateAsync(edit).then(() => { message.success(success(edit)); }, () => undefined);
+        const submit = () => submitEdit(edit, success(edit));
         const stale = touched.filter((id) => !edit.removedShotIds.includes(id) && takesOf(id) > 0).map((id) => list.find((view) => view.shotId === id)?.spec.id || "").filter(Boolean);
         const asked = confirm?.(edit);
         if (!asked && !stale.length) {
@@ -551,7 +554,16 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
                 </span>
             </div>
             {durationRule ? <p className="mt-1 leading-5 text-foreground/40">{editable ? `段长按当前视频渠道（${durationRule.label}）取档：拆段、合并、改时长后自动取能提交的段长。` : segmentsQuery.isLoading ? "正在读取本章分段…" : segmentsQuery.isError ? "本章分段读取失败，暂时不能拆合。" : "这一段还不是分段表里的段，不能拆合。"}</p> : null}
-            {saveError ? <p className="mt-1 text-red-500" role="alert">保存失败：{saveError}</p> : null}
+            {failed ? (
+                <Callout
+                    tone="error"
+                    role="alert"
+                    className="mt-2 px-2.5 py-2"
+                    action={<span className="flex gap-1"><Button size="small" type="primary" loading={save.isPending} onClick={() => void submitEdit(failed.edit, failed.success)}>重试</Button><Button size="small" disabled={save.isPending} onClick={() => { setFailed(null); setEditingShot(null); }}>放弃改动</Button></span>}
+                >
+                    {failedSegmentEditHint(failed.edit, failed.error)}
+                </Callout>
+            ) : null}
             {lacksReferences ? <Callout tone="warning" className="mt-2 px-2.5 py-2" action={onPickAssets ? <Button size="small" onClick={onPickAssets}>选择资产</Button> : undefined}>{NO_REFERENCE_HINT}</Callout> : null}
             <ol className="mt-2 space-y-1">
                 {spec.shots.map((shot, shotIndex) => {

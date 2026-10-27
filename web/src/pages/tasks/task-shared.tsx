@@ -3,7 +3,7 @@ import { Coins } from "lucide-react";
 import { formatCredits } from "@/constant/credits";
 import { CONTENT_MODERATION_ERROR_CODE, generationErrorMessage, isContentModerationError } from "@/lib/generation-error";
 import { mediaDeliverySummary } from "@/lib/generation-task-display";
-import type { GenerationTask, TaskStatus } from "@/services/api/task-center";
+import { taskBillingCharge, type GenerationTask, type TaskStatus } from "@/services/api/task-center";
 import { modelDisplayName, type AiConfig } from "@/stores/use-config-store";
 
 export function getTaskCanvasContext(task: GenerationTask, canvasById: Map<string, { title: string; projectId?: string }>, projectNameById: Map<string, string>) {
@@ -66,10 +66,12 @@ export function TaskDate({ value }: { value?: string }) {
 
 export function TaskBilling({ billing }: { billing?: GenerationTask["billing"] }) {
     if (!billing) return <span className="task-record-billing-empty text-xs text-foreground/30">-</span>;
-    const amount = formatCredits(billing.amountMicrocredits);
-    const note = billing.status === "settled" ? "已结算" : billing.status === "refunded" ? "已退回" : billing.status === "uncertain" ? "待核对" : "预计";
+    const charge = taskBillingCharge(billing);
+    const amount = formatCredits(charge.amountMicrocredits);
+    const preAuth = charge.preAuthMicrocredits === undefined ? "" : `（预授权 ${formatCredits(charge.preAuthMicrocredits)}）`;
+    const note = billing.status === "settled" ? (preAuth ? `实扣${preAuth}` : "已结算") : billing.status === "refunded" ? "已退回" : billing.status === "uncertain" ? "待核对" : "预计";
     return (
-        <div className={`task-record-billing ${billing.status === "uncertain" ? "is-uncertain" : ""}`} title={`积分${note}`}>
+        <div className={`task-record-billing ${billing.status === "uncertain" ? "is-uncertain" : ""}`} title={preAuth ? `实扣 ${amount} 积分${preAuth}` : `积分${note}`}>
             <Coins className="size-4" />
             <span>
                 <strong>{amount}</strong>

@@ -475,7 +475,7 @@ func (s *Service) samplePaletteResource(userID string, resourceID string, hexes 
 }
 
 func paletteCheckSummary(check drama.PaletteCheck) string {
-	if check.Note != "" {
+	if check.Note != "" && len(check.Blocks) == 0 {
 		return check.Note
 	}
 	var parts []string
@@ -483,6 +483,9 @@ func paletteCheckSummary(check drama.PaletteCheck) string {
 		if b.DeltaE < 0 || b.DeltaE > check.Threshold {
 			parts = append(parts, fmt.Sprintf("第 %d 块 %s 取到 %s（ΔE %.1f）", i+1, b.Hex, b.Sampled, b.DeltaE))
 		}
+	}
+	if check.Note != "" {
+		parts = append(parts, check.Note)
 	}
 	return strings.Join(parts, "；")
 }
