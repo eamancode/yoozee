@@ -42,6 +42,8 @@ type TaskSummary struct {
 	UpdatedAt                 time.Time                  `json:"updatedAt"`
 	Billing                   *TaskBillingSummary        `json:"billing,omitempty"`
 	ClientContext             *TaskClientContext         `json:"clientContext,omitempty"`
+	// DramaRun 是逐轮续写的文本任务（metadata.dramaRun）：运行中也能取消（只丢正在写的一轮），与出图等「提交上游后不可取消」不同。
+	DramaRun bool `json:"dramaRun,omitempty"`
 }
 
 type TaskClientContext struct {
@@ -150,6 +152,7 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 		CreatedAt:                 task.CreatedAt,
 		UpdatedAt:                 task.UpdatedAt,
 		ClientContext:             taskClientContext(task.InputJSON),
+		DramaRun:                  task.MediaStage == "" && taskDramaRun(task.InputJSON) != nil,
 	}
 }
 

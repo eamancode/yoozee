@@ -57,6 +57,8 @@ export type GenerationTask = {
     completedAt?: string;
     createdAt: string;
     updatedAt: string;
+    /** 逐轮续写的文本任务（生成分段、剧本优化等）：运行中也能取消，只丢正在写的一轮。 */
+    dramaRun?: boolean;
     billing?: {
         /** 建单时的预授权额。 */
         amountMicrocredits: number;

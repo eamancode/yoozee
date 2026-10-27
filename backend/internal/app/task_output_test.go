@@ -209,3 +209,15 @@ func TestTaskSummaryBillingShowsSettledActualAmount(t *testing.T) {
 		t.Fatalf("未结算的 JSON 不该有 actualAmountMicrocredits：%s", encoded)
 	}
 }
+
+// 逐轮续写的文本任务在任务摘要上标 dramaRun：任务中心按它放开运行中的取消（与后端取消规则一致）。
+func TestTaskSummaryMarksDramaRun(t *testing.T) {
+	run := taskSummaryForOutput(model.Task{Status: model.TaskStatusRunning, InputJSON: `{"metadata":{"dramaRun":{"runId":"run-1"}}}`})
+	if !run.DramaRun {
+		t.Fatalf("带 dramaRun 的任务应标 dramaRun：%+v", run)
+	}
+	image := taskSummaryForOutput(model.Task{Status: model.TaskStatusRunning, InputJSON: `{"metadata":{"source":"short-drama-asset"}}`})
+	if image.DramaRun {
+		t.Fatalf("出图任务不该标 dramaRun：%+v", image)
+	}
+}
