@@ -251,7 +251,7 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 		// 导演风格的评测：这一章当第 1 集定风格（只出风格锚和色彩脚本，不建色卡、不出图）。
 		plan, err = styleBiblePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, nil, usage, skillRef)
 	default:
-		plan, err = chapterShotsPlan(in.project, in.unit, in.assets, usage, skillRef)
+		plan, err = chapterShotsPlan(in.project, in.unit, []model.ProjectUnit{*in.unit}, in.assets, usage, skillRef)
 	}
 	if err != nil {
 		return CreateTaskRequest{}, fmt.Errorf("评测章节 %s 组装提示词：%w", c.ID, err)

@@ -536,12 +536,17 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	for i, sh := range shotlist.Shots {
 		rowByShot[sh.ID] = rows[i]
 	}
+	palettes, err := s.unitScenePalettes(userID, project, unitID)
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
 	inputs := make([]ReplaceProjectUnitShotInput, 0, len(segments))
 	for _, seg := range segments {
 		input, err := dramaSegmentShotInput(seg, rowByShot)
 		if err != nil {
 			return DramaShotlistWriteResult{}, err
 		}
+		input.StyleVersionIDs = segmentPaletteVersions(seg, palettes)
 		inputs = append(inputs, input)
 	}
 	// 5 镜头表与段同一事务写入

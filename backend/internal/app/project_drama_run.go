@@ -56,6 +56,8 @@ type dramaRunTurn struct {
 	Index   int    `json:"index"`
 	Scene   string `json:"scene,omitempty"`
 	Heading string `json:"heading,omitempty"`
+	// Genre 是生成分段这一场的戏类（这一轮带的是哪种戏类卡）。
+	Genre string `json:"genre,omitempty"`
 	// Rows 是这一轮写了几条：生成分段是镜头行数，剧本优化是集数（1）。
 	Rows     int            `json:"rows"`
 	Attempts int            `json:"attempts"`
@@ -73,6 +75,10 @@ type dramaRunProgress struct {
 	Completed int                `json:"completed"`
 	Scenes    []drama.ShotsScene `json:"scenes,omitempty"`
 	Turns     []dramaRunTurn     `json:"turns"`
+	// Genres 是生成分段第一轮之前判出的各场戏类（判定失败的场按文戏，fallback=true）；GenreUsage 是判定那一次调用的用量。
+	// 「从第 N 场继续」沿用上一次的判定，不再判。
+	Genres     []drama.SceneGenre `json:"genres,omitempty"`
+	GenreUsage map[string]any     `json:"genreUsage,omitempty"`
 }
 
 // dramaTurnMarker 是写进文本流的回合标记行：前端见到它就把这一场之前收到的半截输出清掉（重试时同一场会重写）。
@@ -82,6 +88,10 @@ type dramaTurnMarker struct {
 	Scene   string `json:"scene,omitempty"`
 	Heading string `json:"heading,omitempty"`
 	Attempt int    `json:"attempt"`
+	// Genre / GenreReason 是生成分段这一场的戏类；Genres 只在第一轮的标记里带，是全部场的判定（侧栏一开始就能标出每场戏类）。
+	Genre       string             `json:"genre,omitempty"`
+	GenreReason string             `json:"genreReason,omitempty"`
+	Genres      []drama.SceneGenre `json:"genres,omitempty"`
 }
 
 func newDramaRunMeta(plan *dramaStepPlan, unitID string) dramaRunMeta {
@@ -198,32 +208,32 @@ func sameShotsScenes(a []drama.ShotsScene, b []drama.ShotsScene) bool {
 	return true
 }
 
-// dramaRunStartTurns 是这次执行前已经写完的轮次：同一任务上次执行存下的（换路由重跑、租约被别的 worker 接管）优先，
-// 否则取「从第 N 场继续」所指任务的前 N-1 轮。
-func (s *Service) dramaRunStartTurns(task model.Task, run dramaRunMeta) ([]dramaRunTurn, error) {
+// dramaRunStartTurns 是这次执行前已经写完的轮次和已判出的戏类：同一任务上次执行存下的（换路由重跑、租约被别的 worker 接管）优先，
+// 否则取「从第 N 场继续」所指任务的前 N-1 轮和它的戏类判定。
+func (s *Service) dramaRunStartTurns(task model.Task, run dramaRunMeta) ([]dramaRunTurn, []drama.SceneGenre, error) {
 	if latest, err := s.repo.Task(task.ID); err == nil {
-		if progress := taskDramaRunProgress(latest.ResultJSON); progress != nil && progress.RunID == run.RunID && len(progress.Turns) > 0 {
-			return progress.Turns, nil
+		if progress := taskDramaRunProgress(latest.ResultJSON); progress != nil && progress.RunID == run.RunID && (len(progress.Turns) > 0 || len(progress.Genres) > 0) {
+			return progress.Turns, progress.Genres, nil
 		}
 	}
 	if run.ResumeTaskID == "" || run.ResumeFrom <= 1 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	previous, err := s.repo.TaskForUser(task.UserID, run.ResumeTaskID)
 	if err != nil {
-		return nil, fmt.Errorf("读不到要继续的任务：%w", err)
+		return nil, nil, fmt.Errorf("读不到要继续的任务：%w", err)
 	}
 	progress := taskDramaRunProgress(previous.ResultJSON)
 	if progress == nil || progress.RunID != run.RunID || len(progress.Turns) < run.ResumeFrom-1 {
-		return nil, errors.New("要继续的任务没有存下已写完的轮次，请重新生成")
+		return nil, nil, errors.New("要继续的任务没有存下已写完的轮次，请重新生成")
 	}
 	turns := progress.Turns[:run.ResumeFrom-1]
 	for _, t := range turns {
 		if strings.TrimSpace(t.Prompt) == "" || strings.TrimSpace(t.Text) == "" {
-			return nil, errors.New("要继续的任务缺少已写完各轮的对话，请重新生成")
+			return nil, nil, errors.New("要继续的任务缺少已写完各轮的对话，请重新生成")
 		}
 	}
-	return turns, nil
+	return turns, progress.Genres, nil
 }
 
 // runDramaRun 按轮循环调模型（input 是第一轮的输入：提示词是服务端组装的整章 / 整批提示词）。返回的结果 text 是各轮输出按顺序拼接，
@@ -238,13 +248,29 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		return nil, err
 	}
 	turnTimeout := storyboardTurnTimeout(policy.Task)
-	turns, err := s.dramaRunStartTurns(task, run)
+	turns, genres, err := s.dramaRunStartTurns(task, run)
 	if err != nil {
 		return nil, err
 	}
 	total := max(1, run.Turns)
 	plan := dramaTurnPlan(run.Step)
-	progress := dramaRunProgress{RunID: run.RunID, Total: total, Completed: len(turns), Scenes: run.Scenes, Turns: turns}
+	progress := dramaRunProgress{RunID: run.RunID, Total: total, Completed: len(turns), Scenes: run.Scenes, Turns: turns, Genres: genres}
+	// 生成分段：第一轮之前判一次戏类（续跑沿用已判的），判完先存进进度，换 worker 重跑时不再判。
+	shots := taskDramaShots(task.InputJSON)
+	if shots != nil && len(progress.Genres) == 0 {
+		if progress.Genres, progress.GenreUsage, err = s.classifySceneGenres(ctx, task, input, shots, turnTimeout); err != nil {
+			return nil, err
+		}
+		progress.Scenes = withSceneGenres(run.Scenes, progress.Genres)
+		encoded, err := json.Marshal(map[string]any{"mode": "text", "dramaRun": progress})
+		if err != nil {
+			return nil, err
+		}
+		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, "已判出各场戏类", 35, string(encoded)); err != nil {
+			return nil, fmt.Errorf("保存戏类判定失败：%w", err)
+		}
+	}
+	progress.Scenes = withSceneGenres(run.Scenes, progress.Genres)
 	stream := newDramaRunStream(s, task, input.OnTextDelta)
 	defer stream.close()
 	turnInput := input
@@ -270,6 +296,15 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		if k <= len(run.Scenes) {
 			marker.Scene, marker.Heading = run.Scenes[k-1].ID, run.Scenes[k-1].Heading
 		}
+		genre := drama.SceneGenre{}
+		if shots != nil {
+			genre = sceneGenreOf(progress.Genres, dramaShotsTurnScene(run, shots, k))
+			marker.Genre, marker.GenreReason = genre.Genre, genre.Reason
+			if k == len(turns)+1 {
+				marker.Genres = progress.Genres
+			}
+			turnInput.Prompt = joinTruthyStrings(prompt, dramaShotsTurnExtra(shots, genre, progress.Turns))
+		}
 		check := drama.TurnContext{Index: k, Sources: run.Sources, Prior: dramaRunPriorText(progress.Turns)}
 		if k <= len(run.Scenes) {
 			check.Turn = run.Scenes[k-1]
@@ -278,7 +313,7 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		if err != nil {
 			return nil, dramaRunTurnError(plan.Unit, marker, progress.Completed, turnTimeout, err)
 		}
-		turn.TaskID = task.ID
+		turn.TaskID, turn.Genre = task.ID, genre.Genre
 		progress.Turns = append(progress.Turns, turn)
 		progress.Completed = k
 		written += turn.Rows

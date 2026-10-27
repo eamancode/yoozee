@@ -43,7 +43,60 @@ type ChapterShotsInput struct {
 	Characters     []StepCharacter
 	Assets         []StepAsset
 	EpisodeSeconds float64
-	Skill          StepSkill
+	// Anchor 是导演风格写的全局风格锚（bible_json.style_anchor）；没有时不写这一段。
+	Anchor *StyleAnchor
+	Skill  StepSkill
+}
+
+// StepTruncation 是组装提示词时超出预算被截掉的一段：Input 是步骤表 Inputs 的名字，Chars 是原长，Kept 是留下的长度（0 是整段没写）。
+type StepTruncation struct {
+	Input string `json:"input"`
+	Chars int    `json:"chars"`
+	Kept  int    `json:"kept"`
+}
+
+// ChapterShotsMemoryBudget 是生成分段提示词里代码组装的项目记忆（本集时长、风格锚、角色外观、项目画风、资产清单）合计的字数上限，
+// 按 JS 字符串长度计。超出时按这个先后保留，排在后面的先截（资产清单最先）；技能上下文另有 SkillBudgetChars，契约不截。
+// 每一轮另带的本场色卡和戏类卡不算在里面（戏类卡单独按 SceneGenreCardChars 截）。
+const ChapterShotsMemoryBudget = 32_000
+
+const promptBudgetCut = "（超出项目记忆预算，其余略）"
+
+type promptSection struct {
+	input string
+	text  string
+}
+
+// fitPromptBudget 按先后给各段分预算：放得下整段写，放不下按整行截到剩余预算（末尾注明截断），一行都放不下就整段不写。
+func fitPromptBudget(sections []promptSection, budget int) (map[string]string, []StepTruncation) {
+	out := make(map[string]string, len(sections))
+	var cut []StepTruncation
+	remaining := budget
+	for _, s := range sections {
+		n := jsLen(s.text)
+		if n <= remaining {
+			out[s.input] = s.text
+			remaining -= n
+			continue
+		}
+		var kept []string
+		used := jsLen(promptBudgetCut)
+		for _, line := range strings.Split(s.text, "\n") {
+			if used+jsLen(line)+1 > remaining {
+				break
+			}
+			kept = append(kept, line)
+			used += jsLen(line) + 1
+		}
+		text := ""
+		if len(kept) > 0 {
+			text = strings.Join(append(kept, promptBudgetCut), "\n")
+		}
+		out[s.input] = text
+		remaining = max(0, remaining-jsLen(text))
+		cut = append(cut, StepTruncation{Input: s.input, Chars: n, Kept: jsLen(text)})
+	}
+	return out, cut
 }
 
 const (
@@ -80,15 +133,23 @@ func BuildChapterShotsPrompt(in ChapterShotsInput) (StepPrompt, error) {
 	if !ok {
 		return StepPrompt{}, fmt.Errorf("技能 %s 当前版本没有 SKILL.md", in.Skill.ID)
 	}
+	memory, truncated := fitPromptBudget([]promptSection{
+		{"episodeSeconds", StepEpisodeDurationPrompt(in.EpisodeSeconds)},
+		{"anchor", styleAnchorPrompt(in.Anchor, "【全局风格锚】导演风格定的全片取向：画面、光影、镜头语言和调色都按它写，禁用项一律不出现：", true)},
+		{"characters", StepCharacterAppearancePrompt(in.Characters, in.SourceText)},
+		{"projectStyle", StepStylePrompt(in.Style)},
+		{"assets", StepAssetPrompt(contract, in.Assets)},
+	}, ChapterShotsMemoryBudget)
 	projectContext := joinTruthy([]string{
 		skillPrompt,
-		StepStylePrompt(in.Style),
-		StepCharacterAppearancePrompt(in.Characters, in.SourceText),
-		StepEpisodeDurationPrompt(in.EpisodeSeconds),
+		memory["projectStyle"],
+		memory["anchor"],
+		memory["characters"],
+		memory["episodeSeconds"],
 	}, "\n\n")
 	withContract := projectContext + "\n\n" + contract.Text(contract.DefaultRequirement(), ContractTextOptions{SkillShaped: true})
-	text := joinTruthy([]string{withContract, StepAssetPrompt(contract, in.Assets)}, "\n\n")
-	return StepPrompt{Text: text, Files: files}, nil
+	text := joinTruthy([]string{withContract, memory["assets"]}, "\n\n")
+	return StepPrompt{Text: text, Files: files, Truncated: truncated}, nil
 }
 
 // StepStylePrompt 是【项目画风】段：按小节取到预算为止、按原顺序输出；自由书写的画风没有【】小节，按行截取。
@@ -297,6 +358,9 @@ type ShotsScene struct {
 	ID      string `json:"scene"`
 	Heading string `json:"heading"`
 	Opening string `json:"opening"`
+	// Genre / GenreReason 是生成分段这一场判出的戏类（只在任务结果的进度里有，轮次表本身不带）。
+	Genre       string `json:"genre,omitempty"`
+	GenreReason string `json:"genreReason,omitempty"`
 }
 
 const shotsSceneOpeningChars = 30

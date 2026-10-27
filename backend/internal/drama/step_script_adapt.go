@@ -58,6 +58,8 @@ type ScriptAdaptInput struct {
 type StepPrompt struct {
 	Text  string
 	Files []StepSkillFileUse
+	// Truncated 是代码组装的项目记忆超出预算被截掉的段（写进任务 metadata.dramaStep.truncated）；没截时为空。
+	Truncated []StepTruncation
 }
 
 // ScriptAdaptParagraphs 把纯文本按行切成段（导入的小说一段一行，编辑器里段与段之间空一行），去掉空行。段号从 1 数。

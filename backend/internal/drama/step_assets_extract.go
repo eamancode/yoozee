@@ -141,11 +141,20 @@ func assetsKnownPrompt(known []AssetsKnown) string {
 
 // assetsAnchorPrompt 是【全局风格锚】段（导演风格写的）：没有时不写。
 func assetsAnchorPrompt(anchor *StyleAnchor) string {
+	return styleAnchorPrompt(anchor, "【全局风格锚】角色、场景、道具的外观和出图提示词都按这个风格写：", false)
+}
+
+// styleAnchorPrompt 是风格锚的各项（withCamera 时带镜头语言，分镜用）：没有风格锚时为空。
+func styleAnchorPrompt(anchor *StyleAnchor, head string, withCamera bool) string {
 	if anchor.Empty() {
 		return ""
 	}
-	fields := [][2]string{{"画风 / 媒介", anchor.Medium}, {"美术风格", anchor.ArtStyle}, {"光线政策", anchor.Lighting}, {"调色倾向", anchor.Grading}, {"时代", anchor.Era}, {"类型", anchor.Genre}, {"画质", anchor.RenderQuality}}
-	lines := []string{"【全局风格锚】角色、场景、道具的外观和出图提示词都按这个风格写："}
+	fields := [][2]string{{"画风 / 媒介", anchor.Medium}, {"美术风格", anchor.ArtStyle}, {"光线政策", anchor.Lighting}}
+	if withCamera {
+		fields = append(fields, [2]string{"镜头语言", anchor.Camera})
+	}
+	fields = append(fields, [][2]string{{"调色倾向", anchor.Grading}, {"时代", anchor.Era}, {"类型", anchor.Genre}, {"画质", anchor.RenderQuality}}...)
+	lines := []string{head}
 	for _, f := range fields {
 		if v := jsCompact(f[1]); v != "" {
 			lines = append(lines, "- "+f[0]+"："+v)

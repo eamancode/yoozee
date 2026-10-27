@@ -476,7 +476,7 @@ func TestChapterShotsPromptEdgesMatchFrontend(t *testing.T) {
 		c := dump.Contents[f.Path]
 		skill.Files = append(skill.Files, drama.StepSkillFile{Path: f.Path, Kind: f.Kind, SHA256: f.SHA256, Binary: c.Binary, Content: c.Content})
 	}
-	plan, err := chapterShotsPlan(&project, &unit, assets, DramaStepUsage{}, skill)
+	plan, err := chapterShotsPlan(&project, &unit, []model.ProjectUnit{unit}, assets, DramaStepUsage{}, skill)
 	if err != nil {
 		t.Fatal(err)
 	}

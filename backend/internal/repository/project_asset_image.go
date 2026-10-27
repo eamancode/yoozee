@@ -65,6 +65,10 @@ func (r *Repository) CommitProjectAssetImage(projectID string, expectedVersionID
 			if err := tx.Create(version).Error; err != nil {
 				return err
 			}
+			// 重新出图加了版本：引用旧版本的镜头跟上。
+			if _, err := followAssetVersion(tx, asset.ID, version.ID, asset.UpdatedAt); err != nil {
+				return err
+			}
 		}
 		if err := tx.Create(representation).Error; err != nil {
 			return err

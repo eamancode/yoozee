@@ -54,6 +54,12 @@ func (r *Repository) ApplyDramaStyleBible(userID string, projectID string, bible
 			if updated.RowsAffected != 1 {
 				return gorm.ErrRecordNotFound
 			}
+			// 同一场重跑导演风格加了版本：绑着这张色卡（role=style）的镜头换到新版本，产物过期。
+			if p.Version != nil {
+				if _, err := followAssetVersion(tx, p.Asset.ID, p.Version.ID, now); err != nil {
+					return err
+				}
+			}
 		}
 		return tx.Model(&model.Project{}).Where("id = ?", projectID).Update("revision", gorm.Expr("revision + 1")).Error
 	})
