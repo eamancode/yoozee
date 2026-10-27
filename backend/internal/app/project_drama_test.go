@@ -432,3 +432,28 @@ func TestDramaCanvasInstallsBuiltinSuiteAndDropsLegacySkill(t *testing.T) {
 		t.Fatalf("内置技能应已加入用户技能库：%v %+v", err, detail)
 	}
 }
+
+// 两章同一个 position（接口建章节没给位置）时，进度表也按章节分组、章内按段顺序，不按段号交错。
+func TestDramaProgressGroupsSegmentsByUnitEvenWhenPositionsTie(t *testing.T) {
+	service, db, project, first := newDramaTestService(t, "seedance-2.0")
+	second := model.ProjectUnit{ID: "unit-2", ProjectID: project.ID, Kind: model.ProjectUnitKindChapter, Title: "第二章", Status: model.ProjectUnitStatusDraft, CreatedAt: first.CreatedAt.Add(time.Second), UpdatedAt: first.UpdatedAt}
+	if err := db.Create(&second).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, unitID := range []string{second.ID, first.ID} {
+		if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: unitID, Segments: []json.RawMessage{dramaSpec("S01", 8, ""), dramaSpec("S02", 8, "")}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	progress, err := service.DramaProgress("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(progress.Segments))
+	for _, row := range progress.Segments {
+		got = append(got, row.UnitTitle+" "+row.SegmentID)
+	}
+	if want := "第一章 S01,第一章 S02,第二章 S01,第二章 S02"; strings.Join(got, ",") != want {
+		t.Fatalf("按章节顺序再按段顺序：%v", got)
+	}
+}

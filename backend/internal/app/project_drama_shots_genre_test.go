@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -260,6 +261,94 @@ func TestCharacterVersionFollowsShotReferences(t *testing.T) {
 	for _, a := range artifacts {
 		if (a.ShotID == linked.ID) != (a.Status == "stale") {
 			t.Fatalf("只有引用这个角色的镜头产物过期：%s %s", a.ShotID, a.Status)
+		}
+	}
+}
+
+func referenceKeys(t *testing.T, db *gorm.DB, shotID string) []string {
+	t.Helper()
+	var refs []model.ShotAssetReference
+	if err := db.Where("shot_id = ? AND role <> ?", shotID, "output").Order("asset_version_id, role").Find(&refs).Error; err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		keys = append(keys, ref.AssetVersionID+"|"+ref.Role)
+	}
+	return keys
+}
+
+// 拆段：新段继承原段的人物引用和本场色卡（不继承产出登记），之后色卡重出图加版本时新段跟到新版本、产物过期；
+// 合段：留下的段并上被并掉的段的引用，同一版本同一用途只留一条。
+func TestSegmentSplitInheritsReferencesAndMergeUnionsThem(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, unit := seedQichuang(t, svc, db)
+	entries := seedQichuangStyle(t, svc, project, unit)
+	palettes, err := svc.projectPaletteAssets("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var character model.Asset
+	if err := db.Where("category = ? AND id IN (?)", model.AssetCategoryCharacter, db.Model(&model.ProjectAssetLink{}).Select("asset_id").Where("project_id = ?", project.ID)).First(&character).Error; err != nil {
+		t.Fatal(err)
+	}
+	views, err := svc.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: unit.ID, Segments: []json.RawMessage{dramaSpec("S01", 10, ""), dramaSpec("S02", 6, "")}})
+	if err != nil || len(views) != 2 {
+		t.Fatalf("写两段：%v %d", err, len(views))
+	}
+	s01, s02 := views[0].ShotID, views[1].ShotID
+	for _, link := range []struct{ shot, version, role string }{
+		{s01, character.PrimaryVersionID, "reference"},
+		{s01, palettes["E01S01"].PrimaryVersionID, shotAssetRoleStyle},
+		{s01, character.PrimaryVersionID, "output"},
+		{s02, character.PrimaryVersionID, "reference"},
+		{s02, palettes["E01S02"].PrimaryVersionID, shotAssetRoleStyle},
+	} {
+		if _, err := svc.LinkShotAsset("user-1", project.ID, link.shot, LinkShotAssetRequest{AssetVersionID: link.version, Role: link.role}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := svc.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: unit.ID, Segments: []json.RawMessage{dramaSpec("S01", 6, ""), dramaSpec("S01b", 4, "")}, Order: []string{"S01", "S01b", "S02"}, Inherit: map[string][]string{"S01b": {"S02x"}}}); err == nil || !strings.Contains(err.Error(), "S02x") {
+		t.Fatalf("继承来源不是本章已有的段要拒绝：%v", err)
+	}
+	views, err = svc.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: unit.ID, Segments: []json.RawMessage{dramaSpec("S01", 6, ""), dramaSpec("S01b", 4, "")}, Order: []string{"S01", "S01b", "S02"}, Inherit: map[string][]string{"S01b": {"S01"}}})
+	if err != nil || len(views) != 3 || views[1].Spec.ID != "S01b" {
+		t.Fatalf("拆段：%v %+v", err, views)
+	}
+	tail := views[1].ShotID
+	if got, want := referenceKeys(t, db, tail), referenceKeys(t, db, s01); len(want) != 2 || strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("新段的引用与原段一致（含色卡）：%v vs %v", got, want)
+	}
+	if outputs := shotReferencesByRole(t, db, tail, "output"); len(outputs) != 0 {
+		t.Fatalf("产出登记不继承：%+v", outputs)
+	}
+	if err := db.Create(&model.ShotArtifact{ID: newID(), ProjectID: project.ID, UnitID: unit.ID, ShotID: tail, Type: "storyboard", Version: 1, Status: "ready", Selected: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	entries[0].NewColors[0].Hex = "#654321"
+	writeQichuangPalettes(t, svc, project.ID, entries[0:1])
+	palettes, _ = svc.projectPaletteAssets("user-1", project.ID)
+	if refs := shotReferencesByRole(t, db, tail, shotAssetRoleStyle); len(refs) != 1 || refs[0].AssetVersionID != palettes["E01S01"].PrimaryVersionID {
+		t.Fatalf("新段跟到第 1 场色卡新版本：%+v", refs)
+	}
+	var artifact model.ShotArtifact
+	if err := db.Where("shot_id = ?", tail).First(&artifact).Error; err != nil || artifact.Status != "stale" {
+		t.Fatalf("色卡换版本后新段产物过期：%v %s", err, artifact.Status)
+	}
+
+	views, err = svc.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: unit.ID, Segments: []json.RawMessage{dramaSpec("S01b", 10, "")}, Order: []string{"S01", "S01b"}, Inherit: map[string][]string{"S01b": {"S02"}}})
+	if err != nil || len(views) != 2 {
+		t.Fatalf("合段：%v %d", err, len(views))
+	}
+	merged := referenceKeys(t, db, tail)
+	want := []string{character.PrimaryVersionID + "|reference", palettes["E01S01"].PrimaryVersionID + "|" + shotAssetRoleStyle, palettes["E01S02"].PrimaryVersionID + "|" + shotAssetRoleStyle}
+	if len(merged) != len(want) {
+		t.Fatalf("合段取并集去重：%v", merged)
+	}
+	for _, key := range want {
+		if !slices.Contains(merged, key) {
+			t.Fatalf("合段后缺 %s：%v", key, merged)
 		}
 	}
 }

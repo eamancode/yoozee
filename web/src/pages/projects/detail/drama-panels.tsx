@@ -465,7 +465,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
         setSaveError("");
     }, [shotId]);
     const save = useMutation({
-        mutationFn: (edit: SegmentEdit) => writeDramaSegments(projectId, { unitId, segments: edit.segments, ...(edit.order ? { order: edit.order } : {}) }),
+        mutationFn: (edit: SegmentEdit) => writeDramaSegments(projectId, { unitId, segments: edit.segments, ...(edit.order ? { order: edit.order } : {}), ...(edit.inherit ? { inherit: edit.inherit } : {}) }),
         onSuccess: async (result, edit) => {
             setSaveError("");
             setEditingShot(null);

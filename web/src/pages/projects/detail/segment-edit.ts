@@ -4,9 +4,10 @@ import { firstSentence, type SegmentDurationRule } from "./chapter-segments";
 
 /**
  * 一次段编辑要写回的内容：segments 交给 PUT /drama/segments；拆段、合段时 order 是本章全部段号的新顺序，
+ * inherit 是「段号 → 从哪几段继承资产引用」（人物、场景、道具、本场色卡，后端去重），
  * removedShotIds 是会被删掉的段（连同生成结果）；selectShotId 是保存后应选中的段。
  */
-export type SegmentEdit = { segments: DramaSegment[]; order?: string[]; removedShotIds: string[]; selectShotId?: string };
+export type SegmentEdit = { segments: DramaSegment[]; order?: string[]; inherit?: Record<string, string[]>; removedShotIds: string[]; selectShotId?: string };
 
 /** 段内每个镜头的时长：到下一个镜头的开始秒；最后一个镜头算到段尾（含按渠道档位补齐的部分）。 */
 export function subShotSeconds(segment: DramaSegment) {
@@ -27,10 +28,10 @@ export function splitSegment(list: DramaSegmentView[], index: number, shotIndex:
     const tail = rebuild({ ...withoutHead(segment), id, title: firstSentence(segment.shots[shotIndex].text) || id }, segment.shots.slice(shotIndex), seconds.slice(shotIndex), rule);
     const order = list.map((item) => item.spec.id);
     order.splice(index + 1, 0, id);
-    return { segments: [head, tail], order, removedShotIds: [] };
+    return { segments: [head, tail], order, inherit: { [id]: [segment.id] }, removedShotIds: [] };
 }
 
-/** 第 index 段吸收紧跟的下一段：下一段删除，参考取两段并集。 */
+/** 第 index 段吸收紧跟的下一段：下一段删除，参考（段里的和镜头绑的资产引用）取两段并集。 */
 export function mergeWithNext(list: DramaSegmentView[], index: number, rule: SegmentDurationRule): SegmentEdit {
     const first = editable(list, index).spec;
     const second = editable(list, index + 1).spec;
@@ -48,7 +49,7 @@ export function mergeWithNext(list: DramaSegmentView[], index: number, rule: Seg
         [...subShotSeconds(first), ...subShotSeconds(second)],
         rule,
     );
-    return { segments: [merged], order: list.map((item) => item.spec.id).filter((id) => id !== second.id), removedShotIds: [list[index + 1].shotId], selectShotId: list[index].shotId };
+    return { segments: [merged], order: list.map((item) => item.spec.id).filter((id) => id !== second.id), inherit: { [first.id]: [second.id] }, removedShotIds: [list[index + 1].shotId], selectShotId: list[index].shotId };
 }
 
 /** 把首镜头移到上一段末尾，或把尾镜头移到下一段开头。两段都留着，只是段内镜头变了。 */
@@ -63,12 +64,12 @@ export function moveEdgeShot(list: DramaSegmentView[], index: number, direction:
     if (direction === "prev") {
         const moved = rebuild({ ...target, refs, last_frame: undefined, hook: undefined }, [...target.shots, source.shots[0]], [...targetSeconds, sourceSeconds[0]], rule);
         const rest = rebuild(withoutHead(source), source.shots.slice(1), sourceSeconds.slice(1), rule);
-        return { segments: [moved, rest], removedShotIds: [] };
+        return { segments: [moved, rest], inherit: { [target.id]: [source.id] }, removedShotIds: [] };
     }
     const last = source.shots.length - 1;
     const rest = rebuild(withoutTail(source), source.shots.slice(0, last), sourceSeconds.slice(0, last), rule);
     const moved = rebuild(withoutHead({ ...target, refs }), [source.shots[last], ...target.shots], [sourceSeconds[last], ...targetSeconds], rule);
-    return { segments: [rest, moved], removedShotIds: [] };
+    return { segments: [rest, moved], inherit: { [target.id]: [source.id] }, removedShotIds: [] };
 }
 
 /** 改段内一个镜头的画面、台词和时长。只改文字时段长不动；改了时长才按渠道档位重算段长。 */

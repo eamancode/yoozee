@@ -94,6 +94,9 @@ type DramaSegmentsWriteRequest struct {
 	Segments []json.RawMessage `json:"segments"`
 	// Order 是本章全部段号的新顺序，拆段、合段时给：段按它排位置，不在其中的段连同生成结果删除。只改段内容时不给。
 	Order []string `json:"order,omitempty"`
+	// Inherit 是「段号 → 从哪几段继承资产引用」（人物、场景、道具、本场色卡）：拆段时新段继承原段，合段时留下的段并上被并掉的段。
+	// 键是这次写入的段号，来源是写入前已有的段号；按（版本, 用途）去重，镜头产出登记（role=output）不继承。
+	Inherit map[string][]string `json:"inherit,omitempty"`
 }
 
 // DramaModels 返回可选的生成模型目录。
@@ -590,6 +593,17 @@ func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaS
 	if err != nil {
 		return nil, BadAuthRequest(err.Error())
 	}
+	for target, sources := range req.Inherit {
+		if !slices.Contains(written, target) {
+			return nil, BadAuthRequest(fmt.Sprintf("inherit 里的 %s 不在这次写入里", drama.EchoSegmentID(target)))
+		}
+		for _, source := range sources {
+			if _, ok := byID[source]; !ok || source == target {
+				return nil, BadAuthRequest(fmt.Sprintf("%s 要继承的 %s 不是本章已有的另一段", target, drama.EchoSegmentID(source)))
+			}
+		}
+	}
+	shotOf := make(map[string]string, len(parsed))
 	for _, seg := range parsed {
 		spec, _ := json.Marshal(seg)
 		title := firstNonEmpty(seg.Title, seg.ID)
@@ -611,9 +625,15 @@ func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaS
 		if seg.Title == "" {
 			input.Title = seg.ID
 		}
-		if _, err := s.CreateProjectShot(userID, projectID, input); err != nil {
+		shot, err := s.CreateProjectShot(userID, projectID, input)
+		if err != nil {
 			return nil, err
 		}
+		shotOf[seg.ID] = shot.ID
+	}
+	// 继承要在删段之前：合段时被并掉的段一删，引用也跟着删了。
+	if err := s.inheritSegmentReferences(projectID, unitID, req.Inherit, shotOf, byID); err != nil {
+		return nil, err
 	}
 	if len(req.Order) == 0 {
 		return s.DramaSegments(userID, projectID, unitID)
@@ -646,6 +666,49 @@ func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaS
 		return nil, err
 	}
 	return s.DramaSegments(userID, projectID, unitID)
+}
+
+// inheritSegmentReferences 把来源段的资产引用补到目标段上（拆段、合段，见 DramaSegmentsWriteRequest.Inherit）。
+// 目标段已有的（版本, 用途）不重复加；加了引用的段产物过期，之后来源资产换版本也会跟到它。
+func (s *Service) inheritSegmentReferences(projectID string, unitID string, inherit map[string][]string, shotOf map[string]string, before map[string]DramaSegmentView) error {
+	if len(inherit) == 0 {
+		return nil
+	}
+	references, err := s.repo.ProjectUnitShotAssetReferences(projectID, unitID)
+	if err != nil {
+		return err
+	}
+	byShot := map[string][]model.ShotAssetReference{}
+	for _, ref := range references {
+		byShot[ref.ShotID] = append(byShot[ref.ShotID], ref)
+	}
+	targets := make([]string, 0, len(inherit))
+	for target := range inherit {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+	now := time.Now()
+	for _, target := range targets {
+		shotID := shotOf[target]
+		seen := map[string]bool{}
+		for _, ref := range byShot[shotID] {
+			seen[ref.AssetVersionID+"|"+ref.Role] = true
+		}
+		for _, source := range inherit[target] {
+			for _, ref := range byShot[before[source].ShotID] {
+				key := ref.AssetVersionID + "|" + ref.Role
+				if ref.Role == "output" || seen[key] {
+					continue
+				}
+				seen[key] = true
+				copied := model.ShotAssetReference{ID: newID(), ShotID: shotID, AssetVersionID: ref.AssetVersionID, Role: ref.Role, Status: ref.Status, CreatedAt: now}
+				if err := s.repo.UpsertShotAssetReferenceAndInvalidate(projectID, &copied, now); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // CompileProjectShot 把一段编译成项目生成模型（或指定模型）的提示词。
@@ -920,9 +983,10 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 	if err != nil {
 		return drama.Progress{}, err
 	}
+	// 章节顺序用 ProjectUnits 的排序（position，同位置按创建时间）里的下标：直接比 position 时两章同位置会按段号交错。
 	unitOrder, unitTitle := map[string]int{}, map[string]string{}
-	for _, unit := range units {
-		unitOrder[unit.ID], unitTitle[unit.ID] = unit.Position, unit.Title
+	for i, unit := range units {
+		unitOrder[unit.ID], unitTitle[unit.ID] = i, unit.Title
 	}
 	sort.SliceStable(shots, func(i, j int) bool {
 		if unitOrder[shots[i].UnitID] != unitOrder[shots[j].UnitID] {
