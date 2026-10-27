@@ -32,6 +32,20 @@
 | `watermark` | boolean | 否 | `watermark` | 水印开关。 |
 | `providerOptions` | object | 否 | `provider-specific fields` | 插件命名空间内的厂商扩展字段。 |
 
+## 参考图图床
+
+上游只接受公网 HTTP/HTTPS 地址，内联 base64 参考图会被拒绝（`images must contain public HTTP or HTTPS URLs`）。
+因此协议声明了图床步骤：创建视频任务前，宿主把内联的参考图逐张上传到 `POST /v1/media/upload`（multipart，字段名 `file`），
+再把响应里的 `url` 填回 `images`。已经是 URL 的媒体不会重复上传。
+
+| 上游位置 | 值或转换表达式 |
+| --- | --- |
+| `mediaUpload.method` | `"POST"` |
+| `mediaUpload.path` | `"/v1/media/upload"` |
+| `mediaUpload.contentType` | `"multipart/form-data"` |
+| `mediaUpload.kinds` | `["image"]` |
+| `mediaUpload.urlPath` | `"url"` |
+
 ## 上游请求模板逐字段清单
 
 下表由插件请求模板生成，覆盖 body、query、headers 和 multipart 文件声明中的每个字段。
@@ -83,7 +97,7 @@
   "apiVersion": "yingce.plugin/v2",
   "id": "seedance-videos-compatible",
   "name": "Seedance Compatible /videos",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "Gateway profile / 柚子",
   "description": "Seedance Compatible /videos 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
@@ -121,6 +135,34 @@
         "auth": {
           "type": "bearer",
           "field": "apiKey"
+        },
+        "mediaUpload": {
+          "method": "POST",
+          "path": "/v1/media/upload",
+          "contentType": "multipart/form-data",
+          "files": [
+            {
+              "name": "file",
+              "source": {
+                "$ref": "media"
+              },
+              "filename": {
+                "$coalesce": [
+                  {
+                    "$ref": "media.name"
+                  },
+                  "reference.png"
+                ]
+              },
+              "mimeType": {
+                "$ref": "media.mimeType"
+              }
+            }
+          ],
+          "kinds": [
+            "image"
+          ],
+          "urlPath": "url"
         },
         "parameters": [
           {
