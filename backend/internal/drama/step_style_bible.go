@@ -42,6 +42,8 @@ type StyleAnchor struct {
 	Era           string   `json:"era,omitempty"`
 	Genre         string   `json:"genre,omitempty"`
 	RenderQuality string   `json:"render_quality,omitempty"`
+	// Coerced 是解析时字段类型不符、降级读出的说明（检查报 warn），不写库。
+	Coerced []string `json:"-"`
 }
 
 // Empty 表示风格锚一个字段都没写。
@@ -75,9 +77,12 @@ type ColorScriptEntry struct {
 	SharedColors []PaletteColor `json:"shared_colors"`
 	NewColors    []PaletteColor `json:"new_colors"`
 	Purpose      string         `json:"purpose,omitempty"`
-	References   string         `json:"references,omitempty"`
+	// References 是视觉影视参考，多个用「；」分隔；模型写成字符串数组时解析拼成一个字符串。
+	References string `json:"references,omitempty"`
 	// UnitID 是写这一场时它所在的单元（剧集或原文章节），收尾时由服务端填；改编出剧集后，原文章节版同编号的条目靠它认出来。
 	UnitID string `json:"unit_id,omitempty"`
+	// Coerced 是解析时字段类型不符、降级读出的说明（检查报 warn），不写库。
+	Coerced []string `json:"-"`
 }
 
 // SceneCode 是场编号 E01S02（第 1 集第 2 场）。
@@ -358,20 +363,43 @@ type StyleBibleOutput struct {
 	Anchor *StyleAnchor       `json:"styleAnchor,omitempty"`
 	Script []ColorScriptEntry `json:"colorScript"`
 	Titles map[int]string     `json:"-"`
+	// anchorUnreadable 表示有一行写了 style_anchor，但补过括号也读不出来。
+	anchorUnreadable bool
 }
 
-// StyleBibleParseStats 是解析统计：Scenes 是读出的场，Invalid 是像 JSON 却读不出的行。
+// AnchorProblem 说明风格锚缺什么；有可用的风格锚时返回空串。
+func (o StyleBibleOutput) AnchorProblem() string {
+	switch {
+	case !o.Anchor.Empty():
+		return ""
+	case o.Anchor != nil:
+		detail := "medium、art_style、lighting、camera、grading、forbidden 都没写"
+		if i := slices.IndexFunc(o.Anchor.Coerced, func(n string) bool { return strings.Contains(n, "字段名一个都不认识") }); i >= 0 {
+			detail = o.Anchor.Coerced[i]
+		}
+		return "全局风格锚是空的（" + detail + "）"
+	case o.anchorUnreadable:
+		return "全局风格锚那一行不是合法的 JSON，读不出来：要在第一个 JSON 头之前单独一行写 {\"style_anchor\": {…}}，整个对象写在同一行、括号配对"
+	}
+	return "没有写全局风格锚：要在第一个 JSON 头之前单独一行写 {\"style_anchor\": {…}}"
+}
+
+// StyleBibleParseStats 是解析统计：Scenes 是读出的场，Invalid 是像 JSON 却读不出的行，Repaired 是补齐括号才读出的行，
+// Coerced 是有字段类型不符、降级读出的行。
 type StyleBibleParseStats struct {
 	Episodes int `json:"episodes"`
 	Scenes   int `json:"scenes"`
 	Invalid  int `json:"invalid"`
+	Repaired int `json:"repaired,omitempty"`
+	Coerced  int `json:"coerced,omitempty"`
 	// Anchor 表示读到了风格锚。
 	Anchor bool `json:"anchor"`
 }
 
 // StyleBibleFromText 逐行解析导演风格的输出：一行一个 JSON 对象——风格锚 {"style_anchor": {…}}、集的 JSON 头
 // {"episode": N}、每场的色彩脚本；没写 episode 的场归到前面最近的 JSON 头（defaultEpisode 是没有 JSON 头时的集号）。
-// 回合标记、代码块围栏、非 JSON 的说明文字跳过；风格锚写了多次时取最后一次。
+// 回合标记、代码块围栏、非 JSON 的说明文字跳过；风格锚写了多次时取最后一次。结尾缺括号的行补齐再读；字段逐个读，
+// 类型不符只降级那个字段（见 step_style_bible_decode.go），不丢整行。风格锚没包 style_anchor、或和 JSON 头写在同一行也认。
 func StyleBibleFromText(text string, defaultEpisode int) (StyleBibleOutput, StyleBibleParseStats) {
 	out := StyleBibleOutput{Script: []ColorScriptEntry{}, Titles: map[int]string{}}
 	var stats StyleBibleParseStats
@@ -382,28 +410,58 @@ func StyleBibleFromText(text string, defaultEpisode int) (StyleBibleOutput, Styl
 		if !strings.HasPrefix(line, "{") {
 			continue
 		}
-		var obj map[string]json.RawMessage
-		if json.Unmarshal([]byte(line), &obj) != nil {
+		obj, repaired, ok := parseJSONObjectLine(line)
+		if !ok {
+			if strings.Contains(line, `"style_anchor"`) {
+				out.anchorUnreadable = true
+			}
 			stats.Invalid++
 			continue
 		}
 		if _, marker := obj[ShotLinesMarkerKey]; marker {
 			continue
 		}
-		if rawAnchor, ok := obj["style_anchor"]; ok {
-			var anchor StyleAnchor
-			if json.Unmarshal(rawAnchor, &anchor) != nil {
-				stats.Invalid++
-				continue
-			}
-			out.Anchor = &anchor
-			stats.Anchor = true
-			continue
+		if repaired {
+			stats.Repaired++
 		}
 		_, isScene := obj["scene_no"]
 		_, hasShared := obj["shared_colors"]
 		_, hasNew := obj["new_colors"]
-		if !isScene && !hasShared && !hasNew {
+		isScene = isScene || hasShared || hasNew
+		rawAnchor, wrapped := obj["style_anchor"]
+		if !wrapped {
+			rawAnchor, wrapped = obj["styleAnchor"]
+		}
+		if wrapped || (!isScene && looksLikeStyleAnchor(obj)) {
+			anchorObj := obj
+			if wrapped {
+				anchorObj = nil
+				if json.Unmarshal(rawAnchor, &anchorObj) != nil || anchorObj == nil {
+					out.anchorUnreadable = true
+					stats.Invalid++
+					continue
+				}
+			}
+			anchor := decodeStyleAnchor(anchorObj)
+			if !wrapped {
+				anchor.Coerced = append([]string{"风格锚没有包在 style_anchor 里，按风格锚读"}, anchor.Coerced...)
+			}
+			if repaired {
+				anchor.Coerced = append(anchor.Coerced, "风格锚这一行括号不配对，补齐后读出")
+			}
+			// 后写的空风格锚不盖掉前面读出的。
+			if out.Anchor.Empty() || !anchor.Empty() {
+				out.Anchor = anchor
+			}
+			stats.Anchor = !out.Anchor.Empty()
+			if len(anchor.Coerced) > 0 {
+				stats.Coerced++
+			}
+			if _, header := obj["episode"]; !wrapped || !header {
+				continue
+			}
+		}
+		if !isScene {
 			if rawEp, ok := obj["episode"]; ok {
 				var n any
 				_ = json.Unmarshal(rawEp, &n)
@@ -416,10 +474,12 @@ func StyleBibleFromText(text string, defaultEpisode int) (StyleBibleOutput, Styl
 			}
 			continue
 		}
-		var entry ColorScriptEntry
-		if json.Unmarshal([]byte(line), &entry) != nil {
-			stats.Invalid++
-			continue
+		entry := decodeColorScriptEntry(obj)
+		if repaired {
+			entry.Coerced = append(entry.Coerced, "这一行括号不配对，补齐后读出")
+		}
+		if len(entry.Coerced) > 0 {
+			stats.Coerced++
 		}
 		if entry.Episode <= 0 {
 			entry.Episode = episode
@@ -439,7 +499,7 @@ func CountStyleBibleTurn(text string, turn TurnContext) (int, error) {
 	want, _ := strconv.Atoi(turn.Turn.ID)
 	out, stats := StyleBibleFromText(text, want)
 	if turn.Index == 1 && out.Anchor.Empty() {
-		return 0, fmt.Errorf("第一回合没有写全局风格锚 {\"style_anchor\": {…}}")
+		return 0, fmt.Errorf("第一回合%s", out.AnchorProblem())
 	}
 	if len(out.Script) == 0 {
 		return 0, fmt.Errorf("这一轮没有解析出任何一场的色彩脚本（%d 行读不出）", stats.Invalid)
@@ -478,6 +538,7 @@ const (
 	RuleStyleColorName = "R-STYLE-009"
 	RuleStyleNoScript  = "R-STYLE-010"
 	RuleStyleDuplicate = "R-STYLE-011"
+	RuleStyleFieldType = "R-STYLE-012"
 )
 
 // StyleBibleCheckContext 是检查导演风格输出要用的输入：这次应写的各集场次，和这次不重写的已有色彩脚本。
@@ -488,7 +549,7 @@ type StyleBibleCheckContext struct {
 
 // CheckStyleBible 检查解析出的风格锚和色彩脚本：有风格锚；每场 ≥3 色、HEX 合法、inherits_from 指向前面已有的场
 // （本次前面写过的，或已有色彩脚本里的）、共享色 HEX 与承接场一致——这些是 error，不写库；场次对不上、场次头改了、
-// 承接却没写共享色、颜色缺英文名是 warn。
+// 承接却没写共享色、颜色缺英文名、字段类型不符降级读出（R-STYLE-012）是 warn。
 func CheckStyleBible(out StyleBibleOutput, ctx StyleBibleCheckContext) CheckReport {
 	report := CheckReport{Kind: StepStyleBible, Items: []CheckItem{}, Skipped: []CheckSkip{}}
 	add := func(item CheckItem) {
@@ -499,8 +560,12 @@ func CheckStyleBible(out StyleBibleOutput, ctx StyleBibleCheckContext) CheckRepo
 			report.Warnings++
 		}
 	}
-	if out.Anchor.Empty() {
-		add(CheckItem{Level: "error", Rule: RuleStyleNoAnchor, Message: "没有全局风格锚：第一回合要先写一行 {\"style_anchor\": {…}}"})
+	if problem := out.AnchorProblem(); problem != "" {
+		add(CheckItem{Level: "error", Rule: RuleStyleNoAnchor, Message: problem})
+	} else {
+		for _, note := range out.Anchor.Coerced {
+			add(CheckItem{Level: "warn", Rule: RuleStyleFieldType, Message: note})
+		}
 	}
 	if len(out.Script) == 0 {
 		add(CheckItem{Level: "error", Rule: RuleStyleNoScript, Message: "没有解析出色彩脚本：每场要单独写一行 JSON"})
@@ -518,6 +583,9 @@ func CheckStyleBible(out StyleBibleOutput, ctx StyleBibleCheckContext) CheckRepo
 			continue
 		}
 		seen[code] = true
+		for _, note := range e.Coerced {
+			add(CheckItem{Level: "warn", Rule: RuleStyleFieldType, ShotID: code, Message: note})
+		}
 		for _, item := range checkColorScriptEntry(e, known, true) {
 			add(item)
 		}

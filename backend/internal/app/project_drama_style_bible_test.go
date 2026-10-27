@@ -68,7 +68,7 @@ func queueStyleBibleTask(t *testing.T, svc *Service, db *gorm.DB, project model.
 const (
 	styleAnchorLine = `{"style_anchor": {"medium": "真人实拍", "lighting": "实景光源，冷暖分区", "camera": "定焦，克制", "grading": "低饱和冷调", "forbidden": ["霓虹"]}}`
 	styleScene1     = `{"episode": 1, "scene_no": 1, "scene": "内·病房走廊·夜", "inherits_from": "", "shared_colors": [{"name_zh": "日光灯白", "name_en": "Fluorescent White", "hex": "#E8ECEF", "usage": "顶灯"}, {"name_zh": "水泥灰", "name_en": "Concrete Grey", "hex": "#6E6E6E", "usage": "墙面"}], "new_colors": [{"name_zh": "护士蓝", "name_en": "Nurse Blue", "hex": "#5B7FA3", "usage": "制服"}], "purpose": "开场建立医院夜班", "references": "《白色巨塔》走廊"}`
-	styleScene2     = `{"episode": 1, "scene_no": 2, "scene": "内·电梯口·夜", "inherits_from": "E01S01", "shared_colors": [{"name_zh": "水泥灰", "name_en": "Concrete Grey", "hex": "#6E6E6E", "usage": "墙面"}], "new_colors": [{"name_zh": "电梯钢", "name_en": "Elevator Steel", "hex": "#9AA3A8", "usage": "电梯门"}, {"name_zh": "病号服条纹", "name_en": "Ward Stripe", "hex": "#7FA7C9", "usage": "周岸"}]}`
+	styleScene2     = `{"episode": 1, "scene_no": 2, "scene": "内·电梯口·夜", "inherits_from": "E01S01", "shared_colors": [{"name_zh": "水泥灰", "name_en": "Concrete Grey", "hex": "#6E6E6E", "usage": "墙面"}], "new_colors": [{"name_zh": "电梯钢", "name_en": "Elevator Steel", "hex": "#9AA3A8", "usage": "电梯门"}, {"name_zh": "病号服条纹", "name_en": "Ward Stripe", "hex": "#7FA7C9", "usage": "周岸"}], "references": ["《追击者》电梯口", "《白日焰火》"]}`
 	styleScene3     = `{"episode": 2, "scene_no": 1, "scene": "内·电梯里·夜", "inherits_from": "E01S02", "shared_colors": [{"name_zh": "电梯钢", "name_en": "Elevator Steel", "hex": "#9AA3A8", "usage": "轿厢"}], "new_colors": [{"name_zh": "应急红", "name_en": "Alarm Red", "hex": "#B3261E", "usage": "应急灯"}, {"name_zh": "暗影", "name_en": "Deep Shadow", "hex": "#1C1C1C", "usage": "角落"}]}`
 )
 
@@ -122,6 +122,10 @@ func TestStyleBibleWritesBibleAndPalettesThroughWorker(t *testing.T) {
 	script := bible["color_script"].([]any)
 	if len(script) != 3 || script[2].(map[string]any)["inherits_from"] != "E01S02" {
 		t.Fatalf("色彩脚本：%+v", script)
+	}
+	// 模型把 references 写成字符串数组（线上 opus / deepseek 都这么写）：拼成一个字符串存进 bible。
+	if refs := script[1].(map[string]any)["references"]; refs != "《追击者》电梯口；《白日焰火》" {
+		t.Fatalf("references 数组应拼成一个字符串：%#v", refs)
 	}
 	assets, err := svc.FilterProjectAssets("user-1", project.ID, ProjectAssetFilter{Category: string(model.AssetCategoryPalette)})
 	if err != nil || len(assets) != 3 {
@@ -499,6 +503,14 @@ func TestStyleBibleEvalResult(t *testing.T) {
 	short := strings.Join([]string{styleAnchorLine, `{"episode": 1}`, scene(1, "")}, "\n")
 	if r := styleBibleEvalResult(drama.StepEvalChapterResult{Chapter: c.ID}, in, short); r.Parsed || !strings.Contains(r.Failure, "1/3") {
 		t.Fatalf("只写一场不算解析成功：%+v", r)
+	}
+	// 线上 deepseek / opus 把 references 写成字符串数组、hex 写成单元素数组：三场照样解析成功，hex 降级只报 warn。
+	arrays := strings.NewReplacer(`"usage": "墙"}]`, `"usage": "墙"}], "references": ["《误杀》雨夜", "《白日焰火》"]`, `"hex": "#1B2A41"`, `"hex": ["#1B2A41"]`).Replace(full)
+	if r := styleBibleEvalResult(drama.StepEvalChapterResult{Chapter: c.ID}, in, arrays); !r.Parsed || r.Rows != 3 || r.Errors != 0 || r.Rules[drama.RuleStyleFieldType] != 3 {
+		t.Fatalf("references 数组、hex 数组的变体应解析成功：%+v", r)
+	}
+	if r := styleBibleEvalResult(drama.StepEvalChapterResult{Chapter: c.ID}, in, strings.Join([]string{`{"episode": 1}`, scene(1, ""), scene(2, "E01S01"), scene(3, "E01S02")}, "\n")); r.Parsed || !strings.Contains(r.Failure, "没有写全局风格锚") {
+		t.Fatalf("没写风格锚要写清缺什么：%+v", r)
 	}
 	if verdict := step.Gate.Evaluate([]drama.StepEvalChapterResult{styleBibleEvalResult(drama.StepEvalChapterResult{Chapter: c.ID}, in, full)}, nil); !verdict.Passed {
 		t.Fatalf("闸门只看解析率：%+v", verdict)

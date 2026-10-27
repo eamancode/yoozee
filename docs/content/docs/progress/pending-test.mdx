@@ -57,6 +57,20 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 - 成本：逐场续写的输入是整章的 2.5～3 倍（对话历史越来越长），计费仍按每个任务一笔，是否按轮计费或调价。（第 1 阶段）
 
+## M7.2 线上验收修复：导演风格解析容错
+
+线上七床 1027 项目的导演风格两次都失败（claude-opus-5-5 任务 5ab2413a、deepseek-v4.1-flash 任务 ab2284e6）：两个模型都把每场的 `references` 写成字符串数组，整行解析失败，「没有解析出任何一场的色彩脚本」重试三次后任务失败。后台 `yz-style-bible` 评测（deepseek，任务 c548acab）报「没写风格锚」：前两次同样是 `references` 数组，第三次模型写了风格锚，但那一行少了结尾的 `}`，是解析没读到，不是模型没写。
+
+- 解析改成逐字段读：`references` 字符串或字符串数组都收，数组用「；」拼成一个字符串存进 bible；其他字段类型不符只降级那个字段（取第一个元素或转文字），检查给提醒 R-STYLE-012，不再整行丢弃。结尾缺括号的行补齐再读；风格锚没包 `style_anchor`、和 JSON 头同一行也认。风格锚缺失时的错误文字分开写：没写、那一行不是合法 JSON、字段名都不认识。
+- 契约 `style.bible@1`（版本不变）：`references` 用 `oneOf` 同时接受字符串和字符串数组，契约文字按首选写法写明「一个字符串，多个用「；」分隔，不写成数组」。技能正文没改，没加表、没加列。
+
+自动化覆盖：
+
+- [x] `internal/drama`：`TestStyleBibleOnlineOutputsParse`（三个线上失败任务的原始输出存在 `testdata/online-style-bible/`，九次重试每次都读出风格锚和全部场、当轮校验通过、检查无 error）、`TestStyleBibleFieldTypeFallback`（`references` 数组拼接不提醒；`hex` 数组取第一个、`usage` 对象转文字等报 warn）、`TestStyleAnchorVariants`、`TestStyleBibleContractReferences`、`TestBalanceJSONLine`。
+- [x] `internal/app`：`TestStyleBibleWritesBibleAndPalettesThroughWorker`（假上游一场写 `references` 数组，经 worker 写进 bible 是拼好的字符串）、`TestStyleBibleEvalResult`（评测章节 `qichuang-e01` 加 `references` / `hex` 数组变体，三场照样解析成功）。
+- [x] 本机假上游：`references` 全写成数组、一个 `hex` 写成单元素数组、风格锚那一行去掉结尾的 `}`，两集四场照样写入（`parse.repaired = 1`、2 条 R-STYLE-012 提醒），bible 里 `references` 是拼好的字符串。
+- [ ] 部署后：七床 1027 项目重跑导演风格（opus 或 deepseek 各一次），看写入成功、侧栏和结果的提醒条数；后台 `yz-style-bible` 1.0.0 重跑评测（→ M7.2 线上验收清单 0-2、3-2）。
+
 ## M7.2 第 6 阶段收口：待审列表按章节顺序、拆段合段继承资产引用
 
 - 进度表（总览段级进度和「待审 N 段」）的章节顺序改按单元列表的排序（position，同位置按创建时间）：两章 position 相同（例如接口建章节没给位置）时不再按段号交错成「第一集 S01、第二集 S01、第一集 S02」。
