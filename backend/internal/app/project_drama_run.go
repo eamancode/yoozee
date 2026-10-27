@@ -303,7 +303,7 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 			if k == len(turns)+1 {
 				marker.Genres = progress.Genres
 			}
-			turnInput.Prompt = joinTruthyStrings(prompt, dramaShotsTurnExtra(shots, genre, progress.Turns))
+			turnInput.Prompt = joinTruthyStrings(dramaShotsTurnExtra(shots, genre, progress.Turns), prompt)
 		}
 		check := drama.TurnContext{Index: k, Sources: run.Sources, Prior: dramaRunPriorText(progress.Turns)}
 		if k <= len(run.Scenes) {

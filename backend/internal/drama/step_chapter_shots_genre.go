@@ -172,6 +172,11 @@ func SceneGenreCards(skill StepSkill) []SceneGenreCard {
 	return out
 }
 
+// SceneGenreCardPrecedence 跟在戏类卡后面：卡是通用拍法，与技能规则冲突时按技能规则。2.3.0 评测（deepseek）里加卡后多出
+// 漏台词（R-SHOT-001；文戏卡讲离画台词、短台词并入动作镜头）和情绪弧 id 不在词库（R-SHOT-025；悬疑戏卡讲恐惧表演，
+// 情绪弧索引没有恐惧、紧张一类的弧）两类 error，这两条点名写出。
+const SceneGenreCardPrecedence = "卡只管这一场怎么拍，与技能规则冲突时按技能规则：剧情里每句台词仍各占一镜、逐字写进 dialogue，不合并、不省略、不只留成画外音；spec.emotion_arc 只用 cards/情绪弧索引.md 里现成的 id，挑不到就不写这个字段。"
+
 // sceneGenreCardTitle 是一张戏类卡在提示词里的标题；续写时按它认出这种卡已经给过。
 func sceneGenreCardTitle(genre string) string { return "【戏类卡：" + genre + "】" }
 
@@ -219,8 +224,8 @@ func SceneGenrePromptSection(g SceneGenre, card *SceneGenreCard, given bool) str
 	case card == nil:
 		return "【戏类：" + g.Genre + "】" + verdict + "。"
 	case given:
-		return "【戏类：" + g.Genre + "】" + verdict + "，按前面给过的" + sceneGenreCardTitle(g.Genre) + "拍。"
+		return "【戏类：" + g.Genre + "】" + verdict + "，按前面给过的" + sceneGenreCardTitle(g.Genre) + "拍。" + SceneGenreCardPrecedence
 	}
 	return sceneGenreCardTitle(g.Genre) + verdict + "。下面这张卡只管这一场怎么拍；输出仍按【受保护输出契约】一镜一行，卡里另有的格式、编号和字段要求不适用：\n" +
-		"<skill-file path=\"" + escapeSkillAttribute(card.Path) + "\">\n" + card.Content + "\n</skill-file>"
+		"<skill-file path=\"" + escapeSkillAttribute(card.Path) + "\">\n" + card.Content + "\n</skill-file>\n" + SceneGenreCardPrecedence
 }

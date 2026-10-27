@@ -111,6 +111,14 @@ func TestChapterShotsInjectsSceneGenreAndPaletteThenFollowsPaletteVersion(t *tes
 		if !strings.Contains(prompt, "【本场色卡】") || !strings.Contains(prompt, qichuangPaletteHex[i]) {
 			t.Fatalf("第 %d 场带本场色卡 HEX", i+1)
 		}
+		// 色卡和戏类卡放在本轮指令前面：第一轮最后是分回合说明，续写最后是「继续写第 k 场」。
+		instruction := "继续写第"
+		if i == 0 {
+			instruction = "【分回合输出】"
+		}
+		if card, at := strings.Index(prompt, "【戏类卡："+wantGenre[i]+"】"), strings.Index(prompt, instruction); card < 0 || at < card || strings.Index(prompt, "【本场色卡】") > at {
+			t.Fatalf("第 %d 场的色卡、戏类卡应排在本轮指令前面", i+1)
+		}
 	}
 	if !strings.Contains(upstream.prompts[0], "【全局风格锚】") || !strings.Contains(upstream.prompts[0], "手持跟拍") {
 		t.Fatalf("第一轮带风格锚（含镜头语言）")
