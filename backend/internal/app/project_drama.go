@@ -344,7 +344,8 @@ func (s *Service) UpdateProjectBible(userID string, projectID string, raw json.R
 	return doc, nil
 }
 
-// validateDramaBibleDocument 是连戏表的形状校验（页面保存和导演风格收尾共用）：列表字段必须是数组；style_anchor 是对象；
+// validateDramaBibleDocument 是连戏表的形状校验（页面保存、导演风格收尾和风格锁定共用）：列表字段必须是数组；style_anchor、
+// master_palette（色板 HEX 合法）、style_lock 是对象；
 // color_script 每场的 HEX 必须是 #RRGGBB、集号场序是正整数，同一场不能写两次。
 func validateDramaBibleDocument(doc map[string]any) error {
 	for _, key := range []string{"characters", "props", "locations", "screen_text", "timeline", "spatial_maps", "color_script"} {
@@ -362,6 +363,26 @@ func validateDramaBibleDocument(doc map[string]any) error {
 		encoded, _ := json.Marshal(value)
 		if json.Unmarshal(encoded, &anchor) != nil {
 			return BadAuthRequest("连戏表的 style_anchor 字段类型不对（forbidden 是字符串数组，其余是字符串）")
+		}
+	}
+	if value, ok := doc["master_palette"]; ok && value != nil {
+		if _, isObject := value.(map[string]any); !isObject {
+			return BadAuthRequest("连戏表的 master_palette 必须是对象")
+		}
+		encoded, _ := json.Marshal(value)
+		var palette drama.MasterPalette
+		if json.Unmarshal(encoded, &palette) != nil {
+			return BadAuthRequest("连戏表的 master_palette 要是 {groups: [{key, name, colors: [...]}]}")
+		}
+		if err := drama.ValidateMasterPalette(palette); err != nil {
+			return BadAuthRequest("连戏表的" + err.Error())
+		}
+	}
+	if value, ok := doc["style_lock"]; ok && value != nil {
+		encoded, _ := json.Marshal(value)
+		var record drama.StyleLockRecord
+		if _, isObject := value.(map[string]any); !isObject || json.Unmarshal(encoded, &record) != nil {
+			return BadAuthRequest("连戏表的 style_lock 必须是对象，字段都是字符串")
 		}
 	}
 	if value, ok := doc["color_script"]; ok {

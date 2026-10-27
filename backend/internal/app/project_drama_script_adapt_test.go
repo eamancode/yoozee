@@ -93,9 +93,13 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome := result.DramaStep
-	// 写完剧集自动接着建导演风格任务（测试里没有计费用的渠道模型，建任务被拒，原因记在 chained 上，剧集照写）。
-	if outcome.Chained == nil || outcome.Chained.Step != drama.StepStyleBible || (outcome.Chained.TaskID == "" && outcome.Chained.Error == "") {
-		t.Fatalf("自动接着跑导演风格：%+v", outcome.Chained)
+	// M8 起写完剧集不再自动接着跑导演风格：结果里没有 chained，也没有新建任务。
+	if strings.Contains(done.ResultJSON, `"chained"`) {
+		t.Fatalf("不该再接着建导演风格：%s", done.ResultJSON)
+	}
+	var tasks int64
+	if err := db.Model(&model.Task{}).Where("id <> ?", queued.ID).Count(&tasks).Error; err != nil || tasks != 0 {
+		t.Fatalf("剧本优化之后不该有别的任务：%d %v", tasks, err)
 	}
 	if outcome.Step != drama.StepScriptAdapt || outcome.Status != DramaStepOutcomeWritten || len(outcome.Episodes) != 2 || outcome.Errors != 0 {
 		t.Fatalf("outcome = %+v", outcome)
@@ -145,25 +149,6 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 		if e.Key == "script" && (!e.Done || e.Detail != "2 集剧本") {
 			t.Fatalf("剧本定了：%+v", e)
 		}
-	}
-
-	// 不计费时接着建的导演风格任务用同一文本模型，metadata.chainedFrom 指向剧本优化任务，定风格的是新写的两集。
-	if _, err := svc.UpdateFeatureAvailability(&model.User{ID: "admin", Role: "admin"}, FeatureAvailability{CustomChannelsEnabled: true, TaskCenterEnabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	chained := svc.chainStyleBibleAfterAdapt(*queued, project.ID)
-	if chained == nil || chained.TaskID == "" {
-		t.Fatalf("接着建导演风格任务：%+v", chained)
-	}
-	styleTask, err := svc.repo.Task(chained.TaskID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if meta := taskDramaStyle(styleTask.InputJSON); meta == nil || meta.ChainedFrom != queued.ID || len(meta.Episodes) != 2 || meta.Episodes[0].UnitID != ep1.ID || !strings.Contains(styleTask.InputJSON, `"chainedFrom":"`+queued.ID+`"`) {
-		t.Fatalf("导演风格任务：%s", styleTask.InputJSON)
-	}
-	if err := db.Delete(&model.Task{}, "id = ?", styleTask.ID).Error; err != nil {
-		t.Fatal(err)
 	}
 
 	// 都改编过了：默认没有可选章节；点名第一章要先确认替换引用了它的第 1 集。

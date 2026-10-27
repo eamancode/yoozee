@@ -31,6 +31,9 @@ func JSTrim(s string) string { return jsTrim(s) }
 // JSLen 是 JS 字符串长度（UTF-16 码元数），提示词预算和字数上限都按它算。
 func JSLen(s string) int { return jsLen(s) }
 
+// JSTruncate 按 JS 字符串长度截断（标题等字数上限用）。
+func JSTruncate(s string, n int) string { return jsTruncate(s, n) }
+
 // jsLen 是 JS 的 string.length。
 func jsLen(s string) int {
 	n := 0

@@ -247,6 +247,9 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 	case drama.StepAssetsExtract:
 		// 资产设计的评测：评测集的资产清单当已有资产，提取这一章（只出资产行，不写资产、不出图）。
 		plan, err = assetsExtractPlan(in.project, in.unit, []model.ProjectUnit{*in.unit}, in.assets, usage, skillRef)
+	case drama.StepStyleLock:
+		// 风格锁定的评测：评测项目的类型按风格档案推，不写风格文字、不带参考图，只按画风定（只出风格锚和主基调色卡，不锁定）。
+		plan, err = styleLockPlan(in.project, &dramaStyleLockMeta{ProjectType: dramaEvalProjectType(c.Profile), Source: drama.StyleLockSourcePreset}, usage, skillRef)
 	case drama.StepStyleBible:
 		// 导演风格的评测：这一章当第 1 集定风格（只出风格锚和色彩脚本，不建色卡、不出图）。
 		plan, err = styleBiblePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, nil, usage, skillRef)
@@ -689,6 +692,8 @@ func dramaStepEvalChapterResult(step drama.Step, c drama.StepEvalChapter, taskID
 	switch step.ID {
 	case drama.StepScriptAdapt:
 		return scriptAdaptEvalResult(r, in, output.Text), ""
+	case drama.StepStyleLock:
+		return styleLockEvalResult(r, output.Text), ""
 	case drama.StepStyleBible:
 		return styleBibleEvalResult(r, in, output.Text), ""
 	case drama.StepAssetsExtract:
@@ -792,6 +797,32 @@ func styleBibleEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInpu
 	r.Parsed = stats.Anchor && rate >= 0.9
 	if !r.Parsed {
 		r.Failure = fmt.Sprintf("解析出 %d/%d 场，%s", parsed, len(scenes), firstNonEmpty(out.AnchorProblem(), "有风格锚"))
+	}
+	return r
+}
+
+// dramaEvalProjectType 是评测项目的类型（风格锁定要）：动漫档案取 3D 动漫，其余按仿真人。
+func dramaEvalProjectType(profile string) string {
+	if profile == "anime-3d" {
+		return "3d-anime"
+	}
+	return "live-action"
+}
+
+// styleLockEvalResult 是风格锁定的指标：有风格锚、主基调色卡至少 4 色、检查没有 error 才算解析成功；Rows 是颜色数，Shots 是色数下限。
+func styleLockEvalResult(r drama.StepEvalChapterResult, text string) drama.StepEvalChapterResult {
+	out, stats := drama.StyleLockFromText(text)
+	report := drama.CheckStyleLock(out)
+	r.Rows, r.Shots, r.Errors, r.Warnings = stats.Colors, drama.StyleLockMinColors, report.Errors, report.Warnings
+	for _, item := range report.Items {
+		if r.Rules == nil {
+			r.Rules = map[string]int{}
+		}
+		r.Rules[item.Rule]++
+	}
+	r.Parsed = stats.Anchor && report.Errors == 0
+	if !r.Parsed {
+		r.Failure = fmt.Sprintf("读出 %d 组 %d 色，%s", stats.Groups, stats.Colors, firstNonEmpty(out.AnchorProblem(), "有风格锚"))
 	}
 	return r
 }

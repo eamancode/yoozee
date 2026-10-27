@@ -1,4 +1,4 @@
-// 导演风格（style.bible，M7.2 第 4 阶段）：项目级步骤。用户在章节页点「导演风格」，或剧本优化跑完自动接着跑；服务端按项目记忆
+// 导演风格（style.bible，M7.2 第 4 阶段）：项目级步骤（M8 起剧本优化跑完不再自动接着跑，章节页入口换成风格锁定；卡 B 改成场次色卡）；服务端按项目记忆
 // （需求、画风、风格档案、全部剧集的场次表、已有风格锚）组装提示词、建一个任务，worker 在任务里一轮写一集（逐轮续写机制与剧本优化共用
 // project_drama_run.go），收尾时解析、检查，把全局风格锚和逐场色彩脚本合并写进 bible_json（其余字段原样保留），每场建一张色卡资产
 // （分类 palette，直接已确认，重跑同一场加版本），带了图片任务模板时接着给色卡排出图任务（project_drama_palette.go）。
@@ -35,14 +35,13 @@ func (t *DramaImageTaskTemplate) usable() bool {
 	return t != nil && (strings.TrimSpace(t.Model) != "" || strings.TrimSpace(t.LogicalModelID) != "")
 }
 
-// dramaStyleMeta 是任务 metadata.dramaStyle：这次定风格的各集与场次（收尾检查用），有没有色卡出图，是不是剧本优化接着跑的。
+// dramaStyleMeta 是任务 metadata.dramaStyle：这次定风格的各集与场次（收尾检查用），有没有色卡出图。
 type dramaStyleMeta struct {
 	Episodes     []dramaStyleEpisodeMeta `json:"episodes"`
 	FromChapters bool                    `json:"fromChapters,omitempty"`
 	Images       bool                    `json:"images"`
 	// ExcerptChars 是每场摘录的字数（总字数超预算时缩短，记下来便于排查）。
-	ExcerptChars int    `json:"excerptChars"`
-	ChainedFrom  string `json:"chainedFrom,omitempty"`
+	ExcerptChars int `json:"excerptChars"`
 }
 
 type dramaStyleEpisodeMeta struct {
@@ -491,48 +490,4 @@ func mergeStyleBibleDocument(bibleJSON string, anchor *drama.StyleAnchor, existi
 	}
 	encoded, err := json.Marshal(doc)
 	return string(encoded), err
-}
-
-// ---------------------------------------------------------------- 剧本优化跑完自动接着跑
-
-// DramaChainedTask 是收尾自动接着建的下一步任务（result.dramaStep.chained）；Error 是没建成的原因（不影响这一步已写的结果）。
-type DramaChainedTask struct {
-	Step   string `json:"step"`
-	TaskID string `json:"taskId,omitempty"`
-	Error  string `json:"error,omitempty"`
-}
-
-// chainStyleBibleAfterAdapt 在剧本优化写完剧集后，用同一文本模型直接建导演风格任务（metadata.chainedFrom = 剧本优化任务）；
-// 剧本优化请求带了色卡图片模板时一并带上。项目的风格档案拿不到导演风格的技能（没绑定、默认技能也不在）时不接。
-func (s *Service) chainStyleBibleAfterAdapt(task model.Task, projectID string) *DramaChainedTask {
-	step, ok := drama.StepByID(drama.StepStyleBible)
-	if !ok {
-		return nil
-	}
-	chained := &DramaChainedTask{Step: step.ID}
-	project, err := s.activeProjectForUser(task.UserID, projectID)
-	if err != nil {
-		chained.Error = err.Error()
-		return chained
-	}
-	if _, _, err := s.dramaStepSkill(project, step); err != nil {
-		return nil
-	}
-	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)
-	if err != nil {
-		chained.Error = err.Error()
-		return chained
-	}
-	var input struct {
-		Config map[string]any `json:"config"`
-	}
-	_ = json.Unmarshal([]byte(decrypted), &input)
-	req := DramaProjectStepRunRequest{Model: task.Model, LogicalModelID: task.LogicalModelID, Config: input.Config, PaletteImages: taskPaletteImageTemplate(decrypted), TraceID: task.TraceID, chainedFrom: task.ID}
-	result, err := s.RunDramaProjectStep(task.UserID, projectID, step.ID, req)
-	if err != nil {
-		chained.Error = userFacingTaskError(err.Error())
-		return chained
-	}
-	chained.TaskID = result.Task.ID
-	return chained
 }

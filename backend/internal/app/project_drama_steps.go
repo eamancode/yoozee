@@ -1,6 +1,6 @@
 // 短剧流程步骤（M6）：按项目风格档案查绑定、取技能当前版本，在服务端组装提示词（技能上下文 + 代码变量 + 按 schema 生成的契约），
-// 再创建文本任务；前端只说「对这一章跑这一步」（生成分段、资产设计，资产设计见 project_drama_assets.go）或「对这个项目跑这一步」（剧本优化、导演风格，见 project_drama_script_adapt.go、
-// project_drama_style_bible.go）。
+// 再创建文本任务；前端只说「对这一章跑这一步」（生成分段、资产设计，资产设计见 project_drama_assets.go）或「对这个项目跑这一步」（风格锁定、剧本优化、导演风格，
+// 见 project_drama_style_lock.go、project_drama_script_adapt.go、project_drama_style_bible.go）。
 // 另有管理员读写「风格档案 × 步骤 → 技能」绑定表的接口。
 
 package app
@@ -105,6 +105,9 @@ type dramaStepPlan struct {
 	assets *dramaAssetsMeta
 	// shots 是生成分段的逐场注入（metadata.dramaShots）：戏类判定的提示词、每场的色卡段和戏类卡。
 	shots *dramaShotsMeta
+	// lock 是风格锁定的运行参数（metadata.dramaStyleLock）；referenceImages 是随任务发给模型的参考图（input.referenceImages）。
+	lock            *dramaStyleLockMeta
+	referenceImages []map[string]any
 }
 
 func dramaStep(stepID string) (drama.Step, error) {
@@ -261,10 +264,20 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	if plan.shots != nil {
 		metadata["dramaShots"] = plan.shots
 	}
+	if plan.lock != nil {
+		metadata["dramaStyleLock"] = plan.lock
+	}
 	// 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
 	input := map[string]any{"mode": "text", "metadata": metadata}
 	for k, v := range plan.record {
 		input[k] = v
+	}
+	if len(plan.referenceImages) > 0 {
+		refs := make([]any, 0, len(plan.referenceImages))
+		for _, ref := range plan.referenceImages {
+			refs = append(refs, ref)
+		}
+		input["referenceImages"] = refs
 	}
 	if req.Config != nil {
 		input["config"] = req.Config
