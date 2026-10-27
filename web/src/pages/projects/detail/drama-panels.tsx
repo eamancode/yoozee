@@ -114,7 +114,7 @@ function DramaReviewQueue({ projectId, segments }: { projectId: string; segments
                 {pending.map((segment) => (
                     <li key={segment.shotId}>
                         <Link to={`/projects/${projectId}/workflow/${segment.unitId}/video?shot=${encodeURIComponent(segment.shotId)}`} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-xs hover:border-[var(--workspace-accent)]/50">
-                            <span className="min-w-0 flex-1 truncate"><span className="text-foreground/50">{segment.unitTitle || "未命名章节"} · </span><span className="font-medium">{segment.segmentId}</span> <span className="text-foreground/60">{segment.title}</span></span>
+                            <span className="min-w-0 flex-1 truncate"><span className="text-foreground/50">{segment.unitTitle || "未命名章节"} · </span><span className="font-medium">{segment.segmentId}</span> <span className="text-foreground/60">{segment.title.startsWith(segment.segmentId) ? segment.title.slice(segment.segmentId.length).trim() : segment.title}</span></span>
                             <span className="shrink-0 text-[var(--fs-label)] text-amber-600 dark:text-amber-400">{reviewGap(segment)}</span>
                         </Link>
                     </li>
