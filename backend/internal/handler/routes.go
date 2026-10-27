@@ -47,6 +47,12 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *service.Service) {
 		req.RequestID = RequestID(c)
 		task, err := svc.CreateTask(user.ID, req)
 		if err != nil {
+			// 带机器可读原因的 400（previz_required、segment_too_long）原样带上 reason，其余仍按 400 报。
+			var appErr *service.AppError
+			if errors.As(err, &appErr) && appErr.Status == http.StatusBadRequest && appErr.Reason != "" && appErr.Reason != service.ReasonInvalidArgument {
+				writeAppError(c, appErr)
+				return
+			}
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
