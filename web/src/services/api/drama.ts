@@ -114,6 +114,8 @@ export type DramaSegmentProgress = {
     takes: number;
     selectedArtifactId?: string;
     missingEvidence?: string[];
+    /** 带问题装段后挂在这一段镜头上的镜头表检查 error 条数。 */
+    issues?: number;
 };
 
 export type DramaEndState = { key: string; label: string; done: boolean; detail: string; skill: string };
@@ -128,7 +130,8 @@ export type DramaProgress = {
     previzGate: boolean;
     previzGateSetting: DramaPrevizGate;
     segments: DramaSegmentProgress[];
-    counts: { segments: number; script: number; refs: number; generated: number; takes: number; reviewed: number; inCut: number; accepted: number; overLimit: number };
+    /** issues 是带问题的段数（带问题装段后还没改完的）。 */
+    counts: { segments: number; script: number; refs: number; generated: number; takes: number; reviewed: number; inCut: number; accepted: number; overLimit: number; issues?: number };
     line: string;
     endStates: DramaEndState[];
     next?: DramaEndState;
@@ -225,8 +228,8 @@ export function putDramaBible(projectId: string, document: DramaBible) {
     return http.put<{ document: DramaBible }>(`/projects/${projectId}/drama/bible`, { document });
 }
 
-/** 一章里的一段：derived 为 true 表示旧镜头没有分段 JSON，段号按位置合成，只能看不能拆合。 */
-export type DramaSegmentView = { shotId: string; unitId: string; title: string; position: number; durationMs: number; revisionId?: string; spec: DramaSegment; derived: boolean };
+/** 一章里的一段：derived 为 true 表示旧镜头没有分段 JSON，段号按位置合成，只能看不能拆合；issues 是带问题装段后挂在这一段镜头上的检查 error。 */
+export type DramaSegmentView = { shotId: string; unitId: string; title: string; position: number; durationMs: number; revisionId?: string; spec: DramaSegment; derived: boolean; issues?: DramaShotIssue[] };
 
 export function listDramaSegments(projectId: string, unitId: string, signal?: AbortSignal) {
     return http.get<{ segments: DramaSegmentView[] }>(`/projects/${projectId}/drama/segments`, { params: { unitId }, signal });
@@ -237,30 +240,77 @@ export function listDramaSegments(projectId: string, unitId: string, signal?: Ab
  * 不在其中的段连同生成结果删除；只改段内容时不给。inherit 是「段号 → 从哪几段继承资产引用」：
  * 拆段时新段继承原段，合段、挪镜头时接收的段并上来源段（后端按版本和用途去重）。
  */
-export function writeDramaSegments(projectId: string, input: { unitId: string; segments: DramaSegment[]; order?: string[]; inherit?: Record<string, string[]> }) {
-    return http.put<{ segments: DramaSegmentView[] }>(`/projects/${projectId}/drama/segments`, input);
+export function writeDramaSegments(projectId: string, input: { unitId: string; segments: DramaSegment[]; order?: string[]; inherit?: Record<string, string[]>; shots?: DramaShot[]; shotlistVersion?: number }) {
+    return http.put<{ segments: DramaSegmentView[]; check?: DramaSegmentsCheck }>(`/projects/${projectId}/drama/segments`, input);
 }
 
+/**
+ * 镜头表的一镜（契约 shotlist）：分镜卡编辑改的是它。这里只列分镜卡会改的字段，其余字段原样带回。
+ * size 只能取镜头表的景别，emotion_arc.id 只能取情绪弧索引里的 id，est 是这一镜的秒数。
+ */
+export type DramaShotLine = { line_id?: string; delivery?: string; offscreen?: boolean; pace?: string; tone?: string; emotion?: string; placement?: string; text?: string; speaker?: string };
+export type DramaShotBlocking = { who: string; at: string; facing?: string; behind?: string; occluded_by?: string };
+export type DramaShotLight = { source_anchor?: string; direction?: string; policy?: string; note?: string; key?: string; fill?: string; rim?: string; ratio?: string; kelvin?: string; shadow?: string; exposure?: string; change?: string };
+export type DramaShot = {
+    id: string;
+    scene: string;
+    action?: string;
+    composition?: string;
+    size?: string;
+    est?: number;
+    cam?: { z?: string; y?: string; x?: string; f?: Record<string, unknown> };
+    move?: string[] | string;
+    camera_side?: string;
+    blocking?: DramaShotBlocking[];
+    light?: DramaShotLight;
+    lines?: DramaShotLine[];
+    emotion_arc?: { id: string; phase_from?: number; phase_to?: number; continues?: string; intensity?: string; trigger?: string };
+    [key: string]: unknown;
+};
+
+/** 分镜卡编辑写段后整章重检的结果：accepted 表示还有 error、段照样带着问题。 */
+export type DramaSegmentsCheck = { version: number; errors: number; warnings: number; accepted: boolean };
+
+/**
+ * 镜头表检查的一条问题挂到哪几镜上：shots 是镜头表 id；scene 是所在场（「重新生成问题场」按它挑场）。
+ * fix 是台词类快捷修复：add_line 把 lineId 补进这一镜，keep_line 只保留在这一镜（其余镜头去掉）。
+ */
+export type DramaShotIssue = DramaCheckItem & { scene?: string; shots?: string[]; fix?: "add_line" | "keep_line" };
+
 /** 镜头表门禁的一条结果：shotId 是规则指向的镜头（整表级规则为空）。 */
-export type DramaCheckItem = { level: "error" | "warn"; rule: string; message: string; shotId?: string };
+export type DramaCheckItem = { level: "error" | "warn"; rule: string; message: string; shotId?: string; lineId?: string };
 /** 生成分段收尾时模型输出的解析统计（一镜一行）：rate = 解析成功的行 / 像镜头行的行。 */
 export type DramaShotParseStats = { lines: number; rows: number; rejected: number; rate: number };
-export type DramaCheckReport = { kind: "shots"; errors: number; warnings: number; items: DramaCheckItem[]; skipped: Array<{ rule: string; why: string }>; parse?: DramaShotParseStats };
+export type DramaCheckReport = { kind: "shots"; errors: number; warnings: number; items: DramaCheckItem[]; skipped: Array<{ rule: string; why: string }>; parse?: DramaShotParseStats; accepted?: boolean };
 export type DramaShotlistStats = { rows: number; shots: number; no_spec?: number; line_exact?: number; line_fuzzy?: number; line_unmatched?: number; scene_remap?: number; scene_unknown?: number; dup_id?: number };
 /** 一章的镜头表（契约 shotlist）、由章节正文转出的台词表与最近一次检查结果。 */
 export type DramaShotlistView = {
     unitId: string;
     version: number;
-    shotlist: { profile: string; episode?: number; shots: Array<Record<string, unknown>> };
-    script?: Record<string, unknown>;
+    shotlist: { profile: string; episode?: number; shots: DramaShot[] };
+    script?: DramaScript;
     check: DramaCheckReport;
     /** 检查有 error、只存了草稿还没装段：本章的段仍是上一次装出的，处理后用 repackDramaShotlist 重装。 */
     draft: boolean;
+    /** 检查有 error、但已带着问题装段（「先装段，到分镜制作改」）：问题挂在段和镜头上。 */
+    accepted?: boolean;
+    /** 检查的 error 挂到哪几镜、哪一场、能不能一键修。 */
+    issues?: DramaShotIssue[];
     compileProfile?: DramaCompileProfileRef;
     updatedAt: string;
 };
 /** profile 是这章检查、装段用的风格档案及来由（按项目画风对照）；draft 为 true 时检查有 error，只存了草稿没装段。 */
-export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; draft: boolean; notes: string[]; profile?: string };
+export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; draft: boolean; accepted?: boolean; notes: string[]; profile?: string };
+
+/** 由章节正文转出的台词表（契约 script）：kind 为 line / vo 的节拍是台词，id 是镜头里引用的 line_id。 */
+export type DramaScript = { title?: string; scenes: Array<{ id: string; heading: string; beats: Array<{ id: string; kind: string; speaker?: string; text: string }> }> };
+
+/** 分镜卡编辑能选的值：景别、机位（cam.x / cam.y）、运镜（键是镜头表写法，值是编译档案的叫法），情绪弧只能从索引里选。 */
+export type DramaShotVocab = { sizes: string[]; cameraX: Record<string, string>; cameraY: Record<string, string>; moves: Record<string, string>; emotionArcs: Array<{ id: string; name: string; family: string; phases: string[] }> };
+
+export function getDramaShotVocab(signal?: AbortSignal) {
+    return http.get<{ vocab: DramaShotVocab }>("/drama/shot-vocab", { signal });
+}
 
 export function getDramaShotlist(projectId: string, unitId: string, signal?: AbortSignal) {
     return http.get<{ shotlist: DramaShotlistView | null }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist`, { signal });
@@ -276,8 +326,9 @@ export function shotlistCheckFailure(error: unknown): DramaCheckReport | undefin
 /**
  * 用这一章已存的分镜行原文按当前生效的编译档案重新装段（不调模型），整章替换段，旧段的候选视频与证据一并删除。
  * 镜头表是检查没过的草稿时仍要过检查：还有 error 就抛 ApiError（reason=shotlist_check_failed，details.check 是检查结果），草稿不变。
+ * acceptIssues 是「先装段，到分镜制作改」：带着 error 装段，问题挂到段和镜头上；会让装段做不成的问题（镜头时长不是正数、整场超单段上限）仍拒绝。
  */
-export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: { maxSeconds: number; minSeconds: number } } = {}) {
+export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: { maxSeconds: number; minSeconds: number }; acceptIssues?: boolean } = {}) {
     return http.post<DramaShotlistWriteResult>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist/repack`, input);
 }
 
@@ -389,13 +440,13 @@ export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?:
 /**
  * 对这一章跑这一步：提示词由服务端组装，这里只带文本模型选择。服务端在一个任务里按场续写，任务成功前写库（结果摘要在任务 result.dramaStep）：
  * 生成分段解析、绑资产、写镜头表并装段，rule 是视频渠道实际能提交的段长（只收紧）；资产设计写已确认资产，带了 imageTask 时接着给新资产排出图。
- * resumeTaskId 是「从第 N 场继续」的上一次任务。
+ * resumeTaskId 是「从第 N 场继续」的上一次任务；onlyScenes 是生成分段的「重新生成问题场」：只重写这几场，其余场用镜头表里已有的镜头行。
  */
 export function runDramaStep(
     projectId: string,
     unitId: string,
     step: "chapter.shots" | "assets.extract",
-    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: { maxSeconds: number; minSeconds: number }; resumeTaskId?: string; imageTask?: DramaImageTaskTemplate },
+    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: { maxSeconds: number; minSeconds: number }; resumeTaskId?: string; onlyScenes?: string[]; imageTask?: DramaImageTaskTemplate },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
 }

@@ -87,6 +87,8 @@ type DramaSegmentView struct {
 	RevisionID string        `json:"revisionId,omitempty"`
 	Spec       drama.Segment `json:"spec"`
 	Derived    bool          `json:"derived"`
+	// Issues 是本章镜头表检查的 error 里挂在这一段镜头上的（带问题装段后才有；镜头表还是没装段的草稿时不挂，段对不上）。
+	Issues []drama.ShotIssue `json:"issues,omitempty"`
 }
 
 type DramaSegmentsWriteRequest struct {
@@ -97,11 +99,53 @@ type DramaSegmentsWriteRequest struct {
 	// Inherit 是「段号 → 从哪几段继承资产引用」（人物、场景、道具、本场色卡）：拆段时新段继承原段，合段时留下的段并上被并掉的段。
 	// 键是这次写入的段号，来源是写入前已有的段号；按（版本, 用途）去重，镜头产出登记（role=output）不继承。
 	Inherit map[string][]string `json:"inherit,omitempty"`
+	// Shots 是分镜卡编辑：改过的镜头表镜头（契约 shotlist 的一镜，按 id 认，只能是本章镜头表里已装进段的镜头）。
+	// 给了它时服务端把镜头写回镜头表，按当前编译档案重编这些镜头在段里的文字（at、dur 取请求里的段；请求里没带的段原样补上），
+	// 写段后对整章镜头表重跑检查。不能与 Order 一起给。见 project_drama_shot_edit.go。
+	Shots []json.RawMessage `json:"shots,omitempty"`
+	// ShotlistVersion 是编辑时读到的镜头表版本：给了且与库里不同（期间重新生成或重装过）就拒绝，免得覆盖新结果。
+	ShotlistVersion int `json:"shotlistVersion,omitempty"`
 }
 
 // DramaModels 返回可选的生成模型目录。
 func (s *Service) DramaModels() (drama.Registry, error) {
 	return drama.Models()
+}
+
+// DramaShotVocab 是分镜卡编辑能选的值：景别、机位（cam.x / cam.y）、运镜按当前编译档案的叫法，情绪弧取情绪弧索引（只能从这里选）。
+type DramaShotVocab struct {
+	Sizes      []string             `json:"sizes"`
+	CameraX    map[string]string    `json:"cameraX"`
+	CameraY    map[string]string    `json:"cameraY"`
+	Moves      map[string]string    `json:"moves"`
+	EmotionArc []DramaEmotionArcRef `json:"emotionArcs"`
+}
+
+type DramaEmotionArcRef struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Family string   `json:"family"`
+	Phases []string `json:"phases"`
+}
+
+func (s *Service) DramaShotVocab() (DramaShotVocab, error) {
+	vocab, err := drama.BuiltinVocab()
+	if err != nil {
+		return DramaShotVocab{}, err
+	}
+	phrases, err := s.activeCompileProfile()
+	if err != nil {
+		return DramaShotVocab{}, err
+	}
+	out := DramaShotVocab{Sizes: drama.ShotSizes(), CameraX: phrases.Camera.X, CameraY: phrases.Camera.Y, Moves: phrases.Camera.Move, EmotionArc: []DramaEmotionArcRef{}}
+	for _, arc := range vocab.Arcs {
+		ref := DramaEmotionArcRef{ID: arc.ID, Name: arc.Name, Family: arc.Family, Phases: []string{}}
+		for _, phase := range arc.Phases {
+			ref.Phases = append(ref.Phases, phase.Label)
+		}
+		out.EmotionArc = append(out.EmotionArc, ref)
+	}
+	return out, nil
 }
 
 func normalizeProjectGenerationModel(value string) (string, error) {
@@ -553,12 +597,20 @@ func (s *Service) DramaSegments(userID string, projectID string, unitID string) 
 		}
 		out = append(out, view)
 	}
+	if err := s.attachDramaSegmentIssues(projectID, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
 // WriteDramaSegments 按段号新增或修改一章的段：已有段号的写新版本，新段号建新镜头。
-// 不给 Order 时不删除段；给了 Order（拆段、合段）就按它重排，并删除不在其中的段。
+// 不给 Order 时不删除段；给了 Order（拆段、合段）就按它重排，并删除不在其中的段。带 Shots 时一起改镜头表并重检（WriteDramaSegmentsChecked）。
 func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]DramaSegmentView, error) {
+	result, err := s.WriteDramaSegmentsChecked(userID, projectID, req)
+	return result.Segments, err
+}
+
+func (s *Service) writeDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]DramaSegmentView, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return nil, err
@@ -1070,6 +1122,9 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 	}
 	input.Evidence = evidenceStates(evidence)
 	progress := drama.Derive(input)
+	if err := s.countDramaProgressIssues(projectID, &progress, shots, revisionByID); err != nil {
+		return drama.Progress{}, err
+	}
 	progress.PrevizGateSetting = briefPrevizGate(project.BriefJSON)
 	progress.PrevizGate = drama.PrevizGateEnabled(progress.PrevizGateSetting, project.AuthMode)
 	return progress, nil

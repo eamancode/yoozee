@@ -1,12 +1,15 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Input } from "antd";
 import { BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { PaginationBar } from "@/components/layout/workspace-page";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
+import { getDramaProgress } from "@/services/api/drama";
 import type { ProjectUnit } from "@/services/api/projects";
 
+import { issueSegmentsByUnit } from "./drama-review-queue";
 import { unitKindOf, unitsOfKind } from "./unit-numbering";
 
 type Props = {
@@ -23,6 +26,9 @@ export function WorkflowChapterNavigator({ projectId, units, unitId, stage }: Pr
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(100);
     const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase("zh-CN"));
+    // 与制作台、总览同一份段级进度（同一个 key）：章节信息行带上「带问题的段 N」。
+    const progressQuery = useQuery({ queryKey: ["project", projectId, "drama", "progress"], queryFn: async ({ signal }) => (await getDramaProgress(projectId, signal)).progress });
+    const issuesByUnit = useMemo(() => issueSegmentsByUnit(progressQuery.data?.segments), [progressQuery.data?.segments]);
     // 只在当前单元同一类里导航和编号：剧集是「第 N 集」，不和原文章节混排。
     const kind = unitKindOf(units.find((unit) => unit.id === unitId) || units.slice().sort((left, right) => left.position - right.position)[0] || { kind: "chapter" });
     const { units: orderedUnits, noun, label } = useMemo(() => unitsOfKind(units, kind), [kind, units]);
@@ -59,7 +65,7 @@ export function WorkflowChapterNavigator({ projectId, units, unitId, stage }: Pr
             <div className="workflow-chapter-navigator">
                 <button type="button" disabled={currentIndex === 0} onClick={() => goTo(orderedUnits[currentIndex - 1])} aria-label={`上一${noun}`} title={`上一${noun}`}><ChevronLeft /></button>
                 <button type="button" className="workflow-chapter-current" onClick={openPicker} aria-haspopup="dialog" aria-label={`定位${label}，当前第 ${currentIndex + 1} ${noun}`}>
-                    <span>第 {currentIndex + 1} {noun}</span><strong>{current.title}</strong><em>{currentIndex + 1}/{orderedUnits.length}</em><ChevronDown />
+                    <span>第 {currentIndex + 1} {noun}</span><strong>{current.title}</strong>{issuesByUnit[current.id] ? <span className="shrink-0 text-red-600 dark:text-red-400">带问题的段 {issuesByUnit[current.id]}</span> : null}<em>{currentIndex + 1}/{orderedUnits.length}</em><ChevronDown />
                 </button>
                 <button type="button" disabled={currentIndex >= orderedUnits.length - 1} onClick={() => goTo(orderedUnits[currentIndex + 1])} aria-label={`下一${noun}`} title={`下一${noun}`}><ChevronRight /></button>
             </div>
@@ -77,7 +83,7 @@ export function WorkflowChapterNavigator({ projectId, units, unitId, stage }: Pr
                         {pagedUnits.length ? <div className="workflow-chapter-grid">{pagedUnits.map((unit) => {
                         const index = orderedUnits.findIndex((item) => item.id === unit.id);
                         const selected = unit.id === current.id;
-                        return <button key={unit.id} type="button" className={`workflow-chapter-item${selected ? " is-active" : ""}`} onClick={() => goTo(unit)}><span className="workflow-chapter-item-index">{String(index + 1).padStart(Math.max(2, String(orderedUnits.length).length), "0")}</span><span className="workflow-chapter-item-copy"><strong title={unit.title}>{unit.title}</strong><small>第 {index + 1} {noun} · {(unit.wordCount || 0).toLocaleString("zh-CN")} 字</small></span>{selected ? <em>当前</em> : <ChevronRight />}</button>;
+                        return <button key={unit.id} type="button" className={`workflow-chapter-item${selected ? " is-active" : ""}`} onClick={() => goTo(unit)}><span className="workflow-chapter-item-index">{String(index + 1).padStart(Math.max(2, String(orderedUnits.length).length), "0")}</span><span className="workflow-chapter-item-copy"><strong title={unit.title}>{unit.title}</strong><small>第 {index + 1} {noun} · {(unit.wordCount || 0).toLocaleString("zh-CN")} 字{issuesByUnit[unit.id] ? ` · 带问题的段 ${issuesByUnit[unit.id]}` : ""}</small></span>{selected ? <em>当前</em> : <ChevronRight />}</button>;
                         })}</div> : <div className="workflow-chapter-empty"><Search /><strong>没有匹配的{label}</strong><span>换一个{label}序号或标题试试</span></div>}
                     </div>
                     <footer className="workflow-chapter-modal-pagination"><PaginationBar alwaysShow current={safePage} pageSize={pageSize} total={filteredUnits.length} pageSizeOptions={[100, 200, 500]} itemLabel={noun} onChange={(nextPage, nextPageSize) => { setPage(nextPage); setPageSize(nextPageSize); }} /></footer>

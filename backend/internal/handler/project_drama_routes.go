@@ -25,6 +25,18 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"models": models})
 	})
+	r.GET("/drama/shot-vocab", func(c *gin.Context) {
+		if _, err := currentUser(c, svc); err != nil {
+			failService(c, err)
+			return
+		}
+		vocab, err := svc.DramaShotVocab()
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"vocab": vocab})
+	})
 	r.GET("/projects/:id/drama/progress", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
@@ -102,12 +114,12 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		segments, err := svc.WriteDramaSegments(user.ID, c.Param("id"), req)
+		result, err := svc.WriteDramaSegmentsChecked(user.ID, c.Param("id"), req)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"segments": segments})
+		ok(c, result)
 	})
 	r.GET("/projects/:id/drama/scenes", func(c *gin.Context) {
 		user, err := currentUser(c, svc)

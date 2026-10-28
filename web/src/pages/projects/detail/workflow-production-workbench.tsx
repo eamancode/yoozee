@@ -179,6 +179,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const invalidateDrama = useInvalidateDrama(projectId);
     // 预演闸门（项目设置，auto 跟授权档位）：生效时这一段要先有选中、没过期的黑白预演才能生成视频；后端同样拦（previz_required）。
     const dramaProgressQuery = useDramaProgress(projectId);
+    const segmentIssueCounts = useMemo(() => Object.fromEntries((dramaProgressQuery.data?.segments || []).filter((segment) => segment.issues).map((segment) => [segment.shotId, segment.issues || 0])), [dramaProgressQuery.data?.segments]);
     const previzReady = useMemo(() => (detail.shotArtifacts || []).some((item) => item.shotId === selectedShot?.id && item.type === "action_board" && item.selected && item.status !== "stale" && item.status !== "failed"), [detail.shotArtifacts, selectedShot?.id]);
     const previzBlocked = activeStage === "video" && Boolean(dramaProgressQuery.data?.previzGate) && !previzReady;
     const currentDurationSeconds = Number(watchedDuration || Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
@@ -561,7 +562,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     <div className="workflow-library-scroll thin-scrollbar">
                         {leftTab === "assets" ? <AssetLibrary detail={detail} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate({ asset, reference })} /> : null}
                         {leftTab === "episodes" ? <EpisodeLibrary detail={detail} activeUnitId={unitId} projectId={projectId} activeStage={activeStage} /> : null}
-                        {leftTab === "shots" ? <ShotLibrary detail={detail} shots={shots} selectedShotId={selectedShot.id} onSelectShot={requestShotSelection} /> : null}
+                        {leftTab === "shots" ? <ShotLibrary detail={detail} shots={shots} selectedShotId={selectedShot.id} issueCounts={segmentIssueCounts} onSelectShot={requestShotSelection} /> : null}
                     </div>
                 </aside>
 
@@ -773,8 +774,9 @@ function EpisodeLibrary({ detail, activeUnitId, projectId, activeStage }: { deta
     return <div className="workflow-simple-list">{groups.map((group) => <Fragment key={group.label}>{groups.length > 1 ? <div className="px-2 pb-0.5 pt-2 text-[var(--fs-micro)] font-medium text-foreground/40">{group.label === "章节" ? "原文" : group.label}</div> : null}{group.units.map((unit, index) => <Link key={unit.id} to={`/projects/${projectId}/workflow/${unit.id}/${activeStage}`} className={unit.id === activeUnitId ? "is-active" : ""} title={`第 ${index + 1} ${group.noun}`}><span>{String(index + 1).padStart(2, "0")}</span><strong>{unit.title}</strong></Link>)}</Fragment>)}</div>;
 }
 
-function ShotLibrary({ detail, shots, selectedShotId, onSelectShot }: { detail: ProjectDetail; shots: ProjectShot[]; selectedShotId: string; onSelectShot: (id: string) => void }) {
-    return <div className="workflow-simple-list">{shots.map((shot, index) => { const video = currentArtifact(detail, shot.id, "video"); return <button key={shot.id} type="button" className={shot.id === selectedShotId ? "is-active" : ""} onClick={() => onSelectShot(shot.id)}><span>{formatShotOrdinal(index)}</span><span className="min-w-0 flex-1"><strong>{customShotTitle(shot.title, index) || "未命名"}</strong><small>{formatDuration(shot.durationMs)}</small></span><ArtifactStatus artifact={video} compact /></button>; })}</div>;
+/** 镜头（段）列表；issueCounts 是带问题装段后各段挂着的检查问题数，标成红色角标。 */
+function ShotLibrary({ detail, shots, selectedShotId, issueCounts, onSelectShot }: { detail: ProjectDetail; shots: ProjectShot[]; selectedShotId: string; issueCounts?: Record<string, number>; onSelectShot: (id: string) => void }) {
+    return <div className="workflow-simple-list">{shots.map((shot, index) => { const video = currentArtifact(detail, shot.id, "video"); const issues = issueCounts?.[shot.id] || 0; return <button key={shot.id} type="button" className={shot.id === selectedShotId ? "is-active" : ""} onClick={() => onSelectShot(shot.id)}><span>{formatShotOrdinal(index)}</span><span className="min-w-0 flex-1"><strong>{customShotTitle(shot.title, index) || "未命名"}</strong><small>{formatDuration(shot.durationMs)}{issues ? <span className="ml-1.5 text-red-600 dark:text-red-400">{issues} 个问题</span> : null}</small></span><ArtifactStatus artifact={video} compact /></button>; })}</div>;
 }
 
 function BoundAssets({ detail, shotId, changing, onPick, onUnlink }: { detail: ProjectDetail; shotId: string; changing: boolean; onPick: () => void; onUnlink: (reference: ShotAssetReference) => void }) {

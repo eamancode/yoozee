@@ -35,6 +35,8 @@ export type ShotStreamState = {
     shotCount: number;
     /** 各场戏类（第一轮之前判出，没有时为空）。 */
     genres: StreamGenre[];
+    /** 「重新生成问题场」时要重写的场（回合标记带的；只有这几场有输出）。 */
+    only?: string[];
 };
 
 /** 回合标记行的键（与后端 drama.ShotLinesMarkerKey 一致）。 */
@@ -77,6 +79,7 @@ export function parseShotStream(text: string): ShotStreamState {
             const genre = textOf(marker.genre);
             if (genre) Object.assign(next, { genre, genreReason: textOf(marker.genreReason) || undefined });
             if (Array.isArray(marker.genres)) state.genres = streamGenres(marker.genres);
+            if (Array.isArray(marker.only)) state.only = marker.only.map(textOf).filter(Boolean);
             const existing = state.scenes.findIndex((item) => item.index === index);
             if (existing >= 0) state.scenes[existing] = next;
             else state.scenes.push(next);

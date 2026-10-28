@@ -127,6 +127,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const [draftHtml, setDraftHtml] = useState("");
     const [dirty, setDirty] = useState(false);
     const [storyboardOpen, setStoryboardOpen] = useState(false);
+    // 「重新生成问题场」打开同一个生成弹窗，只重写这几场；为空是整章生成。
+    const [storyboardOnlyScenes, setStoryboardOnlyScenes] = useState<string[]>([]);
     const [chapterOperations, setChapterOperations] = useState<Record<string, ChapterOperation>>({});
     const [completedChapterOperations, setCompletedChapterOperations] = useState<Record<string, true>>({});
     const [operationNow, setOperationNow] = useState(() => Date.now());
@@ -488,19 +490,26 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         return { ...current, [unitId]: { taskId: taskId || previous?.taskId || "", text: text ?? (sameTask ? previous.text : "") } };
     });
     const repackMutation = useMutation({
-        mutationFn: ({ unitId }: { unitId: string; before: number; draft: boolean }) => repackDramaShotlist(detail.project.id, unitId, { rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds } }),
-        onSuccess: async (result, { unitId, before }) => {
+        mutationFn: ({ unitId, accept }: { unitId: string; before: number; draft: boolean; accept?: boolean }) => repackDramaShotlist(detail.project.id, unitId, { rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, ...(accept ? { acceptIssues: true } : {}) }),
+        onSuccess: async (result, { unitId, before, accept }) => {
             await refreshStoryboardResult(unitId);
             const scenes = new Set(result.segments.map((segment) => segment.spec.scene)).size;
+            if (accept) {
+                const marked = result.segments.filter((segment) => segment.issues?.length).length;
+                message.success(result.accepted ? `已带着 ${result.check.errors} 个问题装成 ${result.segments.length} 段，${marked} 段标了问题，到分镜制作逐张改` : `检查已没有问题，按 ${scenes} 场装成 ${result.segments.length} 段`);
+                setRunPanelOpen(false);
+                navigate(`/projects/${detail.project.id}/workflow/${unitId}/video`);
+                return;
+            }
             message.success(before && before !== result.segments.length ? `已重新装段：${before} 段 → ${result.segments.length} 段（按 ${scenes} 场）` : `已重新装段：按 ${scenes} 场装成 ${result.segments.length} 段`);
         },
-        onError: (error, { draft }) => {
+        onError: (error, { draft, accept }) => {
             const check = shotlistCheckFailure(error);
-            message.error(check ? `重新装段仍有 ${check.errors} 个问题，${draft ? "草稿" : "现有的段"}没变；需要的话重新生成` : error instanceof Error ? error.message : "重新装段失败");
+            message.error(accept ? `没能带着问题装段：${error instanceof Error ? error.message : "未知错误"}` : check ? `重新装段仍有 ${check.errors} 个问题，${draft ? "草稿" : "现有的段"}没变；需要的话重新生成` : error instanceof Error ? error.message : "重新装段失败");
             void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "drama-shotlist"] });
         },
     });
-    const createStoryboard = async (options: { replaceConfirmed?: boolean; resumeTaskId?: string } = {}) => {
+    const createStoryboard = async (options: { replaceConfirmed?: boolean; resumeTaskId?: string; onlyScenes?: string[] } = {}) => {
         const unit = selectedUnit;
         if (!unit) return message.warning("章节正文尚未加载完成");
         if (dirty) return message.warning("请先保存当前章节，再生成分镜");
@@ -521,9 +530,9 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         beginChapterOperation(unit.id, "storyboard");
         setStoryboardStreams((current) => ({ ...current, [unit.id]: { taskId: "", text: "" } }));
         setRunPanelOpen(true);
-        message.info(options.resumeTaskId ? "从中断的那一场接着写，可继续编辑或切换章节" : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
+        message.info(options.resumeTaskId ? "从中断的那一场接着写，可继续编辑或切换章节" : options.onlyScenes?.length ? `只重写 ${options.onlyScenes.join("、")}，其余场的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
         try {
-            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, resumeTaskId: options.resumeTaskId }, {
+            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, resumeTaskId: options.resumeTaskId, onlyScenes: options.onlyScenes }, {
                 onTaskUpdate: (task) => {
                     followedStoryboardTasksRef.current.add(task.id);
                     updateChapterOperation(unit.id, "storyboard", task);
@@ -550,11 +559,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         }
     };
     // 草稿重装是处理检查问题；镜头表已写入时重装会整章替换现有的段，先确认。
-    const repackStoryboard = async () => {
+    const repackStoryboard = async (accept = false) => {
         if (!selectedUnit) return;
         if (segmentRule.problem) return message.warning(`${segmentRule.problem}，先在项目设置里换默认视频模型或生成模型`);
         if (!shotlist?.draft && storyboardImpact.shotCount && !(await confirmStoryboardRepack(storyboardImpact))) return;
-        repackMutation.mutate({ unitId: selectedUnit.id, before: storyboardImpact.shotCount, draft: Boolean(shotlist?.draft) });
+        repackMutation.mutate({ unitId: selectedUnit.id, before: storyboardImpact.shotCount, draft: Boolean(shotlist?.draft), accept });
     };
     const confirmStoryboardRepack = (impact: ReturnType<typeof chapterStoryboardReplaceImpact>) => new Promise<boolean>((resolve) => {
         modal.confirm({
@@ -805,13 +814,17 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 segmentCount={storyboardImpact.shotCount}
                 onResume={() => { if (storyboardResume) void createStoryboard({ resumeTaskId: storyboardResume.taskId }); }}
                 onRepack={() => void repackStoryboard()}
-                repacking={repackMutation.isPending}
-                onRegenerate={() => { setRunPanelOpen(false); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
+                repacking={repackMutation.isPending && !repackMutation.variables?.accept}
+                onAcceptIssues={() => void repackStoryboard(true)}
+                accepting={repackMutation.isPending && Boolean(repackMutation.variables?.accept)}
+                onRegenerate={() => { setRunPanelOpen(false); setStoryboardOnlyScenes([]); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
+                onRegenerateScenes={(scenes) => { setRunPanelOpen(false); setStoryboardOnlyScenes(scenes); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
                 sceneNotice={scenesQuery.data?.notice}
                 onOpenProduction={() => { if (selectedUnit) navigate(`/projects/${detail.project.id}/workflow/${selectedUnit.id}/video`); }}
             />
-            <Modal className="library-modal" title={`生成${selectedUnitNoun}分段`} open={storyboardOpen} width={560} okText={storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard()} styles={{ body: { paddingTop: 12 } }}>
+            <Modal className="library-modal" title={storyboardOnlyScenes.length ? `重新生成问题场（${storyboardOnlyScenes.join("、")}）` : `生成${selectedUnitNoun}分段`} open={storyboardOpen} width={560} okText={storyboardOnlyScenes.length ? `只重写这 ${storyboardOnlyScenes.length} 场` : storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard(storyboardOnlyScenes.length ? { onlyScenes: storyboardOnlyScenes } : {})} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
+                    {storyboardOnlyScenes.length ? <Callout tone="info" title="只重写问题所在的场">按场续写：{storyboardOnlyScenes.join("、")} 重新调模型写，其余场用镜头表里已有的镜头（照原来的顺序放进对话，不调模型），写完按整章重新检查、装段。</Callout> : null}
                     {projectStyleMissing ? <Callout tone="warning" title="还没有项目画风" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去选画风</Button>}>分镜要按项目画风写画面和参考，先在项目设置里选一个画风并保存，再回来生成。</Callout> : null}
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
                         <div className="text-[var(--fs-tiny)] text-foreground/42">当前{selectedUnitNoun}</div>

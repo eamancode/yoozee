@@ -340,7 +340,7 @@ func compareCheck(t *testing.T, label string, got CheckReport, golden string) {
 		var g, w CheckItem
 		if i < len(got.Items) {
 			g = got.Items[i]
-			g.ShotID = ""
+			g.ShotID, g.LineID = "", ""
 		}
 		if i < len(want.Items) {
 			w = want.Items[i]
