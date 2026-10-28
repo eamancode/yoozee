@@ -8,7 +8,7 @@ import (
 	"yingce/backend/internal/model"
 )
 
-// DramaPaletteWrite 是导演风格收尾写的一张色卡：Link 不为空是新建资产（资产、第 1 个版本、项目关联），
+// DramaPaletteWrite 是场次色卡收尾（或风格锁定）写的一张色卡：Link 不为空是新建资产（资产、第 1 个版本、项目关联），
 // 为空是给已有色卡加一个版本并换成主版本；Version 也为空是只改 payload（标成场次已不存在）。
 type DramaPaletteWrite struct {
 	Asset   *model.Asset
@@ -16,8 +16,8 @@ type DramaPaletteWrite struct {
 	Link    *model.ProjectAssetLink
 }
 
-// ApplyDramaStyleBible 在一个事务里写导演风格的结果：项目的 bible_json，每场一张色卡（新建或加版本），和标成场次已不存在的旧色卡。
-func (r *Repository) ApplyDramaStyleBible(userID string, projectID string, bibleJSON string, palettes []DramaPaletteWrite, now time.Time) error {
+// ApplyDramaScenePalettes 在一个事务里写场次色卡的结果：项目的 bible_json，每场一张色卡（新建或加版本），和标成场次已不存在的旧色卡。
+func (r *Repository) ApplyDramaScenePalettes(userID string, projectID string, bibleJSON string, palettes []DramaPaletteWrite, now time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&model.Project{}).Where("id = ? AND user_id = ?", projectID, userID).Updates(map[string]any{"bible_json": bibleJSON, "updated_at": now})
 		if result.Error != nil {
@@ -54,7 +54,7 @@ func (r *Repository) ApplyDramaStyleBible(userID string, projectID string, bible
 			if updated.RowsAffected != 1 {
 				return gorm.ErrRecordNotFound
 			}
-			// 同一场重跑导演风格加了版本：绑着这张色卡（role=style）的镜头换到新版本，产物过期。
+			// 同一场重跑场次色卡加了版本：绑着这张色卡（role=style）的镜头换到新版本，产物过期。
 			if p.Version != nil {
 				if _, err := followAssetVersion(tx, p.Asset.ID, p.Version.ID, now); err != nil {
 					return err
@@ -65,13 +65,8 @@ func (r *Repository) ApplyDramaStyleBible(userID string, projectID string, bible
 	})
 }
 
-// UpdateAssetPayloadIfUnchanged 只在 payload 还是 previous 时改成 next（色卡出图排队、记取色结果时防并发覆盖）；返回是否改了。
+// UpdateAssetPayloadIfUnchanged 只在 payload 还是 previous 时改成 next（资产出图排队时防并发覆盖）；返回是否改了。
 func (r *Repository) UpdateAssetPayloadIfUnchanged(userID string, assetID string, previous string, next string, now time.Time) (bool, error) {
 	result := r.db.Model(&model.Asset{}).Where("id = ? AND user_id = ? AND payload_json = ?", assetID, userID, previous).Updates(map[string]any{"payload_json": next, "updated_at": now})
 	return result.RowsAffected == 1, result.Error
-}
-
-// UpdateAssetRepresentationMetadata 改一条资产表示的 metadata_json（色卡主图的取色校验）。
-func (r *Repository) UpdateAssetRepresentationMetadata(id string, metadataJSON string) error {
-	return r.db.Model(&model.AssetRepresentation{}).Where("id = ?", id).Update("metadata_json", metadataJSON).Error
 }

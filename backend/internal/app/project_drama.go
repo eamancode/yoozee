@@ -56,6 +56,9 @@ type CompileProjectShotRequest struct {
 	Model  string  `json:"model"`
 	Style  *string `json:"style"`
 	Acting *string `json:"acting"`
+	// MaxReferenceImages 是这次要用的视频模型最多带几张参考图（前端按渠道模型的能力配置传）；没给时取模型族的图片参考上限。
+	// 本场色卡图排在最后，放不下时不带图、色值写进提示词。
+	MaxReferenceImages int `json:"maxReferenceImages,omitempty"`
 }
 
 type DramaGateRequest struct {
@@ -835,8 +838,53 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 	if err != nil {
 		return DramaCompileResult{}, err
 	}
+	palette, err := s.shotScenePalette(userID, shot.ID)
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	if palette != nil {
+		result = drama.WithScenePalette(result, m, *palette, req.MaxReferenceImages)
+	}
 	result.Issues = append(result.Issues, refIssues...)
 	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result, CompileProfile: compileProfileRef(phrases)}, nil
+}
+
+// shotScenePalette 是这一段绑的本场色卡（role=style 引用的场次色卡版本）：版本有合成图时带上版本 ID 当参考图，没有图时只给色值；
+// 没绑、或绑的是旧色卡 / 场次已不存在的色卡时返回 nil。
+func (s *Service) shotScenePalette(userID string, shotID string) (*drama.ScenePaletteRef, error) {
+	refs, err := s.repo.ShotAssetReferencesForShot(shotID)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range refs {
+		if ref.Role != shotAssetRoleStyle || ref.Status != "linked" {
+			continue
+		}
+		version, err := s.repo.AssetVersion(ref.AssetVersionID)
+		if err != nil {
+			continue
+		}
+		asset, err := s.repo.AssetForUser(userID, version.AssetID)
+		if err != nil || asset.Category != model.AssetCategoryPalette {
+			continue
+		}
+		meta := paletteMetaOf(asset)
+		if meta.Kind != paletteKindScene || meta.Stale {
+			continue
+		}
+		var definition paletteDefinition
+		_ = json.Unmarshal([]byte(version.DefinitionJSON), &definition)
+		out := &drama.ScenePaletteRef{Code: firstNonEmpty(meta.Code, definition.Code), Colors: definition.Palette.Colors()}
+		representations, err := s.repo.AssetRepresentations(version.ID)
+		if err != nil {
+			return nil, err
+		}
+		if slices.ContainsFunc(representations, func(r model.AssetRepresentation) bool { return r.Role == "primary" && r.MediaType == "image" }) {
+			out.File = version.ID
+		}
+		return out, nil
+	}
+	return nil, nil
 }
 
 // ---------------------------------------------------------------- 证据、选中、进度
@@ -1051,7 +1099,7 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 	for _, ref := range references {
 		refCount[ref.ShotID]++
 	}
-	// 要正文：「风格定了」「色卡齐了」按当前剧集的场次表算。
+	// 要正文：「色卡齐了」按当前剧集的场次表算。
 	units, err := s.repo.ProjectUnits(projectID)
 	if err != nil {
 		return drama.Progress{}, err
@@ -1068,11 +1116,10 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 		return shots[i].Position < shots[j].Position
 	})
 	input := drama.ProgressInput{Model: m, AuthMode: project.AuthMode, BriefJSON: project.BriefJSON, BibleJSON: project.BibleJSON}
-	if input.Palettes, err = s.projectPaletteProgress(userID, projectID); err != nil {
+	if input.Palettes, err = s.projectPaletteProgress(userID, projectID, styleSceneTable(units)); err != nil {
 		return drama.Progress{}, err
 	}
 	input.StyleScenes, input.StyleFromChapters = styleBibleSceneRefs(units)
-	input.BibleJSON = currentColorScriptBible(project.BibleJSON, styleSceneTable(units))
 	input.StyleRuleShifted = legacyShiftedColorScript(project.BibleJSON, units)
 	assets, err := s.ProjectAssets(userID, projectID)
 	if err != nil {

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// 导演风格输出的逐字段读法：模型偶尔把字段写成别的 JSON 类型（references 写成字符串数组、hex 写成 ["#1A1518"]、
+// 风格锁定、场次色卡输出的逐字段读法：模型偶尔把字段写成别的 JSON 类型（references 写成字符串数组、hex 写成 ["#1A1518"]、
 // usage 写成对象），整行 json.Unmarshal 会因为一个字段把整场丢掉。这里逐字段读，类型不符时只降级这一个字段——
 // 单值字段（hex、名字、场次头、inherits_from）取第一个元素，自由文本字段把元素用「；」拼起来，对象转成「键：值」——
 // 并记一条说明（Coerced），检查时报 warn（R-STYLE-012）。references 写成字符串数组是契约允许的写法，拼接时不记。
@@ -316,6 +316,7 @@ func decodePaletteColor(obj map[string]json.RawMessage) (PaletteColor, []string)
 	}
 	c.Hex = r.text("hex", false, false)
 	c.Usage = r.text("usage", true, false)
+	c.Group = r.text("group", false, false)
 	return c, r.notes
 }
 
@@ -328,7 +329,8 @@ func firstNonBlank(values ...string) string {
 	return ""
 }
 
-// decodeColorScriptEntry 逐字段读一场的色彩脚本；类型不符的说明记在 Coerced。
+// decodeColorScriptEntry 逐字段读一场的色彩脚本；类型不符的说明记在 Coerced。scene 是场编号（E01S02）时集号和场序从它读；
+// 也认旧写法：episode、scene_no 两个整数，scene 写场次头。
 func decodeColorScriptEntry(obj map[string]json.RawMessage) ColorScriptEntry {
 	r := &styleFieldReader{obj: obj}
 	e := ColorScriptEntry{
@@ -341,6 +343,12 @@ func decodeColorScriptEntry(obj map[string]json.RawMessage) ColorScriptEntry {
 		Purpose:      r.text("purpose", true, false),
 		References:   r.text("references", true, true),
 		UnitID:       r.text("unit_id", false, false),
+	}
+	if episode, sceneNo, ok := ParseSceneCode(e.Scene); ok {
+		if e.Episode > 0 && e.Episode != episode || e.SceneNo > 0 && e.SceneNo != sceneNo {
+			r.notes = append(r.notes, fmt.Sprintf("scene 写的是 %s，episode / scene_no 写的是第 %d 集第 %d 场，按 scene 读", SceneCode(episode, sceneNo), e.Episode, e.SceneNo))
+		}
+		e.Episode, e.SceneNo, e.Scene = episode, sceneNo, ""
 	}
 	e.Coerced = r.notes
 	return e

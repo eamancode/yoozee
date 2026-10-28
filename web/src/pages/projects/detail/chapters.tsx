@@ -81,9 +81,10 @@ import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
 import { consumeChapterImportQuery } from "./chapter-import-query";
-import { chapterTaskIdentity, followDramaRunTask, generateChapterStoryboard, isScriptAdaptTask, isStyleBibleTask, isStyleLockTask } from "./project-chapter-ai";
+import { chapterTaskIdentity, followDramaRunTask, generateChapterStoryboard, isScenePaletteTask, isScriptAdaptTask, isStyleLockTask } from "./project-chapter-ai";
 import { AssetsExtractControl } from "./chapter-assets-extract";
 import { ScriptAdaptControl } from "./chapter-script-adapt";
+import { followChainedScenePalette, ScenePaletteControl } from "./chapter-scene-palette";
 import { StyleLockControl } from "./chapter-style-lock";
 import { ChapterSceneList } from "./chapter-scene-list";
 import { withEpisodeSourcesComment } from "./episode-sources";
@@ -152,7 +153,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         queryFn: () => listGenerationTasks(100, { projectId: detail.project.id }),
         refetchInterval: (query) => query.state.data?.some((task) => {
             const identity = chapterTaskIdentity(task);
-            return Boolean((identity || isScriptAdaptTask(task) || isStyleBibleTask(task) || isStyleLockTask(task)) && (task.status === "queued" || task.status === "running"));
+            return Boolean((identity || isScriptAdaptTask(task) || isScenePaletteTask(task) || isStyleLockTask(task)) && (task.status === "queued" || task.status === "running"));
         }) ? 2_000 : false,
         refetchOnWindowFocus: true,
     });
@@ -783,7 +784,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                             </div>
                             <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5">
                                 <StyleLockControl detail={detail} tasks={chapterTasksQuery.data} disabled={dirty} />
-                                <ScriptAdaptControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} onWritten={showWrittenEpisodes} />
+                                <ScriptAdaptControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} onWritten={showWrittenEpisodes} onChained={(taskId) => followChainedScenePalette(detail.project.id, taskId)} />
+                                <ScenePaletteControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} />
                                 <AssetsExtractControl detail={detail} unit={selectedUnit} unitNoun={unitKind(selectedUnit) === "episode" ? "集" : "章"} tasks={chapterTasksQuery.data} disabled={dirty || adaptedOriginal} disabledReason={adaptedOriginal ? adaptedOriginalHint : undefined} />
                                 <Tooltip title={adaptedOriginal ? adaptedOriginalHint : undefined}><Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || adaptedOriginal || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button></Tooltip>
                                 {storyboardOperation || storyboardStreamState.shotCount || shotlist || storyboardStop ? <Button size="small" onClick={() => setRunPanelOpen(true)} aria-label="查看生成分段进度">进度</Button> : null}

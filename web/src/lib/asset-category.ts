@@ -2,7 +2,7 @@ export const ASSET_CATEGORIES = ["character", "environment", "prop", "material",
 
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
 
-/** 用户能手选的分类：色卡（palette）只由风格锁定（主基调色卡）和导演风格（场次色卡）生成，不出现在分类选择里。 */
+/** 用户能手选的分类：色卡（palette）只由风格锁定（主基调色卡）和场次色卡生成，不出现在分类选择里。 */
 export const EDITABLE_ASSET_CATEGORIES = ASSET_CATEGORIES.filter((category) => category !== "palette");
 
 export const ASSET_CATEGORY_LABELS: Record<AssetCategory, string> = {

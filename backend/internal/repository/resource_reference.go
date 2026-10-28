@@ -170,6 +170,15 @@ func (r *Repository) ResourceReferenceSnapshotExcludingAssets(userID string, exc
 		}
 	}
 
+	// 平台风格库的封面（主色卡合成图）属于存入者账号，没有别的业务数据引用它。
+	var styleEntries []model.DramaStyleLibraryEntry
+	if err := r.db.Where("cover_resource_id IN ?", resourceIDs).Find(&styleEntries).Error; err != nil {
+		return snapshot, err
+	}
+	for _, entry := range styleEntries {
+		snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "风格库封面", ID: entry.ID, Title: entry.Name, ResourceID: entry.CoverResourceID})
+	}
+
 	var assets []model.Asset
 	assetQuery := r.db.Where("user_id = ?", userID)
 	if len(excludingAssetIDs) > 0 {

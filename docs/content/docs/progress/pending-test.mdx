@@ -5,6 +5,29 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M8 卡 B：场次色卡（代码合成，参考锁定风格 + 主基调色卡）
+
+改了什么（接口见 `backend/http-api.mdx`，表见 `backend/backend-database.mdx`）：
+
+- 导演风格 `style.bible` 改成场次色卡 `scene.palette`（契约 `scene.palette@1`，技能 `yz-scene-palette`：「CL 色彩光影设计卡」原文 + 《色卡提示词卡》色板设计卡，只加接入说明；迁移 68 给五个档案绑上，删掉 `style.bible` 的绑定）。项目要先锁定风格；提示词带锁定的风格锚和主基调色卡分组全文、各集场次表（场编号、场次头、内外 / 地点 / 时间、开头 300 字）、风格档案和已有场次色卡；一轮一集，每场一行 `{scene: 场编号, inherits_from, shared_colors, new_colors}`，每色带 `group`。不写风格锚（模型多写的忽略并提醒），只合并写 `bible_json.color_script`。
+- 色卡图不调图片模型：每场一张场次色卡资产（palette，`metadata.palette.kind=scene`，记场编号、单元、切场规则），写库后由代码合成 1920×1080 PNG（标题「E01S02 · 场次头」、按分组一组一行、色块 + HEX + 中英文色名）绑到这一版；同一场重跑加版本不新增资产。去掉色卡出图任务、出图排队、取色校验（ΔE）和 `POST /drama/palettes/images`；资产页色卡卡片换成按组色带 +「重新合成」（`POST /drama/palettes/resynthesize`，只重画图、加版本，镜头引用跟过去）。
+- 剧本优化写完剧集后服务端自动接着建场次色卡任务（`metadata.chainedFrom`，没锁定风格时不建、结果里写原因），章节页侧栏切到「场次色卡」的流；章节页「生成场次色卡」（范围默认全部剧集，没有剧集时按原文章节；没锁定风格时禁用并提示）。总览「色卡齐了」只看场次色卡（当前场次表每场都有合成了图的场次色卡、没有多余的）。
+- 生成分段装段只绑 `kind=scene`、场次还在的色卡（role=style）。视频编译（`POST /shots/:id/compile`，前端带上所选视频模型的参考图上限 `maxReferenceImages`）：色卡图排在角色 / 场景 / 道具之后作最后一张参考图；名额满了、首尾帧模式或没有合成图时不带图，提示词加一行「本场色值：…」并给 warn。没有分段 JSON 的旧段在前端同样处理。分镜图、黑白预演不带色卡。
+- 顺带：平台风格库改名 / 改色 / 删条目时清理旧封面，孤儿资源清理认风格库封面（之前约 24 小时后封面会被当孤儿删掉）；`(project_type, name)` 唯一索引（迁移 68，已有重名的后建条目加序号）；建项目对话框风格库选中卡强调色描边加对勾；首页「AI 生成章节」快捷建项目接上项目风格三选一，建完项目按所选锁定。
+
+已验证（本机）：
+
+- [x] `internal/drama`：`TestScenePaletteFromText` / `TestCountScenePaletteTurn` / `TestCheckScenePalette`（场编号读集号场序、旧写法兼容、风格锚忽略、承接色 HEX、主色卡同名色 warn、缺分组 warn、超 32 色）、`TestScenePaletteOnlineOutputsParse`（线上导演风格三份原始输出照样读出）、`TestRenderScenePalettePNG`（色块中心像素与 HEX 一致）、`TestBuildScenePalettePrompt`、`TestScenePalettePackageMatchesBuiltinSeed`（包过校验、与内置种子一致、CL 一节与 yz-style-lock 原文一致）、`TestWithScenePalette`（有名额排最后、满了写色值、H3 用 `<Picture N>`）、`TestDeriveStyleStatesFollowCurrentScenes`
+- [x] `internal/app`：`TestScenePaletteWritesColorScriptAndPalettesThroughWorker`（两集三场、风格锚和主色卡不动、合成图 1920×1080、不建图片任务、重跑加版本、承接色错了不写库、当轮重试）、`TestScenePaletteRequiresLockedStyle`、`TestScenePaletteFallsBackToChapters`、`TestScenePaletteRetiresPalettesOfVanishedScenes`、`TestResynthesizeDramaPalettesFollowsShots`、`TestShotScenePaletteForCompile`、`TestScenePaletteEvalResult`、`TestScriptAdaptWritesEpisodesThroughWorker`（没锁定不接、锁定后接着建并带 chainedFrom）、`TestDramaImageQueue*`（排队改用资产设计的资产）、风格库封面清理与唯一索引三条；`internal/database`：`TestDramaScenePaletteMigration`
+- [x] 前端：`scene-palette-stream.test.ts`、`project-palette-card.test.ts`、`workflow-shot-references.test.ts`、`drama-api.test.ts`
+- [x] 本机联调（独立数据目录 + 假上游，接口）：没锁定风格 400；锁定风格 → 导入三章 → 剧本优化 2 集 → 自动接场次色卡（chainedFrom 对、忽略 1 行风格锚）→ 第 1 集三个场次头并成 2 场，共 3 张色卡、合成图 1920×1080、每块中心像素与 HEX 差 0，E01S02 承接 E01S01 5 色 + 新增 3 色；bible 风格锚 / 主色卡 / 锁定记录原样；0 个图片任务；总览「色卡齐了 3/3」；重跑各加一版不新增；重新合成加版本；七床正文：提取资产出图 → 生成分段 10 段，同场各段绑同一张色卡；编译 3 张资产图 + 色卡作 @图片4，名额 3 时不带图、提示词有本场色值；重新合成后段的色卡引用跟到新版本。
+- [x] 本机联调（浏览器）：没锁定风格的项目「生成场次色卡」禁用、悬停有提示；章节页剧本优化跑完自动切到「场次色卡」侧栏流式出各集色块；资产页场次色卡卡片（明暗主题）、重新合成；视频模型参考图上限 4、段有 3 张资产图时提交的任务带 4 张参考图（色卡最后）、提示词有「@图片4 是本场色卡」；上限改 3 后只带 3 张、提示词有「本场色值：…」；分镜图任务不带色卡；建项目风格库选中卡有描边和对勾；首页「AI 生成章节」选风格库后建的项目锁定来源是风格库。
+- [ ] M8B-1 线上部署后真模型：七床两集剧本优化 → 自动接场次色卡，每场 3 色以上、承接色 HEX 不变、group 写对；资产页每场一张合成色卡，中文色名能显示（镜像字体）。
+- [ ] M8B-2 线上视频生成：段的参考图没满时任务带色卡图，满了时提示词有本场色值，角色参考图不被挤掉。
+- [ ] M8B-3 后台「流程技能」里 `scene.palette` 一行五个档案都绑 `yz-scene-palette`；对它跑一次评测（`qichuang-e01`）。
+- [ ] M8B-4 老项目（M8 前用导演风格出过图片模型色卡）：资产页旧色卡标「旧版色卡」、不绑镜头；重新生成场次色卡后同一场加版本、变成场次色卡。
+- [ ] M8B-5 风格库：改名后旧封面资源被删、新封面可读；删条目后封面资源被删；放置一天后封面仍在（孤儿清理不再误删）。
+
 ## M8 卡 A：建项目风格锁定、主基调色卡与平台风格库
 
 改了什么（接口见 `backend/http-api.mdx`，表见 `backend/backend-database.mdx`）：
@@ -12,7 +35,7 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - 建项目对话框去掉「风格档案」行（后端按画风推）；类型之后加「项目风格」：风格库 / 写风格描述 / 传参考图。选风格库条目建完项目直接锁定；写了描述或传了图，建完项目起风格分析（项目级步骤 `style.lock`，技能 `yz-style-lock`），跳到章节页，右侧侧栏流式出风格锚和主基调色卡；都没填但选了画风时按画风当场生成主色卡并直接锁定（不回写风格库）。
 - 章节页「导演风格」按钮换成「分析项目风格」（走 `style.lock`），旁边「项目风格」看已锁定的风格；分析完「锁定此风格」写进 `bible_json`（风格锚、主基调色卡、锁定来源），代码合成主色卡图（色块 + HEX + 中英文色名，16:9）存成资产（色卡分类，「主基调色卡」）；锁定后「存进风格库」（填名称）。
 - 平台风格库新表 `drama_style_library`（迁移 67）：按类型归档，团队共享，改删限管理员或存入者；后台新增「风格库」页（按类型筛选、查看、改名、替换主色卡、删除）。
-- 剧本优化跑完不再自动接导演风格（前端「接着生成全局风格…」去掉）；提示词带【项目风格锚】（项目锁定了风格时）。总览「风格定了」改看锁定结果（风格锚 + 主基调色卡）。导演风格步骤保留（卡 B 改成场次色卡），章节页暂时没有入口。
+- 剧本优化跑完不再自动接导演风格（前端「接着生成全局风格…」去掉；卡 B 起改为自动接场次色卡）；提示词带【项目风格锚】（项目锁定了风格时）。总览「风格定了」改看锁定结果（风格锚 + 主基调色卡）。导演风格步骤卡 B 已改成场次色卡。
 - 镜像加中文字体 `font-wqy-zenhei`（合成主色卡图写中文色名用；没有中文字体时只画 HEX 和英文名）。
 
 已验证（本机）：见下方各条；没勾的是部署后用真模型、真浏览器验收。

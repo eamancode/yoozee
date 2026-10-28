@@ -8,7 +8,7 @@
   "$defs": {
     "evidence": {"type": "array", "items": {"type": "string"}, "description": "原文依据（引号原句）"},
     "image": {"type": "string", "description": "素材路径或柚子资产 ID"},
-    "color": {"type": "object", "required": ["name_zh", "name_en", "hex", "usage"], "properties": {"name_zh": {"type": "string"}, "name_en": {"type": "string"}, "hex": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}, "usage": {"type": "string"}}}
+    "color": {"type": "object", "required": ["name_zh", "name_en", "hex", "usage"], "properties": {"name_zh": {"type": "string"}, "name_en": {"type": "string"}, "hex": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}, "usage": {"type": "string"}, "group": {"type": "string", "enum": ["protagonist", "supporting", "props", "environment", "other"], "description": "场次色卡里这个颜色归主基调色卡的哪一组"}}}
   },
   "properties": {
     "characters": {
@@ -163,10 +163,10 @@
         }
       }
     },
-    "style_anchor": {"type": "object", "additionalProperties": false, "description": "全局风格锚（导演风格 style.bible@1 写入）", "properties": {"art_style": {"type": "string"}, "render_quality": {"type": "string"}, "era": {"type": "string"}, "genre": {"type": "string"}, "medium": {"type": "string", "description": "画风 / 媒介"}, "lighting": {"type": "string", "description": "光比与光线政策"}, "camera": {"type": "string", "description": "镜头语言"}, "grading": {"type": "string", "description": "调色倾向"}, "forbidden": {"type": "array", "items": {"type": "string"}, "description": "禁用项"}}},
+    "style_anchor": {"type": "object", "additionalProperties": false, "description": "全局风格锚（风格锁定 style.lock@1 写入；场次色卡只读）", "properties": {"art_style": {"type": "string"}, "render_quality": {"type": "string"}, "era": {"type": "string"}, "genre": {"type": "string"}, "medium": {"type": "string", "description": "画风 / 媒介"}, "lighting": {"type": "string", "description": "光比与光线政策"}, "camera": {"type": "string", "description": "镜头语言"}, "grading": {"type": "string", "description": "调色倾向"}, "forbidden": {"type": "array", "items": {"type": "string"}, "description": "禁用项"}}},
     "color_script": {
       "type": "array",
-      "description": "逐场色彩脚本（导演风格 style.bible@1 写入；每场一张色卡资产，category=palette）",
+      "description": "逐场色彩脚本（场次色卡 scene.palette@1 写入；每场一张代码合成的场次色卡资产，category=palette、payload.metadata.palette.kind=scene）",
       "items": {
         "type": "object",
         "required": ["episode", "scene_no", "scene", "inherits_from", "shared_colors", "new_colors"],
@@ -179,7 +179,8 @@
           "new_colors": {"type": "array", "items": {"$ref": "#/$defs/color"}},
           "purpose": {"type": "string"},
           "references": {"type": "string"},
-          "unit_id": {"type": "string", "description": "写这一场时它所在的单元（剧集或原文章节），服务端填"}
+          "unit_id": {"type": "string", "description": "写这一场时它所在的单元（剧集或原文章节），服务端填"},
+          "scene_rule": {"type": "integer", "description": "写这一场时的切场规则（2 = 连续同地点且内外相同并成一场），服务端填"}
         }
       }
     },

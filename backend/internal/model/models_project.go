@@ -433,8 +433,9 @@ type DramaStepBinding struct {
 type DramaStyleLibraryEntry struct {
 	ID string `json:"id" gorm:"primaryKey;size:36"`
 	// ProjectType 是项目类型：live-action / 3d-anime / realistic-cg / 2d-anime（与建项目的类型同值）。
-	ProjectType string `json:"projectType" gorm:"size:32;not null;index:idx_drama_style_library_type,priority:1"`
-	Name        string `json:"name" gorm:"size:120;not null"`
+	ProjectType string `json:"projectType" gorm:"size:32;not null;index:idx_drama_style_library_type,priority:1;uniqueIndex:idx_drama_style_library_name,priority:1"`
+	// Name 在同一项目类型里不重名（唯一索引 idx_drama_style_library_name）。
+	Name        string `json:"name" gorm:"size:120;not null;uniqueIndex:idx_drama_style_library_name,priority:2"`
 	Description string `json:"description" gorm:"size:500"`
 	// StyleAnchorJSON / MasterPaletteJSON 是风格锚和主基调色卡（与 bible_json.style_anchor / master_palette 同一形状）。
 	StyleAnchorJSON   string `json:"styleAnchorJson" gorm:"type:text"`

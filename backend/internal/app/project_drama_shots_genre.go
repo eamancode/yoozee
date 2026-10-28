@@ -173,8 +173,9 @@ func joinTruthyStrings(parts ...string) string {
 	return strings.Join(kept, "\n\n")
 }
 
-// unitScenePalettes 是装段时绑到各场镜头的色卡：本单元每一场（单元内场编号 E01S02）对上的色卡资产主版本。色卡按项目级场编号
-// （导演风格的集号）认，对到场次表里属于本单元、色彩脚本还对得上当前场次表的场；场次已不存在（stale）、归档、没有主版本的跳过。
+// unitScenePalettes 是装段时绑到各场镜头的色卡：本单元每一场（单元内场编号 E01S02）对上的场次色卡（kind=scene）主版本。色卡按
+// 项目级场编号（场次色卡的集号）认，对到场次表里属于本单元、色彩脚本还对得上当前场次表的场；旧色卡（M8 之前图片模型出的）、
+// 场次已不存在（stale）、归档、没有主版本的跳过。
 func (s *Service) unitScenePalettes(userID string, project *model.Project, unitID string) (map[string]string, error) {
 	units, err := s.repo.ProjectUnits(project.ID)
 	if err != nil {
@@ -191,7 +192,7 @@ func (s *Service) unitScenePalettes(userID string, project *model.Project, unitI
 	out := map[string]string{}
 	for sceneID, e := range script {
 		a, ok := assets[e.Code()]
-		if !ok || paletteMetaOf(&a).Stale || a.PrimaryVersionID == "" || a.Status == model.AssetVersionStatusArchived {
+		if !ok || !scenePaletteUsable(&a) {
 			continue
 		}
 		out[sceneID] = a.PrimaryVersionID

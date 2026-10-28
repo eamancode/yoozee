@@ -87,6 +87,31 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
     };
 }
 
+/**
+ * 这一段绑的本场场次色卡（生成分段装段时以 role=style 绑上）：有合成图时给参考图，色值给提示词用；旧版色卡、场次已不存在的不算。
+ * 视频参考图里色卡优先级最低：排在角色 / 场景 / 道具之后，名额满了不带图、只把色值写进提示词（withShotScenePalette）。分镜图和黑白预演不带。
+ */
+export function shotScenePalette(detail: ProjectDetail, shotId: string) {
+    const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
+    for (const reference of detail.shotReferences || []) {
+        if (reference.shotId !== shotId || reference.status !== "linked" || reference.role !== "style") continue;
+        const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
+        const palette = asset?.palette;
+        if (!asset || !palette || palette.master || palette.kind !== "scene" || palette.sceneGone) continue;
+        const colors = [...(palette.entry?.shared_colors || []), ...(palette.entry?.new_colors || [])].filter((color) => /^#[0-9A-F]{6}$/i.test(color.hex));
+        const image = projectAssetReferenceImage(asset, reference);
+        return { code: palette.code, image, colorsLine: colors.length ? `本场色值：${colors.map((color) => `${color.name_zh || color.name_en} ${color.hex.toUpperCase()}`.trim()).join("、")}。` : "" };
+    }
+    return undefined;
+}
+
+/** 把本场色卡加到视频参考图最后：模型的参考图名额（maxImages，没配时按 0 算，不带图）还有空位且有合成图时带图，否则返回要写进提示词的色值行。 */
+export function withShotScenePalette(images: ReferenceImage[], palette: ReturnType<typeof shotScenePalette>, maxImages: number) {
+    if (!palette) return { images, promptLine: "" };
+    if (palette.image && images.length < maxImages) return { images: [...images, palette.image], promptLine: `图片${images.length + 1} 是本场色卡（${palette.code}）：画面用色和光色以它为准，不把色卡本身画进画面。` };
+    return { images, promptLine: palette.colorsLine };
+}
+
 export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string } = {}) {
     const imageLabelByAssetId = new Map(context.mentionReferences.map((reference, index) => [reference.assetId, `图片${index + 1}`]));
     const unresolved = new Set<string>();

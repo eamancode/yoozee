@@ -106,3 +106,10 @@ func (r *Repository) ApplyDramaStyleLock(userID string, projectID string, bibleJ
 		return tx.Model(&model.Project{}).Where("id = ?", projectID).Update("revision", gorm.Expr("revision + 1")).Error
 	})
 }
+
+// DramaStyleLibraryCoverInUse 是还有没有风格库条目拿这个资源当封面。
+func (r *Repository) DramaStyleLibraryCoverInUse(resourceID string) (bool, error) {
+	var count int64
+	err := r.db.Model(&model.DramaStyleLibraryEntry{}).Where("cover_resource_id = ?", resourceID).Count(&count).Error
+	return count > 0, err
+}

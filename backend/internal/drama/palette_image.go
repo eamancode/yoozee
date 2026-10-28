@@ -21,7 +21,7 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-// 主基调色卡图（M8 卡 A）：不调图片模型，由代码按色值画一张 16:9 的 PNG——白底，顶部标题，每组一行：组名在左，右边一排色块，
+// 色卡图（M8 卡 A 主基调色卡、卡 B 场次色卡）：不调图片模型，由代码按色值画一张 16:9 的 PNG——白底，顶部标题，每组一行：组名在左，右边一排色块，
 // 每块下面写 HEX、中文名、英文名（与《色卡提示词卡》的版式一致：色块 + HEX + 色名）。拉丁字母用 Go 自带字体（gofont，BSD 许可，
 // 随 golang.org/x/image 编进二进制）；中文用系统里的 CJK 字体（CANVAS_CJK_FONT 指定，否则按常见路径找：Linux 文泉驿 / Noto CJK、
 // Windows 微软雅黑 / 黑体、macOS 苹方）。找不到中文字体时只画 HEX 和英文名，中文名不画（MasterPaletteFontNote 说明原因）。
@@ -225,6 +225,25 @@ var (
 
 // RenderMasterPalettePNG 画主基调色卡：title 是标题（风格名或项目名）。最多画 StyleLockMaxColors 个颜色；HEX 不合法的颜色跳过。
 func RenderMasterPalettePNG(title string, p MasterPalette) ([]byte, error) {
+	heading := strings.TrimSpace(strings.TrimSpace(title) + " · 主基调色卡")
+	if strings.HasPrefix(heading, "·") {
+		heading = "主基调色卡"
+	}
+	return renderPalettePNG(heading, "MASTER PALETTE", "MASTER PALETTE", p)
+}
+
+// RenderScenePalettePNG 画一场的场次色卡：标题「E01S02 · 内·电梯口·夜」，颜色按主色卡的分组一组一行（没写分组的归「其他」），
+// 与主基调色卡同一版式。
+func RenderScenePalettePNG(e ColorScriptEntry) ([]byte, error) {
+	sub := "SCENE PALETTE"
+	if e.InheritsFrom != "" {
+		sub += " · FROM " + e.InheritsFrom
+	}
+	return renderPalettePNG(PaletteHeading(e), e.Code(), sub, ScenePaletteGroups(e))
+}
+
+// renderPalettePNG 画一张分组色卡：heading 是标题（没有中文字体时用 latinHeading），sub 是右上角的英文小标题（后面接色数）。
+func renderPalettePNG(heading string, latinHeading string, sub string, p MasterPalette) ([]byte, error) {
 	fonts, err := loadPaletteFonts()
 	if err != nil {
 		return nil, err
@@ -255,7 +274,7 @@ func RenderMasterPalettePNG(title string, p MasterPalette) ([]byte, error) {
 		}
 	}
 	if total == 0 {
-		return nil, fmt.Errorf("主基调色卡没有能画的颜色")
+		return nil, fmt.Errorf("色卡没有能画的颜色")
 	}
 	titleFace, err := fonts.text(44, true, false)
 	if err != nil {
@@ -273,16 +292,10 @@ func RenderMasterPalettePNG(title string, p MasterPalette) ([]byte, error) {
 	const margin = 72
 	right := MasterPaletteImageWidth - margin
 
-	heading := strings.TrimSpace(title)
-	if titleFace.hasCJK() {
-		heading = strings.TrimSpace(heading + " · 主基调色卡")
-		if strings.HasPrefix(heading, "·") {
-			heading = "主基调色卡"
-		}
-	} else {
-		heading = "MASTER PALETTE"
+	if !titleFace.hasCJK() {
+		heading = latinHeading
 	}
-	sub := fmt.Sprintf("MASTER PALETTE · %d COLORS", total)
+	sub = fmt.Sprintf("%s · %d COLORS", sub, total)
 	subW := subFace.width(sub).Ceil()
 	titleFace.draw(img, margin, 112, titleFace.fit(heading, right-margin-subW-40), paletteInk)
 	subFace.draw(img, right-subW, 112, sub, paletteMuted)

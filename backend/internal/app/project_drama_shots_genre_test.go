@@ -53,11 +53,11 @@ func writeQichuangPalettes(t *testing.T, svc *Service, projectID string, entries
 	if err != nil {
 		t.Fatal(err)
 	}
-	writes, _, err := svc.dramaPaletteWrites("user-1", current, entries, false, nil)
+	writes, _, err := svc.dramaPaletteWrites("user-1", current, entries, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.repo.ApplyDramaStyleBible("user-1", projectID, string(bible), writes, time.Now()); err != nil {
+	if err := svc.repo.ApplyDramaScenePalettes("user-1", projectID, string(bible), writes, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -103,8 +103,8 @@ type dramaStepPlan struct {
 	record map[string]any
 	// adapt 是剧本优化的运行参数（metadata.dramaAdapt），收尾按它写剧集。
 	adapt *dramaAdaptMeta
-	// style 是导演风格的运行参数（metadata.dramaStyle），收尾按它检查场次、排色卡出图。
-	style *dramaStyleMeta
+	// palette 是场次色卡的运行参数（metadata.dramaScenePalette），收尾按它检查场次。
+	palette *dramaScenePaletteMeta
 	// assets 是资产设计的运行参数（metadata.dramaAssets），收尾按它取本集色彩脚本、排资产出图。
 	assets *dramaAssetsMeta
 	// shots 是生成分段的逐场注入（metadata.dramaShots）：戏类判定的提示词、每场的色卡段和戏类卡。
@@ -266,8 +266,8 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	if plan.adapt != nil {
 		metadata["dramaAdapt"] = plan.adapt
 	}
-	if plan.style != nil {
-		metadata["dramaStyle"] = plan.style
+	if plan.palette != nil {
+		metadata["dramaScenePalette"] = plan.palette
 	}
 	if plan.assets != nil {
 		metadata["dramaAssets"] = plan.assets

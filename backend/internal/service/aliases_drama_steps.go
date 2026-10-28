@@ -14,15 +14,16 @@ type (
 	DramaStepBindingMatrix   = app.DramaStepBindingMatrix
 	DramaStepBindingsRequest = app.DramaStepBindingsRequest
 
-	DramaProjectStepRunRequest = app.DramaProjectStepRunRequest
-	DramaScriptAdaptOutcome    = app.DramaScriptAdaptOutcome
-	DramaEpisodesView          = app.DramaEpisodesView
-	DramaImageTaskTemplate     = app.DramaImageTaskTemplate
-	DramaStyleBibleOutcome     = app.DramaStyleBibleOutcome
-	DramaPaletteImagesRequest  = app.DramaPaletteImagesRequest
-	DramaAssetImagesRequest    = app.DramaAssetImagesRequest
-	DramaAssetsExtractOutcome  = app.DramaAssetsExtractOutcome
-	DramaImageQueueResult      = app.DramaImageQueueResult
+	DramaProjectStepRunRequest      = app.DramaProjectStepRunRequest
+	DramaScriptAdaptOutcome         = app.DramaScriptAdaptOutcome
+	DramaEpisodesView               = app.DramaEpisodesView
+	DramaImageTaskTemplate          = app.DramaImageTaskTemplate
+	DramaScenePaletteOutcome        = app.DramaScenePaletteOutcome
+	DramaPaletteResynthesizeRequest = app.DramaPaletteResynthesizeRequest
+	DramaPaletteResynthesizeResult  = app.DramaPaletteResynthesizeResult
+	DramaAssetImagesRequest         = app.DramaAssetImagesRequest
+	DramaAssetsExtractOutcome       = app.DramaAssetsExtractOutcome
+	DramaImageQueueResult           = app.DramaImageQueueResult
 
 	DramaStyleLockRequest          = app.DramaStyleLockRequest
 	DramaStyleLockResult           = app.DramaStyleLockResult

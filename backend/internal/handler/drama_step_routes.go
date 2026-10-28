@@ -104,24 +104,20 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, result)
 	})
-	// 给色卡出图 / 重新出图：服务端按色彩脚本拼提示词、直接建资产出图任务（同时任务数满时剩下的排在后面）。
-	r.POST("/projects/:id/drama/palettes/images", func(c *gin.Context) {
+	// 资产页「重新合成」场次色卡：按色卡当前版本的色板由代码重画图、绑成新版本，不调模型。
+	r.POST("/projects/:id/drama/palettes/resynthesize", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		policy, available := loadRuntimePolicy(c, svc)
-		if !available || !enforceRateLimit(c, "tasks:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
-			return
-		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
-		var req service.DramaPaletteImagesRequest
+		var req service.DramaPaletteResynthesizeRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			failService(c, service.BadAuthRequest("色卡出图的请求格式无效"))
+			failService(c, service.BadAuthRequest("重新合成色卡的请求格式无效"))
 			return
 		}
-		result, err := svc.QueueDramaPaletteImages(user.ID, c.Param("id"), req)
+		result, err := svc.ResynthesizeDramaPalettes(user.ID, c.Param("id"), req)
 		if err != nil {
 			failService(c, err)
 			return

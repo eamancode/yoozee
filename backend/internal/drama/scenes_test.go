@@ -113,7 +113,7 @@ func TestSceneConsumersShareSplit(t *testing.T) {
 	if plan := ChapterShotsTurnPlan(turns); !strings.Contains(plan, "共 2 场") || !strings.Contains(plan, "连续 2 个同地点的场次头") {
 		t.Fatalf("分回合说明：%s", plan)
 	}
-	if style := StyleBibleScenes(text, "七床", 300); len(style) != 2 || style[1].No != 2 || style[1].Heading != "内·电梯口·夜" || !strings.Contains(style[1].Excerpt, "周岸：小满") {
+	if style := ScenePaletteScenes(text, "七床", 300); len(style) != 2 || style[1].No != 2 || style[1].Heading != "内·电梯口·夜" || !strings.Contains(style[1].Excerpt, "周岸：小满") {
 		t.Fatalf("导演风格 2 场：%+v", style)
 	}
 	if genre := ChapterShotsGenreScenes(text, "七床"); len(genre) != 2 || genre[1].ID != "E01S02" {

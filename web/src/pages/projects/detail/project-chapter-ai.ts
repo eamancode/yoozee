@@ -4,7 +4,7 @@ import {
     dramaRunProgressOf,
     dramaScriptAdaptOutcomeOf,
     dramaStepOutcomeOf,
-    dramaStyleBibleOutcomeOf,
+    dramaScenePaletteOutcomeOf,
     dramaStyleLockOutcomeOf,
     runDramaProjectStep,
     runDramaStep,
@@ -195,46 +195,43 @@ export async function runStyleLock(input: StyleLockRunInput, options?: ChapterTa
     return { task: completed, usage, outcome: dramaStyleLockOutcomeOf(completed) };
 }
 
-/** 导演风格任务的 metadata.source（与后端步骤表 TaskSource 一致）。 */
-export const STYLE_BIBLE_TASK_SOURCE = "short-drama-style-bible";
+/** 场次色卡任务的 metadata.source（与后端步骤表 TaskSource 一致）。 */
+export const SCENE_PALETTE_TASK_SOURCE = "short-drama-scene-palette";
 
-/** 任务列表靠 clientContext（chapterOperation=style-bible）认，带输入的任务详情按 metadata.source 认。 */
-export function isStyleBibleTask(task: GenerationTask) {
-    return task.clientContext?.chapterOperation === "style-bible" || generationTaskMetadata(task.inputJson).source === STYLE_BIBLE_TASK_SOURCE;
+/** 任务列表靠 clientContext（chapterOperation=scene-palette）认，带输入的任务详情按 metadata.source 认。 */
+export function isScenePaletteTask(task: GenerationTask) {
+    return task.clientContext?.chapterOperation === "scene-palette" || generationTaskMetadata(task.inputJson).source === SCENE_PALETTE_TASK_SOURCE;
 }
 
-type StyleBibleInput = {
+type ScenePaletteInput = {
     projectId: string;
     config: AiConfig;
-    /** 要定风格的剧集（不给时全部；项目还没有剧集时是原文章节）。 */
+    /** 要做色卡的剧集（不给时全部；项目还没有剧集时是原文章节）。 */
     sourceUnitIds?: string[];
-    /** 给色卡出图的图片任务模板；不给时只建色卡不出图。 */
-    paletteImages?: DramaImageTaskTemplate;
     resumeTaskId?: string;
 };
 
 /**
- * 导演风格（流程步骤 style.bible，项目级）：服务端按项目记忆一集一轮写风格锚和逐场色彩脚本，任务成功前合并写进连戏表、
- * 每场建色卡并排出图。页面只订阅任务文本流按集显示。
+ * 场次色卡（流程步骤 scene.palette，项目级）：项目锁定风格后，服务端以风格锚和主基调色卡为参考一集一轮写逐场色彩脚本，任务成功前
+ * 合并写进连戏表、每场建 / 加版本一张场次色卡并由代码合成色卡图（不调图片模型）。页面只订阅任务文本流按集显示。
  */
-export async function runStyleBible(input: StyleBibleInput, options?: ChapterTaskOptions) {
+export async function runScenePalette(input: ScenePaletteInput, options?: ChapterTaskOptions) {
     const model = input.config.textModel || input.config.model;
     const config = { ...input.config, model };
-    const { task, usage } = await runDramaProjectStep(input.projectId, "style.bible", {
+    const { task, usage } = await runDramaProjectStep(input.projectId, "scene.palette", {
         model,
         ...(logicalModelIDForConfig(config) ? { logicalModelId: logicalModelIDForConfig(config) } : {}),
         config: backendProviderConfig(config, "text") as Record<string, unknown>,
         ...(input.sourceUnitIds?.length ? { sourceUnitIds: input.sourceUnitIds } : {}),
-        ...(input.paletteImages ? { paletteImages: input.paletteImages } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);
     const completed = await followDramaRunTask(task, options);
-    return { task: completed, usage, outcome: dramaStyleBibleOutcomeOf(completed) };
+    return { task: completed, usage, outcome: dramaScenePaletteOutcomeOf(completed) };
 }
 
-/** 订阅一个逐轮续写的步骤任务（生成分段、资产设计、风格锁定、剧本优化、导演风格）直到结束，刷新页面后接回正在跑的任务也用它；失败时抛错，错误信息里有写到第几场 / 集。 */
+/** 订阅一个逐轮续写的步骤任务（生成分段、资产设计、风格锁定、剧本优化、场次色卡）直到结束，刷新页面后接回正在跑的任务也用它；失败时抛错，错误信息里有写到第几场 / 集。 */
 export function followDramaRunTask(task: GenerationTask, options?: ChapterTaskOptions) {
     // 流结束时的 terminal 事件带的是结果正文（各场拼好的镜头行，没有回合标记），不能拿它盖掉按场分好的流。
     let streamedMarkers = false;

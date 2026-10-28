@@ -269,7 +269,7 @@ func BuildStyleLockPrompt(in StyleLockInput) (StepPrompt, error) {
 	style := ""
 	if jsTrim(in.Style.Prompt) != "" || len(in.Style.Selection) > 0 {
 		style = styleBibleStylePrompt(in.Style)
-		style = strings.Replace(style, "色彩脚本的颜色在它的色彩与光影基线里取，不另起一套色系。", "主基调色卡在它的色彩与光影基线里取色；用户的风格描述或参考图与它冲突时，以用户为准。", 1)
+		style = strings.Replace(style, "色板的颜色在它的色彩与光影基线里取，不另起一套色系。", "主基调色卡在它的色彩与光影基线里取色；用户的风格描述或参考图与它冲突时，以用户为准。", 1)
 	}
 	text := joinTruthy([]string{
 		skillPrompt,
@@ -318,7 +318,7 @@ type StyleLockOutput struct {
 
 // AnchorProblem 说明风格锚缺什么；有可用的风格锚时返回空串。
 func (o StyleLockOutput) AnchorProblem() string {
-	return StyleBibleOutput{Anchor: o.Anchor, anchorUnreadable: o.anchorUnreadable}.AnchorProblem()
+	return anchorProblem(o.Anchor, o.anchorUnreadable)
 }
 
 // StyleLockParseStats 是解析统计。

@@ -300,7 +300,7 @@ func (s *Service) RenumberDramaScenes(userID string, projectID string, req Drama
 	if err != nil {
 		return result, err
 	}
-	if err := s.repo.ApplyDramaStyleBible(userID, project.ID, string(encoded), paletteWrites, time.Now()); err != nil {
+	if err := s.repo.ApplyDramaScenePalettes(userID, project.ID, string(encoded), paletteWrites, time.Now()); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return result, NotFound("项目或色卡在写入前被删除，没有重排")
 		}
