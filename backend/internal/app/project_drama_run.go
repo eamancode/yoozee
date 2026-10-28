@@ -49,6 +49,10 @@ type dramaRunMeta struct {
 	// ResumeFrom 是从第几轮开始写（从 1 数）；ResumeTaskID 是前面各轮所在的任务。
 	ResumeFrom   int    `json:"resumeFrom"`
 	ResumeTaskID string `json:"resumeTaskId,omitempty"`
+	// OnlyScenes 是「重新生成问题场」：只重写这几场，其余各场用镜头表（第 BaseShotlistVersion 版）里已有的镜头行，
+	// 照原来的轮次放进对话历史（不调模型），收尾按整章合并、检查、装段。为空时每一场都写。见 project_drama_run_only.go。
+	OnlyScenes          []string `json:"onlyScenes,omitempty"`
+	BaseShotlistVersion int      `json:"baseShotlistVersion,omitempty"`
 }
 
 // dramaRunTurn 是写完的一轮（一场或一集）。Prompt / Text 是续写和「从第 N 场继续」的对话历史，任务成功后从结果里去掉。
@@ -66,6 +70,8 @@ type dramaRunTurn struct {
 	Usage    map[string]any `json:"usage,omitempty"`
 	// TaskID 是写出这一轮的任务（从上一次任务接过来的轮次指向原任务）。
 	TaskID string `json:"taskId"`
+	// Kept 表示这一轮没调模型：「重新生成问题场」时不重写的场，Text 是镜头表里原有的镜头行。
+	Kept bool `json:"kept,omitempty"`
 }
 
 // dramaRunProgress 是任务 result.dramaRun：运行进度。前端按 Completed / Total 显示「从第 N 场继续」。
@@ -92,6 +98,8 @@ type dramaTurnMarker struct {
 	Genre       string             `json:"genre,omitempty"`
 	GenreReason string             `json:"genreReason,omitempty"`
 	Genres      []drama.SceneGenre `json:"genres,omitempty"`
+	// Only 是「重新生成问题场」要重写的场（只有这几场有回合标记和输出）。
+	Only []string `json:"only,omitempty"`
 }
 
 func newDramaRunMeta(plan *dramaStepPlan, unitID string) dramaRunMeta {
@@ -193,7 +201,8 @@ func (s *Service) resumeDramaRun(userID string, projectID string, unitID string,
 	case !sameShotsScenes(run.Scenes, plan.scenes):
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("正文的%s次改过了（或场次规则已更新：连续同地点的场次头并成一场），不能从中间继续，请重新%s", unit, label))
 	}
-	return dramaRunMeta{RunID: run.RunID, Step: run.Step, UnitID: unitID, Scenes: run.Scenes, Sources: run.Sources, Turns: run.Turns, ResumeFrom: progress.Completed + 1, ResumeTaskID: previous.ID}, nil
+	return dramaRunMeta{RunID: run.RunID, Step: run.Step, UnitID: unitID, Scenes: run.Scenes, Sources: run.Sources, Turns: run.Turns, ResumeFrom: progress.Completed + 1, ResumeTaskID: previous.ID,
+		OnlyScenes: run.OnlyScenes, BaseShotlistVersion: run.BaseShotlistVersion}, nil
 }
 
 func sameShotsScenes(a []drama.ShotsScene, b []drama.ShotsScene) bool {
@@ -280,6 +289,10 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 	for _, t := range turns {
 		written += t.Rows
 	}
+	kept, err := s.dramaRunKeptScenes(task, run, len(turns))
+	if err != nil {
+		return nil, err
+	}
 	for k := len(turns) + 1; k <= total; k++ {
 		// 用户可以在轮与轮之间取消（task_lifecycle 对逐轮续写放行）：取消落库后，别的实例上的 worker 在下一轮开始前停下。
 		if latest, err := s.repo.Task(task.ID); err == nil && latest.Status == model.TaskStatusCancelled {
@@ -310,9 +323,15 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		if k <= len(run.Scenes) {
 			check.Turn = run.Scenes[k-1]
 		}
-		turn, err := s.runDramaTurn(ctx, task, turnInput, marker, stream, turnTimeout, plan, check)
-		if err != nil {
-			return nil, dramaRunTurnError(plan.Unit, marker, progress.Completed, turnTimeout, err)
+		var turn dramaRunTurn
+		if rows, ok := kept[marker.Scene]; ok {
+			// 不重写的场：原有镜头行照这一轮的提示词放进对话历史，后面重写的场照样接着它往下写。
+			turn = dramaRunTurn{Index: k, Scene: marker.Scene, Heading: marker.Heading, Rows: rows.count, Prompt: turnInput.Prompt, Text: rows.text, Kept: true}
+		} else {
+			marker.Only = run.OnlyScenes
+			if turn, err = s.runDramaTurn(ctx, task, turnInput, marker, stream, turnTimeout, plan, check); err != nil {
+				return nil, dramaRunTurnError(plan.Unit, marker, progress.Completed, turnTimeout, err)
+			}
 		}
 		turn.TaskID, turn.Genre = task.ID, genre.Genre
 		progress.Turns = append(progress.Turns, turn)
