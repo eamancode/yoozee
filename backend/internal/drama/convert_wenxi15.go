@@ -24,6 +24,7 @@ var (
 	wenxi15Field    = regexp.MustCompile(`\*\*([^*]+)\*\*\s*[：:]?\s*(.*)$`)
 	wenxi15Shot     = regexp.MustCompile(`^[-*\s]*\**S(\d+)\**\s*[，,、]\s*([\d.]+)\s*s?\s*[-–—~～至]\s*([\d.]+)\s*s\s*[，,、]\s*(.*)$`)
 	wenxi15EndTime  = regexp.MustCompile(`([\d.]+)\s*s?\s*[-–—~～至]\s*([\d.]+)\s*s`)
+	wenxi15LeadTime = regexp.MustCompile(`^[\d.]+\s*s?\s*[-–—~～至]\s*[\d.]+\s*s\s*[，,、]\s*`)
 	wenxi15Speech   = regexp.MustCompile(`([^\s，。；：:“”"（）()、]{1,16})(?:[（(]([^）)]{1,16})[）)])?\s*[：:]\s*[“"]([^”"]+)[”"]`)
 	wenxi15Tag      = regexp.MustCompile(`(风格|核心情绪)[：:]\s*([^。]+)。?`)
 	wenxi15Elements = regexp.MustCompile(`(角色|场景|道具|BGM背景音乐|BGM|摄影基调)[：:]\s*([^；;\]]*)`)
@@ -80,10 +81,12 @@ func parseWenxi15Blocks(raw string) []wenxi15Block {
 	return blocks
 }
 
+// field 是一个片段级栏目的内容：去掉外层方括号和句号，结束站位开头的时间段（「11s-12s，」）也去掉（时间已并进最后一镜）。
 func (b wenxi15Block) field(prefix string) string {
 	for _, f := range b.fields {
 		if strings.HasPrefix(f.Name, prefix) {
-			return strings.Trim(f.Value, "[]【】 ")
+			value := strings.Trim(strings.TrimRight(strings.TrimSpace(f.Value), "。."), "[]【】 ")
+			return strings.TrimSpace(wenxi15LeadTime.ReplaceAllString(value, ""))
 		}
 	}
 	return ""

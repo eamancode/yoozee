@@ -80,7 +80,7 @@ export function ChapterStoryboardRunPanel({
                 <>
                     <span className="font-medium text-foreground/80">
                         {rewriting
-                            ? `正在重写问题小节 ${turnName(stream.scenes[stream.scenes.length - 1]) || rewriting[0]}（${Math.max(1, stream.scenes.length)}/${rewriting.length}）`
+                            ? `正在重写问题小节 ${turnName(stream.scenes[stream.scenes.length - 1]) || rewriting[0]}（${Math.max(1, rewriting.indexOf(turnName(stream.scenes[stream.scenes.length - 1])) + 1)}/${rewriting.length}）`
                             : stream.total
                               ? `正在写第 ${Math.max(1, stream.current)}/${stream.total} 节`
                               : stream.shotCount

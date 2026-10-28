@@ -147,6 +147,9 @@ func TestConvertWenxi15QichuangLines(t *testing.T) {
 	if first := rowSpec(t, conv.Rows[0]); first.ID != "E01S01-05" {
 		t.Fatalf("镜头 id 接着本场前面的镜头编：%s", first.ID)
 	}
+	if last := rowSpec(t, conv.Rows[len(conv.Rows)-1]); last.EndState != "林小满冲出病房门，背影朝走廊尽头，病历夹夹在腋下，日光灯在头顶闪烁" {
+		t.Fatalf("结束站位去掉时间段和方括号：%q", last.EndState)
+	}
 	if conv.Rows[0]["dialogue"] != "林小满：七床的人呢？" {
 		t.Fatalf("行 dialogue：%v", conv.Rows[0]["dialogue"])
 	}
