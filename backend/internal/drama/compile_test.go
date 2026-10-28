@@ -238,4 +238,26 @@ func TestWithScenePalette(t *testing.T) {
 	if got := WithScenePalette(h3Base, h3, ref, 9); got.Files[len(got.Files)-1].Tag != "<Picture 4>" || !strings.Contains(got.Prompt, "<Picture 4> is the scene color palette card") {
 		t.Fatalf("H3 用 <Picture N>：%+v", got.Files)
 	}
+	// H3 只有色卡 / 资产 + 色卡 / 只有资产：图片编号从 1 连续编到最后，提示词里每个编号都有对应文件。
+	bare := seg
+	bare.Refs, bare.Voices = nil, nil
+	h3Bare, err := Compile(bare, h3, nil, nil)
+	if err != nil || len(h3Bare.Files) != 0 {
+		t.Fatalf("没有资产参考的 H3 段：%v %+v", err, h3Bare.Files)
+	}
+	for name, got := range map[string]CompileResult{"只有色卡": WithScenePalette(h3Bare, h3, ref, 9), "资产 + 色卡": WithScenePalette(h3Base, h3, ref, 9), "只有资产": h3Base} {
+		n := 0
+		for _, f := range got.Files {
+			if f.Role == "voice" {
+				continue
+			}
+			n++
+			if want := fmt.Sprintf("<Picture %d>", n); f.Tag != want || !strings.Contains(got.Prompt, want) {
+				t.Fatalf("H3 %s：第 %d 张图编号应是 %s：%+v\n%s", name, n, want, got.Files, got.Prompt)
+			}
+		}
+		if n == 0 || strings.Contains(got.Prompt, "@图片") {
+			t.Fatalf("H3 %s 不应出现即梦编号：%+v", name, got.Files)
+		}
+	}
 }
