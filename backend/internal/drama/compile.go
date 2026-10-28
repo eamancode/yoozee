@@ -445,6 +445,9 @@ func CompileWith(seg Segment, m Model, style, acting *string, profile *Profile, 
 	if acting != nil {
 		a = *acting
 	}
+	if seg.Genre == ShotGenreWenxi15 {
+		seg = segmentWithoutMusic(seg)
+	}
 	issues := Issues(seg, m)
 	var prompt string
 	var files []CompiledFile
@@ -493,6 +496,26 @@ func CompileWith(seg Segment, m Model, style, acting *string, profile *Profile, 
 		result.Paste = PasteVersion(result)
 	}
 	return result, nil
+}
+
+// segmentWithoutMusic 去掉一段里写到配乐的分句（文戏 15 的 7.3 每个片段都写 BGM：原样输出和分镜卡保留，编译视频提示词时去掉，§5 第 1 条）。
+// 转换器已经不把 BGM 写进镜头字段，这里兜住分镜卡手改、旧数据带进来的。
+func segmentWithoutMusic(seg Segment) Segment {
+	strip := func(text string) string {
+		out, _ := stripMusic(text)
+		return out
+	}
+	seg.Shots = slices.Clone(seg.Shots)
+	for i := range seg.Shots {
+		seg.Shots[i].Text, seg.Shots[i].Sound = strip(seg.Shots[i].Text), strip(seg.Shots[i].Sound)
+	}
+	seg.Sound, seg.Rules, seg.Hook = strip(seg.Sound), strip(seg.Rules), strip(seg.Hook)
+	if seg.ContinuityBridge != nil {
+		bridge := *seg.ContinuityBridge
+		bridge.SharedBed = strip(bridge.SharedBed)
+		seg.ContinuityBridge = &bridge
+	}
+	return seg
 }
 
 // PasteVersion 是即梦网页粘贴版：提示词 + 上传清单（哪个文件对应哪个编号）+ 时长。

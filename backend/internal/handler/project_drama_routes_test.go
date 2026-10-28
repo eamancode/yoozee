@@ -98,3 +98,26 @@ func TestDramaRoutesRejectAnonymousRequests(t *testing.T) {
 		}
 	}
 }
+
+// 步骤用法和场次表的渠道段长查询参数：与生成分段 run 请求的 rule 同口径，不带时为 nil，非正整数拒绝。
+func TestDramaRuleQuery(t *testing.T) {
+	read := func(query string) (*service.DramaShotlistRule, error) {
+		context, _ := gin.CreateTestContext(httptest.NewRecorder())
+		context.Request = httptest.NewRequest("GET", "/api/projects/p/drama/steps/chapter.shots"+query, nil)
+		return dramaRuleQuery(context)
+	}
+	if rule, err := read(""); err != nil || rule != nil {
+		t.Fatalf("不带参数：%+v %v", rule, err)
+	}
+	if rule, err := read("?maxSeconds=15&minSeconds=4"); err != nil || rule == nil || rule.MaxSeconds != 15 || rule.MinSeconds != 4 {
+		t.Fatalf("15 秒渠道：%+v %v", rule, err)
+	}
+	if rule, err := read("?maxSeconds=30"); err != nil || rule == nil || rule.MaxSeconds != 30 || rule.MinSeconds != 0 {
+		t.Fatalf("只带上限：%+v %v", rule, err)
+	}
+	for _, query := range []string{"?maxSeconds=abc", "?maxSeconds=0", "?minSeconds=-1", "?maxSeconds=1.5"} {
+		if rule, err := read(query); err == nil {
+			t.Fatalf("%s 未被拒绝：%+v", query, rule)
+		}
+	}
+}

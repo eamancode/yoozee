@@ -153,7 +153,7 @@ func (s *Service) planStyleLock(userID string, project *model.Project, step dram
 			return nil, BadAuthRequest("写一段风格描述、传参考图，或先选项目画风，再分析项目风格")
 		}
 	}
-	usage, skill, err := s.dramaStepSkill(project, step)
+	usage, skill, err := s.dramaStepSkill(project, step, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 68
+const CurrentSchemaVersion int64 = 69
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -248,6 +248,10 @@ var schemaMigrations = []migration{
 	// M8 卡 B：导演风格（style.bible）改成场次色卡（scene.palette），五个风格档案绑默认技能 yz-scene-palette、去掉 style.bible 的绑定；
 	// 平台风格库同一项目类型不重名（唯一索引，已有重名的先在后建的名字后面加序号）。
 	{version: 68, name: "drama_scene_palette", checksum: "sha256:drama-scene-palette-v68-20261028", apply: migrateDramaScenePalette},
+	// M8 卡 F：按小节生成，drama_shotlists 加 sections_json（每一节的原样输出）。戏类绑定沿用 drama_step_bindings，步骤列写「chapter.shots#<戏类>」，不改表。
+	{version: 69, name: "drama_shotlist_sections", checksum: "sha256:drama-shotlist-sections-v69-20261028", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaShotlist{})
+	}},
 }
 
 // migrateDramaScenePalette 给五个风格档案写 scene.palette → 步骤默认技能的绑定（已有的格子不动），删掉已经没有的 style.bible 步骤的绑定；

@@ -204,6 +204,12 @@ describe("短剧流程步骤（M6）", () => {
         expect(lastCall()).toEqual({ method: "post", url: "/projects/p%201/units/u1/drama/steps/chapter.shots/run", body: { model: "deepseek", config: { model: "deepseek" } } });
         await drama.getDramaStepUsage("p1", "chapter.shots");
         expect(lastCall()).toMatchObject({ method: "get", url: "/projects/p1/drama/steps/chapter.shots" });
+        // 弹窗的戏类、场次条的节数和运行用同一个渠道段长：查询带 maxSeconds / minSeconds，不带时不发参数。
+        expect(lastCall().config.params).toBeUndefined();
+        await drama.getDramaStepUsage("p1", "chapter.shots", undefined, { maxSeconds: 15, minSeconds: 4 });
+        expect(lastCall()).toMatchObject({ method: "get", url: "/projects/p1/drama/steps/chapter.shots", config: { params: { maxSeconds: 15, minSeconds: 4 } } });
+        await drama.getDramaScenes("p1", "u1", undefined, { maxSeconds: 15, minSeconds: 4 });
+        expect(lastCall()).toMatchObject({ method: "get", url: "/projects/p1/units/u1/drama/scenes", config: { params: { maxSeconds: 15, minSeconds: 4 } } });
 
         transport.responses["/projects/p1/units/u1/drama/steps/chapter.shots/run"] = { task: { id: "t2" }, usage: { step: "chapter.shots" } };
         await drama.runDramaStep("p1", "u1", "chapter.shots", { model: "deepseek", config: {}, rule: { maxSeconds: 15, minSeconds: 4 }, resumeTaskId: "t1" });

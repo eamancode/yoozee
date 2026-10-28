@@ -127,7 +127,7 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 	}
 
 	// 下游原样可用：剧集上的生成分段按场次头逐场，台词表读得出台词。
-	plan, err := svc.planDramaStep("user-1", &project, ep1.ID, drama.StepChapterShots)
+	plan, err := svc.planDramaStep("user-1", &project, ep1.ID, drama.StepChapterShots, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -113,11 +113,7 @@ func TestFlowPackageUploadChangesAssembledPrompt(t *testing.T) {
 	golden := readTestdata(t, "server-prompt.txt")
 	promptNow := func() DramaStepPrompt {
 		t.Helper()
-		got, err := svc.DramaStepPrompt("user-1", project.ID, unit.ID, drama.StepChapterShots)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return got
+		return legacyChapterShotsPrompt(t, svc, project, unit)
 	}
 	if got := promptNow(); got.Prompt != golden {
 		t.Fatalf("种子版本的提示词应与黄金文件相同：\n%s", firstDiff(golden, got.Prompt))

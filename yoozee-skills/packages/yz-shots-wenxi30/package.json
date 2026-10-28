@@ -1,0 +1,21 @@
+{
+  "id": "yz-shots-wenxi30",
+  "step": "chapter.shots#wenxi30",
+  "contract": "section.wenxi30@1",
+  "profiles": [
+    "action-epic",
+    "anime-3d",
+    "duanju-shiga",
+    "game-ip",
+    "live-realism"
+  ],
+  "version": "1.0.0",
+  "files": [
+    "SKILL.md",
+    "cards/01-拆分与格式.md",
+    "cards/02-硬规则与任务.md",
+    "cards/03-示例与模板.md",
+    "cards/04-对话戏.md"
+  ],
+  "eval": []
+}

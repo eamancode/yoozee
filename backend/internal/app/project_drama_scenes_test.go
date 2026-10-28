@@ -32,7 +32,7 @@ func TestDramaScenesLegacyDataNoticeAndRenumber(t *testing.T) {
 		t.Fatalf("旧镜头表：%v", err)
 	}
 
-	view, err := svc.DramaScenes("user-1", project.ID, unit.ID)
+	view, err := svc.DramaScenes("user-1", project.ID, unit.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,10 +48,10 @@ func TestDramaScenesLegacyDataNoticeAndRenumber(t *testing.T) {
 		!strings.Contains(notice.Message, "镜头表请重新生成分段；色彩脚本与色卡请到章节页点「生成场次色卡」重新生成") {
 		t.Fatalf("旧数据编号错位的提示：%+v", notice)
 	}
-	if units, err := svc.ProjectDramaScenes("user-1", project.ID); err != nil || len(units) != 1 || units[0].UnitID != unit.ID {
+	if units, err := svc.ProjectDramaScenes("user-1", project.ID, nil); err != nil || len(units) != 1 || units[0].UnitID != unit.ID {
 		t.Fatalf("项目场次表：%v %+v", err, units)
 	}
-	if _, err := svc.DramaScenes("someone-else", project.ID, unit.ID); err == nil {
+	if _, err := svc.DramaScenes("someone-else", project.ID, unit.ID, nil); err == nil {
 		t.Fatal("别人的项目读不到场次表")
 	}
 
@@ -116,7 +116,7 @@ func TestDramaScenesLegacyDataNoticeAndRenumber(t *testing.T) {
 	if err != nil || preview.Applied || len(preview.Moves) != 3 {
 		t.Fatalf("预览：%v %+v", err, preview)
 	}
-	if after, _ := svc.DramaScenes("user-1", project.ID, unit.ID); after.Notice == nil || len(after.Notice.ColorScript) != 1 {
+	if after, _ := svc.DramaScenes("user-1", project.ID, unit.ID, nil); after.Notice == nil || len(after.Notice.ColorScript) != 1 {
 		t.Fatal("预览不改数据")
 	}
 	applied, err := svc.RenumberDramaScenes("user-1", project.ID, DramaSceneRenumberRequest{Apply: true})
@@ -135,7 +135,7 @@ func TestDramaScenesLegacyDataNoticeAndRenumber(t *testing.T) {
 	if len(script) != 2 || script[0].SceneRule != drama.SceneRuleMerged || script[1].SceneRule != drama.SceneRuleMerged {
 		t.Fatalf("重排后色彩脚本两场、带规则标记：%+v", script)
 	}
-	after, _ := svc.DramaScenes("user-1", project.ID, unit.ID)
+	after, _ := svc.DramaScenes("user-1", project.ID, unit.ID, nil)
 	if after.Notice == nil || len(after.Notice.ColorScript) != 0 || len(after.Notice.Palettes) != 0 || !after.Notice.Shotlist || !strings.Contains(after.Notice.Message, "重新生成分段") || strings.Contains(after.Notice.Message, "场次色卡") {
 		t.Fatalf("重排后只剩镜头表要重新生成：%+v", after.Notice)
 	}

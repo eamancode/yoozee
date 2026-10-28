@@ -246,3 +246,12 @@ func jsNumberString(v float64) string {
 	}
 	return fmt.Sprintf("%v", v)
 }
+
+// NormalizeStoryboardRows 规整转换器转出的分镜行（按小节生成时技能原生输出转出来的行，与模型直接写的行同一套规整，shotNumber 重排）。
+func NormalizeStoryboardRows(rows []map[string]any) []map[string]any {
+	items := make([]any, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, r)
+	}
+	return normalizeStoryboardRows(items)
+}
