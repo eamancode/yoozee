@@ -32,8 +32,9 @@ export function sceneAnchorBlock(texts: string[], anchor: SceneAnchor) {
     return -1;
 }
 
-/** 场次的地点和时间：「病房走廊 · 夜」，时间有变化时「电梯口 · 夜→晨」；读不出地点时用场次头。 */
+/** 场次的内外、地点和时间：「内·病房走廊 · 夜」，时间有变化时「内·电梯口 · 夜→晨」；读不出地点时用场次头。内外不同的同地点是两场，标签要能区分。 */
 export function sceneLabel(scene: DramaScene) {
-    const parts = [scene.location || scene.heading, scene.times.join("→")].filter(Boolean);
+    const place = scene.location ? [scene.inOut, scene.location].filter(Boolean).join("·") : scene.heading;
+    const parts = [place, scene.times.join("→")].filter(Boolean);
     return parts.join(" · ");
 }
