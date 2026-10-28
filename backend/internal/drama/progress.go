@@ -139,7 +139,7 @@ type ProgressInput struct {
 	// 「风格定了」「色卡齐了」以它为准，色彩脚本缺场、多场都算没齐。StyleFromChapters 表示取自原文章节。
 	StyleScenes       []SceneRef
 	StyleFromChapters bool
-	// StyleRuleShifted 是切场规则改成「连续同地点并成一场」后，旧规则写的、编号已经错位的色彩脚本场数：说明里提示重跑导演风格。
+	// StyleRuleShifted 是切场规则改成「连续同地点并成一场」后，旧规则写的、编号已经错位的色彩脚本场数：「色卡齐了」的说明里提示场次规则已更新。
 	StyleRuleShifted int
 	// Assets 是项目里角色、场景、道具的概况：「参考齐了」的规则不看它，只在说明里区分资产未提取和有资产还没出图。
 	Assets AssetsInput

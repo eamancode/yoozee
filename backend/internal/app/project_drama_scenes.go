@@ -145,15 +145,16 @@ func sceneRuleNotice(unit model.ProjectUnit, episode int, scenes []drama.Scene, 
 	if len(stale) == 0 {
 		return nil
 	}
+	// 导演风格（style.bible）已没有章节页入口：色彩脚本、色卡只提示等场次色卡上线后重新生成。
 	var redo []string
-	if len(notice.ColorScript) > 0 || len(notice.Palettes) > 0 {
-		redo = append(redo, "重跑导演风格")
-	}
 	if notice.Shotlist {
-		redo = append(redo, "重新生成分段")
+		redo = append(redo, "镜头表请重新生成分段")
 	}
-	notice.Message = fmt.Sprintf("场次规则已更新：同一集里连续同地点的场次头并成一场，这一集从 %d 场变成 %d 场。已有的%s还是旧场次编号，并场之后的编号对不上，建议重新生成（%s）。",
-		notice.LegacyScenes, len(scenes), strings.Join(stale, "、"), strings.Join(redo, "、"))
+	if len(notice.ColorScript) > 0 || len(notice.Palettes) > 0 {
+		redo = append(redo, "色彩脚本和色卡等场次色卡功能上线后重新生成")
+	}
+	notice.Message = fmt.Sprintf("场次规则已更新：同一集里连续同地点、内外相同的场次头并成一场，这一集从 %d 场变成 %d 场。已有的%s还是旧场次编号，并场之后的编号对不上：%s。",
+		notice.LegacyScenes, len(scenes), strings.Join(stale, "、"), strings.Join(redo, "；"))
 	return notice
 }
 
@@ -378,7 +379,7 @@ func episodeSceneHeading(episodes map[int]drama.SceneRenumberEpisode, e drama.Co
 }
 
 // legacyShiftedColorScript 是规则改变前写的、编号已经错位的色彩脚本场数：所在集按新规则有并起来的场，且这一场对不上当前场次表。
-// 总览「风格定了」「色卡齐了」的说明里提示重跑导演风格。
+// 总览「色卡齐了」的说明里提示场次规则已更新。
 func legacyShiftedColorScript(bibleJSON string, units []model.ProjectUnit) int {
 	_, script := projectStyleBible(bibleJSON)
 	if !slices.ContainsFunc(script, func(e drama.ColorScriptEntry) bool { return e.SceneRule == 0 }) {

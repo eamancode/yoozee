@@ -195,7 +195,7 @@ func styleSceneTable(units []model.ProjectUnit) map[string]styleSceneSlot {
 
 // colorScriptCurrent 是这一场的色彩脚本还对得上当前场次表：场编号还在，且写它时所在的单元就是现在这一场的单元
 // （改编出剧集后，原文章节版同编号的条目对不上）；没记单元的旧条目按场次头对。切场规则改变前写的条目，编号错位了也对不上
-// （要重跑导演风格，或用 RenumberDramaScenes 按新场次重排）。table 为 nil（评测，不知道项目的场次）时都算对得上。
+// （要重新生成色彩脚本，或用 RenumberDramaScenes 按新场次重排）。table 为 nil（评测，不知道项目的场次）时都算对得上。
 func colorScriptCurrent(e drama.ColorScriptEntry, table map[string]styleSceneSlot) bool {
 	if table == nil {
 		return true

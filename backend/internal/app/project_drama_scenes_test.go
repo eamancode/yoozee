@@ -68,7 +68,7 @@ func TestDramaScenesLegacyDataNoticeAndRenumber(t *testing.T) {
 		t.Fatalf("编号没错位的旧色卡照常绑：%+v", palettes)
 	}
 	units, _ := svc.repo.ProjectUnits(project.ID)
-	if n := legacyShiftedColorScript(mustProjectBible(t, svc, project.ID), units); n != 1 {
+	if n := legacyShiftedColorScript(mustProjectBible(t, svc, "user-1", project.ID), units); n != 1 {
 		t.Fatalf("错位的旧色彩脚本 1 场：%d", n)
 	}
 	progress, err := svc.DramaProgress("user-1", project.ID)
@@ -77,12 +77,12 @@ func TestDramaScenesLegacyDataNoticeAndRenumber(t *testing.T) {
 	}
 	style := ""
 	for _, e := range progress.EndStates {
-		if e.Key == "style" {
+		if e.Key == "palette" {
 			style = e.Detail
 		}
 	}
 	if !strings.Contains(style, "场次规则已更新") {
-		t.Fatalf("总览「风格定了」说明提示场次规则更新：%q", style)
+		t.Fatalf("总览「色卡齐了」说明提示场次规则更新：%q", style)
 	}
 
 	// 重装旧镜头表：仍按旧规则切台词表，不换编号；第 3 场的段绑它现在所在那一场（电梯口）的色卡。
@@ -130,12 +130,12 @@ func TestDramaScenesLegacyDataNoticeAndRenumber(t *testing.T) {
 	if retired < 0 || !applied.Palettes[retired].Retired || applied.Palettes[retired].Note == "" {
 		t.Fatalf("旧第 3 场的色卡标成场次已不存在：%+v", applied.Palettes)
 	}
-	_, script := projectStyleBible(mustProjectBible(t, svc, project.ID))
+	_, script := projectStyleBible(mustProjectBible(t, svc, "user-1", project.ID))
 	if len(script) != 2 || script[0].SceneRule != drama.SceneRuleMerged || script[1].SceneRule != drama.SceneRuleMerged {
 		t.Fatalf("重排后色彩脚本两场、带规则标记：%+v", script)
 	}
 	after, _ := svc.DramaScenes("user-1", project.ID, unit.ID)
-	if after.Notice == nil || len(after.Notice.ColorScript) != 0 || len(after.Notice.Palettes) != 0 || !after.Notice.Shotlist || !strings.Contains(after.Notice.Message, "重新生成分段") || strings.Contains(after.Notice.Message, "导演风格") {
+	if after.Notice == nil || len(after.Notice.ColorScript) != 0 || len(after.Notice.Palettes) != 0 || !after.Notice.Shotlist || !strings.Contains(after.Notice.Message, "重新生成分段") || strings.Contains(after.Notice.Message, "场次色卡") {
 		t.Fatalf("重排后只剩镜头表要重新生成：%+v", after.Notice)
 	}
 	summaries, err := svc.ProjectAssets("user-1", project.ID)
@@ -147,15 +147,6 @@ func TestDramaScenesLegacyDataNoticeAndRenumber(t *testing.T) {
 			t.Fatalf("资产页旧第 3 场色卡显示场次已不存在和说明：%+v", a.Palette)
 		}
 	}
-}
-
-func mustProjectBible(t *testing.T, svc *Service, projectID string) string {
-	t.Helper()
-	p, err := svc.repo.ProjectForUser("user-1", projectID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p.BibleJSON
 }
 
 // 并场之后的场编号往前挪：走廊、电梯口、电梯口、天台 → 三场。旧规则的第 2 场还在第 2 场（对得上），旧第 3 场并进第 2 场、
