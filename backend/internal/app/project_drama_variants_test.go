@@ -414,11 +414,13 @@ func TestApplySceneCastAndBible(t *testing.T) {
 	}
 	units := []model.ProjectUnit{{ID: "ep1", Kind: model.ProjectUnitKindEpisode, Position: 0}, {ID: "ep2", Kind: model.ProjectUnitKindEpisode, Position: 1}}
 	bible := `{"scene_assets":{"E02S02":{"unit_id":"ep2","environments":["lift"]},"E01S02":{"unit_id":"ep1","environments":["lift"]}}}`
+	// 同一场还有一张用在两场的服装子卡：取更具体的淋湿。
+	assets = append(assets, ProjectAssetSummary{ID: "suit", Title: "林小满·西服", Category: model.AssetCategoryCharacter, PrimaryVersionID: "suit-v", Character: &CharacterCardSummary{VersionID: "suit-v"}, Variant: &ProjectAssetVariantSummary{ParentID: "lin", ParentTitle: "林小满", Label: "西服", Kind: drama.AssetVariantCostume, Scenes: []string{"E02S01", "E02S02"}}})
 	cast := sceneCastOf(bible, units, "ep2", assets)
-	if cast.Variants["E01S02"]["lin"] != "wet" || len(cast.Environments["E01S02"]) != 1 || len(cast.Variants["E01S01"]) != 0 {
+	if cast.Variants["E01S02"]["lin"] != "wet" || len(cast.Environments["E01S02"]) != 1 || cast.Variants["E01S01"]["lin"] != "suit" {
 		t.Fatalf("第 2 集第 2 场：子卡、电梯口：%+v", cast)
 	}
-	if prompts := sceneCastPrompts(cast); !strings.Contains(prompts["E01S02"], "林小满 用「林小满·淋湿」") || prompts["E01S01"] != "" {
+	if prompts := sceneCastPrompts(cast); !strings.Contains(prompts["E01S02"], "林小满 用「林小满·淋湿」") || !strings.Contains(prompts["E01S01"], "林小满 用「林小满·西服」") {
 		t.Fatalf("本场角色子卡提示：%+v", prompts)
 	}
 	row := func(id string) shotlistRow {
@@ -432,9 +434,10 @@ func TestApplySceneCastAndBible(t *testing.T) {
 	}
 	rows := []shotlistRow{row("lin"), row("lin")}
 	shots := []drama.Shot{{ID: "E01S01-01", Scene: "E01S01", Focus: "林小满", RefsHint: []string{"林小满"}}, {ID: "E01S02-01", Scene: "E01S02", Focus: "林小满", RefsHint: []string{"林小满"}}}
+	delete(cast.Variants, "E01S01")
 	applySceneCast(rows, shots, cast)
 	if rows[0].AssetBindings[0].NodeID != "lin" || len(rows[0].AssetBindings) != 1 || shots[0].RefsHint[0] != "林小满" {
-		t.Fatalf("第 1 场不动：%+v %+v", rows[0], shots[0])
+		t.Fatalf("没有子卡的场不动：%+v %+v", rows[0], shots[0])
 	}
 	if rows[1].AssetBindings[0].NodeID != "wet" || rows[1].Characters[0].CharacterAssetID != "wet" || rows[1].AssetBindings[1].NodeID != "lift" || rows[1].AssetBindings[1].Role != "environment" || shots[1].RefsHint[0] != "林小满·淋湿" {
 		t.Fatalf("第 2 场换子卡、补场景：%+v %+v", rows[1], shots[1])

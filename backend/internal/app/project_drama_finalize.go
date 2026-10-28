@@ -122,9 +122,11 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 		if err != nil {
 			return false, err
 		}
+		// 先接着建下一集的提取（占一个空位），再按剩下的空位给这一集的新资产排出图。
 		if target := taskProjectID(task); target != "" {
 			outcome.Chained = s.chainAfterAssetsExtract(task, target, taskDramaAssets(task.InputJSON))
 		}
+		s.queueAssetsExtractImages(task, &outcome)
 		result["dramaStep"] = outcome
 		return true, nil
 	default:

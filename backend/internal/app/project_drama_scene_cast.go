@@ -131,11 +131,22 @@ func (c *dramaSceneCast) empty() bool {
 }
 
 // sceneCastOf 组一个单元的按场资产：子卡按它记的场（项目场编号）落到本单元的场，场景按 bible_json.scene_assets。不读库。
+// 同一角色在同一场有几张子卡时取最具体的：用到的场最少的，再取状态（淋湿、受伤，通常叠在某套服装上）先于服装，再按标题。
 func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, assets []ProjectAssetSummary) *dramaSceneCast {
 	_, numbers, _ := sceneUnits(units)
 	episode := numbers[unitID]
 	cast := &dramaSceneCast{Variants: map[string]map[string]string{}, Environments: map[string][]string{}, titles: map[string]string{}, parents: map[string]string{}}
 	live := map[string]bool{}
+	byID := map[string]ProjectAssetSummary{}
+	specific := func(a, b ProjectAssetSummary) bool {
+		if len(a.Variant.Scenes) != len(b.Variant.Scenes) {
+			return len(a.Variant.Scenes) < len(b.Variant.Scenes)
+		}
+		if (a.Variant.Kind == drama.AssetVariantState) != (b.Variant.Kind == drama.AssetVariantState) {
+			return a.Variant.Kind == drama.AssetVariantState
+		}
+		return a.Title < b.Title
+	}
 	for _, a := range assets {
 		if string(a.Status) == string(model.AssetVersionStatusArchived) || a.PrimaryVersionID == "" {
 			continue
@@ -146,6 +157,7 @@ func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, ass
 			continue
 		}
 		cast.parents[a.ID] = a.Variant.ParentID
+		byID[a.ID] = a
 		for _, code := range a.Variant.Scenes {
 			ep, no, ok := drama.ParseSceneCode(code)
 			if !ok || ep != episode {
@@ -155,7 +167,7 @@ func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, ass
 			if cast.Variants[local] == nil {
 				cast.Variants[local] = map[string]string{}
 			}
-			if _, taken := cast.Variants[local][a.Variant.ParentID]; !taken {
+			if taken, ok := cast.Variants[local][a.Variant.ParentID]; !ok || specific(a, byID[taken]) {
 				cast.Variants[local][a.Variant.ParentID] = a.ID
 			}
 		}

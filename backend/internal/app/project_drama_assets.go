@@ -458,8 +458,9 @@ func mergeIntoEntry(entry *dramaAssetEntry, row drama.AssetsExtractRow, details 
 	}
 }
 
-// applyAssetsExtractTask 是资产设计的 Apply：模型输出 → 资产行 → 检查 → 与已有资产合并 / 新建、建子卡、场景资产回填到场次（同一事务）
-// → 带了图片任务模板时给这次新建的资产排出图。一行能用的都没有时任务失败（资产都不动）；出图排不上不影响已写的资产。
+// applyAssetsExtractTask 是资产设计的 Apply：模型输出 → 资产行 → 检查 → 与已有资产合并 / 新建、建子卡、场景资产回填到场次（同一事务）。
+// 一行能用的都没有时任务失败（资产都不动）。出图不在这里排（queueAssetsExtractImages）：收尾先接着建下一集的提取任务占一个空位，
+// 再按剩下的空位排出图，免得出图把同时任务数占满、下一集接不上。
 func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMeta, result map[string]interface{}) (DramaAssetsExtractOutcome, error) {
 	target, err := taskDramaStepTarget(task)
 	if err != nil {
@@ -531,13 +532,27 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	if am.Images && template == nil {
 		_ = s.log(task.UserID, task.ID, "warn", "资产出图没有排上", "任务里读不出图片任务模板")
 	}
-	if template != nil && outcome.Created > 0 {
-		if outcome.Images, err = s.queueDramaAssetImages(task.UserID, project.ID, *template, task.ID, nil); err != nil {
-			_ = s.log(task.UserID, task.ID, "warn", "资产出图没有排上", err.Error())
-			outcome.Images = emptyDramaImageQueueResult()
-		}
-	}
 	return outcome, nil
+}
+
+// queueAssetsExtractImages 给这次提取新建的资产排出图（带了图片任务模板、建了资产时）；排不上不影响已写的资产。
+func (s *Service) queueAssetsExtractImages(task model.Task, outcome *DramaAssetsExtractOutcome) {
+	am := taskDramaAssets(task.InputJSON)
+	if am == nil || !am.Images || outcome.Created == 0 {
+		return
+	}
+	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)
+	if err != nil {
+		return
+	}
+	template := taskAssetImageTemplate(decrypted)
+	if template == nil {
+		return
+	}
+	if outcome.Images, err = s.queueDramaAssetImages(task.UserID, taskProjectID(task), *template, task.ID, nil); err != nil {
+		_ = s.log(task.UserID, task.ID, "warn", "资产出图没有排上", err.Error())
+		outcome.Images = emptyDramaImageQueueResult()
+	}
 }
 
 // environments 是能绑到场次的场景资产（已有的在前，这次新建的按写的先后接在后面）。
