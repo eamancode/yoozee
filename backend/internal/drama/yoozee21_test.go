@@ -203,17 +203,32 @@ func TestProfileExtendsMergesQuotasAndRules(t *testing.T) {
 	}
 }
 
-func TestScriptFromTextMatchesPython(t *testing.T) {
+// 七床第 1 集三个场次头（走廊、电梯口、电梯口）按新规则是两场：第 2 场是旧台词表（golden，Python from-md 一个场次头一场）的
+// 第 2、3 场连起来，台词、动作按合并后的场重编号；第 1 场不变。
+func TestScriptFromTextMergesConsecutiveLocation(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join(onlineDir, "chapter.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := ScriptFromText(string(body), "七床")
-	var want Script
-	readJSONFile(t, filepath.Join(goldenDir, "online-script.json"), &want)
-	diffJSON(t, "script from-md", got, want)
-	if len(got.Scenes) != 3 || got.LineCount() != 16 {
-		t.Fatalf("七床 E01 应为 3 场 16 句，得到 %d 场 %d 句", len(got.Scenes), got.LineCount())
+	var legacy Script
+	readJSONFile(t, filepath.Join(goldenDir, "online-script.json"), &legacy)
+	if len(got.Scenes) != 2 || got.LineCount() != 16 || got.SceneRule != SceneRuleMerged || len(legacy.Scenes) != 3 {
+		t.Fatalf("七床 E01 应并成 2 场 16 句，得到 %d 场 %d 句", len(got.Scenes), got.LineCount())
+	}
+	diffJSON(t, "第 1 场与旧台词表一致", got.Scenes[0], legacy.Scenes[0])
+	merged := got.Scenes[1]
+	want := append(slices.Clone(legacy.Scenes[1].Beats), legacy.Scenes[2].Beats...)
+	if merged.ID != "E01S02" || merged.Heading != "内·电梯口·夜" || len(merged.Beats) != len(want) {
+		t.Fatalf("第 2 场应是旧第 2、3 场连起来：%s %s %d 拍", merged.ID, merged.Heading, len(merged.Beats))
+	}
+	for i, b := range merged.Beats {
+		if b.Kind != want[i].Kind || b.Speaker != want[i].Speaker || b.Text != want[i].Text {
+			t.Fatalf("第 %d 拍不同：%+v vs %+v", i, b, want[i])
+		}
+	}
+	if merged.Beats[len(merged.Beats)-2].ID != "E01S02L13" {
+		t.Fatalf("合并后台词接着编号：%s", merged.Beats[len(merged.Beats)-2].ID)
 	}
 }
 
@@ -245,13 +260,12 @@ func loadOnlineRows(t *testing.T, dir string) []StoryboardRow {
 	return doc.Rows
 }
 
+// onlineScript 是线上那次生成分段存下的台词表（旧规则一个场次头一场，与 Python from-md 一致）：夹具里的镜头行是按它写的，
+// 线上已存的镜头表重检也是读存下的台词表，不按正文重切。
 func onlineScript(t *testing.T) *Script {
 	t.Helper()
-	body, err := os.ReadFile(filepath.Join(onlineDir, "chapter.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := ScriptFromText(string(body), "七床")
+	var s Script
+	readJSONFile(t, filepath.Join(goldenDir, "online-script.json"), &s)
 	return &s
 }
 

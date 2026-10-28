@@ -108,6 +108,8 @@ export type ProjectAssetPalette = {
     prompt: string;
     /** 这一场在当前剧集里已不存在（重跑导演风格时标的）：色卡保留，不再出图，不计入「色卡齐了」。 */
     sceneGone?: boolean;
+    /** 按新场次重排时记下的说明（换了场编号、并进了别的场）。 */
+    note?: string;
     imageStatus: DramaImageStatus;
     taskId?: string;
     imageError?: string;

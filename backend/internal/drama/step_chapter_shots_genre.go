@@ -68,20 +68,16 @@ const (
 	SceneGenreCardChars = 8000
 )
 
-// ChapterShotsGenreScenes 是戏类判定用的场次表：切场与 ChapterShotsScenes 同一套（ScriptFromText），没有场次头的正文算一场 E01S01。
+// ChapterShotsGenreScenes 是戏类判定用的场次表：切场与 ChapterShotsScenes 同一套（SplitScenes），没有场次头的正文算一场 E01S01。
 func ChapterShotsGenreScenes(plainText string, title string) []SceneGenreScene {
-	script := ScriptFromText(plainText, title)
-	out := make([]SceneGenreScene, 0, len(script.Scenes))
-	for _, sc := range script.Scenes {
-		parts := make([]string, 0, len(sc.Beats))
-		for _, b := range sc.Beats {
-			text := b.Text
-			if b.Speaker != "" {
-				text = b.Speaker + "：" + text
-			}
-			parts = append(parts, text)
+	scenes := SplitScenes(plainText, title)
+	out := make([]SceneGenreScene, 0, len(scenes))
+	for _, sc := range scenes {
+		heading := sc.Heading
+		if len(sc.Sources) == 0 {
+			heading = UntitledSceneHeading
 		}
-		out = append(out, SceneGenreScene{ID: sc.ID, Heading: sc.Heading, Excerpt: jsTruncate(jsCompact(strings.Join(parts, " ")), sceneGenreExcerptChars)})
+		out = append(out, SceneGenreScene{ID: sc.ID, Heading: heading, Excerpt: sceneExcerpt(sc, sceneGenreExcerptChars)})
 	}
 	return out
 }

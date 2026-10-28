@@ -36,6 +36,8 @@ type DramaEvalInput struct {
 	Imaged   map[string]bool
 	Shotlist *drama.Shotlist
 	Segments []drama.Segment
+	// LegacyScenes 是切场规则改变前写的镜头表（分镜行里是旧场编号）：台词表按旧规则（一个场次头一场）切。
+	LegacyScenes bool
 	// project 是项目画风、每集时长（零值为默认档案、档案风格块、不查时长；离线评测文件没有项目时用零值）。
 	project dramaProjectContext
 }
@@ -167,7 +169,11 @@ func EvalDramaCompile(inputs []DramaEvalInput, m drama.Model, candidate, baselin
 func evalDramaUnit(in DramaEvalInput, m drama.Model, phrases *drama.CompileProfile) (dramaEvalOutcome, error) {
 	out := dramaEvalOutcome{row: DramaEvalRow{Unit: in.Label, Version: phrases.Version(), VersionName: phrases.Name(), SpecRate: -1}}
 	var script *drama.Script
-	if parsed := drama.ScriptFromText(in.ChapterText, in.Title); len(parsed.Scenes) > 0 {
+	parsed := drama.ScriptFromText(in.ChapterText, in.Title)
+	if in.LegacyScenes {
+		parsed = drama.LegacyScriptFromText(in.ChapterText, in.Title)
+	}
+	if len(parsed.Scenes) > 0 {
 		script = &parsed
 	}
 	var plan dramaShotlistPlan
@@ -512,6 +518,7 @@ func (s *Service) dramaEvalInput(project *model.Project, unitID string, assets [
 	}
 	in := DramaEvalInput{Label: unit.Title, ChapterText: chapterPlainText(unit.SourceText), Title: unit.Title, Assets: assets, Imaged: imaged, project: projectDramaContext(project)}
 	in.project.Episode = s.dramaChapterEpisode(project.ID, unit)
+	in.LegacyScenes = storedScriptLegacy(record.ScriptJSON) && drama.ScenesRenumbered(drama.SplitScenes(in.ChapterText, unit.Title))
 	if strings.TrimSpace(record.RowsJSON) != "" {
 		if err := json.Unmarshal([]byte(record.RowsJSON), &in.Rows); err != nil {
 			return in, fmt.Errorf("镜头表分镜行原文损坏: %w", err)

@@ -50,6 +50,8 @@ type ProjectAssetPaletteSummary struct {
 	Prompt string `json:"prompt"`
 	// SceneGone 是这一场在当前剧集里已不存在（重跑导演风格时标的），色卡保留但不再出图、不计入「色卡齐了」。
 	SceneGone bool `json:"sceneGone,omitempty"`
+	// Note 是按新场次重排时记下的说明（挪了编号、并进别的场）。
+	Note string `json:"note,omitempty"`
 	// ImageStatus 是 none / waiting / queued / bound / stale / failed；TaskID、ImageError 是最近一次出图任务。
 	ImageStatus string              `json:"imageStatus"`
 	TaskID      string              `json:"taskId,omitempty"`
@@ -62,6 +64,11 @@ type paletteMeta struct {
 	Code    string `json:"code"`
 	Episode int    `json:"episode"`
 	SceneNo int    `json:"sceneNo"`
+	// SceneRule 是写这张色卡时的切场规则（drama.SceneRuleMerged）；没有（0）是规则改变前写的，场编号可能和现在的场次表错位。
+	SceneRule int `json:"sceneRule,omitempty"`
+	// RenumberedFrom 是按新场次重排（RenumberDramaScenes）之前的场编号；Note 是重排时记下的说明。
+	RenumberedFrom string `json:"renumberedFrom,omitempty"`
+	Note           string `json:"note,omitempty"`
 	// Stale 是场次已不存在：StaleAt 是标上的时间。
 	Stale   bool   `json:"stale,omitempty"`
 	StaleAt string `json:"staleAt,omitempty"`
@@ -118,7 +125,8 @@ func paletteMetaOf(asset *model.Asset) paletteMeta {
 // paletteCodeOf 是色卡资产的场编号；不是色卡或没有场编号返回空串。
 func paletteCodeOf(asset *model.Asset) string { return paletteMetaOf(asset).Code }
 
-// projectPaletteAssets 是项目里的色卡资产，按场编号。
+// projectPaletteAssets 是项目里的色卡资产，按场编号；同一场编号有几张时（按新场次重排后，并掉的旧色卡标成场次已不存在、
+// 编号留着）取没标的，再取最早建的。
 func (s *Service) projectPaletteAssets(userID string, projectID string) (map[string]model.Asset, error) {
 	assets, err := s.repo.ProjectAssets(userID, projectID)
 	if err != nil {
@@ -126,10 +134,23 @@ func (s *Service) projectPaletteAssets(userID string, projectID string) (map[str
 	}
 	out := map[string]model.Asset{}
 	for _, a := range assets {
-		if code := paletteCodeOf(&a); code != "" {
-			if prev, ok := out[code]; !ok || a.CreatedAt.Before(prev.CreatedAt) {
+		code := paletteCodeOf(&a)
+		if code == "" {
+			continue
+		}
+		prev, ok := out[code]
+		if !ok {
+			out[code] = a
+			continue
+		}
+		if stale, prevStale := paletteMetaOf(&a).Stale, paletteMetaOf(&prev).Stale; stale != prevStale {
+			if !stale {
 				out[code] = a
 			}
+			continue
+		}
+		if a.CreatedAt.Before(prev.CreatedAt) {
+			out[code] = a
 		}
 	}
 	return out, nil
@@ -179,7 +200,7 @@ func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entr
 			payload := assetPayload(&current)
 			metadata := payloadMetadata(payload)
 			delete(metadata, "paletteCheck")
-			metadata["palette"] = paletteMeta{Code: e.Code(), Episode: e.Episode, SceneNo: e.SceneNo}
+			metadata["palette"] = paletteMeta{Code: e.Code(), Episode: e.Episode, SceneNo: e.SceneNo, SceneRule: e.SceneRule}
 			metadata[paletteImageKey] = dramaImageState{Status: initial, UpdatedAt: now.Format(time.RFC3339Nano)}
 			payload["kind"], payload["status"], payload["primaryVersionId"], payload["title"] = "entity", model.AssetVersionStatusConfirmed, versionID, title
 			payload["coverUrl"], payload["updatedAt"] = "", now.Format(time.RFC3339Nano)
@@ -200,7 +221,7 @@ func (s *Service) dramaPaletteWrites(userID string, project *model.Project, entr
 			"id": assetID, "kind": "entity", "category": model.AssetCategoryPalette, "status": model.AssetVersionStatusConfirmed,
 			"primaryVersionId": versionID, "title": title, "coverUrl": "", "tags": []string{"色卡"},
 			"data":      map[string]any{"definition": definition},
-			"metadata":  map[string]any{"palette": paletteMeta{Code: e.Code(), Episode: e.Episode, SceneNo: e.SceneNo}, paletteImageKey: dramaImageState{Status: initial, UpdatedAt: now.Format(time.RFC3339Nano)}},
+			"metadata":  map[string]any{"palette": paletteMeta{Code: e.Code(), Episode: e.Episode, SceneNo: e.SceneNo, SceneRule: e.SceneRule}, paletteImageKey: dramaImageState{Status: initial, UpdatedAt: now.Format(time.RFC3339Nano)}},
 			"createdAt": now.Format(time.RFC3339Nano), "updatedAt": now.Format(time.RFC3339Nano),
 		}
 		raw, err := json.Marshal(payload)
@@ -367,7 +388,11 @@ func (s *Service) paletteAssetSummary(userID string, asset *model.Asset, version
 	}
 	state := s.paletteImageView(userID, asset)
 	meta := paletteMetaOf(asset)
-	summary := &ProjectAssetPaletteSummary{Code: firstNonEmpty(definition.Code, meta.Code), Entry: definition.Palette, Design: definition.Design, Prompt: definition.Prompt, SceneGone: meta.Stale, ImageStatus: state.Status, TaskID: state.TaskID, ImageError: state.Error}
+	summary := &ProjectAssetPaletteSummary{Code: firstNonEmpty(definition.Code, meta.Code), Entry: definition.Palette, Design: definition.Design, Prompt: definition.Prompt, SceneGone: meta.Stale, Note: meta.Note, ImageStatus: state.Status, TaskID: state.TaskID, ImageError: state.Error}
+	// 按新场次重排过的色卡没加版本（图还是原来那张），场编号以 metadata 为准。
+	if meta.RenumberedFrom != "" && meta.Code != "" {
+		summary.Code, summary.Entry.Episode, summary.Entry.SceneNo = meta.Code, meta.Episode, meta.SceneNo
+	}
 	if check, ok := decodeInto[drama.PaletteCheck](payloadMetadata(assetPayload(asset))["paletteCheck"]); ok && check.Blocks != nil && asset.Kind == "image" {
 		summary.Check = &check
 	}

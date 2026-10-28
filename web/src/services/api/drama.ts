@@ -482,6 +482,54 @@ export function getDramaEpisodes(projectId: string, signal?: AbortSignal) {
     return http.get<DramaEpisodes>(`/projects/${encodeURIComponent(projectId)}/drama/episodes`, { signal });
 }
 
+/** 正文里的一个场次头：line 是正文第几个非空行（从 1 数）。 */
+export type DramaSceneHeading = { text: string; inOut?: string; location?: string; time?: string; line: number };
+
+/** 场次表里的一场（同一集里连续同地点的场次头并成一场）。id 是导演风格 / 色卡用的场编号（E 后是集号），shotScene 是镜头 spec.scene 用的单元内编号。 */
+export type DramaScene = {
+    id: string;
+    shotScene: string;
+    no: number;
+    heading: string;
+    inOut?: string;
+    location?: string;
+    times: string[];
+    sourceHeadings: DramaSceneHeading[];
+    /** 正文行范围 [首行, 末行]（只数非空行，从 1 数）。 */
+    lines: [number, number];
+    lineCount: number;
+    /** 规则改变前（一个场次头一场）的场序。 */
+    legacyNos: number[];
+};
+
+/** 场次规则改变后编号错位的已有数据。 */
+export type DramaSceneRuleNotice = { legacyScenes: number; colorScript: string[]; palettes: string[]; shotlist: boolean; message: string };
+
+/** 一个单元的场次表：episode 是导演风格的集号，0 表示不在项目场次表里（已有剧集时的原文章节）。 */
+export type DramaScenes = {
+    unitId: string;
+    title: string;
+    episode: number;
+    fromChapters: boolean;
+    rule: number;
+    scenes: DramaScene[];
+    notice?: DramaSceneRuleNotice;
+};
+
+export function dramaScenesKey(projectId: string, unitId?: string) {
+    return unitId ? (["project", projectId, "drama-scenes", unitId] as const) : (["project", projectId, "drama-scenes"] as const);
+}
+
+/** 一个单元的场次表（按正文实时切）。 */
+export function getDramaScenes(projectId: string, unitId: string, signal?: AbortSignal) {
+    return http.get<DramaScenes>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/scenes`, { signal });
+}
+
+/** 项目场次表里每个单元（全部剧集，没有剧集时全部原文章节）的场次表。 */
+export function getProjectDramaScenes(projectId: string, signal?: AbortSignal) {
+    return http.get<{ units: DramaScenes[] }>(`/projects/${encodeURIComponent(projectId)}/drama/scenes`, { signal });
+}
+
 /** 剧本优化收尾的摘要（任务 result.dramaStep）：写出的各集、替换或改写了哪些已有剧集、检查提醒。 */
 export type DramaScriptAdaptOutcome = {
     step: "script.adapt";
