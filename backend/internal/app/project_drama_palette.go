@@ -40,10 +40,11 @@ type DramaPaletteImagesRequest struct {
 	ImageTask *DramaImageTaskTemplate `json:"imageTask"`
 }
 
-// ProjectAssetPaletteSummary 是色卡资产在资产清单里的摘要（资产页色卡卡片用）。
+// ProjectAssetPaletteSummary 是色卡资产在资产清单里的摘要（资产页色卡卡片用）。主基调色卡（风格锁定建的）只有 Master，没有场编号。
 type ProjectAssetPaletteSummary struct {
-	Code  string                 `json:"code"`
-	Entry drama.ColorScriptEntry `json:"entry"`
+	Master *ProjectAssetMasterPaletteSummary `json:"master,omitempty"`
+	Code   string                            `json:"code"`
+	Entry  drama.ColorScriptEntry            `json:"entry"`
 	// Design 是《色卡提示词卡》【色板设计】的结构句；Prompt 是出图用的英文提示词。
 	Design string `json:"design"`
 	Prompt string `json:"prompt"`
@@ -349,6 +350,13 @@ func (s *Service) paletteImageView(userID string, asset *model.Asset) dramaImage
 
 // paletteAssetSummary 是色卡资产的摘要。
 func (s *Service) paletteAssetSummary(userID string, asset *model.Asset, versions []model.AssetVersion) *ProjectAssetPaletteSummary {
+	if _, ok := masterPaletteMetaOf(asset); ok {
+		status := dramaImageNone
+		if asset.Kind == "image" {
+			status = dramaImageBound
+		}
+		return &ProjectAssetPaletteSummary{Master: masterPaletteSummary(asset, versions), ImageStatus: status}
+	}
 	var definition paletteDefinition
 	for _, v := range versions {
 		if v.ID == asset.PrimaryVersionID {

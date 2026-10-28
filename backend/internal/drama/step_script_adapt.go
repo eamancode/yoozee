@@ -51,7 +51,9 @@ type ScriptAdaptInput struct {
 	SegmentSeconds float64
 	// BriefJSON 是需求文档原文（宽松读取，读不出的字段不写）。
 	BriefJSON string
-	Skill     StepSkill
+	// Anchor 是项目锁定的风格锚（M8：建项目时锁定）；没有锁定时为 nil，不写这一段。
+	Anchor *StyleAnchor
+	Skill  StepSkill
 }
 
 // StepPrompt 是一步组装出的提示词和注入的技能文件。
@@ -140,6 +142,7 @@ func BuildScriptAdaptPrompt(in ScriptAdaptInput) (StepPrompt, error) {
 	text := joinTruthy([]string{
 		skillPrompt,
 		StepBriefPrompt(in.BriefJSON),
+		StyleLockAnchorPrompt(in.Anchor, "这是建项目时锁定的全片风格：改编时场景、时代、人物气质和画面描写与它一致，不写与它冲突的设定（比如它禁用的元素）。"),
 		ScriptAdaptPlanPrompt(in.Mode, in.Episodes, in.EpisodeSeconds, in.SegmentSeconds),
 		contract.Text(contract.DefaultRequirement(), ContractTextOptions{SkillShaped: true}),
 	}, "\n\n")

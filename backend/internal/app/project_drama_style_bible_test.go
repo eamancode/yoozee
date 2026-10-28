@@ -150,8 +150,9 @@ func TestStyleBibleWritesBibleAndPalettesThroughWorker(t *testing.T) {
 	for _, e := range progress.EndStates {
 		states[e.Key] = e
 	}
-	if !states["style"].Done || states["palette"].Done || !strings.Contains(states["palette"].Detail, "0/3") {
-		t.Fatalf("风格定了、色卡未齐：%+v %+v", states["style"], states["palette"])
+	// M8 起「风格定了」看锁定结果（风格锚 + 主基调色卡），导演风格只写风格锚和色彩脚本，不算锁定。
+	if states["style"].Done || !strings.Contains(states["style"].Detail, "没有主基调色卡") || states["palette"].Done || !strings.Contains(states["palette"].Detail, "0/3") {
+		t.Fatalf("风格没锁定、色卡未齐：%+v %+v", states["style"], states["palette"])
 	}
 
 	// 重跑：同一场的色卡加版本，不多建资产；只重跑第 2 集时第 1 集的色彩脚本保留、可被承接。
@@ -369,7 +370,7 @@ func TestStyleBibleRetiresPalettesOfVanishedScenes(t *testing.T) {
 		}
 		return out
 	}
-	if s := states(); !s["style"].Done || !strings.Contains(s["palette"].Detail, "0/3 场色卡已出图") {
+	if s := states(); s["style"].Done || !strings.Contains(s["palette"].Detail, "0/3 场色卡已出图") {
 		t.Fatalf("按章节：%+v %+v", s["style"], s["palette"])
 	}
 
@@ -384,8 +385,8 @@ func TestStyleBibleRetiresPalettesOfVanishedScenes(t *testing.T) {
 		t.Fatalf("改编成剧集后不该还算齐：%+v %+v", s["style"], s["palette"])
 	}
 	for _, want := range []string{"0/3 场有色彩脚本", "第 1 集第 1 场、第 1 集第 2 场、第 2 集第 1 场缺", "第 3 集第 1 场已不在当前剧集里"} {
-		if !strings.Contains(s["palette"].Detail, want) || !strings.Contains(s["style"].Detail, want) {
-			t.Fatalf("detail 要写清（%s）：%q / %q", want, s["style"].Detail, s["palette"].Detail)
+		if !strings.Contains(s["palette"].Detail, want) {
+			t.Fatalf("detail 要写清（%s）：%q", want, s["palette"].Detail)
 		}
 	}
 
@@ -418,7 +419,7 @@ func TestStyleBibleRetiresPalettesOfVanishedScenes(t *testing.T) {
 		}
 	}
 	s = states()
-	if !s["style"].Done || s["palette"].Done || s["palette"].Detail != "0/3 场色卡已出图" {
+	if s["style"].Done || s["palette"].Done || s["palette"].Detail != "0/3 场色卡已出图" {
 		t.Fatalf("重跑后按当前 3 场算、过期的不计：%+v %+v", s["style"], s["palette"])
 	}
 	template := DramaImageTaskTemplate{Model: "gpt-image-2", Input: map[string]any{"mode": "image"}}

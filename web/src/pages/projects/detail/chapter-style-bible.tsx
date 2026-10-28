@@ -4,10 +4,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Palette } from "lucide-react";
 import { useNavigate } from "react-router";
 
+import { StyleAnchorSummary } from "@/components/drama/master-palette";
 import { ModelPicker } from "@/components/model-picker";
 import { Callout } from "@/components/ui/product/callout";
 import { navigateToSettings } from "@/lib/settings-navigation";
-import { dramaRunProgressOf, dramaSceneCode, dramaStyleBibleOutcomeOf, getDramaStepUsage, type DramaStyleAnchor, type DramaStyleBibleOutcome } from "@/services/api/drama";
+import { dramaRunProgressOf, dramaSceneCode, dramaStyleBibleOutcomeOf, getDramaStepUsage, type DramaStyleBibleOutcome } from "@/services/api/drama";
 import type { DramaImageStatus, ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -28,44 +29,7 @@ type StyleBibleControlProps = {
     disabled?: boolean;
 };
 
-const CHAINED_STYLE_KEY = "drama-style-bible-follow:";
-const CHAINED_STYLE_EVENT = "drama-style-bible-follow";
-
-/**
- * 剧本优化跑完服务端自动接着建了导演风格任务：交给导演风格按钮打开侧栏接上它的流。写完剧集会切到剧集的路由，章节页会重新挂载，
- * 所以先记进 sessionStorage（新挂载的按钮读它），同时发事件（没重新挂载时直接接上）。
- */
-export function followChainedStyleBible(projectId: string, taskId: string) {
-    try {
-        sessionStorage.setItem(CHAINED_STYLE_KEY + projectId, JSON.stringify({ taskId, at: Date.now() }));
-    } catch {
-        // 存不了（隐私模式）时只靠事件。
-    }
-    window.dispatchEvent(new CustomEvent(CHAINED_STYLE_EVENT, { detail: { projectId, taskId } }));
-}
-
-/** 挂载时取走记下的任务；一分钟以前记的不再接（用户早就离开过章节页）。 */
-function takeChainedStyleBible(projectId: string) {
-    try {
-        const raw = sessionStorage.getItem(CHAINED_STYLE_KEY + projectId);
-        sessionStorage.removeItem(CHAINED_STYLE_KEY + projectId);
-        const saved = raw ? (JSON.parse(raw) as { taskId?: string; at?: number }) : undefined;
-        return saved?.taskId && Date.now() - (saved.at || 0) < 60_000 ? saved.taskId : "";
-    } catch {
-        return "";
-    }
-}
-
 type Settings = { sourceIds: string[]; textModel: string; images: boolean; imageModel: string };
-
-const ANCHOR_FIELDS: Array<[keyof DramaStyleAnchor, string]> = [
-    ["medium", "画风 / 媒介"],
-    ["art_style", "美术风格"],
-    ["lighting", "光线政策"],
-    ["camera", "镜头语言"],
-    ["grading", "调色倾向"],
-    ["era", "时代"],
-];
 
 /** 「从第 N 集继续」要和上一次同一批剧集（服务端核对轮次）：从上一次任务的 metadata.dramaStyle 取。 */
 function previousStyleRun(task?: GenerationTask) {
@@ -76,27 +40,6 @@ function previousStyleRun(task?: GenerationTask) {
     } catch {
         return undefined;
     }
-}
-
-export function StyleAnchorSummary({ anchor }: { anchor?: DramaStyleAnchor }) {
-    if (!anchor) return null;
-    const rows = ANCHOR_FIELDS.filter(([key]) => typeof anchor[key] === "string" && String(anchor[key]).trim());
-    return (
-        <dl className="grid gap-1 rounded-md border border-border/60 px-2.5 py-1.5 text-xs leading-5">
-            {rows.map(([key, label]) => (
-                <div key={key} className="grid grid-cols-[5rem_1fr] gap-2">
-                    <dt className="text-foreground/45">{label}</dt>
-                    <dd className="m-0 text-foreground/80">{String(anchor[key])}</dd>
-                </div>
-            ))}
-            {anchor.forbidden?.length ? (
-                <div className="grid grid-cols-[5rem_1fr] gap-2">
-                    <dt className="text-foreground/45">禁用</dt>
-                    <dd className="m-0 text-foreground/80">{anchor.forbidden.join("、")}</dd>
-                </div>
-            ) : null}
-        </dl>
-    );
 }
 
 function StyleBibleRunGroups(stream: StyleBibleStreamState) {
@@ -275,7 +218,7 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
         }
     };
 
-    // 接上正在跑的导演风格：刷新页面后打开侧栏时，或剧本优化跑完自动接着建的任务（followChainedStyleBible）。
+    // 接上正在跑的导演风格：刷新页面后打开侧栏时。
     const follow = (task: GenerationTask) => {
         followedRef.current.add(task.id);
         setResumeView(undefined);
@@ -289,26 +232,6 @@ export function StyleBibleControl({ detail, chapters, episodes, tasks, disabled 
         if (!panelOpen || !task || (task.status !== "queued" && task.status !== "running") || followedRef.current.has(task.id)) return;
         follow(task);
     }, [latestTask, panelOpen]);
-    useEffect(() => {
-        const followChained = (taskId: string) => {
-            if (!taskId || followedRef.current.has(taskId)) return;
-            setPanelOpen(true);
-            void queryGenerationTask(taskId)
-                .then((task) => {
-                    follow(task);
-                    void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] });
-                })
-                .catch(() => message.warning("没读到接着跑的导演风格任务，稍后在「风格进度」里看"));
-        };
-        followChained(takeChainedStyleBible(projectId));
-        const onChained = (event: Event) => {
-            const detail = (event as CustomEvent<{ projectId: string; taskId: string }>).detail;
-            if (detail?.projectId === projectId) followChained(detail.taskId);
-        };
-        window.addEventListener(CHAINED_STYLE_EVENT, onChained);
-        return () => window.removeEventListener(CHAINED_STYLE_EVENT, onChained);
-    }, [projectId]);
-
     const usage = usageQuery.data;
     const toggle = (id: string, checked: boolean) =>
         setSettings((current) => ({ ...current, sourceIds: checked ? candidates.filter((unit) => unit.id === id || current.sourceIds.includes(unit.id)).map((unit) => unit.id) : current.sourceIds.filter((item) => item !== id) }));

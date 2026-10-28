@@ -5,6 +5,7 @@ import {
     dramaScriptAdaptOutcomeOf,
     dramaStepOutcomeOf,
     dramaStyleBibleOutcomeOf,
+    dramaStyleLockOutcomeOf,
     runDramaProjectStep,
     runDramaStep,
     type DramaImageTaskTemplate,
@@ -119,8 +120,6 @@ type ScriptAdaptInput = {
     /** 已确认替换（或改写）对话框里列出的已有剧集。 */
     replace?: boolean;
     resumeTaskId?: string;
-    /** 跑完自动接着的导演风格给色卡出图用的图片任务模板。 */
-    paletteImages?: DramaImageTaskTemplate;
 };
 
 /**
@@ -140,12 +139,57 @@ export async function runScriptAdapt(input: ScriptAdaptInput, options?: ChapterT
         ...(input.episodeSeconds ? { episodeSeconds: input.episodeSeconds } : {}),
         ...(input.replace ? { replace: true } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
-        ...(input.paletteImages ? { paletteImages: input.paletteImages } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);
     const completed = await followDramaRunTask(task, options);
     return { task: completed, usage, outcome: dramaScriptAdaptOutcomeOf(completed) };
+}
+
+/** 风格锁定任务的 metadata.source（与后端步骤表 TaskSource 一致）。 */
+export const STYLE_LOCK_TASK_SOURCE = "short-drama-style-lock";
+
+/** 任务列表靠 clientContext（chapterOperation=style-lock）认，带输入的任务详情按 metadata.source 认。 */
+export function isStyleLockTask(task: GenerationTask) {
+    return task.clientContext?.chapterOperation === "style-lock" || generationTaskMetadata(task.inputJson).source === STYLE_LOCK_TASK_SOURCE;
+}
+
+/** 风格锁定的输入：项目类型、风格文字、参考图资源 ID；lockOnFinish 是建项目时只选了画风，收尾直接锁定。 */
+export type StyleLockRunInput = {
+    projectId: string;
+    config: AiConfig;
+    projectType: string;
+    styleText?: string;
+    referenceImages?: string[];
+    lockOnFinish?: boolean;
+};
+
+/** 起风格锁定任务（不等它跑完）：建项目后立刻起，章节页的侧栏接上它的流。 */
+export async function startStyleLock(input: StyleLockRunInput) {
+    const model = input.config.textModel || input.config.model;
+    const config = { ...input.config, model };
+    const { task, usage } = await runDramaProjectStep(input.projectId, "style.lock", {
+        model,
+        ...(logicalModelIDForConfig(config) ? { logicalModelId: logicalModelIDForConfig(config) } : {}),
+        config: backendProviderConfig(config, "text") as Record<string, unknown>,
+        projectType: input.projectType,
+        ...(input.styleText?.trim() ? { styleText: input.styleText.trim() } : {}),
+        ...(input.referenceImages?.length ? { referenceImages: input.referenceImages } : {}),
+        ...(input.lockOnFinish ? { lockOnFinish: true } : {}),
+    });
+    announceCreatedGenerationTask(task);
+    return { task, usage };
+}
+
+/**
+ * 风格锁定（流程步骤 style.lock，项目级）：一个任务一轮，服务端按项目类型、风格文字、参考图（随任务以图片发给文本模型）和画风写风格锚
+ * 和主基调色卡；收尾只出候选，用户点「锁定此风格」才写进项目。页面只订阅任务文本流。
+ */
+export async function runStyleLock(input: StyleLockRunInput, options?: ChapterTaskOptions) {
+    const { task, usage } = await startStyleLock(input);
+    options?.onTaskUpdate?.(task);
+    const completed = await followDramaRunTask(task, options);
+    return { task: completed, usage, outcome: dramaStyleLockOutcomeOf(completed) };
 }
 
 /** 导演风格任务的 metadata.source（与后端步骤表 TaskSource 一致）。 */
@@ -187,7 +231,7 @@ export async function runStyleBible(input: StyleBibleInput, options?: ChapterTas
     return { task: completed, usage, outcome: dramaStyleBibleOutcomeOf(completed) };
 }
 
-/** 订阅一个逐轮续写的步骤任务（生成分段、资产设计、剧本优化、导演风格）直到结束，刷新页面后接回正在跑的任务也用它；失败时抛错，错误信息里有写到第几场 / 集。 */
+/** 订阅一个逐轮续写的步骤任务（生成分段、资产设计、风格锁定、剧本优化、导演风格）直到结束，刷新页面后接回正在跑的任务也用它；失败时抛错，错误信息里有写到第几场 / 集。 */
 export function followDramaRunTask(task: GenerationTask, options?: ChapterTaskOptions) {
     // 流结束时的 terminal 事件带的是结果正文（各场拼好的镜头行，没有回合标记），不能拿它盖掉按场分好的流。
     let streamedMarkers = false;

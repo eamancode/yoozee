@@ -193,7 +193,7 @@ func taskClientContext(raw string) *TaskClientContext {
 		context.ArtifactType = metadata.ArtifactType
 		return context
 	}
-	// 剧本优化、导演风格是项目级步骤，没有章节：只带项目和操作，章节页按它认出正在跑的那一步。
+	// 风格锁定、剧本优化、导演风格是项目级步骤，没有章节：只带项目和操作，章节页按它认出正在跑的那一步。
 	if metadata.Source == "short-drama-script-adapt" && metadata.DomainProjectID != "" {
 		context.DomainProjectID = metadata.DomainProjectID
 		context.ChapterOperation = "script-adapt"
@@ -202,6 +202,11 @@ func taskClientContext(raw string) *TaskClientContext {
 	if metadata.Source == "short-drama-style-bible" && metadata.DomainProjectID != "" {
 		context.DomainProjectID = metadata.DomainProjectID
 		context.ChapterOperation = "style-bible"
+		return context
+	}
+	if metadata.Source == "short-drama-style-lock" && metadata.DomainProjectID != "" {
+		context.DomainProjectID = metadata.DomainProjectID
+		context.ChapterOperation = "style-lock"
 		return context
 	}
 	chapterOperation := ""

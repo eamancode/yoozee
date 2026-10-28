@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 66
+const CurrentSchemaVersion int64 = 67
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -243,6 +243,27 @@ var schemaMigrations = []migration{
 	{version: 66, name: "drama_step_eval_model", checksum: "sha256:drama-step-eval-model-v66-20261024", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaEvalRun{})
 	}},
+	// M8 卡 A：平台风格库 drama_style_library；五个风格档案的风格锁定（style.lock）绑到默认技能 yz-style-lock。
+	{version: 67, name: "drama_style_library", checksum: "sha256:drama-style-library-v67-20261027", apply: migrateDramaStyleLibrary},
+}
+
+// migrateDramaStyleLibrary 建平台风格库表，并给五个风格档案写 style.lock → 步骤默认技能的绑定（已有的格子不动）。
+func migrateDramaStyleLibrary(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.DramaStyleLibraryEntry{}, &model.DramaStepBinding{}); err != nil {
+		return err
+	}
+	step, ok := drama.StepByID(drama.StepStyleLock)
+	if !ok {
+		return errors.New("步骤表缺少 style.lock")
+	}
+	now := time.Now()
+	for _, profile := range drama.BuiltinProfileIDs() {
+		row := model.DramaStepBinding{ID: "dsb-" + profile + "-" + step.ID, StyleProfile: profile, Step: step.ID, SkillID: step.DefaultSkill, CreatedAt: now, UpdatedAt: now}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
+			return fmt.Errorf("写入默认绑定 %s × %s：%w", profile, step.ID, err)
+		}
+	}
+	return nil
 }
 
 // migrateDramaStepPackages 加 skill_versions.manifest，把每个步骤默认技能（现在只有 yz-chapter-shots）的当前版本标成第一个包版本：

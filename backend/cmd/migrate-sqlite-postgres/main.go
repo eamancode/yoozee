@@ -441,6 +441,7 @@ func migrations() []tableMigration {
 		migrateTable[model.DramaCompileProfile]("drama_compile_profiles"),
 		migrateTable[model.DramaEvalRun]("drama_eval_runs"),
 		migrateTable[model.DramaStepBinding]("drama_step_bindings"),
+		migrateTable[model.DramaStyleLibraryEntry]("drama_style_library"),
 		migrateTable[model.ShotAssetReference]("shot_asset_references"),
 		migrateTable[model.WorkflowTemplateVersion]("workflow_template_versions"),
 		migrateTable[model.WorkflowInstance]("workflow_instances"),

@@ -26,7 +26,7 @@ type DramaRunPanelProps = {
     /** 顶部一行状态（正在写第几轮、结果摘要）。 */
     status: ReactNode;
     /** 一轮叫什么（场、集）和这一步叫什么（生成分段、剧本优化），用在续写与失败提示里。 */
-    unit: "场" | "集";
+    unit: "场" | "集" | "轮";
     stepLabel: string;
     /** 上一次任务失败或取消：写完 ≥1 轮的给「从第 N 轮继续」，否则给失败原因和「重新生成」。 */
     stop?: StoryboardRunStop;

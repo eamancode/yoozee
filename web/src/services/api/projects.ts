@@ -1,6 +1,6 @@
 import { compactApiParams, http } from "@/services/api/request";
 import { normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
-import type { DramaColorScriptEntry } from "@/services/api/drama";
+import type { DramaColorScriptEntry, DramaMasterPalette, DramaStyleAnchor } from "@/services/api/drama";
 import type { GenerationTask } from "@/services/api/task-center";
 
 
@@ -98,6 +98,8 @@ export type ProjectAssetImageQueue = { status: DramaImageStatus; taskId?: string
 export type PaletteCheck = { blocks: Array<{ hex: string; sampled: string; deltaE: number }>; passed: boolean; threshold: number; note?: string };
 
 export type ProjectAssetPalette = {
+    /** 主基调色卡（风格锁定建的，没有场编号）：分组色板、风格锚和来源；有它时 code / entry 是空的。 */
+    master?: { title: string; palette: DramaMasterPalette; styleAnchor?: DramaStyleAnchor; source: string; libraryId?: string };
     code: string;
     entry: DramaColorScriptEntry;
     /** 《色卡提示词卡》【色板设计】的结构句。 */

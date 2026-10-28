@@ -23,4 +23,12 @@ type (
 	DramaAssetImagesRequest    = app.DramaAssetImagesRequest
 	DramaAssetsExtractOutcome  = app.DramaAssetsExtractOutcome
 	DramaImageQueueResult      = app.DramaImageQueueResult
+
+	DramaStyleLockRequest          = app.DramaStyleLockRequest
+	DramaStyleLockResult           = app.DramaStyleLockResult
+	DramaStyleLockOutcome          = app.DramaStyleLockOutcome
+	DramaStyleLibraryItem          = app.DramaStyleLibraryItem
+	DramaStyleLibraryList          = app.DramaStyleLibraryList
+	DramaStyleLibrarySaveRequest   = app.DramaStyleLibrarySaveRequest
+	DramaStyleLibraryUpdateRequest = app.DramaStyleLibraryUpdateRequest
 )

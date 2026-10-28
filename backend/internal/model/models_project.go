@@ -428,6 +428,29 @@ type DramaStepBinding struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
+// DramaStyleLibraryEntry 是平台风格库的一条（M8）：建项目时锁定的风格（风格锚 + 主基调色卡），按项目类型归档，团队共享——
+// 登录用户都能看、能新增；改名、改色板、删除限管理员或创建者。项目选用时把风格锚和色板复制进自己的 bible_json，条目之后改了或删了不影响已选的项目。
+type DramaStyleLibraryEntry struct {
+	ID string `json:"id" gorm:"primaryKey;size:36"`
+	// ProjectType 是项目类型：live-action / 3d-anime / realistic-cg / 2d-anime（与建项目的类型同值）。
+	ProjectType string `json:"projectType" gorm:"size:32;not null;index:idx_drama_style_library_type,priority:1"`
+	Name        string `json:"name" gorm:"size:120;not null"`
+	Description string `json:"description" gorm:"size:500"`
+	// StyleAnchorJSON / MasterPaletteJSON 是风格锚和主基调色卡（与 bible_json.style_anchor / master_palette 同一形状）。
+	StyleAnchorJSON   string `json:"styleAnchorJson" gorm:"type:text"`
+	MasterPaletteJSON string `json:"masterPaletteJson" gorm:"type:text"`
+	// CoverResourceID 是合成的主色卡图（资源属于合成它的账号；所有登录用户经 /drama/style-library/:id/cover 读）。
+	CoverResourceID string `json:"coverResourceId" gorm:"size:36"`
+	// Source 是 analysis（风格分析后存入）/ manual（后台手工建）/ seed（预置）。
+	Source    string    `json:"source" gorm:"size:16"`
+	CreatedBy string    `json:"createdBy" gorm:"size:36;index"`
+	UpdatedBy string    `json:"updatedBy" gorm:"size:36"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt" gorm:"index:idx_drama_style_library_type,priority:2"`
+}
+
+func (DramaStyleLibraryEntry) TableName() string { return "drama_style_library" }
+
 type ShotAssetReference struct {
 	ID             string    `json:"id" gorm:"primaryKey;size:36"`
 	ShotID         string    `json:"shotId" gorm:"index;size:36;uniqueIndex:idx_shot_asset_reference_unique,priority:1"`

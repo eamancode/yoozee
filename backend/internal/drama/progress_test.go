@@ -192,7 +192,7 @@ func TestCompileReportsOverLongSegmentAsError(t *testing.T) {
 
 func TestDeriveStyleAndPaletteStates(t *testing.T) {
 	m := mustModel(t, "seedance-2.0")
-	bible := `{"characters":[{"name":"林小满"}],"style_anchor":{"medium":"真人实拍"},"color_script":[{"episode":1,"scene_no":1},{"episode":1,"scene_no":2}]}`
+	bible := `{"characters":[{"name":"林小满"}],"style_anchor":{"medium":"真人实拍"},"master_palette":{"groups":[{"key":"protagonist","name":"主角组","colors":[{"name_zh":"护士蓝","hex":"#5B7FA3"}]}]},"style_lock":{"source":"library"},"color_script":[{"episode":1,"scene_no":1},{"episode":1,"scene_no":2}]}`
 	scenes := []SceneRef{{1, 1}, {1, 2}}
 	state := func(in ProgressInput) map[string]EndState {
 		out := map[string]EndState{}
@@ -206,7 +206,7 @@ func TestDeriveStyleAndPaletteStates(t *testing.T) {
 		t.Fatalf("空项目不该风格定了、色卡齐了：%+v %+v", empty["style"], empty["palette"])
 	}
 	partial := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: bible, StyleScenes: scenes, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02"}}})
-	if !partial["style"].Done || partial["palette"].Done || !strings.Contains(partial["palette"].Detail, "1/2") {
+	if !partial["style"].Done || !strings.Contains(partial["style"].Detail, "取自平台风格库，风格锚与 1 色主基调色卡") || partial["palette"].Done || !strings.Contains(partial["palette"].Detail, "1/2") {
 		t.Fatalf("风格锚写了、一张色卡没图：%+v %+v", partial["style"], partial["palette"])
 	}
 	full := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: bible, StyleScenes: scenes, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02", Imaged: true}}})
@@ -217,13 +217,19 @@ func TestDeriveStyleAndPaletteStates(t *testing.T) {
 	if noAnchor["style"].Done {
 		t.Fatal("空的风格锚不算风格定了")
 	}
+	anchorOnly := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: `{"style_anchor":{"medium":"真人实拍"}}`, StyleScenes: scenes})
+	if anchorOnly["style"].Done || !strings.Contains(anchorOnly["style"].Detail, "没有主基调色卡") {
+		t.Fatalf("只有风格锚、没有主基调色卡不算锁定：%+v", anchorOnly["style"])
+	}
+	// 风格在建项目时就锁定：还没导入原文时「风格定了」已经成立，色卡（场次）还没有。
 	noUnits := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: bible, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02", Imaged: true}}})
-	if noUnits["style"].Done || noUnits["palette"].Done {
-		t.Fatalf("没有剧集或章节时不该算齐：%+v %+v", noUnits["style"], noUnits["palette"])
+	if !noUnits["style"].Done || noUnits["palette"].Done {
+		t.Fatalf("没有剧集或章节时风格已锁定、色卡不算齐：%+v %+v", noUnits["style"], noUnits["palette"])
 	}
 }
 
-// 只有原文时按 3 章定了风格（每章一场），再改编成 2 集 4 场：色彩脚本缺 3 场、多 1 场，两个终态都变未完成。
+// 只有原文时按 3 章写了色彩脚本（每章一场），再改编成 2 集 4 场：色彩脚本缺 3 场、多 1 场，「色卡齐了」变未完成；
+// 「风格定了」只看锁定结果（这里没有主基调色卡，一直不算）。
 func TestDeriveStyleStatesFollowCurrentScenes(t *testing.T) {
 	m := mustModel(t, "seedance-2.0")
 	bible := `{"style_anchor":{"medium":"真人实拍"},"color_script":[{"episode":1,"scene_no":1},{"episode":2,"scene_no":1},{"episode":3,"scene_no":1}]}`
@@ -236,7 +242,7 @@ func TestDeriveStyleStatesFollowCurrentScenes(t *testing.T) {
 		return out
 	}
 	chapters := derive([]SceneRef{{1, 1}, {2, 1}, {3, 1}}, true)
-	if !chapters["style"].Done || !chapters["palette"].Done || !strings.Contains(chapters["palette"].Detail, "3/3") {
+	if chapters["style"].Done || !chapters["palette"].Done || !strings.Contains(chapters["palette"].Detail, "3/3") {
 		t.Fatalf("按章节定的风格和章节对得上：%+v %+v", chapters["style"], chapters["palette"])
 	}
 	episodes := derive([]SceneRef{{1, 1}, {1, 2}, {1, 3}, {2, 1}}, false)
@@ -245,15 +251,15 @@ func TestDeriveStyleStatesFollowCurrentScenes(t *testing.T) {
 		t.Fatalf("改编成剧集后色彩脚本对不上，不该算齐：%+v %+v", style, palette)
 	}
 	for _, want := range []string{"2/4 场有色彩脚本", "第 1 集第 2 场、第 1 集第 3 场缺", "第 3 集第 1 场已不在当前剧集里"} {
-		if !strings.Contains(style.Detail, want) || !strings.Contains(palette.Detail, want) {
-			t.Fatalf("detail 要写清缺哪场、多哪场（%s）：%q / %q", want, style.Detail, palette.Detail)
+		if !strings.Contains(palette.Detail, want) {
+			t.Fatalf("detail 要写清缺哪场、多哪场（%s）：%q", want, palette.Detail)
 		}
 	}
 	if !strings.Contains(palette.Detail, "2/4 场色卡已出图") {
 		t.Fatalf("色卡按当前 4 场算：%q", palette.Detail)
 	}
 	onlyExtra := derive([]SceneRef{{1, 1}, {2, 1}}, false)
-	if onlyExtra["style"].Done || onlyExtra["palette"].Done || !strings.Contains(onlyExtra["style"].Detail, "2/2 场有色彩脚本，第 3 集第 1 场已不在当前剧集里") {
+	if onlyExtra["palette"].Done || !strings.Contains(onlyExtra["palette"].Detail, "2/2 场有色彩脚本，第 3 集第 1 场已不在当前剧集里") {
 		t.Fatalf("多出的场也算没齐：%+v %+v", onlyExtra["style"], onlyExtra["palette"])
 	}
 }
