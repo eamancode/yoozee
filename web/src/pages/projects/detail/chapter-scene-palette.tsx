@@ -67,7 +67,19 @@ function previousPaletteRun(task?: GenerationTask) {
     }
 }
 
-function ScenePaletteRunGroups(stream: ScenePaletteStreamState) {
+/** 场编号 → 场次头：模型只写场编号，场次头取任务 metadata.dramaScenePalette 里建任务时的场次表。 */
+function sceneHeadings(task?: GenerationTask) {
+    const out = new Map<string, string>();
+    try {
+        const run = (JSON.parse(task?.inputJson || "{}") as { metadata?: { dramaScenePalette?: { episodes?: Array<{ no?: number; scenes?: string[] }> } } }).metadata?.dramaScenePalette;
+        for (const episode of run?.episodes || []) (episode.scenes || []).forEach((heading, index) => out.set(dramaSceneCode(episode.no || 0, index + 1), heading));
+    } catch {
+        // 读不出时只显示场编号。
+    }
+    return out;
+}
+
+function ScenePaletteRunGroups(stream: ScenePaletteStreamState, headings: Map<string, string>) {
     return stream.episodes.map((episode) => ({
         key: episode.index,
         title: `第 ${episode.episode || episode.index} 集`,
@@ -82,7 +94,7 @@ function ScenePaletteRunGroups(stream: ScenePaletteStreamState) {
                         <li key={`${scene.episode}-${scene.scene_no}`} className="list-none">
                             <div className="flex items-center gap-2">
                                 <span className="font-mono text-[var(--fs-micro)] text-foreground/45">{code}</span>
-                                <span className="min-w-0 flex-1 truncate font-medium text-foreground/80">{scene.scene || `${colors.length} 色`}</span>
+                                <span className="min-w-0 flex-1 truncate font-medium text-foreground/80">{scene.scene || headings.get(code) || `${colors.length} 色`}</span>
                                 {scene.inherits_from ? <span className="shrink-0 text-[var(--fs-micro)] text-foreground/45">承接 {scene.inherits_from}</span> : null}
                             </div>
                             <div className="mt-1 flex gap-0.5" aria-label={`${code} 的 ${colors.length} 个颜色`}>
@@ -139,6 +151,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
     const outcome = taskDetail?.status === "succeeded" ? dramaScenePaletteOutcomeOf(taskDetail) : undefined;
     const stop = useMemo(() => (taskDetail ? storyboardRunStop(taskDetail, dramaRunProgressOf(taskDetail)) : undefined), [taskDetail]);
     const resume = stop?.kind === "resume" ? stop : undefined;
+    const headings = useMemo(() => sceneHeadings(taskDetail || latestTask), [latestTask, taskDetail]);
     const streamState = useMemo(() => {
         if (running || (stream.text && (stream.taskId === taskDetail?.id || !taskDetail))) return resumedScenePaletteStream(parseScenePaletteStream(stream.text), resumeView);
         return taskDetail ? scenePaletteStreamFromResult(taskDetail.resultJson) : parseScenePaletteStream("");
@@ -358,7 +371,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                 followKey={streamState.sceneCount}
                 emptyText="每场的色彩脚本会按集出现在这里"
                 listLabel="流式色彩脚本"
-                groups={ScenePaletteRunGroups(streamState)}
+                groups={ScenePaletteRunGroups(streamState, headings)}
             >
                 {outcome && !running ? (
                     <Callout

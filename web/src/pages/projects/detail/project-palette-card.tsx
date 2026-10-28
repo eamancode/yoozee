@@ -73,6 +73,27 @@ export function GroupedPaletteSwatches({ colors, size = "sm" }: { colors: DramaP
     );
 }
 
+/** 卡片上的分组色带：每组一行，组名在左，右边一条等宽色块（悬停看色名、HEX、用途）；没写分组的旧色卡整条显示。 */
+function GroupedPaletteStrip({ colors }: { colors: DramaPaletteColor[] }) {
+    const groups = colors.some((color) => color.group) ? groupedPaletteColors(colors) : [{ key: "all", label: "", colors }];
+    return (
+        <div className="grid gap-1" aria-label={`${colors.length} 色`}>
+            {groups.map((group) => (
+                <div key={group.key} className="flex items-center gap-2">
+                    {group.label ? <span className="w-9 shrink-0 text-[var(--fs-micro)] text-foreground/50">{group.label.replace("组", "")}</span> : null}
+                    <div className="flex h-4 min-w-0 flex-1 overflow-hidden rounded-sm border border-border/60">
+                        {group.colors.map((color, index) => (
+                            <Tooltip key={`${color.hex}-${index}`} title={[`${color.name_zh || color.name_en} ${color.hex}`, color.usage].filter(Boolean).join(" · ")}>
+                                <span className="min-w-0 flex-1" style={{ backgroundColor: color.hex }} />
+                            </Tooltip>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 /** 资产页的场次色卡卡片：代码合成的色卡图（没合成上时按色彩脚本画色条）、按组的色块、「重新合成」（只重画图，不调模型）。 */
 export function ProjectPaletteCard({
     asset,
@@ -134,7 +155,7 @@ export function ProjectPaletteCard({
                         {palette.note ? <p className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-foreground/50">{palette.note}</p> : null}
                         <p className="mt-1 truncate text-[var(--fs-tiny)] text-foreground/50">{palette.design}</p>
                         <div className="mt-2">
-                            <GroupedPaletteSwatches colors={colors} />
+                            <GroupedPaletteStrip colors={colors} />
                         </div>
                     </>
                 ) : (
