@@ -11,7 +11,7 @@ const ANCHOR_FIELDS: Array<[keyof DramaStyleAnchor, string]> = [
     ["era", "时代"],
 ];
 
-/** 风格锚的逐项摘要（导演风格、风格锁定、风格库共用）。 */
+/** 风格锚的逐项摘要（场次色卡、风格锁定、风格库共用）。 */
 export function StyleAnchorSummary({ anchor }: { anchor?: DramaStyleAnchor }) {
     if (!anchor) return null;
     const rows = ANCHOR_FIELDS.filter(([key]) => typeof anchor[key] === "string" && String(anchor[key]).trim());

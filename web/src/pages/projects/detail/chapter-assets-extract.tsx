@@ -344,7 +344,7 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
                                     <div>
                                         本步使用：<span className="font-medium text-foreground/85">{usage.skill.name}</span> {usage.skill.version}（{usage.profile.label}）
                                     </div>
-                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">技能由项目的风格档案决定。提示词带上项目已有资产、导演风格的风格锚和本集色彩脚本。</div>
+                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚和本集场次色卡的色彩脚本。</div>
                                 </>
                             ) : (
                                 "正在读取本步使用的技能…"

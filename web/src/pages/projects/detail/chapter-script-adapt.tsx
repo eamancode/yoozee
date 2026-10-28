@@ -39,6 +39,8 @@ type ScriptAdaptControlProps = {
     disabled?: boolean;
     /** 写完以后切到剧集视图，选中第一集。 */
     onWritten: (outcome: DramaScriptAdaptOutcome) => void;
+    /** 写完剧集后服务端自动接着建了场次色卡任务：交给「生成场次色卡」按钮接上它的流。 */
+    onChained?: (taskId: string) => void;
 };
 
 type Settings = { mode: DramaScriptAdaptMode; sourceIds: string[]; countBy: "episodes" | "seconds"; targetEpisodes: number; episodeSeconds: number; textModel: string };
@@ -58,7 +60,7 @@ function previousAdaptRun(task?: GenerationTask) {
  * 章节页的「剧本优化」（项目级步骤 script.adapt）：对话框选原文章节（默认全部还没改编的）或已有剧集（只调节奏）、
  * 集数或每集秒数、文本模型，技能由项目风格档案的绑定决定；进度侧栏按集流式显示。会替换已有剧集时先列出影响面确认。
  */
-export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled, onWritten }: ScriptAdaptControlProps) {
+export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled, onWritten, onChained }: ScriptAdaptControlProps) {
     const { message, modal } = App.useApp();
     const queryClient = useQueryClient();
     const projectId = detail.project.id;
@@ -205,6 +207,13 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             if (result.outcome) {
                 message.success(result.outcome.mode === "rhythm" ? `已改写 ${result.outcome.episodes.length} 集剧集` : `已写入 ${result.outcome.episodes.length} 集剧集，技能：${result.usage.skill.name} ${result.usage.skill.version}`);
                 onWritten(result.outcome);
+                const chainedTaskId = result.outcome.chained?.taskId;
+                if (chainedTaskId) {
+                    setPanelOpen(false);
+                    onChained?.(chainedTaskId);
+                } else if (result.outcome.chained?.error) {
+                    message.warning(`场次色卡没有自动开始：${result.outcome.chained.error}`);
+                }
             }
         } catch (error) {
             const impact = dramaEpisodesReplaceImpact(error);

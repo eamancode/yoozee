@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { MasterPaletteGroups } from "@/components/drama/master-palette";
 import { dramaSceneCode, masterPaletteColors, type DramaBible, type DramaColorScriptEntry, type DramaStyleAnchor } from "@/services/api/drama";
 
-import { PaletteSwatches } from "./project-palette-card";
+import { GroupedPaletteSwatches } from "./project-palette-card";
 
 const ANCHOR_INPUTS: Array<{ key: Exclude<keyof DramaStyleAnchor, "forbidden">; label: string; multiline?: boolean }> = [
     { key: "medium", label: "画风 / 媒介" },
@@ -94,18 +94,18 @@ export function StyleBibleEditor({ document, onChange }: { document: DramaBible;
                                     <span className="min-w-0 flex-1 truncate font-medium text-foreground/80">{entry.scene}</span>
                                     {entry.inherits_from ? <span className="shrink-0 text-[var(--fs-micro)] text-foreground/45">承接 {entry.inherits_from}</span> : null}
                                 </div>
-                                <PaletteSwatches colors={[...(entry.shared_colors || []), ...(entry.new_colors || [])]} />
+                                <GroupedPaletteSwatches colors={[...(entry.shared_colors || []), ...(entry.new_colors || [])]} />
                             </li>
                         ))}
                     </ul>
                 ) : (
-                    <p className="m-0 text-[var(--fs-label)] text-foreground/45">还没有逐场色彩脚本。</p>
+                    <p className="m-0 text-[var(--fs-label)] text-foreground/45">还没有逐场色彩脚本（章节页「生成场次色卡」）。</p>
                 )}
                 <details className="mt-2">
                     <summary className="cursor-pointer text-[var(--fs-tiny)] text-foreground/55">编辑色彩脚本 JSON</summary>
                     <Input.TextArea className="mt-2 font-mono !text-xs" autoSize={{ minRows: 6, maxRows: 18 }} value={scriptText} onChange={(event) => setScriptText(event.target.value)} onBlur={applyScript} aria-label="色彩脚本 JSON" spellCheck={false} />
                     <p className={scriptError ? "mt-1 text-[var(--fs-tiny)] text-red-600 dark:text-red-400" : "mt-1 text-[var(--fs-tiny)] text-foreground/45"}>
-                        {scriptError || "离开输入框时并入连戏表草稿；HEX 写 #RRGGBB。改这里不会重出色卡，要让色卡跟着变就重跑导演风格。"}
+                        {scriptError || "离开输入框时并入连戏表草稿；HEX 写 #RRGGBB。改这里不会重画色卡，要让色卡跟着变就在章节页重新生成场次色卡。"}
                     </p>
                 </details>
             </section>

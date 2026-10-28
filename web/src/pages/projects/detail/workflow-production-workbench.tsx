@@ -60,7 +60,7 @@ import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { withSegmentRef } from "./segment-edit";
 import { unitsOfKind } from "./unit-numbering";
 import { applyShotReferenceChange } from "./project-cache";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
 import { compileProjectShot, getDramaBrief, writeDramaSegments, type DramaSegment } from "@/services/api/drama";
 import { dramaFamilyOf, findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useDramaProgress, useInvalidateDrama } from "./drama-panels";
@@ -199,6 +199,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const routedFamily = generationCapability === "video" && routedModel ? familyOf(routedModel) : undefined;
     const familyMismatch = Boolean(dramaModel && routedFamily && routedFamily.id !== dramaModel.id);
     const activeProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, routedModel), [effectiveConfig, routedModel]);
+    // 这次的视频模型最多带几张参考图（没配时为 0：编译按模型族的上限算）：本场色卡图排在最后，放不下就只写色值。
+    const maxVideoReferenceImages = generationCapability === "video" ? activeProfile.video?.references.maxImages || 0 : 0;
     const videoProfile = generationCapability === "video" ? activeProfile.video : undefined;
     // 段卡拆合、改时长时按当前视频渠道的时长档位取段长，和下面提交前的时长校验同一份能力画像。
     const segmentRule = useMemo(() => generationCapability === "video" && dramaModel ? segmentDurationRule(segmentMaxSeconds, videoProfile?.duration, segmentLimitLabel) : undefined, [dramaModel, generationCapability, segmentLimitLabel, segmentMaxSeconds, videoProfile?.duration]);
@@ -418,7 +420,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
             // 视频按项目生成模型的方言编译：分段 JSON 存在时，提示词和参考清单都以编译结果为准。
             let dialect: { prompt: string; images: typeof shotAssetReferenceContext.referenceImages; audios: typeof generationReferenceAudios; metadata: Record<string, unknown> } | null = null;
             if (mode === "video") {
-                const { compiled } = await compileProjectShot(projectId, saved.shot.id);
+                // 本场色卡排在参考图最后，名额按这次的视频模型算：放不下时编译结果里不带图、色值写进提示词。
+                const { compiled } = await compileProjectShot(projectId, saved.shot.id, maxVideoReferenceImages ? { maxReferenceImages: maxVideoReferenceImages } : {});
                 const errors = compiled.result.issues.filter((issue) => issue.level === "error");
                 if (errors.length) throw new Error(`分段检查未通过：${errors.map((issue) => issue.message).join("；")}`);
                 if (!compiled.derived) {
@@ -434,7 +437,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const basePrompt = mode === "video"
                 ? [values.videoPrompt || values.plotDescription, values.action, values.dialogue && `台词：${values.dialogue}`, values.continuityNotes].filter(Boolean).join("\n")
                 : [values.imagePrompt || values.plotDescription, values.action, "黑白分镜草图，清晰动作节拍，电影构图"].filter(Boolean).join("\n");
-            const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue });
+            // 没有分段 JSON 的视频（旧段）也带本场色卡：参考图名额满了就只写色值。分镜图、黑白预演不带色卡。
+            const fallbackPalette = mode === "video" && !dialect ? withShotScenePalette(shotAssetReferenceContext.referenceImages, shotScenePalette(detail, saved.shot.id), maxVideoReferenceImages) : { images: shotAssetReferenceContext.referenceImages, promptLine: "" };
+            const resolvedPrompt = [resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue }), fallbackPalette.promptLine].filter(Boolean).join("\n\n");
             // 技能上下文整段前置会让提示词超出图片/视频模型的字符上限，上游只回一句
             // 「模型服务拒绝了请求」。这里按模型声明的 promptMaxChars 先给技能上下文留预算：
             // 放得下就注入（必要时按预算截断），放不下就整段不注入并提示，而不是等上游 4xx。
@@ -459,7 +464,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 mode,
                 prompt: skillExecution.prompt,
                 config,
-                referenceImages: dialect ? dialect.images : shotAssetReferenceContext.referenceImages,
+                referenceImages: dialect ? dialect.images : mode === "video" ? fallbackPalette.images : shotAssetReferenceContext.referenceImages,
                 referenceAudios: dialect ? dialect.audios : generationReferenceAudios,
                 metadata: {
                     ...skillExecution.metadata,
@@ -470,7 +475,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     artifactType,
                     role: "output",
                     source: "short-drama-workflow",
-                    ...(mode === "video" && (dialect ? dialect.images.length : shotAssetReferenceContext.referenceImages.length) ? { videoEditOperation: "reference_to_video" } : {}),
+                    ...(mode === "video" && (dialect ? dialect.images.length : fallbackPalette.images.length) ? { videoEditOperation: "reference_to_video" } : {}),
                     resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
                     artifactMetadata: { model: routedModel, aspectRatio, resolution, durationSeconds: values.durationSeconds, ...skillExecution.metadata },
                 },
