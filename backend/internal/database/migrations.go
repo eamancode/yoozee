@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 68
+const CurrentSchemaVersion int64 = 70
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -248,6 +248,24 @@ var schemaMigrations = []migration{
 	// M8 卡 B：导演风格（style.bible）改成场次色卡（scene.palette），五个风格档案绑默认技能 yz-scene-palette、去掉 style.bible 的绑定；
 	// 平台风格库同一项目类型不重名（唯一索引，已有重名的先在后建的名字后面加序号）。
 	{version: 68, name: "drama_scene_palette", checksum: "sha256:drama-scene-palette-v68-20261028", apply: migrateDramaScenePalette},
+	// M8 卡 D：角色子卡（服装 / 状态）是独立的角色资产，assets 加 parent_asset_id（指向主卡，带索引）和 variant_label（变体名）。
+	// 69 留给卡 F（drama_shotlist_sections）；两张卡哪个先合都不改这里的版本号。
+	{version: 70, name: "asset_character_variants", checksum: "sha256:asset-character-variants-v70-20261028", apply: migrateAssetCharacterVariants},
+}
+
+// migrateAssetCharacterVariants 给 assets 加子卡的两列（已有行是空串，即主卡或普通资产）和 parent_asset_id 索引。
+func migrateAssetCharacterVariants(tx *gorm.DB) error {
+	for _, field := range []string{"ParentAssetID", "VariantLabel"} {
+		if !tx.Migrator().HasColumn(&model.Asset{}, field) {
+			if err := tx.Migrator().AddColumn(&model.Asset{}, field); err != nil {
+				return err
+			}
+		}
+	}
+	if !tx.Migrator().HasIndex(&model.Asset{}, "ParentAssetID") {
+		return tx.Migrator().CreateIndex(&model.Asset{}, "ParentAssetID")
+	}
+	return nil
 }
 
 // migrateDramaScenePalette 给五个风格档案写 scene.palette → 步骤默认技能的绑定（已有的格子不动），删掉已经没有的 style.bible 步骤的绑定；

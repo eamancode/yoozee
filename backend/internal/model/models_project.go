@@ -104,8 +104,11 @@ type Asset struct {
 	PrimaryVersionID string             `json:"primaryVersionId,omitempty" gorm:"index;size:36"`
 	Title            string             `json:"title" gorm:"size:240"`
 	PayloadJSON      string             `json:"payloadJson" gorm:"type:text"`
-	CreatedAt        time.Time          `json:"createdAt"`
-	UpdatedAt        time.Time          `json:"updatedAt" gorm:"index:idx_assets_user_updated,priority:2"`
+	// ParentAssetID / VariantLabel 是角色子卡（M8 卡 D）：子卡是独立的角色资产，指向主卡并记下变体名（「护士服」「淋湿」）；主卡和别的资产为空。
+	ParentAssetID string    `json:"parentAssetId,omitempty" gorm:"index;size:80;default:''"`
+	VariantLabel  string    `json:"variantLabel,omitempty" gorm:"size:80;default:''"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt" gorm:"index:idx_assets_user_updated,priority:2"`
 }
 
 // AssetFolder 是用户素材库的一层自定义分类；业务分类仍由 Asset.Category 表达。
