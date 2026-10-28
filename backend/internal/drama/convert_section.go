@@ -561,10 +561,12 @@ type SectionOutput struct {
 	// Shots 是这一节转出的镜头（镜头表 id，写库时按转换后的镜头表填）；TaskID 是写出这一节的任务。
 	Shots  []string `json:"shots"`
 	TaskID string   `json:"taskId,omitempty"`
+	// Warnings 是切节时没满足戏类口径的提醒（如文戏 15 连着接话超过两句台词）：只提醒，不算检查 error。
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // NewSectionOutput 是一节的原样输出记录。
 func NewSectionOutput(sec Section, raw string, conv SectionShots) SectionOutput {
 	return SectionOutput{ID: sec.ID, Scene: sec.Scene, Heading: sec.Heading, No: sec.No, Genre: sec.Genre, Lines: sec.Lines, LineIDs: sec.LineIDs, Est: sec.Est,
-		Raw: raw, Fields: conv.Fields, Stats: conv.Stats, Shots: []string{}}
+		Raw: raw, Fields: conv.Fields, Stats: conv.Stats, Shots: []string{}, Warnings: sec.Warnings}
 }

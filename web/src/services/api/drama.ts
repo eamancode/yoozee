@@ -364,6 +364,8 @@ export type DramaSectionOutput = {
     stats: DramaSectionConvertStats;
     shots: string[];
     taskId?: string;
+    /** 切节时没满足戏类口径的提醒（如文戏 15 连着接话超过两句台词），只是 warn。 */
+    warnings?: string[];
 };
 /** profile 是这章检查、装段用的风格档案及来由（按项目画风对照）；draft 为 true 时检查有 error，只存了草稿没装段。 */
 export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; draft: boolean; accepted?: boolean; notes: string[]; profile?: string };

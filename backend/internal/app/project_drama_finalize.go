@@ -173,6 +173,12 @@ func (s *Service) applyChapterShotsTask(task model.Task, meta *dramaStepTaskMeta
 	}
 	if shots != nil {
 		outcome.Genre, outcome.Sections = shots.Genre, len(sections)
+		// 切节时的提醒（文戏 15 连着接话超过两句台词等）只是 warn：记进摘要说明，不拦写库和装段。
+		for _, sec := range sections {
+			for _, w := range sec.Warnings {
+				outcome.Notes = append(outcome.Notes, "小节 "+sec.ID+"："+w)
+			}
+		}
 		// 原样输出已存进镜头表记录：任务结果里换成转出的镜头行（一行一镜，侧栏刷新后按镜头还原），去掉各节原文。
 		lines := make([]string, 0, len(raws))
 		for _, raw := range raws {

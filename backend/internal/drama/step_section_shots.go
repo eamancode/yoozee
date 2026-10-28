@@ -242,7 +242,10 @@ func sectionOutputRule(plan SectionPlan, k int) string {
 	limit := fmt.Sprintf("%.0f", plan.MaxSeconds)
 	switch plan.Genre.ID {
 	case ShotGenreWenxi15:
-		rule := fmt.Sprintf("【本节输出要求】按技能的固定输出格式写成一个片段：标题写「## 片段 %d（时长：XX秒）」，时长 10～%s 秒（本节内容少时可短于 10 秒，不要为凑时长加戏），4 镜或 6 镜；要素提取、当前空间站位、镜头行、最后一镜结束站位、下一片段继承点照技能格式写全。", k, limit)
+		rule := fmt.Sprintf("【本节输出要求】按技能的固定输出格式写成一个片段：标题写「## 片段 %d（时长：XX秒）」，时长按技能规则写在 10～%s 秒，4 镜或 6 镜；要素提取、当前空间站位、镜头行、最后一镜结束站位、下一片段继承点照技能格式写全。", k, limit)
+		if n := len(sec.LineIDs); n > plan.Genre.MaxLines && !linesFit(sec.Beats, plan.Genre) {
+			rule += fmt.Sprintf("本节有 %d 句台词（连着接话，平台没有拆开），仍写成这一个片段，按技能规则安排镜头和时长。", n)
+		}
 		if !sec.First {
 			rule += "这是同一场的后续片段：衔接参考首帧、参考首帧（0s-0.5s）照上一节的最后一镜结束站位和下一片段继承点写。"
 		} else {
@@ -250,7 +253,7 @@ func sectionOutputRule(plan SectionPlan, k int) string {
 		}
 		return rule + "不要输出 JSON、代码块、整集完成标记或续写锚点，只写这一个片段。"
 	case ShotGenreWenxi30:
-		rule := fmt.Sprintf("【本节输出要求】按技能的导演分镜字段格式写成一个小节：标题写「小节%d：本节标题」，生成时长 0～%s 秒以内，小节头、每个镜头「镜头N（a-b秒）」的全部字段、小节约束、站位标注、三个连续性总结和即梦粘贴提示词照技能格式写全。", k, limit)
+		rule := fmt.Sprintf("【本节输出要求】按技能的导演分镜字段格式写成一个小节：标题写「小节%d：本节标题」，生成时长 0～%s 秒以内，小节头、每个镜头「镜头N（a-b秒）」的全部字段、小节约束、站位标注、三个连续性总结照技能格式写全；不写即梦粘贴提示词（柚子按镜头字段编译视频提示词）。", k, limit)
 		if k == 1 {
 			rule += "第一节之前先写一次参数确认、全局风格锁定和角色音色设定（之后各节不再重复）。"
 		} else {

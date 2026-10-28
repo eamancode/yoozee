@@ -193,7 +193,7 @@ func TestSectionShotsRunThroughWorkerWenxi30(t *testing.T) {
 		t.Fatalf("第 2 节失败：%v %s %q", err, failed.Status, failed.Error)
 	}
 	prompt := upstream.prompts[0]
-	for _, want := range []string{`skill-id="yz-shots-wenxi30"`, "cards/04-对话戏.md", "【分节生成说明】本章共 3 个小节", "【第 1/3 节：E01S01-P1】", "【本节台词表】", "E01S01L02 林小满：七床的人呢？", "【本节输出要求】", "小节1："} {
+	for _, want := range []string{`skill-id="yz-shots-wenxi30"`, "跳过「即梦粘贴提示词」", "不写即梦粘贴提示词", "cards/04-对话戏.md", "【分节生成说明】本章共 3 个小节", "【第 1/3 节：E01S01-P1】", "【本节台词表】", "E01S01L02 林小满：七床的人呢？", "【本节输出要求】", "小节1："} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("第一轮提示词缺「%s」", want)
 		}
@@ -469,5 +469,40 @@ func TestDramaScenesSectionsAndGenreBindingRows(t *testing.T) {
 	}
 	if usage, _ := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots); usage.Skill.ID != "yz-shots-wenxi15" || !usage.Bound {
 		t.Fatalf("按戏类行的绑定取技能：%+v", usage)
+	}
+}
+
+// 文戏 15 连着接话超过两句台词的一节：不拆、照常写库装段（0 error），提醒记进摘要说明。
+func TestSectionShotsWenxi15LongExchangeIsWarnOnly(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, unit := seedQichuang(t, svc, db)
+	project = qichuangOnModel(t, svc, db, project, "seedance-2.0")
+	html := "<p>## 内·病房走廊·夜</p><p>（林小满抬头看向门口，周岸转身。）</p><p>林小满：你是谁？</p><p>周岸：你不认识我了？</p><p>林小满：我该认识你吗？</p><p>周岸：你真的忘了？</p>"
+	if err := db.Model(&model.ProjectUnit{}).Where("id = ?", unit.ID).Update("source_text", html).Error; err != nil {
+		t.Fatal(err)
+	}
+	upstream := &sectionShotsUpstream{}
+	server := httptest.NewServer(upstream)
+	defer server.Close()
+	task := queueDramaStepTask(t, svc, db, project, unit, server.URL, "")
+	if shots := taskDramaShots(task.InputJSON); shots == nil || len(shots.Sections) != 1 || len(shots.Sections[0].Warnings) != 1 || !strings.Contains(shots.Turns[0], "本节有 4 句台词") {
+		t.Fatalf("四句接话落在一节、记提醒：%+v", shots)
+	}
+	done, err := runQueuedTask(t, svc)
+	if err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("生成：%v %q", err, done.Error)
+	}
+	var result struct {
+		DramaStep DramaStepTaskOutcome `json:"dramaStep"`
+	}
+	if err := json.Unmarshal([]byte(done.ResultJSON), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.DramaStep.Status != DramaStepOutcomeWritten || result.DramaStep.Errors != 0 || !slices.ContainsFunc(result.DramaStep.Notes, func(n string) bool { return strings.Contains(n, "E01S01-P1") && strings.Contains(n, "4 句台词") }) {
+		t.Fatalf("只是提醒，照常装段：%+v", result.DramaStep)
+	}
+	view, _ := svc.DramaShotlist("user-1", project.ID, unit.ID)
+	if len(view.Sections) != 1 || len(view.Sections[0].Warnings) != 1 {
+		t.Fatalf("原样输出记录带提醒：%+v", view.Sections)
 	}
 }

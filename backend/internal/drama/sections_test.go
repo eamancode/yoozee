@@ -99,3 +99,23 @@ func TestPlanSectionsWenxi30Even(t *testing.T) {
 		}
 	}
 }
+
+// 文戏 15 连着接话超过两句台词：不在接话中间切，整段落在一节里，只记提醒（warn），本节输出要求里说明台词句数。
+func TestPlanSectionsWenxi15LongExchangeWarns(t *testing.T) {
+	text := "## 内·诊室·夜\n林小满：你是谁？\n周岸：你不认识我了？\n林小满：我该认识你吗？\n周岸：你真的忘了？"
+	g, _ := ShotGenreByID(ShotGenreWenxi15)
+	plan := PlanSections(text, "t", g, 15)
+	if len(plan.Sections) != 1 || len(plan.Sections[0].LineIDs) != 4 {
+		t.Fatalf("问句接话不拆：%+v", plan.Sections)
+	}
+	sec := plan.Sections[0]
+	if len(sec.Warnings) != 1 || !strings.Contains(sec.Warnings[0], "4 句台词") {
+		t.Fatalf("台词超额只记提醒：%v", sec.Warnings)
+	}
+	if rule := SectionTurnPrompt(plan, 1, "", nil); !strings.Contains(rule, "本节有 4 句台词") || !strings.Contains(rule, "按技能规则写在 10～15 秒") {
+		t.Fatalf("本节输出要求：%s", rule)
+	}
+	if out := NewSectionOutput(sec, "", SectionShots{}); len(out.Warnings) != 1 {
+		t.Fatal("原样输出记录带上提醒")
+	}
+}
