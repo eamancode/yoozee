@@ -9,6 +9,8 @@ import { Tooltip } from "@/components/ui/base/tooltip";
 import { Callout } from "@/components/ui/product/callout";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaAssetsExtractOutcomeOf, dramaRunProgressOf, getDramaStepUsage, type DramaAssetsExtractOutcome } from "@/services/api/drama";
+import { ApiError } from "@/services/api/request";
+import { API_ERROR_REASON } from "@/services/api/error-codes";
 import type { DramaImageStatus, ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -24,6 +26,10 @@ import { turnaroundImageModel } from "./project-character-media";
 type AssetsExtractControlProps = {
     detail: ProjectDetail;
     unit?: ProjectUnit;
+    /** 项目的全部单元：自动接着提取的任务可能在别的集上，侧栏按它显示标题。 */
+    units: ProjectUnit[];
+    /** 这一集已有场次色卡（场次表接口 paletteReady）；没有时按钮禁用，提示先生成场次色卡。undefined 是还没读到。 */
+    paletteReady?: boolean;
     /** 集或章（按当前单元是剧集还是原文章节）。 */
     unitNoun: string;
     tasks?: GenerationTask[];
@@ -33,6 +39,40 @@ type AssetsExtractControlProps = {
 };
 
 type Settings = { textModel: string; images: boolean; imageModel: string };
+
+const CHAINED_ASSETS_KEY = "drama-assets-follow:";
+const CHAINED_ASSETS_EVENT = "drama-assets-follow";
+const PALETTE_REQUIRED_HINT = "先生成场次色卡：资产的颜色按主基调色卡和本场色卡约束，到章节页点「生成场次色卡」";
+
+/**
+ * 场次色卡写完后服务端按集依次接着提取资产：交给「提取资产」按钮打开侧栏接上它的流（可能是别的集）。章节页可能重新挂载，
+ * 先记进 sessionStorage（新挂载的按钮读它），同时发事件（没重新挂载时直接接上）。
+ */
+export function followChainedAssetsExtract(projectId: string, taskId: string, unitId?: string) {
+    try {
+        sessionStorage.setItem(CHAINED_ASSETS_KEY + projectId, JSON.stringify({ taskId, unitId, at: Date.now() }));
+    } catch {
+        // 存不了（隐私模式）时只靠事件。
+    }
+    window.dispatchEvent(new CustomEvent(CHAINED_ASSETS_EVENT, { detail: { projectId, taskId, unitId } }));
+}
+
+/** 挂载时取走记下的任务；一分钟以前记的不再接。 */
+function takeChainedAssets(projectId: string): { taskId: string; unitId: string } | undefined {
+    try {
+        const raw = sessionStorage.getItem(CHAINED_ASSETS_KEY + projectId);
+        sessionStorage.removeItem(CHAINED_ASSETS_KEY + projectId);
+        const saved = raw ? (JSON.parse(raw) as { taskId?: string; unitId?: string; at?: number }) : undefined;
+        return saved?.taskId && Date.now() - (saved.at || 0) < 60_000 ? { taskId: saved.taskId, unitId: saved.unitId || "" } : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/** 任务是给哪个单元提取的（metadata.chapterId）。 */
+function taskUnitId(task: GenerationTask) {
+    return chapterTaskIdentity(task)?.chapterId || "";
+}
 
 const CATEGORY_LABEL: Record<AssetsStreamCategory, string> = { character: "角色", environment: "场景", prop: "道具" };
 
@@ -77,6 +117,8 @@ function countsText(outcome: DramaAssetsExtractOutcome) {
             return `${CATEGORY_LABEL[category]} ${[count.created ? `新增 ${count.created}` : "", count.merged ? `合并 ${count.merged}` : "", count.skipped ? `跳过 ${count.skipped}` : ""].filter(Boolean).join("、")}`;
         })
         .filter(Boolean);
+    if (outcome.variants) parts.push(`其中角色子卡 ${outcome.variants} 张`);
+    if (outcome.scenes) parts.push(`${outcome.scenes} 场绑上了场景`);
     return parts.join("；");
 }
 
@@ -99,12 +141,16 @@ function imagesText(outcome: DramaAssetsExtractOutcome, statuses?: DramaImageSta
  * 章节页的「提取资产」（单元级步骤 assets.extract）：对话框选文本模型、要不要给新资产出图和用哪个图片模型（默认项目默认图片模型）；
  * 技能由项目风格档案的绑定决定。进度侧栏按场流式显示资产行，写完显示新增 / 合并 / 跳过并可去资产页。资产直接是已确认的，不用再确认。
  */
-export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, disabledReason }: AssetsExtractControlProps) {
+export function AssetsExtractControl({ detail, unit: selectedUnit, units, paletteReady, unitNoun, tasks, disabled, disabledReason }: AssetsExtractControlProps) {
     const { message } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const projectId = detail.project.id;
+    // followUnitId 是侧栏正在接的自动提取（场次色卡写完后按集依次起的）所在的集；没有时侧栏看当前选中的这一集。
+    const [followUnitId, setFollowUnitId] = useState("");
+    const unit = (followUnitId && units.find((item) => item.id === followUnitId)) || selectedUnit;
     const unitId = unit?.id || "";
+    const selectedUnitId = selectedUnit?.id || "";
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [open, setOpen] = useState(false);
@@ -121,8 +167,12 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
         queryFn: ({ signal }) => getDramaStepUsage(projectId, "assets.extract", signal).then((result) => result.usage),
         enabled: open,
     });
-    const latestTask = useMemo(() => (tasks || []).find((task) => chapterTaskIdentity(task)?.kind === "assets" && chapterTaskIdentity(task)?.chapterId === unitId), [tasks, unitId]);
+    const assetsTaskOf = (id: string) => (tasks || []).find((task) => chapterTaskIdentity(task)?.kind === "assets" && chapterTaskIdentity(task)?.chapterId === id);
+    const latestTask = useMemo(() => assetsTaskOf(unitId), [tasks, unitId]);
     const running = starting === unitId || Boolean(latestTask && (latestTask.status === "queued" || latestTask.status === "running"));
+    const selectedTask = useMemo(() => assetsTaskOf(selectedUnitId), [tasks, selectedUnitId]);
+    const selectedRunning = starting === selectedUnitId || Boolean(selectedTask && (selectedTask.status === "queued" || selectedTask.status === "running"));
+    const paletteMissing = paletteReady === false;
     const terminal = latestTask && latestTask.status !== "queued" && latestTask.status !== "running" ? latestTask : undefined;
     const detailQuery = useQuery({ queryKey: ["generation-task", terminal?.id, terminal?.status], queryFn: () => queryGenerationTask(terminal!.id), enabled: Boolean(terminal), staleTime: Infinity });
     const taskDetail = detailQuery.data;
@@ -142,6 +192,7 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
     const openDialog = () => {
         // 侧栏（AppDrawer）和对话框同一层级、后渲染的在上面：先收起侧栏，免得盖住「开始提取」。
         setPanelOpen(false);
+        setFollowUnitId("");
         setPrecheckError("");
         setSettings((current) => ({
             textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
@@ -157,6 +208,7 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
 
     const start = async (options: { resumeTaskId?: string } = {}) => {
         if (!unit) return;
+        if (paletteMissing && unit.id === selectedUnitId) return message.warning(PALETTE_REQUIRED_HINT);
         if (detail.project.status === "archived") return message.warning("项目已归档，请先在项目设置中恢复");
         const textModel = settings.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
         const config = { ...effectiveConfig, model: textModel, textModel };
@@ -207,24 +259,75 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
             );
             await refresh();
             if (result.outcome) message.success(`资产已写入：新增 ${result.outcome.created} · 合并 ${result.outcome.merged} · 跳过 ${result.outcome.skipped}，技能：${result.usage.skill.name} ${result.usage.skill.version}`);
+            followNext(result.outcome);
         } catch (error) {
             await refresh();
-            message.error(error instanceof Error ? `提取资产失败：${error.message}` : "提取资产失败");
+            if (error instanceof ApiError && error.reason === API_ERROR_REASON.PaletteRequired) {
+                setPanelOpen(false);
+                message.warning(PALETTE_REQUIRED_HINT);
+            } else {
+                message.error(error instanceof Error ? `提取资产失败：${error.message}` : "提取资产失败");
+            }
         } finally {
             setStarting("");
         }
     };
 
+    // 接上一个正在跑的提取任务的文本流（从头回放），结束后刷新；是自动接着跑的一串时，这一集写完接着跟下一集。
+    const follow = (task: GenerationTask) => {
+        const id = taskUnitId(task) || unitId;
+        followedRef.current.add(task.id);
+        setResumeView(undefined);
+        setStream({ taskId: task.id, unitId: id, text: "" });
+        void followDramaRunTask(task, { onStreamText: (text) => setStream({ taskId: task.id, unitId: id, text }) })
+            .then((completed) => {
+                followNext(dramaAssetsExtractOutcomeOf(completed));
+                return refresh();
+            })
+            .catch(() => void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] }));
+    };
+    const followChained = (taskId: string, chainedUnitId?: string) => {
+        if (!taskId || followedRef.current.has(taskId)) return;
+        setPanelOpen(true);
+        void queryGenerationTask(taskId)
+            .then((task) => {
+                setFollowUnitId(taskUnitId(task) || chainedUnitId || "");
+                follow(task);
+                void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] });
+            })
+            .catch(() => message.warning("没读到接着跑的提取资产任务，稍后在「资产进度」里看"));
+    };
+    // 这一集写完了、后面还有排着的集：服务端已经接着建了下一集的任务。
+    const followNext = (outcome?: DramaAssetsExtractOutcome) => {
+        const chained = outcome?.chained;
+        if (chained?.taskId) {
+            const next = units.find((item) => item.id === chained.unitId);
+            message.info(`接着提取${next ? `「${next.title}」` : "下一集"}的资产${chained.remaining ? `，后面还有 ${chained.remaining} 集` : ""}`);
+            followChained(chained.taskId, chained.unitId);
+        } else if (chained?.error) {
+            message.warning(`没有接着提取下一集：${chained.error}`);
+        }
+    };
+    useEffect(() => {
+        const saved = takeChainedAssets(projectId);
+        if (saved) followChained(saved.taskId, saved.unitId);
+        const onChained = (event: Event) => {
+            const detail = (event as CustomEvent<{ projectId: string; taskId: string; unitId?: string }>).detail;
+            if (detail?.projectId === projectId) followChained(detail.taskId, detail.unitId);
+        };
+        window.addEventListener(CHAINED_ASSETS_EVENT, onChained);
+        return () => window.removeEventListener(CHAINED_ASSETS_EVENT, onChained);
+    }, [projectId]);
+    // 换了一集、侧栏没在接自动提取时，侧栏回到当前这一集。
+    useEffect(() => {
+        if (followUnitId && followUnitId !== selectedUnitId && !running && !panelOpen) setFollowUnitId("");
+    }, [selectedUnitId, running, panelOpen]);
+
     // 刷新页面后打开侧栏：接上正在跑的提取任务的文本流（从头回放），结束后刷新。
     useEffect(() => {
         const task = latestTask;
         if (!panelOpen || !task || (task.status !== "queued" && task.status !== "running") || followedRef.current.has(task.id)) return;
-        followedRef.current.add(task.id);
-        setResumeView(undefined);
-        setStream({ taskId: task.id, unitId, text: "" });
-        void followDramaRunTask(task, { onStreamText: (text) => setStream({ taskId: task.id, unitId, text }) })
-            .then(() => refresh())
-            .catch(() => void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] }));
+        follow(task);
     }, [latestTask, panelOpen]);
 
     const usage = usageQuery.data;
@@ -257,9 +360,9 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
 
     return (
         <>
-            <Tooltip title={disabledReason}>
-                <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={disabled || running || !unit} loading={running} onClick={openDialog} aria-label="提取角色、场景与道具">
-                    {running ? "提取资产中" : outcome ? "提取资产（已提取）" : "提取资产"}
+            <Tooltip title={disabledReason || (paletteMissing ? PALETTE_REQUIRED_HINT : undefined)}>
+                <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={disabled || selectedRunning || !selectedUnit || paletteMissing} loading={selectedRunning} onClick={openDialog} aria-label={paletteMissing ? `提取角色、场景与道具（${PALETTE_REQUIRED_HINT}）` : "提取角色、场景与道具"}>
+                    {selectedRunning ? "提取资产中" : paletteMissing ? "提取资产（先生成场次色卡）" : selectedTask?.status === "succeeded" ? "提取资产（已提取）" : "提取资产"}
                 </Button>
             </Tooltip>
             {running || latestTask ? (
@@ -344,7 +447,7 @@ export function AssetsExtractControl({ detail, unit, unitNoun, tasks, disabled, 
                                     <div>
                                         本步使用：<span className="font-medium text-foreground/85">{usage.skill.name}</span> {usage.skill.version}（{usage.profile.label}）
                                     </div>
-                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚和本集场次色卡的色彩脚本。</div>
+                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡（角色、道具用）和本集场次色卡（场景用）；角色换装或换状态时拆成子卡「名·变体」。出图带色卡图作参考，子卡另带主卡三视图。</div>
                                 </>
                             ) : (
                                 "正在读取本步使用的技能…"

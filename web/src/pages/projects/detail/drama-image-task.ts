@@ -13,11 +13,14 @@ async function dramaImageTaskTemplate(config: AiConfig, imageModel: string, plac
     const profile = modelCapabilityConfigFor(config, imageModel).image;
     const size = profile ? normalizeImageValue(profile, { size: requested, quality: config.quality, count: "1" }).size || config.size : requested;
     const task = await prepareBackendGenerationTask({ mode: "image", prompt: placeholder.prompt, config: { ...config, model: imageModel, count: "1", size }, metadata: { source: placeholder.source } });
+    // 参考图名额：服务端给资产出图挂色卡图和主卡三视图时按它挑（不知道时不写，建任务被拒再降级）。
+    const maxReferenceImages = profile?.references?.maxImages;
     return {
         model: task.model || imageModel,
         ...(task.logicalModelId ? { logicalModelId: task.logicalModelId } : {}),
         ...(task.provider ? { provider: task.provider } : {}),
         input: task.input as Record<string, unknown>,
+        ...(typeof maxReferenceImages === "number" && maxReferenceImages >= 0 ? { maxReferenceImages } : {}),
     };
 }
 

@@ -209,6 +209,9 @@ type ScenePaletteInput = {
     /** 要做色卡的剧集（不给时全部；项目还没有剧集时是原文章节）。 */
     sourceUnitIds?: string[];
     resumeTaskId?: string;
+    /** 写完后按集依次接着提取资产（默认接）；assetImageTask 给了时提取后给新资产出图。 */
+    chainAssets?: boolean;
+    assetImageTask?: DramaImageTaskTemplate;
 };
 
 /**
@@ -224,6 +227,8 @@ export async function runScenePalette(input: ScenePaletteInput, options?: Chapte
         config: backendProviderConfig(config, "text") as Record<string, unknown>,
         ...(input.sourceUnitIds?.length ? { sourceUnitIds: input.sourceUnitIds } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
+        chainAssets: input.chainAssets !== false,
+        ...(input.chainAssets !== false && input.assetImageTask ? { assetImageTask: input.assetImageTask } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);
