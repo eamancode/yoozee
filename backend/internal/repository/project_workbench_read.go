@@ -232,6 +232,8 @@ func (r *Repository) ProjectAssetsPage(userID string, projectID string, page int
 	var assets []model.Asset
 	var total int64
 	query := r.db.Table("assets").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("assets.user_id = ? AND project_asset_links.project_id = ?", userID, projectID)
+	// 角色子卡跟在主卡下面显示（service 按主卡挂上），不单独占一格。
+	query = query.Where("COALESCE(assets.parent_asset_id, '') = ''")
 	if value := strings.TrimSpace(category); value != "" {
 		query = query.Where("assets.category = ?", value)
 	}
@@ -258,14 +260,15 @@ func (r *Repository) ProjectAssetFacets(projectID string) ([]ProjectAssetCountRo
 	var categoryRows []ProjectAssetCountRow
 	if err := r.db.Table("assets").Select("assets.category AS key, COUNT(*) AS count").
 		Joins("JOIN project_asset_links pal ON pal.asset_id = assets.id").
-		Where("pal.project_id = ?", projectID).
+		Where("pal.project_id = ? AND COALESCE(assets.parent_asset_id, '') = ''", projectID).
 		Group("assets.category").Scan(&categoryRows).Error; err != nil {
 		return nil, nil, err
 	}
 	var folderRows []ProjectAssetCountRow
-	if err := r.db.Table("project_asset_links").Select("folder_id AS key, COUNT(*) AS count").
-		Where("project_id = ?", projectID).
-		Group("folder_id").Scan(&folderRows).Error; err != nil {
+	if err := r.db.Table("project_asset_links").Select("project_asset_links.folder_id AS key, COUNT(*) AS count").
+		Joins("JOIN assets ON assets.id = project_asset_links.asset_id").
+		Where("project_asset_links.project_id = ? AND COALESCE(assets.parent_asset_id, '') = ''", projectID).
+		Group("project_asset_links.folder_id").Scan(&folderRows).Error; err != nil {
 		return nil, nil, err
 	}
 	return categoryRows, folderRows, nil

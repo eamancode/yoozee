@@ -111,12 +111,19 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 		if err != nil {
 			return false, err
 		}
+		// 色卡写好之后按集依次接着提取资产（M8 卡 D）；没建成只记原因，已写的色卡不动。
+		if target := taskProjectID(task); target != "" {
+			outcome.Chained = s.chainAssetsAfterScenePalette(task, target)
+		}
 		result["dramaStep"] = outcome
 		return true, nil
 	case drama.StepAssetsExtract:
 		outcome, err := s.applyAssetsExtractTask(task, meta, result)
 		if err != nil {
 			return false, err
+		}
+		if target := taskProjectID(task); target != "" {
+			outcome.Chained = s.chainAfterAssetsExtract(task, target, taskDramaAssets(task.InputJSON))
 		}
 		result["dramaStep"] = outcome
 		return true, nil

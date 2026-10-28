@@ -24,6 +24,8 @@ type dramaShotsMeta struct {
 	Palettes map[string]string `json:"palettes,omitempty"`
 	// Cards 是技能包里的戏类卡；老版本包没有戏类卡时为空，每一轮只写判定结果。
 	Cards []drama.SceneGenreCard `json:"cards,omitempty"`
+	// Casts 是每场的【本场角色子卡】段（这一场哪些角色用哪张子卡，M8 卡 D），按场编号；没有子卡的场没有。
+	Casts map[string]string `json:"casts,omitempty"`
 }
 
 // chapterShotsSceneMeta 组装逐场注入的参数；正文切不出场时返回 nil（planDramaStep 已先拦下没有正文的单元）。
@@ -146,7 +148,7 @@ func dramaShotsTurnExtra(shots *dramaShotsMeta, genre drama.SceneGenre, prior []
 	for _, t := range prior {
 		prompts = append(prompts, t.Prompt)
 	}
-	return joinTruthyStrings(shots.Palettes[genre.Scene], drama.SceneGenrePromptSection(genre, card, drama.SceneGenreCardGiven(prompts, genre.Genre)))
+	return joinTruthyStrings(shots.Palettes[genre.Scene], shots.Casts[genre.Scene], drama.SceneGenrePromptSection(genre, card, drama.SceneGenreCardGiven(prompts, genre.Genre)))
 }
 
 // withSceneGenres 是带上戏类的轮次表（进度里显示）。

@@ -32,6 +32,8 @@ type DramaScenesView struct {
 	Scenes       []DramaSceneView `json:"scenes"`
 	// Notice 是切场规则改变后，这个单元已有的数据还是旧场次编号、编号错位了；没有错位时为空。
 	Notice *DramaSceneRuleNotice `json:"notice,omitempty"`
+	// PaletteReady 是这个单元已有场次色卡（至少一场有能用的 kind=scene 色卡），可以提取资产（M8 卡 D）。
+	PaletteReady bool `json:"paletteReady"`
 }
 
 // DramaSceneView 是场次表里的一场。
@@ -52,6 +54,15 @@ type DramaSceneView struct {
 	LineCount int    `json:"lineCount"`
 	// LegacyNos 是这一场在规则改变前（一个场次头一场）的场序。
 	LegacyNos []int `json:"legacyNos"`
+	// PaletteAssetID 是这一场能用的场次色卡；Environments 是提取资产时回填绑到这一场的场景资产（bible_json.scene_assets）。
+	PaletteAssetID string               `json:"paletteAssetId,omitempty"`
+	Environments   []DramaSceneAssetRef `json:"environments"`
+}
+
+// DramaSceneAssetRef 是绑到一场的资产。
+type DramaSceneAssetRef struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }
 
 // DramaSceneRuleNotice 是切场规则改变后编号错位的已有数据。
@@ -93,7 +104,7 @@ func dramaScenesView(unit model.ProjectUnit, episode int, fromChapters bool, sce
 		}
 		view.Scenes = append(view.Scenes, DramaSceneView{
 			ID: id, ShotScene: sc.ID, No: sc.No, Heading: sc.Heading, InOut: sc.InOut, Location: sc.Location, Times: times,
-			SourceHeadings: sources, Lines: sc.Lines, LineCount: sc.Lines[1] - sc.Lines[0] + 1, LegacyNos: sc.LegacyNos,
+			SourceHeadings: sources, Lines: sc.Lines, LineCount: sc.Lines[1] - sc.Lines[0] + 1, LegacyNos: sc.LegacyNos, Environments: []DramaSceneAssetRef{},
 		})
 	}
 	return view
@@ -214,10 +225,38 @@ func (s *Service) dramaScenesViews(userID string, project *model.Project, units 
 	if err != nil {
 		return nil, err
 	}
+	assets, err := s.repo.ProjectAssets(userID, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	titles := map[string]string{}
+	for _, a := range assets {
+		if a.Status != model.AssetVersionStatusArchived {
+			titles[a.ID] = a.Title
+		}
+	}
+	bound := projectSceneAssets(project.BibleJSON)
 	views := make([]DramaScenesView, 0, len(picked))
 	for _, u := range picked {
 		scenes := drama.SplitScenes(chapterPlainText(u.SourceText), u.Title)
 		view := dramaScenesView(u, numbers[u.ID], fromChapters, scenes)
+		ready := unitSceneColorScript(project.BibleJSON, units, u.ID)
+		for i := range view.Scenes {
+			sc := &view.Scenes[i]
+			if e, ok := ready[sc.ShotScene]; ok && numbers[u.ID] > 0 {
+				if p, ok := palettes[e.Code()]; ok && scenePaletteUsable(&p) {
+					sc.PaletteAssetID = p.ID
+					view.PaletteReady = true
+				}
+			}
+			if entry, ok := bound[sc.ID]; ok && (entry.UnitID == "" || entry.UnitID == u.ID) {
+				for _, id := range entry.Environments {
+					if title := titles[id]; title != "" {
+						sc.Environments = append(sc.Environments, DramaSceneAssetRef{ID: id, Title: title})
+					}
+				}
+			}
+		}
 		if drama.ScenesRenumbered(scenes) {
 			shotlist, err := s.repo.DramaShotlistForUnit(project.ID, u.ID)
 			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {

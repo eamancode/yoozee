@@ -215,6 +215,7 @@ func dramaAssetHasImage(a ProjectAssetSummary, versionHasImage bool) bool {
 // 镜头 refs_hint 里写的「名称·变体」也挂到同一个版本上，装段按 refs_hint 取参考时就能落到柚子资产。
 // 没图的人物照样进圣经但不给文件，锁定卡取文字设定：装段就不挂参考，改写「人物·X」外貌声明（pack.py 身份图缺失时同样处理）；
 // 没图的场景、道具不进圣经，由 describeTextOnlyAssets 写进镜头描述。
+// 角色子卡（M8 卡 D）并进主卡那个人物，当成一个变体（标签是变体名、文件是子卡的主版本）：refs_hint 写「名·变体」就取到子卡的图。
 func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []ProjectAssetSummary, imaged map[string]bool, lockMax int) *drama.Bible {
 	byID := make(map[string]ProjectAssetSummary, len(assets))
 	for _, a := range assets {
@@ -230,6 +231,15 @@ func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []Project
 			}
 		}
 	}
+	character := func(name string) *drama.BibleCharacter {
+		for i := range bible.Characters {
+			if bible.Characters[i].Name == name {
+				return &bible.Characters[i]
+			}
+		}
+		bible.Characters = append(bible.Characters, drama.BibleCharacter{Name: name})
+		return &bible.Characters[len(bible.Characters)-1]
+	}
 	for i := range rows {
 		for _, id := range rows[i].assetIDs() {
 			a, ok := byID[id]
@@ -240,14 +250,29 @@ func dramaShotlistBible(shots []drama.Shot, rows []shotlistRow, assets []Project
 			if imaged[a.ID] {
 				file = a.PrimaryVersionID
 			}
+			if a.Variant != nil && dramaRefRole(a.Category) == "identity" {
+				name := firstNonEmpty(a.Variant.ParentTitle, a.Title)
+				ch := character(name)
+				variant := drama.BibleVariant{Label: a.Variant.Label, Kind: firstNonEmpty(a.Variant.Kind, "state"), Sheet: file, LockCard: dramaLockCard(dramaAssetDescription(a), lockMax)}
+				// refs_hint 写过「名·变体」时主卡那边先按主卡的图记了同名变体：换成子卡的。
+				if i := slices.IndexFunc(ch.Variants, func(v drama.BibleVariant) bool { return v.Label == variant.Label }); i >= 0 {
+					ch.Variants[i] = variant
+				} else {
+					ch.Variants = append(ch.Variants, variant)
+				}
+				added[a.Title] = true
+				continue
+			}
 			switch dramaRefRole(a.Category) {
 			case "identity":
 				lock := dramaLockCard(dramaAssetDescription(a), lockMax)
-				ch := drama.BibleCharacter{Name: a.Title, Variants: []drama.BibleVariant{{Kind: "base", Sheet: file, LockCard: lock}}}
+				ch := character(a.Title)
+				ch.Variants = append([]drama.BibleVariant{{Kind: "base", Sheet: file, LockCard: lock}}, ch.Variants...)
 				for _, v := range variants[a.Title] {
-					ch.Variants = append(ch.Variants, drama.BibleVariant{Label: v, Kind: "state", Sheet: file, LockCard: lock})
+					if !slices.ContainsFunc(ch.Variants, func(x drama.BibleVariant) bool { return x.Label == v }) {
+						ch.Variants = append(ch.Variants, drama.BibleVariant{Label: v, Kind: "state", Sheet: file, LockCard: lock})
+					}
 				}
-				bible.Characters = append(bible.Characters, ch)
 			case "location":
 				if file == "" {
 					continue
@@ -375,6 +400,8 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 	type boundAsset struct {
 		title     string
 		character bool
+		// person 是这一镜要在场的人：主卡是自己的名字，子卡是主卡的名字。
+		person string
 	}
 	byID := make(map[string]boundAsset, len(assets))
 	locations := map[string]bool{}
@@ -383,7 +410,11 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 			continue
 		}
 		title := strings.TrimSpace(a.Title)
-		byID[a.ID] = boundAsset{title, dramaRefRole(a.Category) == "identity"}
+		person := title
+		if a.Variant != nil && a.Variant.ParentTitle != "" {
+			person = a.Variant.ParentTitle
+		}
+		byID[a.ID] = boundAsset{title, dramaRefRole(a.Category) == "identity", person}
 		if dramaRefRole(a.Category) == "location" {
 			locations[title] = true
 		}
@@ -394,7 +425,7 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 			named := map[string]bool{}
 			for _, h := range hints {
 				name, _, _ := strings.Cut(h, "·")
-				named[name] = true
+				named[name], named[strings.TrimSpace(h)] = true, true
 			}
 			present := map[string]bool{shots[i].Focus: true}
 			for _, b := range shots[i].Blocking {
@@ -405,7 +436,7 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 			}
 			for _, id := range rows[i].assetIDs() {
 				a := byID[id]
-				if a.title == "" || named[a.title] || (a.character && !present[a.title]) {
+				if a.title == "" || named[a.title] || (a.character && !present[a.title] && !present[a.person]) {
 					continue
 				}
 				named[a.title] = true
@@ -566,6 +597,9 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	}
 	pc := projectDramaContext(project)
 	pc.Episode = s.dramaChapterEpisode(projectID, unit)
+	if pc.SceneCast, err = s.unitSceneCast(project, unit.ID, assets); err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
 	plan, err := planDramaShotlistWith(rows, script, assets, imaged, m, phrases, pc, req.AcceptIssues)
 	plan.Report.Parse = req.Parse
 	var appErr *AppError
@@ -751,6 +785,8 @@ func planDramaShotlistWith(rows []shotlistRow, script *drama.Script, assets []Pr
 		storyRows = append(storyRows, row.StoryboardRow)
 	}
 	converted := drama.RowsToShotlist(storyRows, script, pc.profileID())
+	// 这一场的镜头绑本场的场景资产、角色换成本场的子卡（rows 原地改，写段时的资产引用跟着换）。
+	applySceneCast(rows, converted.Shotlist.Shots, pc.SceneCast)
 	plan := dramaShotlistPlan{Shotlist: converted.Shotlist, Stats: converted.Stats, Lines: converted.Lines}
 	ctx, profile, err := dramaCheckContext(script, pc, assets)
 	if err != nil {

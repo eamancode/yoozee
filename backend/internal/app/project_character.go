@@ -657,6 +657,19 @@ func (s *Service) prepareNextCharacterVersion(asset *model.Asset, name string, d
 	if err != nil {
 		return model.Asset{}, model.AssetVersion{}, nil, nil, err
 	}
+	// 重建的 payload 不带资产层面的 metadata（出图排队状态、子卡的场序）：从原 payload 搬过来。
+	if metadata, ok := assetPayload(asset)["metadata"].(map[string]any); ok && len(metadata) > 0 {
+		rebuilt := map[string]any{}
+		if err := json.Unmarshal([]byte(payload), &rebuilt); err != nil {
+			return model.Asset{}, model.AssetVersion{}, nil, nil, err
+		}
+		rebuilt["metadata"] = metadata
+		raw, err := json.Marshal(rebuilt)
+		if err != nil {
+			return model.Asset{}, model.AssetVersion{}, nil, nil, err
+		}
+		payload = string(raw)
+	}
 	nextAsset := *asset
 	nextAsset.Title = name
 	nextAsset.Kind = "entity"

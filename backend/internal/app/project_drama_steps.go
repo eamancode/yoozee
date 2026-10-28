@@ -63,6 +63,9 @@ type DramaStepRunRequest struct {
 	ImageTask *DramaImageTaskTemplate `json:"imageTask,omitempty"`
 	TraceID   string                  `json:"-"`
 	RequestID string                  `json:"-"`
+	// chainedFrom / chain 是场次色卡或上一集提取收尾时自动接着建的提取资产（metadata.chainedFrom、metadata.dramaAssets.chain）。
+	chainedFrom string
+	chain       *dramaAssetChain
 }
 
 type DramaStepRunResult struct {
@@ -193,6 +196,7 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	}
 	if plan.assets != nil {
 		plan.assets.Images = req.ImageTask.usable()
+		plan.assets.Chain = req.chain
 	}
 	run := newDramaRunMeta(plan, unitID)
 	if resumeID := strings.TrimSpace(req.ResumeTaskID); resumeID != "" {
@@ -209,6 +213,9 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	}
 	taskReq := dramaStepTaskRequest(project.ID, unitID, plan, dramaStepTaskOptions{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config, Rule: req.Rule, TraceID: req.TraceID, RequestID: req.RequestID})
 	taskReq.Input["metadata"].(map[string]any)["dramaRun"] = run
+	if req.chainedFrom != "" {
+		taskReq.Input["metadata"].(map[string]any)["chainedFrom"] = req.chainedFrom
+	}
 	if plan.assets != nil && plan.assets.Images {
 		// 模板带着渠道配置，和其余任务输入一样加密存，任务结束随密钥一起去掉。
 		taskReq.Input["assetImageTask"] = req.ImageTask
@@ -406,6 +413,9 @@ func chapterShotsPlan(project *model.Project, unit *model.ProjectUnit, units []m
 	}
 	scenes := drama.ChapterShotsScenes(chapterPlainText(unit.SourceText), unit.Title)
 	shots := chapterShotsSceneMeta(project, unit, units, skill)
+	if casts := sceneCastPrompts(sceneCastOf(project.BibleJSON, units, unit.ID, assets)); shots != nil && len(casts) > 0 {
+		shots.Casts = casts
+	}
 	record := map[string]any{
 		"canvasAssets":        assetRecords,
 		"requirements":        "输出可直接写入分镜制作并继续生成分镜图、动作预演和镜头视频的分镜表。",
@@ -469,10 +479,16 @@ func chapterShotsAssets(assets []ProjectAssetSummary) ([]drama.StepAsset, []dram
 			anchors = sceneAnchorList(a.Visual.Definition["anchors"])
 		}
 		label := assetCategoryLabel(category)
+		brief := drama.StepAssetBrief(a.PreviewText, len(definition) > 0, a.Title)
 		if isCharacter {
 			label = assetCategoryLabel("character")
 		}
-		out = append(out, drama.StepAsset{Title: a.Title, CategoryLabel: label, Brief: drama.StepAssetBrief(a.PreviewText, len(definition) > 0, a.Title), Anchors: anchors})
+		if a.Variant != nil {
+			// 子卡：写明是谁的哪一套；哪一场用它由每一轮的【本场角色子卡】说。
+			label = assetCategoryLabel("character") + "子卡"
+			brief = fmt.Sprintf("%s的%s「%s」，只在【本场角色子卡】点名的场用", firstNonEmpty(a.Variant.ParentTitle, "主卡"), drama.AssetVariantKindName(a.Variant.Kind), a.Variant.Label)
+		}
+		out = append(out, drama.StepAsset{Title: a.Title, CategoryLabel: label, Brief: brief, Anchors: anchors})
 		records = append(records, dramaStepAssetRecord{ID: a.ID, Title: a.Title, Category: category, Anchors: anchors})
 	}
 	return out, records

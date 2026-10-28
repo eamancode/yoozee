@@ -67,6 +67,9 @@ type ProjectAssetSummary struct {
 	Palette *ProjectAssetPaletteSummary `json:"palette,omitempty"`
 	// Image 是资产设计建的角色、场景、道具的出图排队状态（别的资产没有）。
 	Image *ProjectAssetImageSummary `json:"image,omitempty"`
+	// Variant 是角色子卡（M8 卡 D）的主卡、变体名、种类和场；Variants 是资产页分页里挂在主卡下面的子卡（别处不填）。
+	Variant  *ProjectAssetVariantSummary `json:"variant,omitempty"`
+	Variants []ProjectAssetSummary       `json:"variants,omitempty"`
 }
 
 type ProjectAssetFilter struct {
@@ -686,6 +689,9 @@ func (s *Service) projectAssetSummary(userID string, projectID string, asset *mo
 	}
 	if asset.Category == model.AssetCategoryPalette {
 		summary.Palette = s.paletteAssetSummary(userID, asset, versions)
+	}
+	if asset.Category == model.AssetCategoryCharacter {
+		summary.Variant = s.assetVariantSummary(userID, asset)
 	}
 	if asset.Category == model.AssetCategoryCharacter || projectVisualCategory(asset.Category) {
 		imaged := asset.Kind == "image"

@@ -55,6 +55,8 @@ const (
 	ReasonDramaEpisodesReplace ErrorReason = "drama_episodes_replace_required"
 	// ReasonPrevizRequired 是预演闸门生效时给镜头建视频任务，这一段还没有选中的黑白预演（action_board）。
 	ReasonPrevizRequired ErrorReason = "previz_required"
+	// ReasonPaletteRequired 是这一集（章）还没有场次色卡就提取资产：资产按色卡约束，要先在章节页「生成场次色卡」。
+	ReasonPaletteRequired ErrorReason = "palette_required"
 )
 
 func ReasonForStatus(status int) ErrorReason {

@@ -79,7 +79,10 @@ func projectAssetsByTitle(t *testing.T, svc *Service, projectID string) map[stri
 	}
 	out := map[string]ProjectAssetSummary{}
 	for _, a := range assets {
-		out[a.Title] = a
+		// 色卡（场次色卡、主基调色卡）不算资产设计的资产。
+		if a.Category != model.AssetCategoryPalette {
+			out[a.Title] = a
+		}
 	}
 	return out
 }
@@ -90,10 +93,7 @@ func TestAssetsExtractWritesConfirmedAssetsThroughWorker(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, episodes := seedEpisodeProject(t, svc, db)
 	lin := seedLinXiaoman(t, svc, db, project.ID)
-	bible := `{"style_anchor":{"medium":"真人实拍"},"color_script":[{"episode":1,"scene_no":1,"scene":"内·病房走廊·夜","inherits_from":"","shared_colors":[{"name_zh":"日光灯白","name_en":"Fluorescent White","hex":"#E8ECEF","usage":"顶灯"}],"new_colors":[],"unit_id":"` + episodes[0].ID + `"},{"episode":1,"scene_no":2,"scene":"内·电梯口·夜","inherits_from":"","shared_colors":[{"name_zh":"病号服条纹","name_en":"Ward Stripe","hex":"#7FA7C9","usage":"周岸"}],"new_colors":[],"unit_id":"` + episodes[0].ID + `"}]}`
-	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("bible_json", bible).Error; err != nil {
-		t.Fatal(err)
-	}
+	seedScenePalettes(t, svc, db, project)
 	upstream := &streamingShotsUpstream{scenes: map[string][]string{
 		"E01S01": {assetsLin, assetsHall},
 		"E01S02": {assetsZhou, assetsLift, assetsKnife, assetsBadRow},
@@ -193,6 +193,7 @@ func TestAssetsExtractWritesConfirmedAssetsThroughWorker(t *testing.T) {
 func TestAssetsExtractFailsWithoutUsableRows(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, episodes := seedEpisodeProject(t, svc, db)
+	seedScenePalettes(t, svc, db, project)
 	server := httptest.NewServer(&streamingShotsUpstream{scenes: map[string][]string{"E01S01": {assetsBadRow}}})
 	defer server.Close()
 	task := queueAssetsExtractTask(t, svc, db, project, episodes[1].ID, server.URL, nil)
@@ -200,7 +201,7 @@ func TestAssetsExtractFailsWithoutUsableRows(t *testing.T) {
 	if done.Status != model.TaskStatusFailed || !strings.Contains(done.Error, "没有能用的资产行") {
 		t.Fatalf("没有能用的行要失败：%s %q", done.Status, done.Error)
 	}
-	if assets, _ := svc.ProjectAssets("user-1", project.ID); len(assets) != 0 {
+	if assets := projectAssetsByTitle(t, svc, project.ID); len(assets) != 0 {
 		t.Fatalf("资产不动：%d", len(assets))
 	}
 	_ = task
@@ -214,7 +215,8 @@ func TestDramaAssetImageTaskRequests(t *testing.T) {
 	template := DramaImageTaskTemplate{Model: "gpt-image-2", Input: map[string]any{"mode": "image", "config": map[string]any{"apiKey": "k"}, "referenceImages": []any{"x"}, "assetImageTask": "old"}}
 	character := model.Asset{ID: "a1", Title: "周岸", Category: model.AssetCategoryCharacter}
 	version := &model.AssetVersion{ID: "v1", DefinitionJSON: `{"appearance":"条纹病号服","multiViewPrompt":"turnaround sheet"}`}
-	req, err := dramaCharacterImageTaskRequest(project, style, character, version, template, "task-1")
+	svc := &Service{}
+	req, err := svc.dramaCharacterImageTaskRequest("user-1", project, style, character, version, template, "task-1", nil, dramaRefsAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,11 +231,11 @@ func TestDramaAssetImageTaskRequests(t *testing.T) {
 	if req.Input["referenceImages"] != nil || req.Input["assetImageTask"].(DramaImageTaskTemplate).Model != "gpt-image-2" || req.Input["config"].(map[string]any)["apiKey"] != "k" {
 		t.Fatalf("三视图 input：%+v", req.Input)
 	}
-	if _, err := dramaCharacterImageTaskRequest(project, style, character, &model.AssetVersion{DefinitionJSON: `{}`}, template, ""); err == nil {
+	if _, err := svc.dramaCharacterImageTaskRequest("user-1", project, style, character, &model.AssetVersion{DefinitionJSON: `{}`}, template, "", nil, dramaRefsAll); err == nil {
 		t.Fatal("没有外观设定出不了三视图")
 	}
 	prop := model.Asset{ID: "a2", Title: "折叠刀", Category: model.AssetCategoryProp}
-	req, err = dramaVisualImageTaskRequest(project, style, prop, &model.AssetVersion{ID: "v2", DefinitionJSON: `{"description":"黑柄折叠刀","prompt":"a folding knife"}`}, template, "task-1")
+	req, err = svc.dramaVisualImageTaskRequest("user-1", project, style, prop, &model.AssetVersion{ID: "v2", DefinitionJSON: `{"description":"黑柄折叠刀","prompt":"a folding knife"}`}, template, "task-1", nil, dramaRefsAll)
 	if err != nil {
 		t.Fatal(err)
 	}

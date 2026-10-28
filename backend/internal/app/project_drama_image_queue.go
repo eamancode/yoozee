@@ -118,10 +118,11 @@ func (s *Service) dramaImageView(userID string, asset *model.Asset, key string, 
 	return state
 }
 
-// dramaImageJob 是排队里的一个资产：Build 组它的出图任务（组不出来时记成失败，原因写在资产上）。
+// dramaImageJob 是排队里的一个资产：Build 组它的出图任务（组不出来时记成失败，原因写在资产上）；level 是参考图的降级档
+// （dramaRefsAll / dramaRefsNoPalette / dramaRefsNone，模型不支持这么多参考图时一档档往下降）。
 type dramaImageJob struct {
 	Asset model.Asset
-	Build func() (CreateTaskRequest, error)
+	Build func(level int) (CreateTaskRequest, error)
 }
 
 // dispatchDramaImages 按顺序给「等空位」的资产建出图任务：空位（同时排队或运行的任务上限减去已有的）用完就停，剩下的保持「等空位」。
@@ -147,7 +148,7 @@ func (s *Service) dispatchDramaImages(userID string, key string, jobs []dramaIma
 			result.Waiting = append(result.Waiting, asset.ID)
 			continue
 		}
-		task, createErr := s.createDramaImageTask(userID, job.Build)
+		task, createErr := s.createDramaImageTask(userID, asset, job.Build)
 		if createErr != nil {
 			state := dramaImageState{Status: dramaImageFailed, Error: userFacingTaskError(createErr.Error()), UpdatedAt: now}
 			// 同时任务数在建任务时才会被别的请求占满、数据库一直忙（重试过了）：这一个和后面的留到下一次接着排，不算出图失败。
@@ -177,13 +178,20 @@ func (s *Service) dispatchDramaImages(userID string, key string, jobs []dramaIma
 
 // createDramaImageTask 建一个出图任务。SQLite 下别的写入正占着库时建任务会报「database is locked」：
 // 退避重试三次（每次重组请求），还忙就把错误交回给调用方（留在「等空位」，不记成出图失败）。
-func (s *Service) createDramaImageTask(userID string, build func() (CreateTaskRequest, error)) (*model.Task, error) {
+// 模型说不支持这次的参考图时，去掉色卡图再建，还不行就不带参考图（记一条日志）。
+func (s *Service) createDramaImageTask(userID string, asset model.Asset, build func(level int) (CreateTaskRequest, error)) (*model.Task, error) {
+	level := dramaRefsAll
 	for attempt := 0; ; attempt++ {
-		req, err := build()
+		req, err := build(level)
 		if err != nil {
 			return nil, err
 		}
 		task, err := s.CreateTask(userID, req)
+		if err != nil && modelCapabilityError(err) && level < dramaRefsNone && req.Input["referenceImages"] != nil {
+			level++
+			_ = s.log(userID, "", "warn", "资产出图参考图降级："+asset.Title, dramaRefsLevelNote[level])
+			continue
+		}
 		if err == nil || !databaseBusyError(err) || attempt == 3 {
 			return task, err
 		}
@@ -247,11 +255,13 @@ func (s *Service) continueDramaImages(task model.Task, projectID string, decrypt
 
 // DramaImageTaskTemplate 是给资产出图用的图片任务模板：前端按项目默认图片模型组好的任务（模型选择、input.config 等），
 // 服务端每个资产换上自己的提示词和 metadata 后建任务。它放在任务 input 的顶层 assetImageTask，任务结束后随密钥一起从任务正文去掉。
+// MaxReferenceImages 是这个图片模型最多带几张参考图（前端按渠道模型能力写；0 是不知道，不按名额挑，建任务被拒时再降级）。
 type DramaImageTaskTemplate struct {
-	Model          string         `json:"model"`
-	LogicalModelID string         `json:"logicalModelId,omitempty"`
-	Provider       string         `json:"provider,omitempty"`
-	Input          map[string]any `json:"input"`
+	Model              string         `json:"model"`
+	LogicalModelID     string         `json:"logicalModelId,omitempty"`
+	Provider           string         `json:"provider,omitempty"`
+	Input              map[string]any `json:"input"`
+	MaxReferenceImages int            `json:"maxReferenceImages,omitempty"`
 }
 
 func (t *DramaImageTaskTemplate) usable() bool {

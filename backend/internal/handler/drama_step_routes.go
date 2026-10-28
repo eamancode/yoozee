@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"yingce/backend/internal/model"
 	"yingce/backend/internal/service"
 )
 
@@ -147,6 +148,57 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		ok(c, result)
+	})
+	// 角色子卡（M8 卡 D）：资产页在主卡下新增子卡（按主卡继承生成设定，带了图片模板时接着出三视图）、改、删（被镜头引用时拒删）。
+	variantRequest := func(c *gin.Context) (*model.User, service.DramaAssetVariantRequest, bool) {
+		var req service.DramaAssetVariantRequest
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return nil, req, false
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("子卡的请求格式无效"))
+			return nil, req, false
+		}
+		return user, req, true
+	}
+	r.POST("/projects/:id/drama/assets/:assetId/variants", func(c *gin.Context) {
+		user, req, valid := variantRequest(c)
+		if !valid {
+			return
+		}
+		result, err := svc.CreateDramaAssetVariant(user.ID, c.Param("id"), c.Param("assetId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+	r.PATCH("/projects/:id/drama/variants/:variantId", func(c *gin.Context) {
+		user, req, valid := variantRequest(c)
+		if !valid {
+			return
+		}
+		result, err := svc.UpdateDramaAssetVariant(user.ID, c.Param("id"), c.Param("variantId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+	r.DELETE("/projects/:id/drama/variants/:variantId", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		if err := svc.DeleteDramaAssetVariant(user.ID, c.Param("id"), c.Param("variantId")); err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"deleted": true})
 	})
 	r.GET("/projects/:id/drama/episodes", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
