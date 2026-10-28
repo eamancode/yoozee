@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -23,11 +25,14 @@ import (
 // assetVariantKey 是子卡在 payload.metadata 里的键。
 const assetVariantKey = "assetVariant"
 
-// assetVariantMeta 是子卡 payload.metadata.assetVariant：变体种类、用这套形象的场编号、怎么来的（extract / manual）。
+// assetVariantMeta 是子卡 payload.metadata.assetVariant：变体种类、用这套形象的场编号、怎么来的（extract / manual），
+// 和生成设定时用的服装 / 状态描述、英文提示词原文（改子卡时按它们判断外观变没变；早期建的子卡没有，从设定里拆）。
 type assetVariantMeta struct {
-	Kind   string   `json:"kind"`
-	Scenes []string `json:"scenes"`
-	Source string   `json:"source,omitempty"`
+	Kind     string   `json:"kind"`
+	Scenes   []string `json:"scenes"`
+	Source   string   `json:"source,omitempty"`
+	Look     string   `json:"look,omitempty"`
+	PromptEn string   `json:"promptEn,omitempty"`
 }
 
 func assetVariantMetaOf(asset *model.Asset) assetVariantMeta {
@@ -38,22 +43,26 @@ func assetVariantMetaOf(asset *model.Asset) assetVariantMeta {
 	return meta
 }
 
-// ProjectAssetVariantSummary 是子卡在资产清单里的摘要：主卡、变体名、种类（costume / state）、用这套形象的场。
+// ProjectAssetVariantSummary 是子卡在资产清单里的摘要：主卡、变体名、种类（costume / state）、用这套形象的场，
+// 和服装 / 状态描述、用户写的英文提示词（编辑对话框带出原值；自动生成的提示词是空）。
 type ProjectAssetVariantSummary struct {
 	ParentID    string   `json:"parentId"`
 	ParentTitle string   `json:"parentTitle,omitempty"`
 	Label       string   `json:"label"`
 	Kind        string   `json:"kind"`
 	Scenes      []string `json:"scenes"`
+	Look        string   `json:"look"`
+	PromptEn    string   `json:"promptEn"`
 }
 
-// assetVariantSummary 是子卡的摘要；不是子卡返回 nil。
-func (s *Service) assetVariantSummary(userID string, asset *model.Asset) *ProjectAssetVariantSummary {
+// assetVariantSummary 是子卡的摘要（definition 是主版本的设定）；不是子卡返回 nil。
+func (s *Service) assetVariantSummary(userID string, asset *model.Asset, definition map[string]any) *ProjectAssetVariantSummary {
 	if asset.ParentAssetID == "" {
 		return nil
 	}
 	meta := assetVariantMetaOf(asset)
 	summary := &ProjectAssetVariantSummary{ParentID: asset.ParentAssetID, Label: asset.VariantLabel, Kind: drama.NormalizeAssetVariantKind(meta.Kind, asset.VariantLabel), Scenes: meta.Scenes}
+	summary.Look, summary.PromptEn = variantLookOf(meta, definition)
 	if parent, err := s.repo.AssetForUser(userID, asset.ParentAssetID); err == nil {
 		summary.ParentTitle = parent.Title
 	}
@@ -136,10 +145,33 @@ func variantDefinition(parent map[string]any, parentTitle string, label string, 
 	prompt := strings.TrimSpace(promptEn)
 	if prompt == "" {
 		base, _ := parent["multiViewPrompt"].(string)
-		prompt = strings.TrimSpace(strings.TrimSpace(base) + " Same character, same face and body; only the " + map[string]string{drama.AssetVariantState: "condition", drama.AssetVariantCostume: "outfit"}[kind] + " changes: " + label + ".")
+		prompt = strings.TrimSpace(strings.TrimSpace(base) + variantDefaultPromptMarker + map[string]string{drama.AssetVariantState: "condition", drama.AssetVariantCostume: "outfit"}[kind] + " changes: " + label + ".")
 	}
 	out["multiViewPrompt"] = prompt
 	return out
+}
+
+// variantDefaultPromptMarker 是子卡没写英文提示词时、用主卡提示词接上的那段说明的开头（认出提示词是不是自动生成的）。
+const variantDefaultPromptMarker = " Same character, same face and body; only the "
+
+var variantLookPrefix = regexp.MustCompile(`^(服装|状态)「[^」]*」：`)
+
+// variantLookOf 是子卡当前的服装 / 状态描述和用户写的英文提示词（自动生成的提示词算空）：metadata 里记了原文就用原文，
+// 否则从设定的 clothing 里去掉「服装「X」：」前缀和「；服装同主卡：…」后缀。
+func variantLookOf(meta assetVariantMeta, definition map[string]any) (string, string) {
+	if meta.Look != "" {
+		return meta.Look, meta.PromptEn
+	}
+	clothing, _ := definition["clothing"].(string)
+	look := variantLookPrefix.ReplaceAllString(strings.TrimSpace(clothing), "")
+	if i := strings.Index(look, "；服装同主卡："); i >= 0 {
+		look = look[:i]
+	}
+	prompt, _ := definition["multiViewPrompt"].(string)
+	if strings.Contains(prompt, variantDefaultPromptMarker) {
+		prompt = ""
+	}
+	return strings.TrimSpace(look), strings.TrimSpace(prompt)
 }
 
 // variantPayload 写子卡 payload 的 metadata：变体种类和场、出图排队状态（imageState 为空时不写）。
@@ -173,7 +205,7 @@ func newVariantAsset(userID string, parent model.Asset, parentDefinition map[str
 		return model.Asset{}, model.AssetVersion{}, err
 	}
 	asset.ParentAssetID, asset.VariantLabel = parent.ID, label
-	meta.Kind = kind
+	meta.Kind, meta.Look, meta.PromptEn = kind, strings.TrimSpace(look), strings.TrimSpace(promptEn)
 	if err := variantPayload(&asset, meta, imageState, now); err != nil {
 		return model.Asset{}, model.AssetVersion{}, err
 	}
@@ -331,8 +363,9 @@ func (s *Service) CreateDramaAssetVariant(userID string, projectID string, paren
 	return result, err
 }
 
-// UpdateDramaAssetVariant 是资产页改子卡：变体名、种类、场原地改；服装 / 状态描述或提示词改了时按主卡当前设定重新生成定义、加一个版本
-// （旧三视图不再搬过去，引用这张子卡的镜头产物过期），带了图片模板时接着重出三视图。
+// UpdateDramaAssetVariant 是资产页改子卡：只改变体名、种类、场时原地改（设定里的变体名跟着换，不加版本，三视图和镜头产物都不动）；
+// 服装 / 状态描述或英文提示词改了时按主卡当前设定重新生成定义、加一个版本（旧三视图不再搬过去，引用这张子卡的镜头产物过期），
+// 带了图片模板时接着重出三视图。比较外观只看描述和提示词原文，不看带着变体名的整段设定。
 func (s *Service) UpdateDramaAssetVariant(userID string, projectID string, variantID string, req DramaAssetVariantRequest) (DramaAssetVariantResult, error) {
 	result := DramaAssetVariantResult{Images: emptyDramaImageQueueResult()}
 	if err := normalizeVariantRequest(&req); err != nil {
@@ -370,23 +403,30 @@ func (s *Service) UpdateDramaAssetVariant(userID string, projectID string, varia
 	title := drama.AssetVariantTitle(parent.Title, req.Label)
 	next := variantDefinition(definition, parent.Title, req.Label, req.Kind, req.Look, req.PromptEn)
 	next["name"] = title
-	lookChanged := next["clothing"] != current["clothing"] || next["multiViewPrompt"] != current["multiViewPrompt"]
+	oldLook, oldPrompt := variantLookOf(meta, current)
+	lookChanged := req.Look != oldLook || req.PromptEn != oldPrompt
+	encoded, err := json.Marshal(next)
+	if err != nil {
+		return result, err
+	}
 	if lookChanged {
-		encoded, err := json.Marshal(next)
-		if err != nil {
-			return result, err
-		}
 		// 外观改了：旧三视图对不上新设定，不搬到新版本。
 		if _, err := s.createNextCharacterVersion(project.ID, child, title, string(encoded), []model.AssetRepresentation{}, nil, false); err != nil {
 			return result, err
 		}
+	} else if err := s.repo.UpdateAssetVersionDefinition(child.ID, child.PrimaryVersionID, string(encoded), now); err != nil {
+		// 只改了变体名、种类或场：原地换设定里的文字，版本、三视图和引用它的镜头都不动。
+		return result, err
 	}
-	meta.Kind, meta.Scenes = req.Kind, req.Scenes
+	meta.Kind, meta.Scenes, meta.Look, meta.PromptEn = req.Kind, req.Scenes, req.Look, req.PromptEn
 	if err := s.setDramaImageState(userID, child.ID, func(payload map[string]any) {
 		metadata := payloadMetadata(payload)
 		metadata[assetVariantKey] = meta
 		if lookChanged {
 			metadata[assetImageKey] = dramaImageState{Status: dramaImageNone, UpdatedAt: now.Format(time.RFC3339Nano)}
+		}
+		if data, ok := payload["data"].(map[string]any); ok {
+			data["definition"] = next
 		}
 		payload["title"] = title
 	}); err != nil {
@@ -421,19 +461,38 @@ func (s *Service) DeleteDramaAssetVariant(userID string, projectID string, varia
 	if err != nil {
 		return err
 	}
-	titles, err := s.repo.ProjectAssetShotReferenceTitles(project.ID, child.ID)
-	if err != nil {
+	if err := s.variantShotReferencesConflict(project.ID, []model.Asset{*child}); err != nil {
 		return err
 	}
-	if len(titles) > 0 {
+	return s.UnlinkProjectAsset(userID, project.ID, child.ID)
+}
+
+// variantShotReferencesConflict 是这几张角色卡（主卡和它的子卡，或单张子卡）还被这个项目的镜头引用时的 409：列出是哪张卡、哪些镜头。
+func (s *Service) variantShotReferencesConflict(projectID string, assets []model.Asset) error {
+	var parts []string
+	for _, a := range assets {
+		titles, err := s.repo.ProjectAssetShotReferenceTitles(projectID, a.ID)
+		if err != nil {
+			return err
+		}
+		if len(titles) == 0 {
+			continue
+		}
 		shown := titles[:min(8, len(titles))]
 		more := ""
 		if len(titles) > len(shown) {
 			more = fmt.Sprintf(" 等 %d 个镜头", len(titles))
 		}
-		return BadAuthRequest(fmt.Sprintf("子卡「%s」还被镜头引用：%s%s。先在分镜制作里换掉，或重新生成分段", child.Title, strings.Join(shown, "、"), more))
+		parts = append(parts, fmt.Sprintf("「%s」：%s%s", a.Title, strings.Join(shown, "、"), more))
 	}
-	return s.UnlinkProjectAsset(userID, project.ID, child.ID)
+	if len(parts) == 0 {
+		return nil
+	}
+	kind := "子卡"
+	if len(assets) > 1 {
+		kind = "角色和它的子卡"
+	}
+	return NewAppError(http.StatusConflict, fmt.Sprintf("%s还被镜头引用，没有移出：%s。先在分镜制作里换掉，或重新生成分段", kind, strings.Join(parts, "；")))
 }
 
 // projectVariantAsset 读项目里的子卡。

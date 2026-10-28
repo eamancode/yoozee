@@ -589,6 +589,20 @@ func (r *Repository) DeleteProjectAssetLink(projectID string, assetID string) er
 	return r.db.Delete(&model.ProjectAssetLink{}, "project_id = ? AND asset_id = ?", projectID, assetID).Error
 }
 
+// DeleteProjectAssetLinks 在一个事务里把几个资产一起移出项目（角色主卡连同子卡）。
+func (r *Repository) DeleteProjectAssetLinks(projectID string, assetIDs []string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		return tx.Delete(&model.ProjectAssetLink{}, "project_id = ? AND asset_id IN ?", projectID, assetIDs).Error
+	})
+}
+
+// ChildAssetIDs 是这些角色主卡的子卡（parent_asset_id 指向它们、同一用户，不在 parentIDs 里的）。
+func (r *Repository) ChildAssetIDs(userID string, parentIDs []string) ([]string, error) {
+	var ids []string
+	err := r.db.Model(&model.Asset{}).Where("user_id = ? AND parent_asset_id IN ? AND id NOT IN ?", userID, parentIDs, parentIDs).Order("id").Pluck("id", &ids).Error
+	return ids, err
+}
+
 func (r *Repository) ProjectAssetShotReferenceCount(projectID string, assetID string) (int64, error) {
 	var count int64
 	err := r.db.Table("shot_asset_references").

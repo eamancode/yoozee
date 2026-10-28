@@ -512,15 +512,17 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	}
 	outcome.Step, outcome.Status, outcome.UnitID, outcome.Parse = meta.Step, DramaStepOutcomeWritten, unit.ID, stats
 	// 场景资产回填到这一集的场次：已有的和这次新建的场景都算，地点对得上名字或别名的绑上。
-	bible := ""
+	// 只改 bible_json.scene_assets 里这一集的条目，事务里按当前值合并（不拿提取开始时读到的整份连戏表覆盖）。
+	var patchBible func(string) (string, error)
 	if _, numbers, _ := sceneUnits(units); numbers[unit.ID] > 0 {
-		bindings := unitSceneEnvironments(*unit, numbers[unit.ID], index.environments())
-		if bible, err = mergeSceneAssetsDocument(project.BibleJSON, unit.ID, numbers[unit.ID], bindings); err != nil {
-			return DramaAssetsExtractOutcome{}, err
+		episode := numbers[unit.ID]
+		bindings := unitSceneEnvironments(*unit, episode, index.environments())
+		patchBible = func(bibleJSON string) (string, error) {
+			return mergeSceneAssetsDocument(bibleJSON, unit.ID, episode, bindings)
 		}
 		outcome.Scenes = len(bindings)
 	}
-	if err := s.repo.ApplyDramaAssetsExtract(task.UserID, project.ID, writes, bible, time.Now()); err != nil {
+	if err := s.repo.ApplyDramaAssetsExtract(task.UserID, project.ID, writes, patchBible, time.Now()); err != nil {
 		if errors.Is(err, repository.ErrDramaAssetChanged) {
 			return DramaAssetsExtractOutcome{}, errors.New("要合并的资产在提取期间被改过，没有写入，请重新提取")
 		}

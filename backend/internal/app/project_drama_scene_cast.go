@@ -121,21 +121,28 @@ type dramaSceneCast struct {
 	Variants map[string]map[string]string
 	// Environments 是这一场绑的场景资产 ID（场景资产回填）。
 	Environments map[string][]string
+	// Fallback 是还没有三视图、而主卡有图的子卡 → 主卡：这些子卡不换上去，镜头里直接绑了它的也退回主卡（不留成没有人物参考图）。
+	Fallback map[string]string
 	// titles 是资产 ID → 标题（换 refs_hint 用），parents 是子卡 ID → 主卡 ID。
 	titles  map[string]string
 	parents map[string]string
 }
 
 func (c *dramaSceneCast) empty() bool {
-	return c == nil || (len(c.Variants) == 0 && len(c.Environments) == 0)
+	return c == nil || (len(c.Variants) == 0 && len(c.Environments) == 0 && len(c.Fallback) == 0)
 }
 
 // sceneCastOf 组一个单元的按场资产：子卡按它记的场（项目场编号）落到本单元的场，场景按 bible_json.scene_assets。不读库。
 // 同一角色在同一场有几张子卡时取最具体的：用到的场最少的，再取状态（淋湿、受伤，通常叠在某套服装上）先于服装，再按标题。
+// 子卡还没有三视图、主卡有图时不换（记进 Fallback）；主卡也没图时照样换（子卡的文字设定更贴这一场）。
 func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, assets []ProjectAssetSummary) *dramaSceneCast {
 	_, numbers, _ := sceneUnits(units)
 	episode := numbers[unitID]
-	cast := &dramaSceneCast{Variants: map[string]map[string]string{}, Environments: map[string][]string{}, titles: map[string]string{}, parents: map[string]string{}}
+	cast := &dramaSceneCast{Variants: map[string]map[string]string{}, Environments: map[string][]string{}, Fallback: map[string]string{}, titles: map[string]string{}, parents: map[string]string{}}
+	imaged := map[string]bool{}
+	for _, a := range assets {
+		imaged[a.ID] = a.Character != nil && a.Character.VisualStatus == "ready"
+	}
 	live := map[string]bool{}
 	byID := map[string]ProjectAssetSummary{}
 	specific := func(a, b ProjectAssetSummary) bool {
@@ -158,6 +165,10 @@ func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, ass
 		}
 		cast.parents[a.ID] = a.Variant.ParentID
 		byID[a.ID] = a
+		if !imaged[a.ID] && imaged[a.Variant.ParentID] {
+			cast.Fallback[a.ID] = a.Variant.ParentID
+			continue
+		}
 		for _, code := range a.Variant.Scenes {
 			ep, no, ok := drama.ParseSceneCode(code)
 			if !ok || ep != episode {
@@ -201,8 +212,23 @@ func applySceneCast(rows []shotlistRow, shots []drama.Shot, cast *dramaSceneCast
 		scene := strings.ToUpper(strings.TrimSpace(shots[i].Scene))
 		swaps := cast.Variants[scene]
 		hasScene := false
+		for child, parent := range cast.Fallback {
+			for k, hint := range shots[i].RefsHint {
+				if title := cast.titles[child]; title != "" && strings.TrimSpace(hint) == title {
+					shots[i].RefsHint[k] = cast.titles[parent]
+				}
+			}
+		}
+		for j := range rows[i].Characters {
+			if parent, ok := cast.Fallback[rows[i].Characters[j].CharacterAssetID]; ok {
+				rows[i].Characters[j].CharacterAssetID = parent
+			}
+		}
 		for j := range rows[i].AssetBindings {
 			b := &rows[i].AssetBindings[j]
+			if parent, ok := cast.Fallback[b.NodeID]; ok {
+				b.NodeID = parent
+			}
 			if child, ok := swaps[b.NodeID]; ok {
 				b.NodeID = child
 			}

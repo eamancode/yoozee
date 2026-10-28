@@ -13,18 +13,15 @@ import { assetImageTaskTemplate } from "./drama-image-task";
 import { projectCharacterCover } from "./project-character-cover";
 import { turnaroundImageModel } from "./project-character-media";
 import { assetImageQueueLabel } from "./project-visual-asset";
-import { textValue } from "./shared";
 
 const KIND_LABEL: Record<DramaAssetVariantKind, string> = { costume: "服装", state: "状态" };
 
 type VariantForm = { label: string; kind: DramaAssetVariantKind; look: string; promptEn: string; scenes: string[]; image: boolean };
 
-/** 子卡编辑时的初值：服装 / 状态描述取设定 clothing 里「服装「X」：」「状态「X」：」后面那段（服务端按它生成）。 */
+/** 子卡编辑时的初值：描述和英文提示词用服务端给的原文（只改变体名时外观不算变，三视图保留）。 */
 function variantForm(asset?: ProjectAsset): VariantForm {
     if (!asset?.variant) return { label: "", kind: "costume", look: "", promptEn: "", scenes: [], image: true };
-    const clothing = textValue(asset.character?.definition.clothing);
-    const look = clothing.replace(/^(服装|状态)「[^」]*」：/, "").replace(/；服装同主卡：.*$/, "");
-    return { label: asset.variant.label, kind: asset.variant.kind, look, promptEn: textValue(asset.character?.definition.multiViewPrompt), scenes: asset.variant.scenes, image: false };
+    return { label: asset.variant.label, kind: asset.variant.kind, look: asset.variant.look, promptEn: asset.variant.promptEn, scenes: asset.variant.scenes, image: false };
 }
 
 /**

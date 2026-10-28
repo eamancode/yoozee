@@ -29,16 +29,17 @@ type DramaAssetWrite struct {
 	Voice             *model.CharacterVoiceBinding
 }
 
-// ApplyDramaAssetsExtract 在一个事务里写资产设计的结果（bibleJSON 不为空时一起写项目的 bible_json：场景资产回填到场次），
-// 项目 revision 加一。
-func (r *Repository) ApplyDramaAssetsExtract(userID string, projectID string, writes []DramaAssetWrite, bibleJSON string, now time.Time) error {
+// ApplyDramaAssetsExtract 在一个事务里写资产设计的结果，项目 revision 加一。patchBible 不为空时在事务里读当前的 bible_json、
+// 交给它只改自己负责的键（场景资产回填到场次），按读到的原值条件写回：同时有别的写（场次色卡写 color_script）时重读再改，
+// 不拿提取开始时的旧快照整块覆盖。
+func (r *Repository) ApplyDramaAssetsExtract(userID string, projectID string, writes []DramaAssetWrite, patchBible func(bibleJSON string) (string, error), now time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var project model.Project
 		if err := tx.Select("id").Where("id = ? AND user_id = ?", projectID, userID).First(&project).Error; err != nil {
 			return err
 		}
-		if bibleJSON != "" {
-			if err := tx.Model(&model.Project{}).Where("id = ?", projectID).Update("bible_json", bibleJSON).Error; err != nil {
+		if patchBible != nil {
+			if err := patchProjectBible(tx, projectID, patchBible); err != nil {
 				return err
 			}
 		}
@@ -136,4 +137,32 @@ func (r *Repository) CreateProjectAssetVariant(projectID string, asset *model.As
 		}
 		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": now}).Error
 	})
+}
+
+// ErrDramaBibleBusy 是连戏表一直被别处同时改（重读三次还对不上），这次没写。
+var ErrDramaBibleBusy = errors.New("连戏表正被同时修改")
+
+// patchProjectBible 读项目的 bible_json，用 patch 改出新值，按原值条件写回（原值变了就重读再改，最多三次）。
+func patchProjectBible(tx *gorm.DB, projectID string, patch func(string) (string, error)) error {
+	for attempt := 0; attempt < 3; attempt++ {
+		var current struct{ BibleJSON string }
+		if err := tx.Model(&model.Project{}).Select("bible_json").Where("id = ?", projectID).Take(&current).Error; err != nil {
+			return err
+		}
+		next, err := patch(current.BibleJSON)
+		if err != nil {
+			return err
+		}
+		if next == current.BibleJSON {
+			return nil
+		}
+		result := tx.Model(&model.Project{}).Where("id = ? AND bible_json = ?", projectID, current.BibleJSON).Update("bible_json", next)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 1 {
+			return nil
+		}
+	}
+	return ErrDramaBibleBusy
 }

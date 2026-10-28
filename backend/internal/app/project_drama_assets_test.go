@@ -249,6 +249,8 @@ func TestDramaAssetImageTaskRequests(t *testing.T) {
 func TestCancelDramaRunTaskWhileRunning(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, episodes := seedEpisodeProject(t, svc, db)
+	// 提取资产要先有场次色卡（palette_required）。
+	seedScenePalettes(t, svc, db, project)
 	task := queueAssetsExtractTask(t, svc, db, project, episodes[0].ID, "http://127.0.0.1:1", nil)
 	plain := insertDramaTestTask(t, svc, db, project.ID, CreateTaskRequest{Type: "canvas_text", Operation: "storyboard", Prompt: "x", Input: map[string]any{"mode": "text", "metadata": map[string]any{}}})
 	for _, id := range []string{task.ID, plain.ID} {

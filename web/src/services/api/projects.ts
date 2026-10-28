@@ -91,7 +91,8 @@ export type ProjectAsset = {
     variants?: ProjectAsset[];
 };
 
-export type ProjectAssetVariant = { parentId: string; parentTitle?: string; label: string; kind: "costume" | "state"; scenes: string[] };
+/** look / promptEn 是这套服装或状态的描述、用户写的英文提示词（自动生成的提示词是空串），编辑时原样带回。 */
+export type ProjectAssetVariant = { parentId: string; parentTitle?: string; label: string; kind: "costume" | "state"; scenes: string[]; look: string; promptEn: string };
 
 /** 服务端出图的排队状态：none 还没排，waiting 等空位，queued 出图中，bound 已出图，stale 出图期间换了版本没绑上，failed 失败。 */
 export type DramaImageStatus = "none" | "waiting" | "queued" | "bound" | "stale" | "failed";

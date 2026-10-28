@@ -258,6 +258,8 @@ func mediaTitleFallback(resource *model.Resource) string {
 	return base
 }
 
+// UnlinkProjectAsset 把资产移出项目。角色主卡带着这个项目里的子卡（M8 卡 D）一起移出：主卡或任一子卡还被画布、镜头引用时
+// 整批拒绝（镜头引用时 409，列出镜头），不留下看不见的子卡。
 func (s *Service) UnlinkProjectAsset(userID string, projectID string, assetID string) error {
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return err
@@ -266,29 +268,47 @@ func (s *Service) UnlinkProjectAsset(userID string, projectID string, assetID st
 	if err != nil {
 		return err
 	}
+	targets := []model.Asset{*asset}
+	if asset.Category == model.AssetCategoryCharacter && asset.ParentAssetID == "" {
+		children, err := s.projectVariants(userID, projectID, asset.ID)
+		if err != nil {
+			return err
+		}
+		targets = append(targets, children...)
+	}
 	if asset.Category == model.AssetCategoryCharacter {
 		canvases, canvasErr := s.repo.ProjectCanvasDocuments(userID, projectID)
 		if canvasErr != nil {
 			return canvasErr
 		}
 		for _, canvas := range canvases {
-			referenced, parseErr := canvasReferencesCharacterAsset(canvas.PayloadJSON, assetID)
-			if parseErr != nil {
-				return BadAuthRequest("画布数据格式错误，无法确认角色引用")
-			}
-			if referenced {
-				return BadAuthRequest("角色仍被项目画布引用，请先删除对应角色卡节点")
+			for _, target := range targets {
+				referenced, parseErr := canvasReferencesCharacterAsset(canvas.PayloadJSON, target.ID)
+				if parseErr != nil {
+					return BadAuthRequest("画布数据格式错误，无法确认角色引用")
+				}
+				if referenced {
+					return BadAuthRequest(fmt.Sprintf("角色「%s」仍被项目画布引用，请先删除对应角色卡节点", target.Title))
+				}
 			}
 		}
 	}
-	references, err := s.repo.ProjectAssetShotReferenceCount(projectID, assetID)
-	if err != nil {
+	if len(targets) == 1 {
+		references, err := s.repo.ProjectAssetShotReferenceCount(projectID, assetID)
+		if err != nil {
+			return err
+		}
+		if references > 0 {
+			return BadAuthRequest("素材仍被项目镜头引用，请先解除镜头用途")
+		}
+	} else if err := s.variantShotReferencesConflict(projectID, targets); err != nil {
 		return err
 	}
-	if references > 0 {
-		return BadAuthRequest("素材仍被项目镜头引用，请先解除镜头用途")
+	ids := make([]string, 0, len(targets))
+	for _, target := range targets {
+		ids = append(ids, target.ID)
 	}
-	if err := s.repo.DeleteProjectAssetLink(projectID, assetID); err != nil {
+	if err := s.repo.DeleteProjectAssetLinks(projectID, ids); err != nil {
 		return err
 	}
 	return s.repo.BumpProjectRevision(projectID)
@@ -690,8 +710,8 @@ func (s *Service) projectAssetSummary(userID string, projectID string, asset *mo
 	if asset.Category == model.AssetCategoryPalette {
 		summary.Palette = s.paletteAssetSummary(userID, asset, versions)
 	}
-	if asset.Category == model.AssetCategoryCharacter {
-		summary.Variant = s.assetVariantSummary(userID, asset)
+	if asset.Category == model.AssetCategoryCharacter && summary.Character != nil {
+		summary.Variant = s.assetVariantSummary(userID, asset, summary.Character.Definition)
 	}
 	if asset.Category == model.AssetCategoryCharacter || projectVisualCategory(asset.Category) {
 		imaged := asset.Kind == "image"

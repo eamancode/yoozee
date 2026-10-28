@@ -366,6 +366,24 @@ func TestDramaAssetVariantEditDeleteAndFollow(t *testing.T) {
 		}
 	}
 
+	// 只改变体名和场（描述不变，提示词照对话框带回的空串）：原地改，不加版本，三视图和引用它的镜头产物都不动。
+	renamed, err := svc.UpdateDramaAssetVariant("user-1", project.ID, child.ID, DramaAssetVariantRequest{Label: "正装", Kind: "costume", Look: "深灰西服", Scenes: []string{"E02S01"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Asset.Title != "林小满·正装" || renamed.Asset.VersionCount != 2 || renamed.Asset.Character.VisualStatus != "ready" || renamed.Asset.PrimaryVersionID != child.PrimaryVersionID ||
+		renamed.Asset.Variant.Look != "深灰西服" || renamed.Asset.Variant.PromptEn != "" || !strings.HasPrefix(renamed.Asset.Character.Definition["clothing"].(string), "服装「正装」：深灰西服") {
+		t.Fatalf("只改名原地改、图还在：%+v %+v %+v", renamed.Asset, renamed.Asset.Variant, renamed.Asset.Character)
+	}
+	var fresh []model.ShotArtifact
+	if err := db.Where("project_id = ? AND status = ?", project.ID, "stale").Find(&fresh).Error; err != nil || len(fresh) != 0 {
+		t.Fatalf("只改名不让镜头产物过期：%v %d", err, len(fresh))
+	}
+	// 早期建的子卡（metadata 里没记描述原文）从设定里拆出描述，只改名同样不算外观变了。
+	if look, prompt := variantLookOf(assetVariantMeta{}, map[string]any{"clothing": "状态「淋湿」：护士服湿透；服装同主卡：浅蓝护士服", "multiViewPrompt": "base." + variantDefaultPromptMarker + "condition changes: 淋湿."}); look != "护士服湿透" || prompt != "" {
+		t.Fatalf("从设定里拆描述：%q %q", look, prompt)
+	}
+
 	updated, err := svc.UpdateDramaAssetVariant("user-1", project.ID, child.ID, DramaAssetVariantRequest{Label: "正装", Kind: "costume", Look: "黑色正装", Scenes: []string{"E02S01"}})
 	if err != nil {
 		t.Fatal(err)
@@ -387,8 +405,9 @@ func TestDramaAssetVariantEditDeleteAndFollow(t *testing.T) {
 	}
 
 	err = svc.DeleteDramaAssetVariant("user-1", project.ID, child.ID)
-	if err == nil || !strings.Contains(err.Error(), "还被镜头引用：E01S02-01") {
-		t.Fatalf("被引用的子卡不能删：%v", err)
+	var conflict *AppError
+	if !errors.As(err, &conflict) || conflict.Status != http.StatusConflict || !strings.Contains(err.Error(), "「林小满·正装」：E01S02-01") {
+		t.Fatalf("被引用的子卡不能删（409，列出镜头）：%v", err)
 	}
 	if err := db.Where("shot_id = ?", childShot.ID).Delete(&model.ShotAssetReference{}).Error; err != nil {
 		t.Fatal(err)
@@ -447,6 +466,21 @@ func TestApplySceneCastAndBible(t *testing.T) {
 		t.Fatalf("refs_hint 不重复挂子卡：%+v", shots[1].RefsHint)
 	}
 	bibleOut := dramaShotlistBible(shots, rows, assets, map[string]bool{"lin": true, "wet": true, "lift": true}, 6)
+	defer func() {
+		// 子卡还没出三视图、主卡有图：不换成子卡，镜头里直接写了子卡的也退回主卡。
+		assets[0].Character.VisualStatus, assets[1].Character.VisualStatus, assets[3].Character.VisualStatus = "ready", "missing", "ready"
+		fallback := sceneCastOf(bible, units, "ep2", assets)
+		if fallback.Variants["E01S02"]["lin"] != "suit" || fallback.Fallback["wet"] != "lin" {
+			t.Fatalf("没图的子卡退回主卡：%+v %+v", fallback.Variants, fallback.Fallback)
+		}
+		back := []shotlistRow{row("wet")}
+		backShots := []drama.Shot{{ID: "E01S02-02", Scene: "E01S02", RefsHint: []string{"林小满·淋湿"}}}
+		delete(fallback.Variants, "E01S02")
+		applySceneCast(back, backShots, fallback)
+		if back[0].AssetBindings[0].NodeID != "lin" || back[0].Characters[0].CharacterAssetID != "lin" || backShots[0].RefsHint[0] != "林小满" {
+			t.Fatalf("退回主卡：%+v %+v", back[0], backShots[0])
+		}
+	}()
 	if len(bibleOut.Characters) != 1 || bibleOut.Characters[0].Name != "林小满" {
 		t.Fatalf("子卡并进主卡那个人物：%+v", bibleOut.Characters)
 	}
@@ -521,5 +555,60 @@ func TestChapterShotsBindsSceneVariant(t *testing.T) {
 	}
 	if scene2 == 0 {
 		t.Fatalf("没有第 2 场的段：%+v", shots)
+	}
+}
+
+// 主卡移出项目：子卡跟着一起移出；任一子卡被镜头引用时整批拒绝（409，列出镜头），主卡和子卡都留着。
+// 在素材库彻底删除主卡：子卡一起删掉，资产表里不留没有主卡的子卡。
+func TestUnlinkOrDeleteParentTakesVariants(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, episodes := seedEpisodeProject(t, svc, db)
+	lin := seedLinXiaoman(t, svc, db, project.ID)
+	suit, err := svc.CreateDramaAssetVariant("user-1", project.ID, lin.Asset.ID, DramaAssetVariantRequest{Label: "西服", Look: "深灰西服"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wet, err := svc.CreateDramaAssetVariant("user-1", project.ID, lin.Asset.ID, DramaAssetVariantRequest{Label: "淋湿", Look: "护士服湿透"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot := model.Shot{ID: newID(), ProjectID: project.ID, UnitID: episodes[1].ID, Title: "E02S01-01", Description: "段", Status: "draft"}
+	if err := db.Create(&shot).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.LinkShotAsset("user-1", project.ID, shot.ID, LinkShotAssetRequest{AssetVersionID: wet.Asset.PrimaryVersionID, Role: "reference"}); err != nil {
+		t.Fatal(err)
+	}
+	linked := func(id string) bool {
+		ok, err := svc.repo.ProjectAssetLinked(project.ID, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	err = svc.UnlinkProjectAsset("user-1", project.ID, lin.Asset.ID)
+	var conflict *AppError
+	if !errors.As(err, &conflict) || conflict.Status != http.StatusConflict || !strings.Contains(err.Error(), "「林小满·淋湿」：E02S01-01") {
+		t.Fatalf("子卡被引用时主卡不能移出：%v", err)
+	}
+	if !linked(lin.Asset.ID) || !linked(suit.Asset.ID) || !linked(wet.Asset.ID) {
+		t.Fatal("拒绝时一张都不移出")
+	}
+	if err := db.Where("shot_id = ?", shot.ID).Delete(&model.ShotAssetReference{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.UnlinkProjectAsset("user-1", project.ID, lin.Asset.ID); err != nil {
+		t.Fatal(err)
+	}
+	if linked(lin.Asset.ID) || linked(suit.Asset.ID) || linked(wet.Asset.ID) {
+		t.Fatal("主卡和两张子卡一起移出项目")
+	}
+
+	if err := svc.deleteUserAssetsWithResources("user-1", []string{lin.Asset.ID}, true); err != nil {
+		t.Fatal(err)
+	}
+	var left int64
+	if err := db.Model(&model.Asset{}).Where("id IN ?", []string{lin.Asset.ID, suit.Asset.ID, wet.Asset.ID}).Count(&left).Error; err != nil || left != 0 {
+		t.Fatalf("彻底删除主卡连子卡一起删：%v 还剩 %d", err, left)
 	}
 }
