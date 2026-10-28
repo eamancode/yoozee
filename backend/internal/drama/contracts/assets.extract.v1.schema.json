@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "assets.extract@1",
   "title": "资产设计（角色、场景、道具与外观提示词）",
-  "description": "资产设计这一步的模型输出：一集（或一章）里出现的角色、场景和道具，每个资产一行（JSON Lines），带中文外观描述和英文出图提示词，便于边流边解析、按场续写。收尾时按名字和别名与项目已有资产合并（已有的只补别名和缺的外观），其余直接建成已确认资产，再排出图任务（角色三视图，场景、道具概念图）。契约文字由 drama.Contract.Text 按本文件生成；assets 的 required 顺序就是契约里字段的顺序；顶层 assets 只描述逻辑形状，模型逐行输出资产对象。",
+  "description": "资产设计这一步的模型输出：一集（或一章）里出现的角色、场景和道具，每个资产一行（JSON Lines），带中文外观描述和英文出图提示词，便于边流边解析、按场续写。收尾时按名字和别名与项目已有资产合并（已有的只补别名和缺的外观），其余直接建成已确认资产，角色的 variants 建成子卡（「名·变体」），再排出图任务（角色三视图，场景、道具概念图，带色卡图作参考）。契约文字由 drama.Contract.Text 按本文件生成；assets 的 required 顺序就是契约里字段的顺序；顶层 assets 只描述逻辑形状，模型逐行输出资产对象。",
   "type": "object",
   "required": [
     "assets"
@@ -23,7 +23,9 @@
       "prompt_en 是英文出图提示词，不写人名和剧情：角色写成一张正面、侧面、背面三视图设定图的提示词（同一角色、同一服装、全身站立、中性姿势、纯净浅色背景）；场景写不出现人物的空场景概念图；道具写单个道具、简洁背景、不出现人物的概念图。画风与【全局风格锚】【项目画风】一致，不另起媒介。",
       "first_scene 写这个资产第一次出现在本集第几场（【场次】里的场序，从 1 数）；只有一场时写 1。",
       "anchors 只有场景写：这个场景里人物能站、能走到的具体位置，3～8 个短名词（如 电梯门前、护士站柜台、楼梯间防火门），分镜站位只用这些名字；正文看不出时只写能确定的几个，不编造正文没有的设施；角色和道具写空数组。",
-      "palette_hint 写这个资产用到的【本集色彩脚本】里的颜色（中文色名，多个用顿号分开，如「病号服蓝、呼叫铃红」）；本集没有色彩脚本或用不上时写空字符串。"
+      "palette_hint 写这个资产用到的色卡颜色（中文色名，多个用顿号分开，如「病号服蓝、呼叫铃红」）：角色、道具取【主基调色卡】，场景取本场色卡（【本集场次色卡】里这一场）与主基调色卡；没有色卡或用不上时写空字符串。",
+      "appearance、prompt_en 写到颜色时写色名加 HEX（如「护士蓝 #5B7FA3」），HEX 照抄色卡，不写色卡以外的 HEX。",
+      "variants 只有角色写：同一角色在本集换了服装（kind 写 costume，如 护士服、西服）或状态（kind 写 state，如 受伤、淋湿、破损）时，每套写一项 {\"label\": 变体名, \"kind\": costume 或 state, \"scenes\": [用这套形象的场序], \"appearance\": …, \"prompt_en\": …}。label 是 2～6 个字的简短叫法，不带人名；scenes 与 first_scene 同一套场序；appearance 只写和主形象不同的服装或状态，脸型、五官、发型、体型与主形象一致、不重写；prompt_en 是这一套的三视图设定图提示词（同一张脸、同一体型，只换服装或状态）。最常见的那套形象写在角色自己的 appearance、prompt_en 里，不进 variants；没有换装或状态变化时写空数组，场景和道具也写空数组。已有角色在这一场换装时也写一行 category、name 和 variants（只写新的一套）。"
     ]
   },
   "properties": {
@@ -71,12 +73,27 @@
           },
           "palette_hint": {
             "type": "string",
-            "description": "用到的本集色彩脚本颜色名，可空"
+            "description": "用到的色卡颜色名，可空"
           },
           "anchors": {
             "type": "array",
             "items": {"type": "string"},
             "description": "只有场景写：人物能站、能走到的位置"
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["label", "kind", "scenes", "appearance", "prompt_en"],
+              "properties": {
+                "label": {"type": "string", "description": "变体名，如 护士服、淋湿"},
+                "kind": {"type": "string", "enum": ["costume", "state"], "description": "costume（服装）或 state（状态）"},
+                "scenes": {"type": "array", "items": {"type": "integer", "minimum": 1}, "description": "用这套形象的场序"},
+                "appearance": {"type": "string", "description": "和主形象不同的服装或状态"},
+                "prompt_en": {"type": "string", "description": "这一套的三视图设定图提示词"}
+              }
+            },
+            "description": "只有角色写：换了服装或状态的各套形象（子卡）"
           }
         }
       }

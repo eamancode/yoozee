@@ -89,7 +89,7 @@ func TestBuildAssetsExtractPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := prompt.Text
-	order := []string{"剧本：第 1 集「七床空了」", "林小满：七床？", "【项目已有资产】", "- 林小满（角色；别名：小满）", "- 病历夹（道具；缺外观）", "【全局风格锚】", "禁用：霓虹", "【本集色彩脚本】", "第 1 场「内·病房走廊·夜」：日光灯白 #E8ECEF（顶灯）", "【风格档案：真人写实】", "【项目画风：港风写实】", "【受保护输出契约】", "至少输出 1 个资产。", "first_scene（整数", "anchors（字符串数组"}
+	order := []string{"剧本：第 1 集「七床空了」", "林小满：七床？", "【项目已有资产】", "- 林小满（角色；别名：小满）", "- 病历夹（道具；缺外观）", "【全局风格锚】", "禁用：霓虹", "【本集场次色卡】", "第 1 场 E01S01「内·病房走廊·夜」：日光灯白 #E8ECEF（顶灯）", "【风格档案：真人写实】", "【项目画风：港风写实】", "【受保护输出契约】", "至少输出 1 个资产。", "first_scene（整数", "anchors（字符串数组"}
 	at := 0
 	for _, part := range order {
 		i := strings.Index(text[at:], part)
@@ -108,7 +108,7 @@ func TestBuildAssetsExtractPrompt(t *testing.T) {
 // palette_hint 按中文或英文色名对上本集色彩脚本的颜色，去重。
 func TestAssetsPaletteColors(t *testing.T) {
 	script := []ColorScriptEntry{{Episode: 1, SceneNo: 1, SharedColors: []PaletteColor{{NameZh: "护士蓝", NameEn: "Nurse Blue", Hex: "#5B7FA3"}}, NewColors: []PaletteColor{{NameZh: "应急红", NameEn: "Alarm Red", Hex: "#B3261E"}}}}
-	got := AssetsPaletteColors("护士蓝、alarm red、护士蓝、不存在", script)
+	got := AssetsPaletteColors("护士蓝、alarm red、护士蓝、不存在", script, MasterPalette{})
 	if len(got) != 2 || got[0].Hex != "#5B7FA3" || got[1].Hex != "#B3261E" {
 		t.Fatalf("got = %+v", got)
 	}

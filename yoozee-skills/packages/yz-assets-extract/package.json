@@ -3,7 +3,7 @@
   "step": "assets.extract",
   "contract": "assets.extract@1",
   "profiles": ["action-epic", "anime-3d", "duanju-shiga", "game-ip", "live-realism"],
-  "version": "1.0.0",
+  "version": "1.1.0",
   "files": ["SKILL.md"],
   "eval": ["qichuang-e01"]
 }
