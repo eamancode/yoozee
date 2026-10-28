@@ -285,7 +285,8 @@ func TestDramaAssetImageRefs(t *testing.T) {
 
 	// 名额 1：场景只带本场色卡，主基调色卡让出、色值写进提示词；子卡只带主卡三视图。
 	input := map[string]any{}
-	note, err := svc.withDramaImageRefs("user-1", input, refs, DramaImageTaskTemplate{MaxReferenceImages: 1}, dramaRefsAll)
+	one := 1
+	note, err := svc.withDramaImageRefs("user-1", input, refs, DramaImageTaskTemplate{MaxReferenceImages: &one}, dramaRefsAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +295,7 @@ func TestDramaAssetImageRefs(t *testing.T) {
 		t.Fatalf("名额不够色卡让出：%+v\n%s", images, note)
 	}
 	input = map[string]any{}
-	note, _ = svc.withDramaImageRefs("user-1", input, child, DramaImageTaskTemplate{MaxReferenceImages: 1}, dramaRefsAll)
+	note, _ = svc.withDramaImageRefs("user-1", input, child, DramaImageTaskTemplate{MaxReferenceImages: &one}, dramaRefsAll)
 	if images := input["referenceImages"].([]any); len(images) != 1 || images[0].(map[string]any)["storageKey"] != "resource:lin-sheet" {
 		t.Fatalf("色卡不挤掉主卡三视图：%+v", images)
 	}

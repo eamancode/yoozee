@@ -255,13 +255,13 @@ func (s *Service) continueDramaImages(task model.Task, projectID string, decrypt
 
 // DramaImageTaskTemplate 是给资产出图用的图片任务模板：前端按项目默认图片模型组好的任务（模型选择、input.config 等），
 // 服务端每个资产换上自己的提示词和 metadata 后建任务。它放在任务 input 的顶层 assetImageTask，任务结束后随密钥一起从任务正文去掉。
-// MaxReferenceImages 是这个图片模型最多带几张参考图（前端按渠道模型能力写；0 是不知道，不按名额挑，建任务被拒时再降级）。
+// MaxReferenceImages 是这个图片模型最多带几张参考图（前端按渠道模型能力写，0 是不能带；不给是不知道，不按名额挑，建任务被拒时再降级）。
 type DramaImageTaskTemplate struct {
 	Model              string         `json:"model"`
 	LogicalModelID     string         `json:"logicalModelId,omitempty"`
 	Provider           string         `json:"provider,omitempty"`
 	Input              map[string]any `json:"input"`
-	MaxReferenceImages int            `json:"maxReferenceImages,omitempty"`
+	MaxReferenceImages *int           `json:"maxReferenceImages,omitempty"`
 }
 
 func (t *DramaImageTaskTemplate) usable() bool {

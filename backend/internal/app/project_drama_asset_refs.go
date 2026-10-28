@@ -136,7 +136,8 @@ func (s *Service) sceneEnvironmentPaletteRef(userID string, project *model.Proje
 	return nil, nil
 }
 
-// pickDramaImageRefs 按名额和降级档挑参考图：名额不够时从后往前让出色卡图（主卡三视图不让）；返回带的和让出的色卡。
+// pickDramaImageRefs 按名额（小于 0 是不知道、不限）和降级档挑参考图：名额不够时从后往前让出色卡图（主卡三视图不让）；
+// 返回带的和让出的色卡。
 func pickDramaImageRefs(refs []dramaImageRef, maxImages int, level int) ([]dramaImageRef, []dramaImageRef) {
 	var kept, dropped []dramaImageRef
 	for _, r := range refs {
@@ -151,7 +152,7 @@ func pickDramaImageRefs(refs []dramaImageRef, maxImages int, level int) ([]drama
 			kept = append(kept, r)
 		}
 	}
-	for maxImages > 0 && len(kept) > maxImages {
+	for maxImages >= 0 && len(kept) > maxImages {
 		i := len(kept) - 1
 		for i >= 0 && !kept[i].Palette {
 			i--
@@ -203,7 +204,11 @@ func dramaImageRefsNote(kept []dramaImageRef, dropped []dramaImageRef) string {
 
 // withDramaImageRefs 给出图任务挂上参考图：按模板的名额和降级档挑图，input.referenceImages 写上，返回写进提示词的说明。
 func (s *Service) withDramaImageRefs(userID string, input map[string]any, refs []dramaImageRef, template DramaImageTaskTemplate, level int) (string, error) {
-	kept, dropped := pickDramaImageRefs(refs, template.MaxReferenceImages, level)
+	limit := -1
+	if template.MaxReferenceImages != nil {
+		limit = *template.MaxReferenceImages
+	}
+	kept, dropped := pickDramaImageRefs(refs, limit, level)
 	inputs, used, err := s.dramaImageRefInputs(userID, kept)
 	if err != nil {
 		return "", err
