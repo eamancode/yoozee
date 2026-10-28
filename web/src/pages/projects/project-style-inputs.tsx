@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "antd";
-import { ImagePlus, X } from "lucide-react";
+import { Check, ImagePlus, X } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import { MasterPaletteStrip, styleAnchorBrief } from "@/components/drama/master-palette";
@@ -72,6 +72,10 @@ export async function uploadStyleReferenceImages(files: File[]) {
     return ids;
 }
 
+/** 风格库卡片：选中时强调色描边（内描边补成 2px）+ 右上角对勾，和未选中一眼能分开；键盘焦点用全局 --ring 焦点环。 */
+const STYLE_LIBRARY_CARD = "app-story-source relative !block !h-auto !p-2 text-left focus-visible:[outline:var(--focus-ring-width)_solid_var(--ring)] focus-visible:outline-offset-2";
+const STYLE_LIBRARY_CARD_ACTIVE = `${STYLE_LIBRARY_CARD} is-active !border-[var(--workspace-accent)] shadow-[inset_0_0_0_1px_var(--workspace-accent)]`;
+
 /** 平台风格库选择：按项目类型列出条目（主色卡缩略图、名称、风格锚摘要），点一下选中、再点取消。 */
 export function StyleLibraryPicker({ projectType, value, onChange }: { projectType?: string; value?: string; onChange: (item?: DramaStyleLibraryItem) => void }) {
     const query = useQuery({
@@ -90,14 +94,12 @@ export function StyleLibraryPicker({ projectType, value, onChange }: { projectTy
                 const active = item.id === value;
                 const cover = dramaStyleLibraryCoverUrl(item);
                 return (
-                    <button
-                        key={item.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={active}
-                        className={active ? "app-story-source is-active !block !h-auto !p-2 text-left" : "app-story-source !block !h-auto !p-2 text-left"}
-                        onClick={() => onChange(active ? undefined : item)}
-                    >
+                    <button key={item.id} type="button" role="radio" aria-checked={active} className={active ? STYLE_LIBRARY_CARD_ACTIVE : STYLE_LIBRARY_CARD} onClick={() => onChange(active ? undefined : item)}>
+                        {active ? (
+                            <span aria-hidden className="absolute right-1 top-1 z-[1] grid size-5 place-items-center rounded-full bg-[var(--workspace-accent)] text-background shadow-[var(--shadow-sm)]">
+                                <Check className="size-3.5" strokeWidth={3} />
+                            </span>
+                        ) : null}
                         <span className="block aspect-video overflow-hidden rounded bg-foreground/[.04]">
                             {cover ? <img src={cover} alt={`${item.name} 主色卡`} className="h-full w-full object-contain" loading="lazy" /> : <MasterPaletteStrip palette={item.masterPalette} className="h-full" />}
                         </span>
