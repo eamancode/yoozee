@@ -62,7 +62,8 @@ export function ChapterStoryboardRunPanel({
     sceneNotice,
 }: ChapterStoryboardRunPanelProps) {
     const draftErrors: DramaShotIssue[] = shotlist?.draft ? shotlist.issues || shotlist.check.items.filter((item) => item.level === "error") : [];
-    const problemScenes = shotlist?.draft ? issueScenes(shotlist.issues) : [];
+    // 镜头表还是场次规则更新前写的（场次提示 shotlist）：场编号对不上现在的场次，只能整章重新生成。
+    const problemScenes = shotlist?.draft && !sceneNotice?.shotlist ? issueScenes(shotlist.issues) : [];
     const rewriting = stream.only?.length ? stream.only : undefined;
     const parse = shotlist?.check.parse;
     const failed = stop?.kind === "failed" ? stop : undefined;

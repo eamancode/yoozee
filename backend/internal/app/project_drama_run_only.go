@@ -55,6 +55,16 @@ func (s *Service) onlyScenesRun(projectID string, unitID string, plan *dramaStep
 	if err != nil {
 		return dramaRunMeta{}, err
 	}
+	// 切场规则改成「连续同地点并成一场」之前写的镜头表：镜头还是旧场编号，和现在的场次（plan.scenes）对不上，留不住。
+	if storedScriptLegacy(record.ScriptJSON) {
+		unit, err := s.repo.ProjectUnit(projectID, unitID)
+		if err != nil {
+			return dramaRunMeta{}, err
+		}
+		if drama.ScenesRenumbered(drama.SplitScenes(chapterPlainText(unit.SourceText), unit.Title)) {
+			return dramaRunMeta{}, BadAuthRequest("这一章的镜头表是场次规则更新前写的，场编号和现在的场次对不上，不能只重写几场；请整章重新生成")
+		}
+	}
 	scenes, err := keptShotlistScenes(record)
 	if err != nil {
 		return dramaRunMeta{}, err

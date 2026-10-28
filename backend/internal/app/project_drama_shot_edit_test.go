@@ -9,6 +9,8 @@ import (
 
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
+
+	"gorm.io/gorm"
 )
 
 // brokenQichuangLines 是七床线上输出改出两类台词问题：第 1 场「七床的人呢？」那一镜（E01S01-07）不写台词，
@@ -186,7 +188,8 @@ func TestAcceptIssuesRejectsUnpackableShots(t *testing.T) {
 	}
 }
 
-// 「重新生成问题场」：只重写第 2 场，第 1、3 场用镜头表里原有的镜头行放进对话历史；任务只调一次模型，收尾合并整章、检查通过并装段。
+// 「重新生成问题场」：七床第 1 集按场次规则（连续同地点并成一场）是两场，只重写第 2 场，第 1 场用镜头表里原有的镜头行放进对话历史；
+// 任务只调一次模型，收尾合并整章、检查通过并装段。场次规则更新前写的镜头表（旧场编号）不能只重写几场。
 func TestOnlyScenesRerunsProblemScenes(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, unit := seedQichuang(t, svc, db)
@@ -251,8 +254,8 @@ func TestOnlyScenesRerunsProblemScenes(t *testing.T) {
 	if result.DramaStep.Status != DramaStepOutcomeWritten || result.DramaStep.Errors != 0 || result.DramaStep.Parse.Rows != 41 {
 		t.Fatalf("收尾合并整章并装段：%+v", result.DramaStep)
 	}
-	if !result.DramaRun.Turns[0].Kept || result.DramaRun.Turns[1].Kept || !result.DramaRun.Turns[2].Kept {
-		t.Fatalf("第 1、3 场没调模型：%+v", result.DramaRun.Turns)
+	if len(result.DramaRun.Turns) != 2 || !result.DramaRun.Turns[0].Kept || result.DramaRun.Turns[1].Kept {
+		t.Fatalf("第 1 场没调模型：%+v", result.DramaRun.Turns)
 	}
 	after, _ := svc.DramaShotlist("user-1", project.ID, unit.ID)
 	if after.Draft || len(after.Shotlist.Shots) != 41 {
@@ -272,7 +275,14 @@ func TestOnlyScenesRerunsProblemScenes(t *testing.T) {
 	for _, d := range deltas {
 		stream.WriteString(d.Content)
 	}
-	if !strings.HasPrefix(stream.String(), `{"@turn":{"index":2,"total":3,"scene":"E01S02"`) || !strings.Contains(stream.String(), `"only":["E01S02"]`) || strings.Count(stream.String(), `"@turn"`) != 1 {
+	if !strings.HasPrefix(stream.String(), `{"@turn":{"index":2,"total":2,"scene":"E01S02"`) || !strings.Contains(stream.String(), `"only":["E01S02"]`) || strings.Count(stream.String(), `"@turn"`) != 1 {
 		t.Fatalf("文本流只有第 2 场：%.200s", stream.String())
+	}
+	// 场次规则更新前写的镜头表（台词表没有 scene_rule，正文又有并起来的场）：旧场编号对不上现在的场次，拒绝。
+	if err := db.Model(&model.DramaShotlist{}).Where("unit_id = ?", unit.ID).Update("script_json", gorm.Expr("REPLACE(script_json, ?, ?)", `"scene_rule":2`, `"scene_rule":0`)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.onlyScenesRun(project.ID, unit.ID, plan, newDramaRunMeta(plan, unit.ID), []string{"E01S02"}, nil); err == nil || !strings.Contains(err.Error(), "场次规则更新前") {
+		t.Fatalf("旧场编号的镜头表应拒绝只重写几场：%v", err)
 	}
 }
