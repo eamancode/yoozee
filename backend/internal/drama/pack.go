@@ -944,6 +944,61 @@ func sumRange(xs []float64, from, to int) float64 {
 	return t
 }
 
+// sectionCuts 是按小节生成的一场镜头的切点：相邻两镜小节不同就在前一镜之后切。
+func sectionCuts(shots []*Shot) []int {
+	cuts := []int{}
+	for i := 0; i+1 < len(shots); i++ {
+		if shots[i].Section != shots[i+1].Section {
+			cuts = append(cuts, i)
+		}
+	}
+	return cuts
+}
+
+type sectionPart struct {
+	id  string
+	est float64
+}
+
+// sectionParts 是一场里各小节的估时合计（按出现顺序）。
+func sectionParts(shots []*Shot, ests []float64) []sectionPart {
+	var out []sectionPart
+	for i, sh := range shots {
+		if len(out) == 0 || out[len(out)-1].id != sh.Section {
+			out = append(out, sectionPart{id: sh.Section})
+		}
+		out[len(out)-1].est += ests[i]
+	}
+	return out
+}
+
+// CheckSectionDurations 是按小节生成的镜头表一节一段的时长检查（R-SEG-001）：一节的镜头估时合计超过模型单段上限是 error，
+// 提示拆节；装段不会在节内再切。旧镜头表（镜头没写小节）不查。
+func (r *CheckReport) CheckSectionDurations(shotlist Shotlist, script *Script, m Model, rules RuleLevels) {
+	lines := newScriptLines(script)
+	ests := map[string]float64{}
+	first := map[string]string{}
+	var order []string
+	for i := range shotlist.Shots {
+		sh := &shotlist.Shots[i]
+		if sh.Section == "" {
+			continue
+		}
+		if _, ok := ests[sh.Section]; !ok {
+			order = append(order, sh.Section)
+			first[sh.Section] = sh.ID
+		}
+		ests[sh.Section] += EstSeconds(sh, lines)
+	}
+	limit := float64(m.Duration.Max)
+	for _, id := range order {
+		if limit > 0 && ests[id] > limit+1e-6 {
+			// 挂在这一节第一镜上：分镜制作和「重新生成问题小节」按镜头认出是哪一节。
+			r.add(rules, "R-SEG-001", first[id], "error", fmt.Sprintf("小节 %s 镜头估时合计 %.1f 秒，超过 %s 一段上限 %d 秒：一节装一段、不在节内切。把这一节拆成两节重新生成，或并镜、改镜头估时", id, ests[id], m.Label, m.Duration.Max))
+		}
+	}
+}
+
 // splitScene 返回切点下标（在该下标之后切）；整场不超过 hi 不切；找不到合法切点返回 nil, false。
 func splitScene(shots []*Shot, ests []float64, hi, lo float64) ([]int, bool) {
 	total := sumRange(ests, 0, len(ests))
@@ -1436,9 +1491,18 @@ func Pack(in PackInput) ([]Segment, []string) {
 		}
 		var cuts []int
 		var ok bool
-		if is25 {
+		switch {
+		case shots[0].Section != "":
+			// 按小节生成的镜头一节一段：切点就是小节边界，节内不再按时长切；超上限的节照样装成一段，由检查报 R-SEG-001 提示拆节。
+			cuts, ok = sectionCuts(shots), true
+			for _, part := range sectionParts(shots, ests) {
+				if part.est > hi+1e-6 {
+					problems = append(problems, fmt.Sprintf("小节 %s 合计 %.1f 秒，超过 %s 一段上限 %d 秒：拆节（把这一节拆成两节重新生成）或并镜、改镜头估时，不在节内切段", part.id, part.est, in.Model.Label, in.Model.Duration.Max))
+				}
+			}
+		case is25:
 			cuts, ok = splitScene(shots, ests, hi, lo)
-		} else {
+		default:
 			cuts, ok = splitScene(shots, ests, math.Min(hi, in.Target[1]), lo)
 		}
 		if !ok {
@@ -1451,6 +1515,7 @@ func Pack(in PackInput) ([]Segment, []string) {
 			a, b := bounds[i]+1, bounds[i+1]+1
 			n++
 			seg := p.buildSegment(fmt.Sprintf("S%02d", n), sceneID, scene, shots[a:b], ests[a:b], prev)
+			seg.Section, seg.Genre = shots[a].Section, shots[a].Genre
 			segments = append(segments, seg)
 			prev = &segments[len(segments)-1]
 		}

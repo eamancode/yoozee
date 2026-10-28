@@ -215,7 +215,7 @@ func (s *Service) planScriptAdapt(project *model.Project, step drama.Step, req D
 			return nil, scriptAdaptReplaceRequired(mode, impacts)
 		}
 	}
-	usage, skill, err := s.dramaStepSkill(project, step)
+	usage, skill, err := s.dramaStepSkill(project, step, nil)
 	if err != nil {
 		return nil, err
 	}

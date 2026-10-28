@@ -5,8 +5,9 @@ package drama
 // ShotIssue 是一条检查问题挂在哪几个镜头上。
 type ShotIssue struct {
 	CheckItem
-	// Scene 是问题所在的场（「重新生成问题场」按它挑场）；整章级、认不出场的为空。
-	Scene string `json:"scene,omitempty"`
+	// Scene 是问题所在的场；Section 是所在的小节（按小节生成的镜头表才有，「重新生成问题小节」按它挑节）。整章级、认不出的为空。
+	Scene   string `json:"scene,omitempty"`
+	Section string `json:"section,omitempty"`
 	// Shots 是问题挂在哪几镜上（镜头表 id）：规则指向的镜头；台词没落镜时挂在本场它前一句（没有就后一句）台词所在的镜头，
 	// 本场一句都没落镜时挂在本场第一镜；台词落在多镜时是这几镜。都找不到时为空，只在侧栏列出。
 	Shots []string `json:"shots,omitempty"`
@@ -22,11 +23,12 @@ const (
 // ShotIssues 把检查结果里 level 级的问题（level 为空时全部）挂到镜头上。shotlist 是检查的那张镜头表。
 func ShotIssues(report CheckReport, shotlist Shotlist, script *Script, level string) []ShotIssue {
 	sceneOf := map[string]string{}
+	sectionOf := map[string]string{}
 	sceneShots := map[string][]string{}
 	used := map[string][]string{}
 	for _, sh := range shotlist.Shots {
 		if _, ok := sceneOf[sh.ID]; !ok {
-			sceneOf[sh.ID] = sh.Scene
+			sceneOf[sh.ID], sectionOf[sh.ID] = sh.Scene, sh.Section
 			sceneShots[sh.Scene] = append(sceneShots[sh.Scene], sh.ID)
 		}
 		for _, ln := range sh.Lines {
@@ -86,6 +88,9 @@ func ShotIssues(report CheckReport, shotlist Shotlist, script *Script, level str
 			issue.Scene, issue.Shots, issue.Fix = sceneOf[where[0]], dedupeStrings(where), ShotIssueFixKeepLine
 		case item.ShotID != "":
 			issue.Scene, issue.Shots = sceneOf[item.ShotID], []string{item.ShotID}
+		}
+		if len(issue.Shots) > 0 {
+			issue.Section = sectionOf[issue.Shots[0]]
 		}
 		out = append(out, issue)
 	}

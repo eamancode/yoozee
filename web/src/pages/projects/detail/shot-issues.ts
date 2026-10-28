@@ -8,6 +8,11 @@ export function issueScenes(issues: DramaShotIssue[] = []) {
     return Array.from(new Set(issues.map((issue) => issue.scene || "").filter(Boolean)));
 }
 
+/** 检查问题所在的小节，按出现顺序去重：「重新生成问题小节」只重写这几节。不是按小节生成的镜头表、整章级问题不算。 */
+export function issueSections(issues: DramaShotIssue[] = []) {
+    return Array.from(new Set(issues.map((issue) => issue.section || "").filter(Boolean)));
+}
+
 /** 挂在这一镜（镜头表 id）上的问题。 */
 export function shotIssues(issues: DramaShotIssue[] = [], shotId?: string) {
     return shotId ? issues.filter((issue) => issue.shots?.includes(shotId)) : [];

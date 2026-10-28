@@ -46,17 +46,17 @@ type ChapterStoryboardGenerationInput = {
     config: AiConfig;
     /** 视频渠道实际能提交的段长，服务端装段时只收紧。 */
     rule?: { maxSeconds: number; minSeconds: number };
-    /** 「从第 N 场继续」：上一次没写完的任务。 */
+    /** 「从第 N 节继续」：上一次没写完的任务。 */
     resumeTaskId?: string;
-    /** 「重新生成问题场」：只重写这几场（场编号），其余场的镜头行取镜头表里已有的。 */
-    onlyScenes?: string[];
+    /** 「重新生成问题小节」：只重写这几节（小节编号），其余小节的镜头行取镜头表里已有的。 */
+    onlySections?: string[];
 };
 
-// 逐场续写的任务在服务端按场计时（每场一次分镜超时），总时长随场数变；页面只是订阅，不替后端判超时。
+// 逐轮续写的任务在服务端按轮计时（一轮一节，每轮一次分镜超时），总时长随节数变；页面只是订阅，不替后端判超时。
 const STORYBOARD_RUN_WAIT_MS = 8 * 60 * 60 * 1000;
 
 /**
- * 生成分段（流程步骤 chapter.shots）：服务端按项目风格档案取绑定技能的当前版本组装提示词，在一个任务里按场续写，
+ * 生成分段（流程步骤 chapter.shots）：服务端按项目视频模型单段上限选戏类、按项目风格档案和戏类取绑定技能的当前版本组装提示词，在一个任务里一轮一节，
  * 任务成功前解析、绑资产、写镜头表并装段。页面只订阅任务文本流显示进度，关掉页面也会写完。
  */
 export async function generateChapterStoryboard(input: ChapterStoryboardGenerationInput, options?: ChapterTaskOptions) {
@@ -68,7 +68,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         config: backendProviderConfig(config, "text") as Record<string, unknown>,
         ...(input.rule ? { rule: input.rule } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
-        ...(input.onlyScenes?.length ? { onlyScenes: input.onlyScenes } : {}),
+        ...(input.onlySections?.length ? { onlySections: input.onlySections } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);

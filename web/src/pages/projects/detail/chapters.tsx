@@ -70,7 +70,7 @@ import {
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { dramaEpisodesKey, dramaScenesKey, dramaRunProgressOf, dramaStepOutcomeOf, getDramaBrief, getDramaEpisodes, getDramaScenes, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure, type DramaScriptAdaptOutcome } from "@/services/api/drama";
+import { dramaEpisodesKey, dramaScenesKey, dramaRunProgressOf, dramaShotGenreLabel, dramaStepOutcomeOf, getDramaBrief, getDramaEpisodes, getDramaScenes, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure, type DramaScriptAdaptOutcome } from "@/services/api/drama";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
@@ -128,8 +128,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const [draftHtml, setDraftHtml] = useState("");
     const [dirty, setDirty] = useState(false);
     const [storyboardOpen, setStoryboardOpen] = useState(false);
-    // 「重新生成问题场」打开同一个生成弹窗，只重写这几场；为空是整章生成。
-    const [storyboardOnlyScenes, setStoryboardOnlyScenes] = useState<string[]>([]);
+    // 「重新生成问题小节」打开同一个生成弹窗，只重写这几节；为空是整章生成。
+    const [storyboardOnlySections, setStoryboardOnlySections] = useState<string[]>([]);
     const [chapterOperations, setChapterOperations] = useState<Record<string, ChapterOperation>>({});
     const [completedChapterOperations, setCompletedChapterOperations] = useState<Record<string, true>>({});
     const [operationNow, setOperationNow] = useState(() => Date.now());
@@ -203,6 +203,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     // 段长还要能被所选视频渠道提交（如只能 15/30 秒、最少 5 秒）：渠道取分镜制作页默认会用的那个视频模型。
     const segmentVideoModel = projectVideoModel(effectiveConfig, detail.project.defaultVideoModel, dramaModels.data, dramaModel);
     const segmentRule = useMemo(() => segmentDurationRule(segmentMaxSeconds, segmentVideoModel ? modelCapabilityConfigFor(effectiveConfig, segmentVideoModel).video?.duration : undefined, segmentLimitLabel), [effectiveConfig, segmentLimitLabel, segmentMaxSeconds, segmentVideoModel]);
+    // 生成分段、装段、步骤用法（弹窗的戏类）和场次表（场次条节数）都带这一个 rule：后端按它选戏类、切小节，四处一致。
+    const dramaRule = useMemo(() => ({ maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }), [segmentRule.maxSeconds, segmentRule.minSeconds]);
     // 本章工作区只带本章镜头已引用的资产；生成分镜和装段要看项目里全部已确认的资产，否则新章节的段带不上参考。
     const projectAssetsKey = ["project", detail.project.id, "assets", "chapter-storyboard"] as const;
     const loadProjectAssets = async () => (await listProjectAssets(detail.project.id)).assets;
@@ -220,8 +222,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const projectStyleMissing = !parseStyleProfile(detail.project.styleProfileJson)?.prompt.trim();
     // 生成分段用哪个技能由项目风格档案绑定（后台「流程技能」），对话框只显示，不让选。
     const storyboardStepQuery = useQuery({
-        queryKey: ["project", detail.project.id, "drama-step", "chapter.shots", detail.project.styleProfile || ""],
-        queryFn: ({ signal }) => getDramaStepUsage(detail.project.id, "chapter.shots", signal).then((result) => result.usage),
+        queryKey: ["project", detail.project.id, "drama-step", "chapter.shots", detail.project.styleProfile || "", dramaRule.maxSeconds, dramaRule.minSeconds],
+        queryFn: ({ signal }) => getDramaStepUsage(detail.project.id, "chapter.shots", signal, dramaRule).then((result) => result.usage),
         enabled: storyboardOpen,
     });
     const storyboardStep = storyboardStepQuery.data;
@@ -235,8 +237,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const shotlist = shotlistQuery.data;
     // 场次表按已保存的正文实时切：正文保存时间变了重新读；规则改变后旧数据编号错位时带 notice（正文上方和生成分段侧栏提示）。
     const scenesQuery = useQuery({
-        queryKey: [...dramaScenesKey(detail.project.id, selectedUnitId), selectedUnit?.updatedAt || ""],
-        queryFn: ({ signal }) => getDramaScenes(detail.project.id, selectedUnitId, signal),
+        queryKey: [...dramaScenesKey(detail.project.id, selectedUnitId), selectedUnit?.updatedAt || "", dramaRule.maxSeconds, dramaRule.minSeconds],
+        queryFn: ({ signal }) => getDramaScenes(detail.project.id, selectedUnitId, signal, dramaRule),
         enabled: Boolean(selectedUnitId),
     });
     const chapterStoryboardTasks = useMemo(() => (chapterTasksQuery.data || []).filter((task) => {
@@ -491,7 +493,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         return { ...current, [unitId]: { taskId: taskId || previous?.taskId || "", text: text ?? (sameTask ? previous.text : "") } };
     });
     const repackMutation = useMutation({
-        mutationFn: ({ unitId, accept }: { unitId: string; before: number; draft: boolean; accept?: boolean }) => repackDramaShotlist(detail.project.id, unitId, { rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, ...(accept ? { acceptIssues: true } : {}) }),
+        mutationFn: ({ unitId, accept }: { unitId: string; before: number; draft: boolean; accept?: boolean }) => repackDramaShotlist(detail.project.id, unitId, { rule: dramaRule, ...(accept ? { acceptIssues: true } : {}) }),
         onSuccess: async (result, { unitId, before, accept }) => {
             await refreshStoryboardResult(unitId);
             const scenes = new Set(result.segments.map((segment) => segment.spec.scene)).size;
@@ -510,7 +512,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "drama-shotlist"] });
         },
     });
-    const createStoryboard = async (options: { replaceConfirmed?: boolean; resumeTaskId?: string; onlyScenes?: string[] } = {}) => {
+    const createStoryboard = async (options: { replaceConfirmed?: boolean; resumeTaskId?: string; onlySections?: string[] } = {}) => {
         const unit = selectedUnit;
         if (!unit) return message.warning("章节正文尚未加载完成");
         if (dirty) return message.warning("请先保存当前章节，再生成分镜");
@@ -531,9 +533,9 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         beginChapterOperation(unit.id, "storyboard");
         setStoryboardStreams((current) => ({ ...current, [unit.id]: { taskId: "", text: "" } }));
         setRunPanelOpen(true);
-        message.info(options.resumeTaskId ? "从中断的那一场接着写，可继续编辑或切换章节" : options.onlyScenes?.length ? `只重写 ${options.onlyScenes.join("、")}，其余场的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
+        message.info(options.resumeTaskId ? "从中断的那一节接着写，可继续编辑或切换章节" : options.onlySections?.length ? `只重写 ${options.onlySections.join("、")}，其余小节的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
         try {
-            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, resumeTaskId: options.resumeTaskId, onlyScenes: options.onlyScenes }, {
+            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: dramaRule, resumeTaskId: options.resumeTaskId, onlySections: options.onlySections }, {
                 onTaskUpdate: (task) => {
                     followedStoryboardTasksRef.current.add(task.id);
                     updateChapterOperation(unit.id, "storyboard", task);
@@ -547,7 +549,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 message.warning(`镜头表检查有 ${outcome.errors} 个问题，已存为草稿，还没装段；在「生成分段」侧栏处理`, 10);
                 return;
             }
-            const summary = outcome ? `已按 ${outcome.scenes} 场生成 ${outcome.segments} 段（每段 ${segmentRule.label}${outcome.profile ? `，风格档案：${outcome.profile}` : ""}）` : "分段已写入";
+            const summary = outcome ? `已按 ${outcome.sections ? `${outcome.sections} 节（${dramaShotGenreLabel(outcome.genre)}）` : `${outcome.scenes} 场`}生成 ${outcome.segments} 段（每段 ${segmentRule.label}${outcome.profile ? `，风格档案：${outcome.profile}` : ""}）` : "分段已写入";
             if (outcome?.notes?.length) message.warning(outcome.notes.join("；"), 10);
             message.success(`${summary}，技能：${result.usage.skill.name} ${result.usage.skill.version}`);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/video`);
@@ -819,19 +821,19 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 repacking={repackMutation.isPending && !repackMutation.variables?.accept}
                 onAcceptIssues={() => void repackStoryboard(true)}
                 accepting={repackMutation.isPending && Boolean(repackMutation.variables?.accept)}
-                onRegenerate={() => { setRunPanelOpen(false); setStoryboardOnlyScenes([]); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
-                onRegenerateScenes={(scenes) => { setRunPanelOpen(false); setStoryboardOnlyScenes(scenes); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
+                onRegenerate={() => { setRunPanelOpen(false); setStoryboardOnlySections([]); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
+                onRegenerateSections={(sections) => { setRunPanelOpen(false); setStoryboardOnlySections(sections); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
                 sceneNotice={scenesQuery.data?.notice}
                 onOpenProduction={() => { if (selectedUnit) navigate(`/projects/${detail.project.id}/workflow/${selectedUnit.id}/video`); }}
             />
-            <Modal className="library-modal" title={storyboardOnlyScenes.length ? `重新生成问题场（${storyboardOnlyScenes.join("、")}）` : `生成${selectedUnitNoun}分段`} open={storyboardOpen} width={560} okText={storyboardOnlyScenes.length ? `只重写这 ${storyboardOnlyScenes.length} 场` : storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard(storyboardOnlyScenes.length ? { onlyScenes: storyboardOnlyScenes } : {})} styles={{ body: { paddingTop: 12 } }}>
+            <Modal className="library-modal" title={storyboardOnlySections.length ? `重新生成问题小节（${storyboardOnlySections.join("、")}）` : `生成${selectedUnitNoun}分段`} open={storyboardOpen} width={560} okText={storyboardOnlySections.length ? `只重写这 ${storyboardOnlySections.length} 节` : storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard(storyboardOnlySections.length ? { onlySections: storyboardOnlySections } : {})} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
-                    {storyboardOnlyScenes.length ? <Callout tone="info" title="只重写问题所在的场">按场续写：{storyboardOnlyScenes.join("、")} 重新调模型写，其余场用镜头表里已有的镜头（照原来的顺序放进对话，不调模型），写完按整章重新检查、装段。</Callout> : null}
+                    {storyboardOnlySections.length ? <Callout tone="info" title="只重写问题所在的小节">一轮一节：{storyboardOnlySections.join("、")} 重新调模型写，其余小节用镜头表里已有的镜头（原样输出照原来的顺序放进对话，不调模型），写完按整章重新检查、装段。</Callout> : null}
                     {projectStyleMissing ? <Callout tone="warning" title="还没有项目画风" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去选画风</Button>}>分镜要按项目画风写画面和参考，先在项目设置里选一个画风并保存，再回来生成。</Callout> : null}
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
                         <div className="text-[var(--fs-tiny)] text-foreground/42">当前{selectedUnitNoun}</div>
                         <div className="mt-1 truncate text-sm font-medium text-foreground/85">{selectedUnit?.title}</div>
-                        <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文将作为分段依据：一场戏一组镜头，一段 = 一次视频生成。按场景切段，每段目标 {segmentTargetLabel(segmentRule.maxSeconds)}（{segmentLimit.byBrief ? `项目单段最长 ${segmentMaxSeconds} 秒，${dramaModel?.label || "项目生成模型"}上限 ${modelSegmentMaxSeconds} 秒` : `${dramaModel?.label || "项目生成模型"}最长 ${segmentMaxSeconds} 秒`}，视频渠道 {segmentRule.label}），不在接话之间切；结果写入“分镜制作”。</div>
+                        <div className="mt-1 text-[var(--fs-tiny)] text-foreground/38">正文将作为分段依据：每场先按{storyboardStep?.genre ? `${storyboardStep.genre.label}的口径（一节 ≤${storyboardStep.genre.maxSeconds} 秒）` : "戏类口径"}切成小节，一节 = 一轮生成 = 一段视频，每段目标 {segmentTargetLabel(segmentRule.maxSeconds)}（{segmentLimit.byBrief ? `项目单段最长 ${segmentMaxSeconds} 秒，${dramaModel?.label || "项目生成模型"}上限 ${modelSegmentMaxSeconds} 秒` : `${dramaModel?.label || "项目生成模型"}最长 ${segmentMaxSeconds} 秒`}，视频渠道 {segmentRule.label}），不在接话之间切；结果写入“分镜制作”。</div>
                     </div>
                     {segmentRule.problem ? <Callout tone="warning" title="当前视频渠道交不了这种段长" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去项目设置</Button>}>{segmentRule.problem}。按这个渠道装出来的段提交时必然被拒，先换默认视频模型或项目生成模型。</Callout> : null}
                     {assetsNotReady ? <Callout tone="warning" title={referenceAssetCount ? "还有待确认的资产" : "先提取资产，段才会自动带上参考"} action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/assets`); }}>去资产页</Button>}>{pendingCandidateCount ? `项目里还有 ${pendingCandidateCount} 个待确认的候选（手动或 Agent 加的）。` : ""}{referenceAssetCount ? "确认后再生成，同一场的段会带上这一场绑定的全部资产作为参考。" : "现在项目里没有资产，生成的段都不带参考，人物和场景在段与段之间容易不一致；先点「提取资产」。"}也可以先生成，之后在分镜制作页给段绑定资产。</Callout> : null}
@@ -846,10 +848,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         <div className="rounded-lg border border-border/70 px-3 py-2.5 text-xs leading-5 text-foreground/62" aria-live="polite">
                             {storyboardStep ? (
                                 <>
+                                    {storyboardStep.genre ? (
+                                        <div>
+                                            戏类：<span className="font-medium text-foreground/85">{storyboardStep.genre.label}</span>（{storyboardStep.genre.model} 单段上限，一节 ≤{storyboardStep.genre.maxSeconds} 秒）
+                                        </div>
+                                    ) : null}
                                     <div>
                                         本步使用：<span className="font-medium text-foreground/85">{storyboardStep.skill.name}</span> {storyboardStep.skill.version}（{storyboardStep.profile.label}）
                                     </div>
-                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">技能由项目的风格档案决定，管理员在后台「流程技能」里绑定；换风格档案到项目设置。</div>
+                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">戏类按项目视频模型单段上限自动选（≤15 秒文戏 15，更长文戏 30）；技能由项目的风格档案和戏类决定，管理员在后台「流程技能」里绑定；换风格档案到项目设置。</div>
                                 </>
                             ) : (
                                 "正在读取本步使用的技能…"

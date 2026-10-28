@@ -102,8 +102,27 @@ func TestStepTable(t *testing.T) {
 		t.Fatalf("启用门槛：%+v", g)
 	}
 	for _, s := range Steps() {
+		// 戏类步骤的输出是技能原生格式，契约只是版本号（没有 JSON schema），格式要求写在每一轮的【本节输出要求】里。
+		if _, ok := ShotGenreOfStep(s.ID); ok {
+			continue
+		}
 		if _, err := BuiltinContract(s.Contract); err != nil {
 			t.Fatalf("%s：%v", s.ID, err)
 		}
+	}
+	for _, g := range ShotGenres() {
+		s, ok := StepByID(g.Step)
+		if !ok || s.SkillBudgetChars != 40000 || s.SkillLinkedFiles != 4 || s.Turns.Count == nil || s.Scope != StepScopeUnit || s.Contract != g.Contract {
+			t.Fatalf("戏类步骤 %s：%+v", g.Step, s)
+		}
+		if want := map[string]string{ShotGenreWenxi15: "yz-shots-wenxi15", ShotGenreWenxi30: "yz-shots-wenxi30", ShotGenreWuxi: ""}[g.ID]; s.DefaultSkill != want {
+			t.Fatalf("%s 默认技能 %q", g.Step, s.DefaultSkill)
+		}
+	}
+	if g := DefaultShotGenre(15); g.ID != ShotGenreWenxi15 {
+		t.Fatalf("15 秒模型用文戏 15：%s", g.ID)
+	}
+	if g := DefaultShotGenre(30); g.ID != ShotGenreWenxi30 {
+		t.Fatalf("30 秒模型用文戏 30：%s", g.ID)
 	}
 }

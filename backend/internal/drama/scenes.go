@@ -60,8 +60,9 @@ type Scene struct {
 	LegacyNos []int
 	// Lines 是这一场在正文里的行范围 [首行, 末行]（只数非空行，从 1 数，含场次头）。
 	Lines [2]int
-	// Body 是这一场的正文行（去掉首尾空白、不含场次头）。
-	Body []string
+	// Body 是这一场的正文行（去掉首尾空白、不含场次头）；BodyLines 是每一行在正文里是第几行（只数非空行，从 1 数）。
+	Body      []string
+	BodyLines []int
 }
 
 var (
@@ -192,6 +193,7 @@ func SplitScenes(plainText string, title string) []Scene {
 		}
 		cur := &scenes[len(scenes)-1]
 		cur.Body = append(cur.Body, ln)
+		cur.BodyLines = append(cur.BodyLines, lineNo)
 		cur.Lines[1] = lineNo
 	}
 	headed := slices.ContainsFunc(scenes, func(sc Scene) bool { return len(sc.Sources) > 0 })

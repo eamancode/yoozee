@@ -5,55 +5,6 @@ import (
 	"testing"
 )
 
-func TestParseSceneGenresNormalizesAndFallsBack(t *testing.T) {
-	text := "```\n{\"scene\": \"e01s01\", \"genre\": \"对话戏\", \"reason\": \"两人对峙\"}\n说明文字\n{\"scene\": \"E01S02\", \"genre\": \"不知道\"}\n{\"scene\": \"E01S03\", \"genre\": \"打戏\"},\n```"
-	genres, recognized := ParseSceneGenres(text, []string{"E01S01", "E01S02", "E01S03", "E01S04"})
-	if recognized != 2 || len(genres) != 4 {
-		t.Fatalf("判出两场：%d %+v", recognized, genres)
-	}
-	want := []SceneGenre{
-		{Scene: "E01S01", Genre: SceneGenreDrama, Reason: "两人对峙"},
-		{Scene: "E01S02", Genre: SceneGenreDrama, Reason: "没判出戏类，按文戏", Fallback: true},
-		{Scene: "E01S03", Genre: SceneGenreAction},
-		{Scene: "E01S04", Genre: SceneGenreDrama, Reason: "没判出戏类，按文戏", Fallback: true},
-	}
-	for i := range want {
-		if genres[i] != want[i] {
-			t.Fatalf("第 %d 场：%+v，应为 %+v", i+1, genres[i], want[i])
-		}
-	}
-}
-
-func TestSceneGenrePromptSectionGivesCardOnce(t *testing.T) {
-	skill := StepSkill{Files: []StepSkillFile{
-		{Path: "SKILL.md", Content: "x"},
-		{Path: SceneGenreCardPath(SceneGenreAction), Content: "武戏的拍法：发起、接触、结果。"},
-		{Path: SceneGenreCardPath(SceneGenreSolo), Content: strings.Repeat("情", SceneGenreCardChars+50)},
-	}}
-	cards := SceneGenreCards(skill)
-	if len(cards) != 2 || cards[0].Genre != SceneGenreAction || jsLen(cards[1].Content) != SceneGenreCardChars {
-		t.Fatalf("只取包里有的戏类卡，超长截断：%d %+v", len(cards), cards[0])
-	}
-	g := SceneGenre{Scene: "E01S03", Genre: SceneGenreAction, Reason: "走廊扭打"}
-	first := SceneGenrePromptSection(g, &cards[0], false)
-	if !strings.Contains(first, "【戏类卡：武戏】本场判为武戏（走廊扭打）") || !strings.Contains(first, "发起、接触、结果") || !strings.Contains(first, `<skill-file path="cards/戏类-武戏.md">`) {
-		t.Fatalf("第一次整张带上：%s", first)
-	}
-	if !strings.HasSuffix(first, "</skill-file>\n"+SceneGenreCardPrecedence) || !strings.Contains(SceneGenreCardPrecedence, "每句台词仍各占一镜") || !strings.Contains(SceneGenreCardPrecedence, "情绪弧索引") {
-		t.Fatalf("卡后面写明与技能规则冲突时按技能规则：%s", first)
-	}
-	if !SceneGenreCardGiven([]string{"前面", first}, SceneGenreAction) || SceneGenreCardGiven([]string{first}, SceneGenreDrama) {
-		t.Fatal("按卡标题认出给过的戏类")
-	}
-	again := SceneGenrePromptSection(g, &cards[0], true)
-	if strings.Contains(again, "发起、接触") || !strings.Contains(again, "按前面给过的【戏类卡：武戏】拍") || !strings.HasSuffix(again, SceneGenreCardPrecedence) {
-		t.Fatalf("给过的只提一句：%s", again)
-	}
-	if none := SceneGenrePromptSection(SceneGenre{Genre: SceneGenreSuspense}, nil, false); none != "【戏类：悬疑戏】本场判为悬疑戏。" {
-		t.Fatalf("没有卡时只写判定：%s", none)
-	}
-}
-
 func TestScenePalettePromptListsHex(t *testing.T) {
 	e := &ColorScriptEntry{Episode: 2, SceneNo: 1, SharedColors: []PaletteColor{{NameZh: "冷白", Hex: "#E8F0F2", Usage: "顶灯"}}, NewColors: []PaletteColor{{NameZh: "血红", Hex: "#8B0000"}}, Purpose: "压迫"}
 	text := ScenePalettePrompt(e)

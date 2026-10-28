@@ -53,7 +53,8 @@
       "snorricam": "主体稳定背景晃动",
       "jib": "摇臂",
       "fpv": "FPV 穿越",
-      "one_take": "一镜到底"
+      "one_take": "一镜到底",
+      "whip": "甩镜"
     },
     "composition": {
       "pov": "主观视角",

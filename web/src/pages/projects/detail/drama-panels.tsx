@@ -8,7 +8,7 @@ import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Callout } from "@/components/ui/product/callout";
 import { Select } from "@/components/ui/base/select";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
-import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, getDramaBible, getDramaBrief, getDramaShotlist, getDramaShotVocab, putDramaBible, putDramaBrief, framesShotArtifact, getDramaProgress, listDramaEvidence, listDramaSegments, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, writeDramaSegments, type DramaBible, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaLine, type DramaProgress, type DramaSegment, type DramaSegmentProgress, type DramaSegmentView, type DramaShotIssue, type DramaSubShot } from "@/services/api/drama";
+import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, dramaShotGenreLabel, getDramaBible, getDramaBrief, getDramaShotlist, getDramaShotVocab, putDramaBible, putDramaBrief, framesShotArtifact, getDramaProgress, listDramaEvidence, listDramaSegments, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, writeDramaSegments, type DramaBible, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaLine, type DramaProgress, type DramaSegment, type DramaSegmentProgress, type DramaSegmentView, type DramaShotIssue, type DramaSubShot } from "@/services/api/drama";
 import { listProjectAssets, type ShotArtifact } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
 import { waitForGenerationTask } from "@/services/api/task-center";
@@ -594,7 +594,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     return (
         <div className="mb-3 rounded-lg border border-border/70 px-3 py-2.5 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 font-medium">{spec.id} · {spec.scene} · {spec.dur} 秒 · 段内 {spec.shots.length} 个镜头{issues.length ? <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[var(--fs-tiny)] font-medium text-red-600 dark:text-red-400">{issues.length} 个问题</span> : null}</span>
+                <span className="flex items-center gap-1.5 font-medium">{spec.id} · {spec.scene} · {spec.dur} 秒 · 段内 {spec.shots.length} 个镜头{spec.section ? <span className="rounded border border-border/70 px-1.5 py-0.5 font-mono text-[var(--fs-tiny)] font-normal text-foreground/60" title="按小节生成：一节一段">{spec.section}{spec.genre ? ` · ${dramaShotGenreLabel(spec.genre)}` : ""}</span> : null}{issues.length ? <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[var(--fs-tiny)] font-medium text-red-600 dark:text-red-400">{issues.length} 个问题</span> : null}</span>
                 <span className="flex flex-wrap items-center gap-1">
                     {editable && previous ? <Button size="small" type="text" disabled={save.isPending} onClick={() => apply((rule) => mergeWithNext(list, index - 1, rule), mergedMessage, mergeConfirm(previous, list[index]))}>并入 {previous.spec.id}</Button> : null}
                     {editable && next ? <Button size="small" type="text" disabled={save.isPending} onClick={() => apply((rule) => mergeWithNext(list, index, rule), mergedMessage, mergeConfirm(list[index], next))}>合并 {next.spec.id}</Button> : null}
