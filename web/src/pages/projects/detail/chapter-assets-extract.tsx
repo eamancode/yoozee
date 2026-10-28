@@ -98,7 +98,8 @@ function AssetsRunGroups(stream: AssetsExtractStreamState) {
                         <span className="w-8 shrink-0 text-[var(--fs-micro)] text-foreground/45">{row.category ? CATEGORY_LABEL[row.category] : "？"}</span>
                         <span className="shrink-0 font-medium text-foreground/85">{row.name}</span>
                         <span className="min-w-0 flex-1 truncate text-foreground/55" title={row.appearance || undefined}>
-                            {row.appearance || (row.aliases.length ? `补别名：${row.aliases.join("、")}` : "没写外观")}
+                            {row.appearance || (row.variants.length ? `子卡：${row.variants.join("、")}` : row.aliases.length ? `补别名：${row.aliases.join("、")}` : "没写外观")}
+                            {row.appearance && row.variants.length ? <span className="ml-1.5 text-foreground/45">子卡：{row.variants.join("、")}</span> : null}
                         </span>
                     </li>
                 ))}
@@ -361,7 +362,14 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
     return (
         <>
             <Tooltip title={disabledReason || (paletteMissing ? PALETTE_REQUIRED_HINT : undefined)}>
-                <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={disabled || selectedRunning || !selectedUnit || paletteMissing} loading={selectedRunning} onClick={openDialog} aria-label={paletteMissing ? `提取角色、场景与道具（${PALETTE_REQUIRED_HINT}）` : "提取角色、场景与道具"}>
+                <Button
+                    size="small"
+                    icon={<UsersRound className="size-3.5" />}
+                    disabled={disabled || selectedRunning || !selectedUnit || paletteMissing}
+                    loading={selectedRunning}
+                    onClick={openDialog}
+                    aria-label={paletteMissing ? `提取角色、场景与道具（${PALETTE_REQUIRED_HINT}）` : "提取角色、场景与道具"}
+                >
                     {selectedRunning ? "提取资产中" : paletteMissing ? "提取资产（先生成场次色卡）" : selectedTask?.status === "succeeded" ? "提取资产（已提取）" : "提取资产"}
                 </Button>
             </Tooltip>
@@ -447,7 +455,9 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                                     <div>
                                         本步使用：<span className="font-medium text-foreground/85">{usage.skill.name}</span> {usage.skill.version}（{usage.profile.label}）
                                     </div>
-                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡（角色、道具用）和本集场次色卡（场景用）；角色换装或换状态时拆成子卡「名·变体」。出图带色卡图作参考，子卡另带主卡三视图。</div>
+                                    <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">
+                                        技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡（角色、道具用）和本集场次色卡（场景用）；角色换装或换状态时拆成子卡「名·变体」。出图带色卡图作参考，子卡另带主卡三视图。
+                                    </div>
                                 </>
                             ) : (
                                 "正在读取本步使用的技能…"

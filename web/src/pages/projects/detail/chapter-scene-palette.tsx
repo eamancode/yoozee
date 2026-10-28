@@ -476,7 +476,11 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                         }
                     >
                         {failures.length ? `没合成上的：${failures.map((item) => `${item.code}（${item.error}）`).join("、")}。到资产页点「重新合成」补图。` : `${outcome.rendered} 张色卡图已由代码合成，生成分段时绑到这一场的镜头。`}
-                        {outcome.chained?.taskId ? `已接着提取资产${outcome.chained.remaining ? `（共 ${outcome.chained.remaining + 1} 集，一集提完再提下一集）` : ""}，进度在「资产进度」里。` : outcome.chained?.error ? `没有接着提取资产：${outcome.chained.error}` : ""}
+                        {outcome.chained?.taskId
+                            ? `已接着提取资产${outcome.chained.remaining ? `（共 ${outcome.chained.remaining + 1} 集，一集提完再提下一集）` : ""}，进度在「资产进度」里。`
+                            : outcome.chained?.error
+                              ? `没有接着提取资产：${outcome.chained.error}`
+                              : ""}
                         {warnings.length ? (
                             <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto pl-0" aria-label="场次色卡检查提醒">
                                 {warnings.map((item, index) => (

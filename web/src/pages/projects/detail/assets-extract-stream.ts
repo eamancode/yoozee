@@ -15,6 +15,8 @@ export type AssetsStreamRow = {
     /** 外观描述（压成一行）；已有资产只补别名时为空。 */
     appearance: string;
     firstScene: number;
+    /** 角色这一行写的子卡变体名（服装 / 状态）。 */
+    variants: string[];
 };
 
 export type AssetsStreamScene = {
@@ -60,6 +62,7 @@ function assetRow(parsed: Record<string, unknown>): AssetsStreamRow | undefined 
             .replace(/\s+/g, " ")
             .trim(),
         firstScene: scene,
+        variants: Array.isArray(parsed.variants) ? parsed.variants.map((item) => String(record(item)?.label ?? "").trim()).filter(Boolean) : [],
     };
 }
 

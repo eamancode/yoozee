@@ -5,7 +5,7 @@ import { assetsExtractStreamFromResult, parseAssetsExtractStream } from "../src/
 const marker = (index: number, attempt = 1) => JSON.stringify({ "@turn": { index, total: 2, heading: index === 1 ? "内·病房走廊·夜" : "内·电梯口·夜", attempt } });
 const zhou = JSON.stringify({ category: "character", name: "周岸", aliases: ["周哥"], appearance: "三十岁男性，\n条纹病号服", prompt_en: "x", first_scene: 2 });
 const hall = JSON.stringify({ category: "scene", name: "病房走廊", aliases: [], appearance: "狭长走廊", prompt_en: "y", first_scene: 1 });
-const lin = JSON.stringify({ category: "character", name: "林小满", aliases: "小满、林护士", appearance: "", prompt_en: "", first_scene: "S01" });
+const lin = JSON.stringify({ category: "character", name: "林小满", aliases: "小满、林护士", appearance: "", prompt_en: "", first_scene: "S01", variants: [{ label: "淋湿", kind: "state", scenes: [1] }, { label: "" }] });
 
 describe("资产设计流式视图", () => {
     test("按回合标记分场，重试清掉这一场的半截输出，没写完的最后一行不算", () => {
@@ -28,5 +28,7 @@ describe("资产设计流式视图", () => {
             [2, "内·电梯口·夜", ["周岸"]],
         ]);
         expect(state.scenes[0].rows[0].aliases).toEqual(["小满", "林护士"]);
+        // 角色行写的子卡只取变体名（空的不要）。
+        expect(state.scenes[0].rows[0].variants).toEqual(["淋湿"]);
     });
 });

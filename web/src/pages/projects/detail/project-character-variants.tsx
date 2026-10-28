@@ -41,7 +41,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
     const [editing, setEditing] = useState<ProjectAsset | "new" | null>(null);
     const [form, setForm] = useState<VariantForm>(variantForm());
     const scenesQuery = useQuery({ queryKey: ["project", projectId, "drama-scenes", "all"], queryFn: ({ signal }) => getProjectDramaScenes(projectId, signal), enabled: editing !== null });
-    const sceneOptions = (scenesQuery.data?.units || []).flatMap((unit) => unit.episode > 0 ? unit.scenes.map((scene) => ({ value: scene.id, label: `${scene.id} ${scene.heading}` })) : []);
+    const sceneOptions = (scenesQuery.data?.units || []).flatMap((unit) => (unit.episode > 0 ? unit.scenes.map((scene) => ({ value: scene.id, label: `${scene.id} ${scene.heading}` })) : []));
 
     const imageTask = async (): Promise<DramaImageTaskTemplate> => {
         const model = turnaroundImageModel(effectiveConfig, defaultImageModel);
@@ -89,36 +89,79 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
     return (
         <div className="mt-2 border-t border-border/60 pt-2">
             <div className="flex items-center justify-between gap-2">
-                <button type="button" className="flex min-w-0 items-center gap-1 text-[var(--fs-tiny)] font-medium text-foreground/62 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--workspace-accent)]" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} disabled={!variants.length}>
+                <button
+                    type="button"
+                    className="flex min-w-0 items-center gap-1 text-[var(--fs-tiny)] font-medium text-foreground/62 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--workspace-accent)]"
+                    onClick={() => setExpanded((value) => !value)}
+                    aria-expanded={expanded}
+                    disabled={!variants.length}
+                >
                     <ChevronDown className={`size-3.5 transition-transform motion-reduce:transition-none ${expanded ? "" : "-rotate-90"}`} />
-                    子卡 {variants.length ? `${variants.length} 张` : "（服装 / 状态）"}
+                    {variants.length ? `子卡 ${variants.length} 张` : "子卡"}
                 </button>
-                <Button type="text" size="small" className="!h-6 !px-1.5 !text-[var(--fs-tiny)]" icon={<Plus className="size-3" />} onClick={() => open("new")} aria-label={`给 ${parent.title} 新增子卡`}>
+                <Button type="text" size="small" className="!h-6 !px-1.5 !text-[var(--fs-tiny)]" icon={<Plus className="size-3" />} onClick={() => open("new")} aria-label={`给 ${parent.title} 新增子卡（服装或状态）`}>
                     新增子卡
                 </Button>
             </div>
             {expanded && variants.length ? (
-                <ul className="mt-1.5 grid gap-1.5 pl-0">
+                <ul className="mt-1.5 grid grid-cols-[minmax(0,1fr)] gap-1.5 pl-0">
                     {variants.map((variant) => {
                         const cover = projectCharacterCover(variant.character?.representations);
                         const ready = variant.character?.visualStatus === "ready";
                         const queue = ready ? "" : assetImageQueueLabel(variant.image);
                         return (
-                            <li key={variant.id} className="flex min-w-0 list-none items-center gap-2 rounded-md border border-border/60 px-2 py-1.5">
-                                <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded border border-border/60 bg-foreground/[.035] text-foreground/24">
-                                    {cover ? <CachedResourceImage storageKey={`resource:${cover.resourceId}`} src={resourceFileUrl(cover.resourceId)} alt={variant.title} loading="lazy" className="h-full w-full object-contain" fallback={<UserRound className="size-4" />} /> : <UserRound className="size-4" />}
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                    <div className="truncate text-[var(--fs-label)] font-medium text-foreground/85">{variant.variant?.label || variant.title}<span className="ml-1.5 text-[var(--fs-micro)] font-normal text-foreground/45">{variant.variant ? KIND_LABEL[variant.variant.kind] : ""}</span></div>
-                                    <div className="truncate text-[var(--fs-micro)] text-foreground/45" title={variant.variant?.scenes.join("、")}>
-                                        {variant.variant?.scenes.length ? `用于 ${variant.variant.scenes.join("、")}` : "还没指定场次"} · {ready ? "三视图已绑定" : queue ? `三视图${queue}${variant.image?.error ? `：${variant.image.error}` : ""}` : "三视图未出"}
+                            <li key={variant.id} className="min-w-0 list-none rounded-md border border-border/60 px-2 py-1.5">
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded border border-border/60 bg-foreground/[.035] text-foreground/24">
+                                        {cover ? (
+                                            <CachedResourceImage
+                                                storageKey={`resource:${cover.resourceId}`}
+                                                src={resourceFileUrl(cover.resourceId)}
+                                                alt={variant.title}
+                                                loading="lazy"
+                                                className="h-full w-full object-contain"
+                                                fallback={<UserRound className="size-4" />}
+                                            />
+                                        ) : (
+                                            <UserRound className="size-4" />
+                                        )}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="truncate text-[var(--fs-label)] font-medium text-foreground/85" title={variant.title}>
+                                            {variant.variant?.label || variant.title}
+                                            <span className="ml-1.5 text-[var(--fs-micro)] font-normal text-foreground/45">{variant.variant ? KIND_LABEL[variant.variant.kind] : ""}</span>
+                                        </div>
+                                        <div className="truncate text-[var(--fs-micro)] text-foreground/45" title={variant.variant?.scenes.join("、")}>
+                                            {variant.variant?.scenes.length ? `用于 ${variant.variant.scenes.join("、")}` : "还没指定场次"}
+                                        </div>
                                     </div>
                                 </div>
-                                <Button type="text" size="small" className="!h-7 !px-1.5" icon={<Sparkles className="size-3.5" />} loading={imageMutation.isPending && imageMutation.variables?.id === variant.id} onClick={() => imageMutation.mutate(variant)} aria-label={`${ready ? "重新出" : "出"}子卡「${variant.title}」的三视图`} />
-                                <Button type="text" size="small" className="!h-7 !px-1.5" icon={<Pencil className="size-3.5" />} onClick={() => open(variant)} aria-label={`编辑子卡「${variant.title}」`} />
-                                <Popconfirm title="移出这张子卡？" description="被镜头引用时不能移出，会列出引用它的镜头。" okText="移出" cancelText="取消" onConfirm={() => deleteMutation.mutate(variant)}>
-                                    <Button type="text" danger size="small" className="!h-7 !px-1.5" loading={deleteMutation.isPending && deleteMutation.variables?.id === variant.id} icon={<Trash2 className="size-3.5" />} aria-label={`移出子卡「${variant.title}」`} />
-                                </Popconfirm>
+                                <div className="mt-1 flex min-w-0 items-center gap-0.5">
+                                    <span className={`min-w-0 flex-1 truncate text-[var(--fs-micro)] ${ready ? "text-emerald-700 dark:text-emerald-300" : "text-foreground/45"}`} title={variant.image?.error || undefined}>
+                                        {ready ? "三视图已绑定" : queue ? `三视图${queue}${variant.image?.error ? `：${variant.image.error}` : ""}` : "三视图未出"}
+                                    </span>
+                                    <Button
+                                        type="text"
+                                        size="small"
+                                        className="!h-6 !px-1"
+                                        icon={<Sparkles className="size-3.5" />}
+                                        loading={imageMutation.isPending && imageMutation.variables?.id === variant.id}
+                                        onClick={() => imageMutation.mutate(variant)}
+                                        aria-label={`${ready ? "重新出" : "出"}子卡「${variant.title}」的三视图`}
+                                    />
+                                    <Button type="text" size="small" className="!h-6 !px-1" icon={<Pencil className="size-3.5" />} onClick={() => open(variant)} aria-label={`编辑子卡「${variant.title}」`} />
+                                    <Popconfirm title="移出这张子卡？" description="被镜头引用时不能移出，会列出引用它的镜头。" okText="移出" cancelText="取消" onConfirm={() => deleteMutation.mutate(variant)}>
+                                        <Button
+                                            type="text"
+                                            danger
+                                            size="small"
+                                            className="!h-6 !px-1"
+                                            loading={deleteMutation.isPending && deleteMutation.variables?.id === variant.id}
+                                            icon={<Trash2 className="size-3.5" />}
+                                            aria-label={`移出子卡「${variant.title}」`}
+                                        />
+                                    </Popconfirm>
+                                </div>
                             </li>
                         );
                     })}
@@ -144,11 +187,26 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                     </label>
                     <div className="grid gap-1.5">
                         <span className="font-medium text-foreground/68">种类</span>
-                        <Radio.Group value={form.kind} onChange={(event) => setForm((current) => ({ ...current, kind: event.target.value as DramaAssetVariantKind }))} options={[{ value: "costume", label: "服装" }, { value: "state", label: "状态" }]} optionType="button" size="small" />
+                        <Radio.Group
+                            value={form.kind}
+                            onChange={(event) => setForm((current) => ({ ...current, kind: event.target.value as DramaAssetVariantKind }))}
+                            options={[
+                                { value: "costume", label: "服装" },
+                                { value: "state", label: "状态" },
+                            ]}
+                            optionType="button"
+                            size="small"
+                        />
                     </div>
                     <label className="grid gap-1.5">
                         <span className="font-medium text-foreground/68">{form.kind === "state" ? "状态描述" : "服装描述"}</span>
-                        <Input.TextArea rows={3} maxLength={600} value={form.look} placeholder={form.kind === "state" ? "如 护士服湿透贴身，发梢滴水" : "如 深灰西服套装，白衬衫"} onChange={(event) => setForm((current) => ({ ...current, look: event.target.value }))} />
+                        <Input.TextArea
+                            rows={3}
+                            maxLength={600}
+                            value={form.look}
+                            placeholder={form.kind === "state" ? "如 护士服湿透贴身，发梢滴水" : "如 深灰西服套装，白衬衫"}
+                            onChange={(event) => setForm((current) => ({ ...current, look: event.target.value }))}
+                        />
                     </label>
                     <label className="grid gap-1.5">
                         <span className="font-medium text-foreground/68">英文三视图提示词（可空）</span>
