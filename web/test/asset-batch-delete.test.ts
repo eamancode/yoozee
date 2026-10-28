@@ -6,6 +6,7 @@ import localforage from "localforage";
 import { apiClient } from "@/services/api/request";
 import { deleteAssetsWithRemoteSync, initializeRemoteUserDataSession, loadAssetLibraryPage, loadAssetsForUse, resetRemoteUserDataSync, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { flushAssetStorePersistence, useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { appQueryClient } from "@/lib/query-client";
 
 const originalAdapter = apiClient.defaults.adapter;
@@ -58,8 +59,11 @@ beforeEach(async () => {
             localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
         },
     });
+    // saveRemoteUserDataNow() 同步全部素材和画布；同进程先跑的测试文件可能残留画布项目，
+    // 不清空会让全量保存多发画布 PATCH，落到本文件只认素材请求的 adapter 里。
+    useCanvasStore.setState({ projects: [] });
     useAssetStore.setState({ assets: [] });
-    await flushAssetStorePersistence();
+    await Promise.all([flushCanvasStorePersistence(), flushAssetStorePersistence()]);
     await initializeRemoteUserDataSession("batch-test-user");
 });
 
@@ -69,8 +73,9 @@ afterEach(async () => {
         appQueryClient.clear();
         apiClient.defaults.adapter = originalAdapter;
         resetRemoteUserDataSync();
+        useCanvasStore.setState({ projects: [] });
         useAssetStore.setState({ assets: [] });
-        await flushAssetStorePersistence();
+        await Promise.all([flushCanvasStorePersistence(), flushAssetStorePersistence()]);
     } finally {
         localforage.getItem = originalGet;
         localforage.setItem = originalSet;
