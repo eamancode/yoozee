@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -161,9 +162,62 @@ func (s *Service) validStyleLibraryName(projectType string, name string, exceptI
 		return "", err
 	}
 	if taken {
-		return "", BadAuthRequest(fmt.Sprintf("「%s」类型里已经有叫「%s」的风格，换个名字", drama.ProjectTypeLabel(projectType), name))
+		return "", dramaStyleLibraryNameTaken(projectType, name)
 	}
 	return name, nil
+}
+
+func dramaStyleLibraryNameTaken(projectType string, name string) error {
+	return BadAuthRequest(fmt.Sprintf("「%s」类型里已经有叫「%s」的风格，换个名字", drama.ProjectTypeLabel(projectType), name))
+}
+
+// dramaStyleLibraryWriteError 把写入撞上 (project_type, name) 唯一索引（重名检查和写入之间被别人抢先）换成和重名检查一样的提示。
+func dramaStyleLibraryWriteError(err error, projectType string, name string) error {
+	if isUniqueConstraintViolation(err) {
+		return dramaStyleLibraryNameTaken(projectType, name)
+	}
+	return err
+}
+
+// isUniqueConstraintViolation 判断写入撞了唯一约束：gorm 开了 TranslateError 时是 ErrDuplicatedKey；没开时按驱动报错认——
+// SQLite 是「UNIQUE constraint failed」，PostgreSQL 是「duplicate key value violates unique constraint」（SQLSTATE 23505）。
+func isUniqueConstraintViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unique constraint") || strings.Contains(message, "duplicate key") || strings.Contains(message, "sqlstate 23505")
+}
+
+// discardDramaStyleLibraryCover 删掉风格库不再用的封面（资源属于合成它的账号，不一定是当前操作人）：还有条目拿它当封面、
+// 或别的业务还引用着就保留。走孤儿资源清理同一条路径（按引用快照再查一遍，删资源记录并经 Outbox 删文件）。
+// 清不掉只记日志，不影响已经成功的改、删；漏下的由定时孤儿清理兜底。
+func (s *Service) discardDramaStyleLibraryCover(resourceID string) {
+	resourceID = strings.TrimSpace(resourceID)
+	if resourceID == "" {
+		return
+	}
+	if err := s.deleteDramaStyleLibraryCover(resourceID); err != nil {
+		slog.Warn("drama style library cover cleanup failed", "resource", resourceID, "error", err)
+	}
+}
+
+func (s *Service) deleteDramaStyleLibraryCover(resourceID string) error {
+	inUse, err := s.repo.DramaStyleLibraryCoverInUse(resourceID)
+	if err != nil || inUse {
+		return err
+	}
+	resource, err := s.repo.Resource(resourceID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return s.cleanupDetachedUserResources(resource.UserID, []model.Resource{*resource})
 }
 
 func validStyleLibraryDescription(description string) (string, error) {
@@ -221,7 +275,8 @@ func (s *Service) SaveDramaStyleToLibrary(actor *model.User, req DramaStyleLibra
 		CoverResourceID: cover.ID, Source: DramaStyleLibrarySourceAnalysis, CreatedBy: actor.ID, UpdatedBy: actor.ID, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.repo.CreateDramaStyleLibraryEntry(&row); err != nil {
-		return DramaStyleLibraryItem{}, err
+		s.discardDramaStyleLibraryCover(cover.ID)
+		return DramaStyleLibraryItem{}, dramaStyleLibraryWriteError(err, projectType, name)
 	}
 	// 项目的锁定记录记下存进的条目（锁定来源不变）。写不上不影响已经存好的条目。
 	doc := map[string]any{}
@@ -305,18 +360,25 @@ func (s *Service) UpdateDramaStyleLibraryEntry(actor *model.User, id string, req
 		encoded, _ := json.Marshal(palette)
 		values["master_palette_json"] = string(encoded)
 	}
+	newCover := ""
 	if req.MasterPalette != nil || name != entry.Name {
 		cover, _, err := s.renderMasterPaletteResource(actor.ID, name, palette)
 		if err != nil {
 			return DramaStyleLibraryItem{}, err
 		}
+		newCover = cover.ID
 		values["cover_resource_id"] = cover.ID
 	}
 	if err := s.repo.UpdateDramaStyleLibraryEntry(entry.ID, values, time.Now()); err != nil {
+		s.discardDramaStyleLibraryCover(newCover)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return DramaStyleLibraryItem{}, NotFound("风格库里没有这一条")
 		}
-		return DramaStyleLibraryItem{}, err
+		return DramaStyleLibraryItem{}, dramaStyleLibraryWriteError(err, projectType, name)
+	}
+	// 换了封面：旧封面在条目写成功之后才删（写失败时条目还指着它）。
+	if newCover != "" && entry.CoverResourceID != newCover {
+		s.discardDramaStyleLibraryCover(entry.CoverResourceID)
 	}
 	updated, err := s.repo.DramaStyleLibraryEntry(entry.ID)
 	if err != nil {
@@ -325,7 +387,7 @@ func (s *Service) UpdateDramaStyleLibraryEntry(actor *model.User, id string, req
 	return s.dramaStyleLibraryItem(actor, updated)
 }
 
-// DeleteDramaStyleLibraryEntry 删一条（管理员或创建者）；已经选用它的项目保留各自复制的风格。
+// DeleteDramaStyleLibraryEntry 删一条（管理员或创建者），连同它的封面；已经选用它的项目保留各自复制的风格（主色卡图是项目自己合成的）。
 func (s *Service) DeleteDramaStyleLibraryEntry(actor *model.User, id string) error {
 	entry, err := s.editableDramaStyleLibraryEntry(actor, id)
 	if err != nil {
@@ -337,6 +399,7 @@ func (s *Service) DeleteDramaStyleLibraryEntry(actor *model.User, id string) err
 		}
 		return err
 	}
+	s.discardDramaStyleLibraryCover(entry.CoverResourceID)
 	return nil
 }
 
