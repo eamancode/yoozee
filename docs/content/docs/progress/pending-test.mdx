@@ -5,6 +5,20 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## MiniMax-H3 锁首帧段在工作台按首尾帧生成视频
+
+改了什么：
+
+- H3 锁首帧段（`mode=lock_first_frame`）的编译清单编号是 `first_frame` / `last_frame`。工作台现在把它们当首帧 / 尾帧提交：图片带 `role=first_frame` / `last_frame`，任务按图生视频（`videoEditOperation=image_to_video`）提交，上游收到的 `content[].role` 就是 `first_frame` / `last_frame`，不再当参考图发。MiniMax 协议插件在首尾帧模式下把 `ratio` 写成 `adaptive`，比例跟首帧图走。之前这类段报「工作台暂不支持视频参考」，生成不了。
+- 即梦锁首帧段的编号仍是 `@图片1`（role first_frame），照旧按参考图提交，行为不变。
+- 提交前拦下并给准确提示：首帧 / 尾帧在项目里找不到（「编译清单里的素材没有绑定到这一段：首帧（…）」）；首尾帧混了参考图或参考音频（H3 两条通道互斥）；当前视频模型的能力画像里没有图生视频（「当前视频模型不能按首尾帧生成这一段：不支持图生视频」）；`@视频N` 写明是参考视频、工作台暂不支持；其他不认识的编号写明编号本身。
+
+已验证（本机）：
+
+- [x] 前端 `workflow-shot-references.test.ts`（H3 首帧 + 尾帧带 role、即梦 `@图片1` 不带 role、首帧找不到、首尾帧混参考图、`@视频N`、未知编号）；`internal/app` `TestMiniMaxVideoBodyKeepsWorkbenchFrameRoles`（工作台的首尾帧经官方 MiniMax 插件进 `content[].role`、`ratio=adaptive`，只有尾帧时插件拒绝）。
+- [x] 本机联调（浏览器 + 假上游，H3 项目）：只给首帧的段走方舟协议的 H3 假模型，上游 `content` 是 1 张 `role=first_frame` 的图；首帧 + 尾帧的段走 MiniMax 协议（`POST /v2/video_generation`）的 H3 假模型，上游收到 `first_frame`、`last_frame` 两张图、`ratio=adaptive`。两段的任务 `operation=image_to_video`，都跑完成功。首帧填不存在的 ID、视频模型去掉图生视频这两种情况都在提交前拦下，没有建任务。
+- [ ] M8H3F-1 线上 MiniMax-H3 真模型：锁首帧段（只首帧、首帧 + 尾帧各一段）生成视频，第一帧 / 最后一帧与给的图一致。
+
 ## M8 卡 F：按小节生成（默认文戏，文戏 15 / 文戏 30 两套技能）
 
 生成分段的单位从「场」改成「小节」：每场先由代码按戏类规则切成小节（一节 = 一次生成 = 一段视频），一轮写一节，模型按技能原生格式写，代码转换器转成统一镜头表，检查后一节装一段。接口见 `backend/http-api.mdx`「场次表」「短剧流程步骤」，表见 `backend/backend-database.mdx`（迁移 69 加 `drama_shotlists.sections_json`；戏类绑定写在 `drama_step_bindings.step` 的「`chapter.shots#<戏类>`」，不改表）。
