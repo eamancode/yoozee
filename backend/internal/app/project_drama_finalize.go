@@ -1,7 +1,8 @@
 // 短剧流程步骤的收尾（M7.2）：带 metadata.dramaStep 的文本任务转成功之前，服务端解析模型输出、检查、写库，
 // 与资产出图的 finalizeProjectAssetImageTask 同一位置。前端不再解析任务结果、不再写镜头表。
-// 生成分段写镜头表并装段；剧本优化写剧集单元（project_drama_script_adapt.go），写完自动接着建导演风格任务；
-// 导演风格写风格锚、色彩脚本和色卡（project_drama_style_bible.go）；资产设计写已确认资产并排出图（project_drama_assets.go）。
+// 生成分段写镜头表并装段；剧本优化写剧集单元（project_drama_script_adapt.go），写完自动接着建场次色卡任务；风格锁定只把候选写进
+// 任务结果，用户点锁定才写项目（project_drama_style_lock.go）；场次色卡写色彩脚本、场次色卡并合成色卡图（project_drama_scene_palette.go）；
+// 资产设计写已确认资产并排出图（project_drama_assets.go）。
 
 package app
 
@@ -92,14 +93,21 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 		if err != nil {
 			return false, err
 		}
-		// 剧集写好之后自动接着跑导演风格；没建成只记原因，已写的剧集不动。
+		// 剧集写好之后自动接着跑场次色卡；没建成只记原因，已写的剧集不动。
 		if target := taskProjectID(task); target != "" {
-			outcome.Chained = s.chainStyleBibleAfterAdapt(task, target)
+			outcome.Chained = s.chainScenePaletteAfterAdapt(task, target)
 		}
 		result["dramaStep"] = outcome
 		return true, nil
-	case drama.StepStyleBible:
-		outcome, err := s.applyStyleBibleTask(task, meta, result)
+	case drama.StepStyleLock:
+		outcome, err := s.applyStyleLockTask(task, meta, result)
+		if err != nil {
+			return false, err
+		}
+		result["dramaStep"] = outcome
+		return true, nil
+	case drama.StepScenePalette:
+		outcome, err := s.applyScenePaletteTask(task, meta, result)
 		if err != nil {
 			return false, err
 		}

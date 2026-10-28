@@ -42,6 +42,8 @@ type TaskSummary struct {
 	UpdatedAt                 time.Time                  `json:"updatedAt"`
 	Billing                   *TaskBillingSummary        `json:"billing,omitempty"`
 	ClientContext             *TaskClientContext         `json:"clientContext,omitempty"`
+	// DramaRun 是逐轮续写的文本任务（metadata.dramaRun）：运行中也能取消（只丢正在写的一轮），与出图等「提交上游后不可取消」不同。
+	DramaRun bool `json:"dramaRun,omitempty"`
 }
 
 type TaskClientContext struct {
@@ -58,9 +60,21 @@ type TaskClientContext struct {
 	ArtifactType     string `json:"artifactType,omitempty"`
 }
 
+// TaskBillingSummary 是任务卡上的费用：amountMicrocredits 是建单时的预授权额；结算后 actualAmountMicrocredits 是实扣
+// （Token 计费为预授权 + 补扣差额或减去退回），任务卡结算后应显示实扣。
 type TaskBillingSummary struct {
-	AmountMicrocredits int64               `json:"amountMicrocredits"`
-	Status             model.BillingStatus `json:"status"`
+	AmountMicrocredits       int64               `json:"amountMicrocredits"`
+	ActualAmountMicrocredits *int64              `json:"actualAmountMicrocredits,omitempty"`
+	Status                   model.BillingStatus `json:"status"`
+}
+
+func taskBillingSummary(order model.BillingOrder) *TaskBillingSummary {
+	summary := &TaskBillingSummary{AmountMicrocredits: order.AmountMicrocredits, Status: order.Status}
+	if order.Status == model.BillingStatusSettled {
+		actual := order.ActualAmountMicrocredits
+		summary.ActualAmountMicrocredits = &actual
+	}
+	return summary
 }
 
 func taskSummariesForOutput(tasks []model.Task) []TaskSummary {
@@ -72,7 +86,7 @@ func taskSummariesForOutputWithBilling(tasks []model.Task, orders map[string]mod
 	for _, task := range tasks {
 		summary := taskSummaryForOutput(task)
 		if order, ok := orders[task.ID]; ok {
-			summary.Billing = &TaskBillingSummary{AmountMicrocredits: order.AmountMicrocredits, Status: order.Status}
+			summary.Billing = taskBillingSummary(order)
 			if summary.ProviderRequestID == "" {
 				summary.ProviderRequestID = order.ProviderRequestID
 			}
@@ -138,6 +152,7 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 		CreatedAt:                 task.CreatedAt,
 		UpdatedAt:                 task.UpdatedAt,
 		ClientContext:             taskClientContext(task.InputJSON),
+		DramaRun:                  task.MediaStage == "" && taskDramaRun(task.InputJSON) != nil,
 	}
 }
 
@@ -178,15 +193,20 @@ func taskClientContext(raw string) *TaskClientContext {
 		context.ArtifactType = metadata.ArtifactType
 		return context
 	}
-	// 剧本优化、导演风格是项目级步骤，没有章节：只带项目和操作，章节页按它认出正在跑的那一步。
+	// 风格锁定、剧本优化、场次色卡是项目级步骤，没有章节：只带项目和操作，章节页按它认出正在跑的那一步。
 	if metadata.Source == "short-drama-script-adapt" && metadata.DomainProjectID != "" {
 		context.DomainProjectID = metadata.DomainProjectID
 		context.ChapterOperation = "script-adapt"
 		return context
 	}
-	if metadata.Source == "short-drama-style-bible" && metadata.DomainProjectID != "" {
+	if metadata.Source == "short-drama-scene-palette" && metadata.DomainProjectID != "" {
 		context.DomainProjectID = metadata.DomainProjectID
-		context.ChapterOperation = "style-bible"
+		context.ChapterOperation = "scene-palette"
+		return context
+	}
+	if metadata.Source == "short-drama-style-lock" && metadata.DomainProjectID != "" {
+		context.DomainProjectID = metadata.DomainProjectID
+		context.ChapterOperation = "style-lock"
 		return context
 	}
 	chapterOperation := ""

@@ -60,7 +60,7 @@ import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { withSegmentRef } from "./segment-edit";
 import { unitsOfKind } from "./unit-numbering";
 import { applyShotReferenceChange } from "./project-cache";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
 import { compileProjectShot, getDramaBrief, writeDramaSegments, type DramaSegment } from "@/services/api/drama";
 import { dramaFamilyOf, findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useDramaProgress, useInvalidateDrama } from "./drama-panels";
@@ -179,6 +179,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const invalidateDrama = useInvalidateDrama(projectId);
     // 预演闸门（项目设置，auto 跟授权档位）：生效时这一段要先有选中、没过期的黑白预演才能生成视频；后端同样拦（previz_required）。
     const dramaProgressQuery = useDramaProgress(projectId);
+    const segmentIssueCounts = useMemo(() => Object.fromEntries((dramaProgressQuery.data?.segments || []).filter((segment) => segment.issues).map((segment) => [segment.shotId, segment.issues || 0])), [dramaProgressQuery.data?.segments]);
     const previzReady = useMemo(() => (detail.shotArtifacts || []).some((item) => item.shotId === selectedShot?.id && item.type === "action_board" && item.selected && item.status !== "stale" && item.status !== "failed"), [detail.shotArtifacts, selectedShot?.id]);
     const previzBlocked = activeStage === "video" && Boolean(dramaProgressQuery.data?.previzGate) && !previzReady;
     const currentDurationSeconds = Number(watchedDuration || Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
@@ -199,6 +200,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const routedFamily = generationCapability === "video" && routedModel ? familyOf(routedModel) : undefined;
     const familyMismatch = Boolean(dramaModel && routedFamily && routedFamily.id !== dramaModel.id);
     const activeProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, routedModel), [effectiveConfig, routedModel]);
+    // 这次的视频模型最多带几张参考图（没配时为 0：编译按模型族的上限算）：本场色卡图排在最后，放不下就只写色值。
+    const maxVideoReferenceImages = generationCapability === "video" ? activeProfile.video?.references.maxImages || 0 : 0;
     const videoProfile = generationCapability === "video" ? activeProfile.video : undefined;
     // 段卡拆合、改时长时按当前视频渠道的时长档位取段长，和下面提交前的时长校验同一份能力画像。
     const segmentRule = useMemo(() => generationCapability === "video" && dramaModel ? segmentDurationRule(segmentMaxSeconds, videoProfile?.duration, segmentLimitLabel) : undefined, [dramaModel, generationCapability, segmentLimitLabel, segmentMaxSeconds, videoProfile?.duration]);
@@ -418,7 +421,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
             // 视频按项目生成模型的方言编译：分段 JSON 存在时，提示词和参考清单都以编译结果为准。
             let dialect: { prompt: string; images: typeof shotAssetReferenceContext.referenceImages; audios: typeof generationReferenceAudios; metadata: Record<string, unknown> } | null = null;
             if (mode === "video") {
-                const { compiled } = await compileProjectShot(projectId, saved.shot.id);
+                // 本场色卡排在参考图最后，名额按这次的视频模型算：放不下时编译结果里不带图、色值写进提示词。
+                const { compiled } = await compileProjectShot(projectId, saved.shot.id, maxVideoReferenceImages ? { maxReferenceImages: maxVideoReferenceImages } : {});
                 const errors = compiled.result.issues.filter((issue) => issue.level === "error");
                 if (errors.length) throw new Error(`分段检查未通过：${errors.map((issue) => issue.message).join("；")}`);
                 if (!compiled.derived) {
@@ -434,7 +438,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const basePrompt = mode === "video"
                 ? [values.videoPrompt || values.plotDescription, values.action, values.dialogue && `台词：${values.dialogue}`, values.continuityNotes].filter(Boolean).join("\n")
                 : [values.imagePrompt || values.plotDescription, values.action, "黑白分镜草图，清晰动作节拍，电影构图"].filter(Boolean).join("\n");
-            const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue });
+            // 没有分段 JSON 的视频（旧段）也带本场色卡：参考图名额满了就只写色值。分镜图、黑白预演不带色卡。
+            const fallbackPalette = mode === "video" && !dialect ? withShotScenePalette(shotAssetReferenceContext.referenceImages, shotScenePalette(detail, saved.shot.id), maxVideoReferenceImages) : { images: shotAssetReferenceContext.referenceImages, promptLine: "" };
+            const resolvedPrompt = [resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue }), fallbackPalette.promptLine].filter(Boolean).join("\n\n");
             // 技能上下文整段前置会让提示词超出图片/视频模型的字符上限，上游只回一句
             // 「模型服务拒绝了请求」。这里按模型声明的 promptMaxChars 先给技能上下文留预算：
             // 放得下就注入（必要时按预算截断），放不下就整段不注入并提示，而不是等上游 4xx。
@@ -459,7 +465,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 mode,
                 prompt: skillExecution.prompt,
                 config,
-                referenceImages: dialect ? dialect.images : shotAssetReferenceContext.referenceImages,
+                referenceImages: dialect ? dialect.images : mode === "video" ? fallbackPalette.images : shotAssetReferenceContext.referenceImages,
                 referenceAudios: dialect ? dialect.audios : generationReferenceAudios,
                 metadata: {
                     ...skillExecution.metadata,
@@ -470,7 +476,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     artifactType,
                     role: "output",
                     source: "short-drama-workflow",
-                    ...(mode === "video" && (dialect ? dialect.images.length : shotAssetReferenceContext.referenceImages.length) ? { videoEditOperation: "reference_to_video" } : {}),
+                    ...(mode === "video" && (dialect ? dialect.images.length : fallbackPalette.images.length) ? { videoEditOperation: "reference_to_video" } : {}),
                     resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
                     artifactMetadata: { model: routedModel, aspectRatio, resolution, durationSeconds: values.durationSeconds, ...skillExecution.metadata },
                 },
@@ -561,7 +567,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     <div className="workflow-library-scroll thin-scrollbar">
                         {leftTab === "assets" ? <AssetLibrary detail={detail} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate({ asset, reference })} /> : null}
                         {leftTab === "episodes" ? <EpisodeLibrary detail={detail} activeUnitId={unitId} projectId={projectId} activeStage={activeStage} /> : null}
-                        {leftTab === "shots" ? <ShotLibrary detail={detail} shots={shots} selectedShotId={selectedShot.id} onSelectShot={requestShotSelection} /> : null}
+                        {leftTab === "shots" ? <ShotLibrary detail={detail} shots={shots} selectedShotId={selectedShot.id} issueCounts={segmentIssueCounts} onSelectShot={requestShotSelection} /> : null}
                     </div>
                 </aside>
 
@@ -570,7 +576,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         <div className="workflow-shot-heading">
                             <span className="workflow-shot-number">{formatShotOrdinal(shotIndex)}</span>
                             {customShotTitle(watchedTitle || selectedShot.title, shotIndex) ? <h2>{customShotTitle(watchedTitle || selectedShot.title, shotIndex)}</h2> : null}
-                            <StatusBadge tone={saveShot.isPending ? "loading" : editorDirty ? "warning" : revision ? "success" : "neutral"} label={saveShot.isPending ? "保存中" : editorDirty ? "有未保存修改" : revision ? "已保存" : "草稿"} className="m-0" />
+                            <StatusBadge tone={saveShot.isPending ? "loading" : saveShot.isError && editorDirty ? "error" : editorDirty ? "warning" : revision ? "success" : "neutral"} label={saveShot.isPending ? "保存中" : saveShot.isError && editorDirty ? "保存失败，修改还在" : editorDirty ? "有未保存修改" : revision ? "已保存" : "草稿"} title={saveShot.isError && editorDirty && saveShot.error instanceof Error ? saveShot.error.message : undefined} className="m-0" />
                         </div>
                         <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
                     </header>
@@ -773,8 +779,9 @@ function EpisodeLibrary({ detail, activeUnitId, projectId, activeStage }: { deta
     return <div className="workflow-simple-list">{groups.map((group) => <Fragment key={group.label}>{groups.length > 1 ? <div className="px-2 pb-0.5 pt-2 text-[var(--fs-micro)] font-medium text-foreground/40">{group.label === "章节" ? "原文" : group.label}</div> : null}{group.units.map((unit, index) => <Link key={unit.id} to={`/projects/${projectId}/workflow/${unit.id}/${activeStage}`} className={unit.id === activeUnitId ? "is-active" : ""} title={`第 ${index + 1} ${group.noun}`}><span>{String(index + 1).padStart(2, "0")}</span><strong>{unit.title}</strong></Link>)}</Fragment>)}</div>;
 }
 
-function ShotLibrary({ detail, shots, selectedShotId, onSelectShot }: { detail: ProjectDetail; shots: ProjectShot[]; selectedShotId: string; onSelectShot: (id: string) => void }) {
-    return <div className="workflow-simple-list">{shots.map((shot, index) => { const video = currentArtifact(detail, shot.id, "video"); return <button key={shot.id} type="button" className={shot.id === selectedShotId ? "is-active" : ""} onClick={() => onSelectShot(shot.id)}><span>{formatShotOrdinal(index)}</span><span className="min-w-0 flex-1"><strong>{customShotTitle(shot.title, index) || "未命名"}</strong><small>{formatDuration(shot.durationMs)}</small></span><ArtifactStatus artifact={video} compact /></button>; })}</div>;
+/** 镜头（段）列表；issueCounts 是带问题装段后各段挂着的检查问题数，标成红色角标。 */
+function ShotLibrary({ detail, shots, selectedShotId, issueCounts, onSelectShot }: { detail: ProjectDetail; shots: ProjectShot[]; selectedShotId: string; issueCounts?: Record<string, number>; onSelectShot: (id: string) => void }) {
+    return <div className="workflow-simple-list">{shots.map((shot, index) => { const video = currentArtifact(detail, shot.id, "video"); const issues = issueCounts?.[shot.id] || 0; return <button key={shot.id} type="button" className={shot.id === selectedShotId ? "is-active" : ""} onClick={() => onSelectShot(shot.id)}><span>{formatShotOrdinal(index)}</span><span className="min-w-0 flex-1"><strong>{customShotTitle(shot.title, index) || "未命名"}</strong><small>{formatDuration(shot.durationMs)}{issues ? <span className="ml-1.5 text-red-600 dark:text-red-400">{issues} 个问题</span> : null}</small></span><ArtifactStatus artifact={video} compact /></button>; })}</div>;
 }
 
 function BoundAssets({ detail, shotId, changing, onPick, onUnlink }: { detail: ProjectDetail; shotId: string; changing: boolean; onPick: () => void; onUnlink: (reference: ShotAssetReference) => void }) {

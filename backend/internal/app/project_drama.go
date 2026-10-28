@@ -56,6 +56,9 @@ type CompileProjectShotRequest struct {
 	Model  string  `json:"model"`
 	Style  *string `json:"style"`
 	Acting *string `json:"acting"`
+	// MaxReferenceImages 是这次要用的视频模型最多带几张参考图（前端按渠道模型的能力配置传）；没给时取模型族的图片参考上限。
+	// 本场色卡图排在最后，放不下时不带图、色值写进提示词。
+	MaxReferenceImages int `json:"maxReferenceImages,omitempty"`
 }
 
 type DramaGateRequest struct {
@@ -87,6 +90,8 @@ type DramaSegmentView struct {
 	RevisionID string        `json:"revisionId,omitempty"`
 	Spec       drama.Segment `json:"spec"`
 	Derived    bool          `json:"derived"`
+	// Issues 是本章镜头表检查的 error 里挂在这一段镜头上的（带问题装段后才有；镜头表还是没装段的草稿时不挂，段对不上）。
+	Issues []drama.ShotIssue `json:"issues,omitempty"`
 }
 
 type DramaSegmentsWriteRequest struct {
@@ -97,11 +102,53 @@ type DramaSegmentsWriteRequest struct {
 	// Inherit 是「段号 → 从哪几段继承资产引用」（人物、场景、道具、本场色卡）：拆段时新段继承原段，合段时留下的段并上被并掉的段。
 	// 键是这次写入的段号，来源是写入前已有的段号；按（版本, 用途）去重，镜头产出登记（role=output）不继承。
 	Inherit map[string][]string `json:"inherit,omitempty"`
+	// Shots 是分镜卡编辑：改过的镜头表镜头（契约 shotlist 的一镜，按 id 认，只能是本章镜头表里已装进段的镜头）。
+	// 给了它时服务端把镜头写回镜头表，按当前编译档案重编这些镜头在段里的文字（at、dur 取请求里的段；请求里没带的段原样补上），
+	// 写段后对整章镜头表重跑检查。不能与 Order 一起给。见 project_drama_shot_edit.go。
+	Shots []json.RawMessage `json:"shots,omitempty"`
+	// ShotlistVersion 是编辑时读到的镜头表版本：给了且与库里不同（期间重新生成或重装过）就拒绝，免得覆盖新结果。
+	ShotlistVersion int `json:"shotlistVersion,omitempty"`
 }
 
 // DramaModels 返回可选的生成模型目录。
 func (s *Service) DramaModels() (drama.Registry, error) {
 	return drama.Models()
+}
+
+// DramaShotVocab 是分镜卡编辑能选的值：景别、机位（cam.x / cam.y）、运镜按当前编译档案的叫法，情绪弧取情绪弧索引（只能从这里选）。
+type DramaShotVocab struct {
+	Sizes      []string             `json:"sizes"`
+	CameraX    map[string]string    `json:"cameraX"`
+	CameraY    map[string]string    `json:"cameraY"`
+	Moves      map[string]string    `json:"moves"`
+	EmotionArc []DramaEmotionArcRef `json:"emotionArcs"`
+}
+
+type DramaEmotionArcRef struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Family string   `json:"family"`
+	Phases []string `json:"phases"`
+}
+
+func (s *Service) DramaShotVocab() (DramaShotVocab, error) {
+	vocab, err := drama.BuiltinVocab()
+	if err != nil {
+		return DramaShotVocab{}, err
+	}
+	phrases, err := s.activeCompileProfile()
+	if err != nil {
+		return DramaShotVocab{}, err
+	}
+	out := DramaShotVocab{Sizes: drama.ShotSizes(), CameraX: phrases.Camera.X, CameraY: phrases.Camera.Y, Moves: phrases.Camera.Move, EmotionArc: []DramaEmotionArcRef{}}
+	for _, arc := range vocab.Arcs {
+		ref := DramaEmotionArcRef{ID: arc.ID, Name: arc.Name, Family: arc.Family, Phases: []string{}}
+		for _, phase := range arc.Phases {
+			ref.Phases = append(ref.Phases, phase.Label)
+		}
+		out.EmotionArc = append(out.EmotionArc, ref)
+	}
+	return out, nil
 }
 
 func normalizeProjectGenerationModel(value string) (string, error) {
@@ -344,7 +391,8 @@ func (s *Service) UpdateProjectBible(userID string, projectID string, raw json.R
 	return doc, nil
 }
 
-// validateDramaBibleDocument 是连戏表的形状校验（页面保存和导演风格收尾共用）：列表字段必须是数组；style_anchor 是对象；
+// validateDramaBibleDocument 是连戏表的形状校验（页面保存、导演风格收尾和风格锁定共用）：列表字段必须是数组；style_anchor、
+// master_palette（色板 HEX 合法）、style_lock 是对象；
 // color_script 每场的 HEX 必须是 #RRGGBB、集号场序是正整数，同一场不能写两次。
 func validateDramaBibleDocument(doc map[string]any) error {
 	for _, key := range []string{"characters", "props", "locations", "screen_text", "timeline", "spatial_maps", "color_script"} {
@@ -362,6 +410,26 @@ func validateDramaBibleDocument(doc map[string]any) error {
 		encoded, _ := json.Marshal(value)
 		if json.Unmarshal(encoded, &anchor) != nil {
 			return BadAuthRequest("连戏表的 style_anchor 字段类型不对（forbidden 是字符串数组，其余是字符串）")
+		}
+	}
+	if value, ok := doc["master_palette"]; ok && value != nil {
+		if _, isObject := value.(map[string]any); !isObject {
+			return BadAuthRequest("连戏表的 master_palette 必须是对象")
+		}
+		encoded, _ := json.Marshal(value)
+		var palette drama.MasterPalette
+		if json.Unmarshal(encoded, &palette) != nil {
+			return BadAuthRequest("连戏表的 master_palette 要是 {groups: [{key, name, colors: [...]}]}")
+		}
+		if err := drama.ValidateMasterPalette(palette); err != nil {
+			return BadAuthRequest("连戏表的" + err.Error())
+		}
+	}
+	if value, ok := doc["style_lock"]; ok && value != nil {
+		encoded, _ := json.Marshal(value)
+		var record drama.StyleLockRecord
+		if _, isObject := value.(map[string]any); !isObject || json.Unmarshal(encoded, &record) != nil {
+			return BadAuthRequest("连戏表的 style_lock 必须是对象，字段都是字符串")
 		}
 	}
 	if value, ok := doc["color_script"]; ok {
@@ -532,12 +600,20 @@ func (s *Service) DramaSegments(userID string, projectID string, unitID string) 
 		}
 		out = append(out, view)
 	}
+	if err := s.attachDramaSegmentIssues(projectID, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
 // WriteDramaSegments 按段号新增或修改一章的段：已有段号的写新版本，新段号建新镜头。
-// 不给 Order 时不删除段；给了 Order（拆段、合段）就按它重排，并删除不在其中的段。
+// 不给 Order 时不删除段；给了 Order（拆段、合段）就按它重排，并删除不在其中的段。带 Shots 时一起改镜头表并重检（WriteDramaSegmentsChecked）。
 func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]DramaSegmentView, error) {
+	result, err := s.WriteDramaSegmentsChecked(userID, projectID, req)
+	return result.Segments, err
+}
+
+func (s *Service) writeDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]DramaSegmentView, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return nil, err
@@ -762,8 +838,53 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 	if err != nil {
 		return DramaCompileResult{}, err
 	}
+	palette, err := s.shotScenePalette(userID, shot.ID)
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	if palette != nil {
+		result = drama.WithScenePalette(result, m, *palette, req.MaxReferenceImages)
+	}
 	result.Issues = append(result.Issues, refIssues...)
 	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result, CompileProfile: compileProfileRef(phrases)}, nil
+}
+
+// shotScenePalette 是这一段绑的本场色卡（role=style 引用的场次色卡版本）：版本有合成图时带上版本 ID 当参考图，没有图时只给色值；
+// 没绑、或绑的是旧色卡 / 场次已不存在的色卡时返回 nil。
+func (s *Service) shotScenePalette(userID string, shotID string) (*drama.ScenePaletteRef, error) {
+	refs, err := s.repo.ShotAssetReferencesForShot(shotID)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range refs {
+		if ref.Role != shotAssetRoleStyle || ref.Status != "linked" {
+			continue
+		}
+		version, err := s.repo.AssetVersion(ref.AssetVersionID)
+		if err != nil {
+			continue
+		}
+		asset, err := s.repo.AssetForUser(userID, version.AssetID)
+		if err != nil || asset.Category != model.AssetCategoryPalette {
+			continue
+		}
+		meta := paletteMetaOf(asset)
+		if meta.Kind != paletteKindScene || meta.Stale {
+			continue
+		}
+		var definition paletteDefinition
+		_ = json.Unmarshal([]byte(version.DefinitionJSON), &definition)
+		out := &drama.ScenePaletteRef{Code: firstNonEmpty(meta.Code, definition.Code), Colors: definition.Palette.Colors()}
+		representations, err := s.repo.AssetRepresentations(version.ID)
+		if err != nil {
+			return nil, err
+		}
+		if slices.ContainsFunc(representations, func(r model.AssetRepresentation) bool { return r.Role == "primary" && r.MediaType == "image" }) {
+			out.File = version.ID
+		}
+		return out, nil
+	}
+	return nil, nil
 }
 
 // ---------------------------------------------------------------- 证据、选中、进度
@@ -978,7 +1099,7 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 	for _, ref := range references {
 		refCount[ref.ShotID]++
 	}
-	// 要正文：「风格定了」「色卡齐了」按当前剧集的场次表算。
+	// 要正文：「色卡齐了」按当前剧集的场次表算。
 	units, err := s.repo.ProjectUnits(projectID)
 	if err != nil {
 		return drama.Progress{}, err
@@ -995,11 +1116,11 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 		return shots[i].Position < shots[j].Position
 	})
 	input := drama.ProgressInput{Model: m, AuthMode: project.AuthMode, BriefJSON: project.BriefJSON, BibleJSON: project.BibleJSON}
-	if input.Palettes, err = s.projectPaletteProgress(userID, projectID); err != nil {
+	if input.Palettes, err = s.projectPaletteProgress(userID, projectID, styleSceneTable(units)); err != nil {
 		return drama.Progress{}, err
 	}
 	input.StyleScenes, input.StyleFromChapters = styleBibleSceneRefs(units)
-	input.BibleJSON = currentColorScriptBible(project.BibleJSON, styleSceneTable(units))
+	input.StyleRuleShifted = legacyShiftedColorScript(project.BibleJSON, units)
 	assets, err := s.ProjectAssets(userID, projectID)
 	if err != nil {
 		return drama.Progress{}, err
@@ -1048,6 +1169,9 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 	}
 	input.Evidence = evidenceStates(evidence)
 	progress := drama.Derive(input)
+	if err := s.countDramaProgressIssues(projectID, &progress, shots, revisionByID); err != nil {
+		return drama.Progress{}, err
+	}
 	progress.PrevizGateSetting = briefPrevizGate(project.BriefJSON)
 	progress.PrevizGate = drama.PrevizGateEnabled(progress.PrevizGateSetting, project.AuthMode)
 	return progress, nil

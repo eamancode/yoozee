@@ -1,12 +1,12 @@
 import { Button } from "antd";
 import { IconButton } from "@/components/ui/base/buttons";
 import { Tooltip } from "@/components/ui/base/tooltip";
-import { Eye, FileText, FolderKanban, Image as ImageIcon, Play, RotateCcw, Video } from "lucide-react";
+import { Eye, FileText, FolderKanban, Image as ImageIcon, Play, RotateCcw, Video, XCircle } from "lucide-react";
 import { useState } from "react";
 
 import { MediaPreview } from "@/components/media-preview";
 import { CONTENT_MODERATION_ERROR_CODE, generationErrorMessage, isContentModerationError } from "@/lib/generation-error";
-import { formatTaskKind, generationTaskShowsProgress, generationTaskStageLabel, generationTaskStatusLabel } from "@/lib/generation-task-display";
+import { canCancelGenerationTask, formatTaskKind, generationTaskCancelBlockedReason, generationTaskShowsProgress, generationTaskStageLabel, generationTaskStatusLabel } from "@/lib/generation-task-display";
 import type { GenerationTask } from "@/services/api/task-center";
 import type { AiConfig } from "@/stores/use-config-store";
 import { formatModelName, getTaskCanvasContext, isTaskFailed, statusDotClassName, taskAttentionReason, TaskBilling, TaskDate } from "./task-shared";
@@ -21,6 +21,7 @@ export function TaskListRow({
     actingId,
     onOpen,
     onRetry,
+    onCancel,
     onPreview,
 }: {
     task: GenerationTask;
@@ -31,6 +32,7 @@ export function TaskListRow({
     actingId: string;
     onOpen: () => void;
     onRetry: () => void;
+    onCancel: () => void;
     onPreview: () => void;
 }) {
     const context = getTaskCanvasContext(task, canvasById, projectNameById);
@@ -85,6 +87,7 @@ export function TaskListRow({
                 <Tooltip title="查看详情">
                     <IconButton size="sm" variant="ghost" icon={Eye} aria-label="查看详情" onClick={onOpen} />
                 </Tooltip>
+                {isActive ? <TaskCancelButton task={task} acting={actingId === task.id} onCancel={onCancel} /> : null}
                 {isFailed ? (
                     <Tooltip title={retryDisabled ? "内容审核失败，无法自动重试" : task.canRecoverMedia ? "重试保存，不重新生成" : "重试任务"}>
                         <Button
@@ -100,6 +103,19 @@ export function TaskListRow({
                 ) : null}
             </div>
         </article>
+    );
+}
+
+/** 排队中、运行中的任务的取消按钮：只有还没提交给第三方的任务能取消，已提交的置灰并说明原因。 */
+export function TaskCancelButton({ task, acting, onCancel }: { task: GenerationTask; acting: boolean; onCancel: () => void }) {
+    const cancellable = canCancelGenerationTask(task);
+    const blocked = generationTaskCancelBlockedReason(task);
+    return (
+        <Tooltip title={cancellable ? "取消任务" : `不能取消：${blocked}`}>
+            <span>
+                <Button type="text" size="small" danger={cancellable} icon={<XCircle className="size-3.5" />} aria-label={cancellable ? "取消任务" : `不能取消：${blocked}`} loading={acting} disabled={!cancellable} onClick={onCancel} />
+            </span>
+        </Tooltip>
     );
 }
 

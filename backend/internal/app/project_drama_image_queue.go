@@ -1,7 +1,7 @@
-// 短剧流程的服务端出图排队（M7.2）：导演风格的色卡（project_drama_palette.go）和资产设计建的角色、场景、道具
-// （project_drama_assets.go）都由服务端直接建出图任务。图片任务模板由前端按图片模型组好（渠道配置在浏览器），
+// 短剧流程的服务端出图排队（M7.2）：资产设计建的角色、场景、道具（project_drama_assets.go）由服务端直接建出图任务
+// （M8 卡 B 起色卡由代码合成，不再排出图任务）。图片任务模板由前端按图片模型组好（渠道配置在浏览器），
 // 加密存在任务 input 顶层，任务结束随密钥一起从任务正文去掉；同时排队的任务数有上限，排不上的记成「等空位」，
-// 前面的出图任务结束（成功落库，或失败、取消落库）之后自动接着排。出图状态记在资产 payload.metadata 里（色卡 paletteImage，其余 assetImage）。
+// 前面的出图任务结束（成功落库，或失败、取消落库）之后自动接着排。出图状态记在资产 payload.metadata.assetImage 里。
 
 package app
 
@@ -17,7 +17,7 @@ import (
 	"yingce/backend/internal/model"
 )
 
-// 出图排队状态（payload.metadata.paletteImage / assetImage 的 status）。
+// 出图排队状态（payload.metadata.assetImage 的 status）。
 const (
 	dramaImageNone    = "none"
 	dramaImageWaiting = "waiting"
@@ -27,7 +27,7 @@ const (
 	dramaImageFailed  = "failed"
 )
 
-// dramaImageQueueMu 让同一进程里的排队互斥（色卡、资产共用同时任务数，多张同时出完图时只有一个在挑下一批）；跨进程靠 payload 条件更新。
+// dramaImageQueueMu 让同一进程里的排队互斥（多张同时出完图时只有一个在挑下一批）；跨进程靠 payload 条件更新。
 var dramaImageQueueMu sync.Mutex
 
 // DramaImageQueueResult 是一次排出图：Queued 是建了任务的资产，Waiting 是等空位的，Failed 是没建成的（原因记在资产上）。
@@ -197,14 +197,14 @@ func databaseBusyError(err error) bool {
 	return strings.Contains(text, "database is locked") || strings.Contains(text, "database table is locked") || strings.Contains(text, "sqlite_busy")
 }
 
-// afterDramaImageTaskEnded 在出图任务失败或取消落库之后跑（任务输入还带着加密的模板）：还记着「出图中、是这个任务」的资产记成失败
-// （资产页「继续出图」可以重出，不自动重试），然后接着排「等空位」的，免得一张失败把后面的都卡住。色卡和资产共用。这里的失败只记日志。
+// afterDramaImageTaskEnded 在资产设计出图任务失败或取消落库之后跑（任务输入还带着加密的模板）：还记着「出图中、是这个任务」的资产
+// 记成失败（资产页「继续出图」可以重出，不自动重试），然后接着排「等空位」的，免得一张失败把后面的都卡住。这里的失败只记日志。
+// 色卡（M8 卡 B 起）由代码合成，不走出图任务。
 func (s *Service) afterDramaImageTaskEnded(task model.Task) {
 	if task.Status != model.TaskStatusFailed && task.Status != model.TaskStatusCancelled {
 		return
 	}
-	palette := strings.Contains(task.InputJSON, `"dramaPalette"`)
-	if !palette && !strings.Contains(task.InputJSON, `"dramaAsset"`) {
+	if !strings.Contains(task.InputJSON, `"dramaAsset"`) {
 		return
 	}
 	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)
@@ -225,36 +225,37 @@ func (s *Service) afterDramaImageTaskEnded(task model.Task) {
 	if assetID == "" || projectID == "" {
 		return
 	}
-	key := assetImageKey
-	if palette {
-		key = paletteImageKey
-	}
 	if asset, err := s.repo.AssetForUser(task.UserID, assetID); err == nil {
-		if state := dramaImageStateOf(asset, key); state.Status == dramaImageQueued && state.TaskID == task.ID {
+		if state := dramaImageStateOf(asset, assetImageKey); state.Status == dramaImageQueued && state.TaskID == task.ID {
 			failed := dramaImageState{Status: dramaImageFailed, TaskID: task.ID, Error: firstNonEmpty(userFacingTaskError(task.Error), "出图任务失败"), UpdatedAt: time.Now().Format(time.RFC3339Nano)}
-			if err := s.putDramaImageState(task.UserID, assetID, key, failed); err != nil {
+			if err := s.putDramaImageState(task.UserID, assetID, assetImageKey, failed); err != nil {
 				_ = s.log(task.UserID, task.ID, "warn", "出图失败状态没有写上", err.Error())
 			}
 		}
 	}
-	s.continueDramaImages(task, projectID, decrypted, palette)
+	s.continueDramaImages(task, projectID, decrypted)
 }
 
-// continueDramaImages 是一个出图任务结束后用它带的模板接着排同一类（色卡或资产）「等空位」的。
-func (s *Service) continueDramaImages(task model.Task, projectID string, decrypted string, palette bool) {
-	if palette {
-		if template := taskPaletteImageTemplate(decrypted); template != nil {
-			if _, err := s.queueDramaPaletteImages(task.UserID, projectID, *template, task.ID, nil); err != nil {
-				_ = s.log(task.UserID, task.ID, "warn", "接着排色卡出图失败", err.Error())
-			}
-		}
-		return
-	}
+// continueDramaImages 是一个资产出图任务结束后用它带的模板接着排「等空位」的资产。
+func (s *Service) continueDramaImages(task model.Task, projectID string, decrypted string) {
 	if template := taskAssetImageTemplate(decrypted); template != nil {
 		if _, err := s.queueDramaAssetImages(task.UserID, projectID, *template, task.ID, nil); err != nil {
 			_ = s.log(task.UserID, task.ID, "warn", "接着排资产出图失败", err.Error())
 		}
 	}
+}
+
+// DramaImageTaskTemplate 是给资产出图用的图片任务模板：前端按项目默认图片模型组好的任务（模型选择、input.config 等），
+// 服务端每个资产换上自己的提示词和 metadata 后建任务。它放在任务 input 的顶层 assetImageTask，任务结束后随密钥一起从任务正文去掉。
+type DramaImageTaskTemplate struct {
+	Model          string         `json:"model"`
+	LogicalModelID string         `json:"logicalModelId,omitempty"`
+	Provider       string         `json:"provider,omitempty"`
+	Input          map[string]any `json:"input"`
+}
+
+func (t *DramaImageTaskTemplate) usable() bool {
+	return t != nil && (strings.TrimSpace(t.Model) != "" || strings.TrimSpace(t.LogicalModelID) != "")
 }
 
 // dramaImageTaskInput 是按模板组出图任务的 input：模板的 input（config 等）照用，去掉参考图、遮罩、对话历史和模板自己，
@@ -264,7 +265,7 @@ func dramaImageTaskInput(template DramaImageTaskTemplate) (map[string]any, map[s
 	if copied, ok := decodeInto[map[string]any](template.Input); ok && copied != nil {
 		input = copied
 	}
-	for _, key := range []string{"referenceImages", "referenceVideos", "referenceAudios", "mask", "textHistory", "paletteImageTask", "assetImageTask"} {
+	for _, key := range []string{"referenceImages", "referenceVideos", "referenceAudios", "mask", "textHistory", "assetImageTask"} {
 		delete(input, key)
 	}
 	metadata, _ := input["metadata"].(map[string]any)

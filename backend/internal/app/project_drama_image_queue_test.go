@@ -2,27 +2,50 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
 	"yingce/backend/internal/model"
 )
 
-// paletteQueueFixture 是三张还没出图的色卡（导演风格不带出图跑完），同时任务数上限 1，图片上游一直返回 500。
-func paletteQueueFixture(t *testing.T) (*Service, *gorm.DB, model.Project, DramaImageTaskTemplate, *atomic.Int32) {
+// assetQueueTitles 是排队用例里三个场景资产，按建的先后（出图也按这个顺序排）。
+var assetQueueTitles = []string{"病房走廊", "电梯口", "电梯里"}
+
+// assetQueueFixture 是三个还没出图的场景资产（资产设计建的，payload 记了出图状态），同时任务数上限 1，图片上游一直返回 500。
+// M8 卡 B 起色卡由代码合成，排队只剩资产设计的角色、场景、道具。
+func assetQueueFixture(t *testing.T) (*Service, *gorm.DB, model.Project, DramaImageTaskTemplate, *atomic.Int32) {
 	t.Helper()
 	svc, db := newDramaWorkerTestService(t)
 	project, _ := seedEpisodeProject(t, svc, db)
-	text := httptest.NewServer(styleBibleUpstream())
-	t.Cleanup(text.Close)
-	queueStyleBibleTask(t, svc, db, project, text.URL, DramaProjectStepRunRequest{})
-	if done, err := runQueuedTask(t, svc); err != nil || done.Status != model.TaskStatusSucceeded {
-		t.Fatalf("导演风格：%v %q", err, done.Error)
+	folderID, err := svc.resolveProjectAssetFolderID(project.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now()
+	for i, title := range assetQueueTitles {
+		now := base.Add(time.Duration(i) * time.Second)
+		assetID, versionID := "asset-"+strconv.Itoa(i+1), "version-"+strconv.Itoa(i+1)
+		definition, _ := json.Marshal(map[string]any{"prompt": title + "，夜，医院", "description": title})
+		payload, _ := json.Marshal(map[string]any{"id": assetID, "kind": "entity", "category": model.AssetCategoryEnvironment, "status": model.AssetVersionStatusConfirmed, "primaryVersionId": versionID, "title": title,
+			"metadata": map[string]any{assetImageKey: dramaImageState{Status: dramaImageNone}}})
+		rows := []any{
+			&model.Asset{ID: assetID, UserID: "user-1", Kind: "entity", Category: model.AssetCategoryEnvironment, Status: model.AssetVersionStatusConfirmed, PrimaryVersionID: versionID, Title: title, PayloadJSON: string(payload), CreatedAt: now, UpdatedAt: now},
+			&model.AssetVersion{ID: versionID, AssetID: assetID, Version: 1, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: string(definition), CreatedAt: now, UpdatedAt: now},
+			&model.ProjectAssetLink{ID: "link-" + strconv.Itoa(i+1), ProjectID: project.ID, AssetID: assetID, FolderID: folderID, Position: i, CreatedAt: now},
+		}
+		for _, row := range rows {
+			if err := db.Create(row).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	var imageCalls atomic.Int32
 	images := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -35,22 +58,22 @@ func paletteQueueFixture(t *testing.T) (*Service, *gorm.DB, model.Project, Drama
 	if _, err := svc.UpdateRuntimePolicySetting(&model.User{ID: "admin", Role: model.UserRoleAdmin}, policy); err != nil {
 		t.Fatal(err)
 	}
-	template := DramaImageTaskTemplate{Model: "queue-image", Input: map[string]any{"mode": "image", "prompt": "色卡", "config": map[string]any{
+	template := DramaImageTaskTemplate{Model: "queue-image", Input: map[string]any{"mode": "image", "prompt": "场景", "config": map[string]any{
 		"channelId": "", "baseUrl": images.URL, "apiKey": "test-key", "model": "queue-image", "interfaceType": "openai-image", "apiFormat": "openai", "size": "1024x1024", "count": "1",
 	}}}
 	return svc, db, project, template, &imageCalls
 }
 
-// paletteStates 是按场编号的色卡出图状态（存在资产上的那份）。
-func paletteStates(t *testing.T, svc *Service, projectID string) map[string]dramaImageState {
+// assetStates 是按资产标题的出图状态（存在资产上的那份）。
+func assetStates(t *testing.T, svc *Service, projectID string) map[string]dramaImageState {
 	t.Helper()
-	palettes, err := svc.projectPaletteAssets("user-1", projectID)
+	assets, err := svc.projectDramaImageAssets("user-1", projectID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := map[string]dramaImageState{}
-	for code, asset := range palettes {
-		out[code] = dramaImageStateOf(&asset, paletteImageKey)
+	for _, a := range assets {
+		out[a.asset.Title] = dramaImageStateOf(&a.asset, assetImageKey)
 	}
 	return out
 }
@@ -67,16 +90,16 @@ func activeImageTasks(t *testing.T, db *gorm.DB) int64 {
 // 上限 1：第一张出图失败后它记成失败、第二张自动排上；第二张取消后同样记失败、第三张排上；第三张也失败后不再建任务（不自动重试）。
 // 「继续出图」再把失败的重新排。
 func TestDramaImageQueueContinuesAfterFailedOrCancelledTask(t *testing.T) {
-	svc, db, project, template, imageCalls := paletteQueueFixture(t)
-	first, err := svc.QueueDramaPaletteImages("user-1", project.ID, DramaPaletteImagesRequest{ImageTask: &template})
+	svc, db, project, template, imageCalls := assetQueueFixture(t)
+	first, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(first.Queued) != 1 || len(first.Waiting) != 2 || len(first.Failed) != 0 {
 		t.Fatalf("上限 1：排上 1 张、等 2 张：%+v", first)
 	}
-	states := paletteStates(t, svc, project.ID)
-	if states["E01S01"].Status != dramaImageQueued || states["E01S02"].Status != dramaImageWaiting || states["E02S01"].Status != dramaImageWaiting {
+	states := assetStates(t, svc, project.ID)
+	if states["病房走廊"].Status != dramaImageQueued || states["电梯口"].Status != dramaImageWaiting || states["电梯里"].Status != dramaImageWaiting {
 		t.Fatalf("排队状态：%+v", states)
 	}
 
@@ -84,30 +107,30 @@ func TestDramaImageQueueContinuesAfterFailedOrCancelledTask(t *testing.T) {
 	if failed.Status != model.TaskStatusFailed || imageCalls.Load() == 0 {
 		t.Fatalf("第一张该失败：%s %q（上游调用 %d 次）", failed.Status, failed.Error, imageCalls.Load())
 	}
-	states = paletteStates(t, svc, project.ID)
-	if s := states["E01S01"]; s.Status != dramaImageFailed || s.TaskID != failed.ID || s.Error == "" {
+	states = assetStates(t, svc, project.ID)
+	if s := states["病房走廊"]; s.Status != dramaImageFailed || s.TaskID != failed.ID || s.Error == "" {
 		t.Fatalf("失败的那张记成失败：%+v", s)
 	}
-	if states["E01S02"].Status != dramaImageQueued || states["E02S01"].Status != dramaImageWaiting || activeImageTasks(t, db) != 1 {
+	if states["电梯口"].Status != dramaImageQueued || states["电梯里"].Status != dramaImageWaiting || activeImageTasks(t, db) != 1 {
 		t.Fatalf("第一张失败后第二张接着排：%+v", states)
 	}
 
-	if _, err := svc.CancelTask(context.Background(), "user-1", states["E01S02"].TaskID); err != nil {
+	if _, err := svc.CancelTask(context.Background(), "user-1", states["电梯口"].TaskID); err != nil {
 		t.Fatal(err)
 	}
-	cancelledID := states["E01S02"].TaskID
-	states = paletteStates(t, svc, project.ID)
-	if s := states["E01S02"]; s.Status != dramaImageFailed || s.TaskID != cancelledID {
+	cancelledID := states["电梯口"].TaskID
+	states = assetStates(t, svc, project.ID)
+	if s := states["电梯口"]; s.Status != dramaImageFailed || s.TaskID != cancelledID {
 		t.Fatalf("取消的那张记成失败：%+v", s)
 	}
-	if states["E02S01"].Status != dramaImageQueued || activeImageTasks(t, db) != 1 {
+	if states["电梯里"].Status != dramaImageQueued || activeImageTasks(t, db) != 1 {
 		t.Fatalf("第二张取消后第三张接着排：%+v", states)
 	}
 
 	if last, _ := runQueuedTask(t, svc); last.Status != model.TaskStatusFailed {
 		t.Fatalf("第三张该失败：%s", last.Status)
 	}
-	states = paletteStates(t, svc, project.ID)
+	states = assetStates(t, svc, project.ID)
 	for code, s := range states {
 		if s.Status != dramaImageFailed {
 			t.Fatalf("%s 记成失败：%+v", code, s)
@@ -119,7 +142,7 @@ func TestDramaImageQueueContinuesAfterFailedOrCancelledTask(t *testing.T) {
 		t.Fatalf("失败的不自动重试：共 %d 个出图任务，还在跑 %d 个", imageTasks, activeImageTasks(t, db))
 	}
 
-	again, err := svc.QueueDramaPaletteImages("user-1", project.ID, DramaPaletteImagesRequest{ImageTask: &template})
+	again, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +153,7 @@ func TestDramaImageQueueContinuesAfterFailedOrCancelledTask(t *testing.T) {
 
 // SQLite 别的写入占着库时建任务报「database is locked」：退避重试后建上；一直忙时留在「等空位」并写明原因，不记成出图失败。
 func TestDramaImageQueueRetriesDatabaseLocked(t *testing.T) {
-	svc, db, project, template, _ := paletteQueueFixture(t)
+	svc, db, project, template, _ := assetQueueFixture(t)
 	var locks atomic.Int32
 	if err := db.Callback().Create().Before("gorm:create").Register("test:database-locked", func(tx *gorm.DB) {
 		if tx.Statement.Table == "tasks" && locks.Load() > 0 {
@@ -142,28 +165,28 @@ func TestDramaImageQueueRetriesDatabaseLocked(t *testing.T) {
 	}
 
 	locks.Store(2)
-	result, err := svc.QueueDramaPaletteImages("user-1", project.ID, DramaPaletteImagesRequest{ImageTask: &template})
+	result, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(result.Queued) != 1 || len(result.Failed) != 0 || locks.Load() != 0 {
-		t.Fatalf("锁了两次，重试后建上：%+v（剩 %d 次锁）%+v", result, locks.Load(), paletteStates(t, svc, project.ID))
+		t.Fatalf("锁了两次，重试后建上：%+v（剩 %d 次锁）%+v", result, locks.Load(), assetStates(t, svc, project.ID))
 	}
 	// 取消第一张后接着排第二张时库一直忙：第二张留在等空位、写明原因，第三张也不动，都不算出图失败。
 	locks.Store(100)
-	if _, err := svc.CancelTask(context.Background(), "user-1", paletteStates(t, svc, project.ID)["E01S01"].TaskID); err != nil {
+	if _, err := svc.CancelTask(context.Background(), "user-1", assetStates(t, svc, project.ID)["病房走廊"].TaskID); err != nil {
 		t.Fatal(err)
 	}
 	locks.Store(0)
-	states := paletteStates(t, svc, project.ID)
-	if s := states["E01S02"]; s.Status != dramaImageWaiting || s.Error == "" {
+	states := assetStates(t, svc, project.ID)
+	if s := states["电梯口"]; s.Status != dramaImageWaiting || s.Error == "" {
 		t.Fatalf("库忙没排上的留在等空位并写明原因：%+v", s)
 	}
-	if states["E02S01"].Status != dramaImageWaiting || states["E01S01"].Status != dramaImageFailed || activeImageTasks(t, db) != 0 {
+	if states["电梯里"].Status != dramaImageWaiting || states["病房走廊"].Status != dramaImageFailed || activeImageTasks(t, db) != 0 {
 		t.Fatalf("库忙时后面的不动：%+v", states)
 	}
 	// 「继续出图」时库不忙了：照常排上。
-	again, err := svc.QueueDramaPaletteImages("user-1", project.ID, DramaPaletteImagesRequest{ImageTask: &template})
+	again, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template})
 	if err != nil || len(again.Queued) != 1 || len(again.Failed) != 0 {
 		t.Fatalf("继续出图：%+v %v", again, err)
 	}

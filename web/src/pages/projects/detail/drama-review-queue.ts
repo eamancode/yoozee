@@ -13,3 +13,15 @@ export function reviewGap(segment: DramaSegmentProgress) {
     if (!segment.selectedArtifactId) return "还没选定一条候选";
     return segment.missingEvidence?.length ? `缺${segment.missingEvidence.map((kind) => EVIDENCE_LABELS[kind] || kind).join("、")}` : "待审";
 }
+
+/** 带问题的段：带着检查问题装段后还没改完的（跨章节，保持进度表的顺序）。 */
+export function issueSegments(segments: DramaSegmentProgress[]) {
+    return segments.filter((segment) => (segment.issues || 0) > 0);
+}
+
+/** 每章（单元）带问题的段数，章节信息行用。 */
+export function issueSegmentsByUnit(segments: DramaSegmentProgress[] = []) {
+    const out: Record<string, number> = {};
+    for (const segment of issueSegments(segments)) out[segment.unitId] = (out[segment.unitId] || 0) + 1;
+    return out;
+}

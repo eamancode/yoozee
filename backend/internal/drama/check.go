@@ -19,9 +19,12 @@ type Bible struct {
 	Props       []BibleProp      `json:"props"`
 	SpatialMaps []SpatialMap     `json:"spatial_maps"`
 	Plants      []BiblePlant     `json:"plants"`
-	// StyleAnchor / ColorScript 是导演风格写的全局风格锚和逐场色彩脚本（装段、检查暂不读）。
+	// StyleAnchor / ColorScript 是导演风格写的全局风格锚和逐场色彩脚本（装段、检查暂不读）。风格锁定（M8）也写 StyleAnchor。
 	StyleAnchor *StyleAnchor       `json:"style_anchor,omitempty"`
 	ColorScript []ColorScriptEntry `json:"color_script,omitempty"`
+	// MasterPalette / StyleLock 是项目锁定的主基调色卡和锁定来源（风格锁定或平台风格库写，装段、检查暂不读）。
+	MasterPalette *MasterPalette   `json:"master_palette,omitempty"`
+	StyleLock     *StyleLockRecord `json:"style_lock,omitempty"`
 }
 
 type BibleVariant struct {
@@ -100,6 +103,8 @@ type CheckItem struct {
 	Rule    string `json:"rule"`
 	Message string `json:"message"`
 	ShotID  string `json:"shotId,omitempty"`
+	// LineID 是台词覆盖（R-SHOT-001）说的那句台词，分镜制作按它给「补进这个镜头」「只保留在这个镜头」。
+	LineID string `json:"lineId,omitempty"`
 }
 
 // CheckSkip 是因为缺输入而跳过的规则。
@@ -117,6 +122,8 @@ type CheckReport struct {
 	Skipped  []CheckSkip `json:"skipped"`
 	// Parse 是生成分段收尾时模型输出的解析统计（服务端解析才有；手写镜头表、Agent 写入时为空）。
 	Parse *ShotLinesStats `json:"parse,omitempty"`
+	// Accepted 表示用户选了「先装段，到分镜制作再改」：检查还有 error，但段已经装出来了（见 app 的 acceptIssues）。
+	Accepted bool `json:"accepted,omitempty"`
 }
 
 func (r *CheckReport) add(rules RuleLevels, rule, shotID, level, message string) {
@@ -165,6 +172,9 @@ var (
 )
 
 func sizeIndex(size string) int { return slices.Index(shotSizes, size) }
+
+// ShotSizes 是镜头表认的景别（从远到近），分镜卡编辑只能从这里选。
+func ShotSizes() []string { return slices.Clone(shotSizes) }
 
 func hasActionVerb(text string) bool {
 	for _, v := range actionVerbs {
@@ -300,17 +310,21 @@ func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 				used[ln.LineID] = append(used[ln.LineID], sh.ID)
 			}
 		}
+		addLine := func(shotID, lineID, message string) {
+			add("R-SHOT-001", shotID, message)
+			R.Items[len(R.Items)-1].LineID = lineID
+		}
 		for _, lid := range lines.order {
 			where := used[lid]
 			if len(where) == 0 {
-				add("R-SHOT-001", "", fmt.Sprintf("台词 %s 没有落在任何镜头：「%s」", lid, runePrefix(lines.byID[lid].Text, 20)))
+				addLine("", lid, fmt.Sprintf("台词 %s 没有落在任何镜头：「%s」", lid, runePrefix(lines.byID[lid].Text, 20)))
 			} else if len(where) > 1 {
-				add("R-SHOT-001", where[1], fmt.Sprintf("台词 %s 落在 %d 个镜头：%s", lid, len(where), pyList(where)))
+				addLine(where[1], lid, fmt.Sprintf("台词 %s 落在 %d 个镜头：%s", lid, len(where), pyList(where)))
 			}
 		}
 		for _, lid := range usedOrder {
 			if !inEpisode[lid] {
-				add("R-SHOT-001", used[lid][0], fmt.Sprintf("镜头 %s 引用了剧本里不存在的台词 id %s", pyList(used[lid]), pyStrOrNone(lid)))
+				addLine(used[lid][0], lid, fmt.Sprintf("镜头 %s 引用了剧本里不存在的台词 id %s", pyList(used[lid]), pyStrOrNone(lid)))
 			}
 		}
 	} else {

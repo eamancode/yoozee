@@ -3,10 +3,14 @@ package drama
 import "slices"
 
 // 短剧流程的步骤表（M6）：流程（步骤、顺序、输出契约、代码负责组装的变量、解析与检查）写在代码里，改了要发版；
-// 每一步「怎么想、怎么写」交给按项目风格档案绑定的技能（drama_step_bindings）。现有 script.adapt（剧本优化，项目级）
-// 、style.bible（导演风格，项目级）、assets.extract（资产设计，按章节或剧集）和 chapter.shots（生成分段，按章节或剧集）。
+// 每一步「怎么想、怎么写」交给按项目风格档案绑定的技能（drama_step_bindings）。现有 style.lock（风格锁定，项目级）、
+// script.adapt（剧本优化，项目级）、scene.palette（场次色卡，项目级）、assets.extract（资产设计，按章节或剧集）和 chapter.shots（生成分段，按章节或剧集）。
 
 const (
+	// StepStyleLock 是风格锁定（建项目时的导演风格分析）：项目类型 + 风格文字 + 参考图 + 画风 → 全局风格锚 + 主基调色卡（分组色板）。
+	StepStyleLock = "style.lock"
+	// ContractStyleLock 是风格锁定的输出契约：第一行风格锚，之后每组一行色板。
+	ContractStyleLock = "style.lock@1"
 	// StepChapterShots 是生成分段：一章正文 → 镜头行（带 spec）。
 	StepChapterShots = "chapter.shots"
 	// ContractChapterShots 是生成分段的输出契约版本；改契约就加版本号并换 schema 文件。
@@ -16,10 +20,11 @@ const (
 	StepScriptAdapt = "script.adapt"
 	// ContractScriptAdapt 是剧本优化的输出契约：一集一块（一行 JSON 头加正文）。
 	ContractScriptAdapt = "script.adapt@1"
-	// StepStyleBible 是导演风格：全部剧集的场次 → 全局风格锚 + 逐场色彩脚本（bible_json），每场一个色卡资产。
-	StepStyleBible = "style.bible"
-	// ContractStyleBible 是导演风格的输出契约：第一行风格锚，之后一集一块（一行 JSON 头加每场一行色彩脚本）。
-	ContractStyleBible = "style.bible@1"
+	// StepScenePalette 是场次色卡：项目锁定的风格锚 + 主基调色卡 + 全部剧集的场次 → 逐场色彩脚本（bible_json.color_script），
+	// 每场一张代码合成的色卡资产（palette，kind=scene）。M8 卡 B 由导演风格 style.bible 改来，不再写风格锚、不再调图片模型。
+	StepScenePalette = "scene.palette"
+	// ContractScenePalette 是场次色卡的输出契约：每场一行色彩脚本（scene 写场编号）。
+	ContractScenePalette = "scene.palette@1"
 	// StepAssetsExtract 是资产设计：一集（或一章）剧本 → 角色、场景、道具和它们的外观提示词，收尾直接写成已确认资产并排出图。
 	StepAssetsExtract = "assets.extract"
 	// ContractAssetsExtract 是资产设计的输出契约：一个资产一行（JSON Lines）。
@@ -80,13 +85,13 @@ type TurnContext struct {
 	// Index 是第几轮（从 1 数）；Turn 是这一轮（场或集）。
 	Index int
 	Turn  ShotsScene
-	// Prior 是前面各轮的输出按顺序拼接（导演风格校验承接色用）。
+	// Prior 是前面各轮的输出按顺序拼接（场次色卡校验承接色用）。
 	Prior string
 	// Sources 是这次运行点名的来源单元（剧本优化校验 sources 用），其余步骤为空。
 	Sources []string
 }
 
-// TurnPlan 是一步把一次运行切成多轮的方式（M7.2 逐轮续写）：生成分段、资产设计一轮一场，剧本优化、导演风格一轮一集。
+// TurnPlan 是一步把一次运行切成多轮的方式（M7.2 逐轮续写）：生成分段、资产设计一轮一场，剧本优化、场次色卡一轮一集。
 // 轮次本身（场次表、集次表）在建任务时算好存进 metadata.dramaRun.scenes，这里只管每一轮怎么说、怎么验。
 type TurnPlan struct {
 	// Unit 是一轮叫什么（场、集），用在进度和错误文字里。
@@ -136,6 +141,37 @@ type Step struct {
 
 var steps = []Step{
 	{
+		ID:       StepStyleLock,
+		Label:    "风格锁定",
+		Scope:    StepScopeProject,
+		Contract: ContractStyleLock,
+		Inputs: []StepInput{
+			{Name: "skill", Label: "技能上下文（skill-context）与用户任务：【项目类型】【用户的风格描述】【参考图】", Source: "按项目风格档案绑定的技能当前版本；项目类型、风格文字（2000 字）由请求带来；参考图是请求点名的本人图片资源（最多 6 张），以图片引用随任务发给文本模型（input.referenceImages），提示词里只写张数"},
+			{Name: "brief", Label: "【项目需求】", Source: "需求文档 brief_json 的片名、用途、平台、口味、约束、不做的事等，共 1500 字"},
+			{Name: "projectStyle", Label: "【项目画风：…】", Source: "项目画风快照 styleProfileJson 的 title、selection 与 prompt，按小节取到 1200 字；没选画风时不写"},
+			{Name: "profile", Label: "【风格档案：…】", Source: "项目风格档案（profiles/*.json）的名称、画面质感段（style_block.zh，600 字）与光线政策"},
+			{Name: "contract", Label: "【受保护输出契约】", Source: "style.lock@1 schema 生成（第一行风格锚，之后每组一行色板）"},
+		},
+		Parser:           "一轮；StyleLockFromText 逐行解析风格锚和分组色板（缺括号补齐、字段类型不符单字段降级），CountStyleLockTurn 当轮校验；收尾只写进任务结果，用户点「锁定此风格」才写 bible_json 并合成主色卡",
+		Checks:           []string{"CheckStyleLock（R-LOCK-*：有风格锚、至少 4 色、HEX 是 #RRGGBB；缺主角组或环境组、缺色名、HEX 重复、字段降级读出是 warn）"},
+		SkillBudgetChars: 32_000,
+		SkillLinkedFiles: 3,
+		DefaultSkill:     "yz-style-lock",
+		// 闸门先宽：只看解析率（有风格锚且主基调色卡至少 4 色才算解析成功）。
+		Gate:            StepGate{Metrics: []string{GateParseRate}, ParseRate: 0.9},
+		EvalConcurrency: 1,
+		EvalSet: []StepEvalChapter{
+			{ID: "qichuang-e01", Profile: "live-realism", Label: "《七床》第一集（悬疑·真人剧，按画风定风格）"},
+		},
+		TaskSource: "short-drama-style-lock",
+		Turns: TurnPlan{
+			Unit:  "轮",
+			Intro: func([]ShotsScene) string { return "" },
+			Next:  func([]ShotsScene, int, int) string { return "" },
+			Count: CountStyleLockTurn,
+		},
+	},
+	{
 		ID:       StepScriptAdapt,
 		Label:    "剧本优化",
 		Scope:    StepScopeProject,
@@ -166,35 +202,35 @@ var steps = []Step{
 		},
 	},
 	{
-		ID:       StepStyleBible,
-		Label:    "导演风格",
+		ID:       StepScenePalette,
+		Label:    "场次色卡",
 		Scope:    StepScopeProject,
-		Contract: ContractStyleBible,
+		Contract: ContractScenePalette,
 		Inputs: []StepInput{
-			{Name: "skill", Label: "技能上下文（skill-context）与用户任务：各集的场次表（场编号、场次头、每场开头 300 字）", Source: "按项目风格档案绑定的技能当前版本；场次取各剧集（kind=episode，没有剧集时取原文章节）保存的 HTML 转成的纯文本，按场次头切场，超过总字数预算时每场摘录同比缩短（不少于 80 字）"},
-			{Name: "brief", Label: "【项目需求】", Source: "需求文档 brief_json 的片名、用途、平台、口味、约束、不做的事等，共 1500 字"},
-			{Name: "projectStyle", Label: "【项目画风：…】", Source: "项目画风快照 styleProfileJson 的 title、selection 与 prompt，按小节取到 1200 字"},
+			{Name: "skill", Label: "技能上下文（skill-context）与用户任务：各集的场次表（场编号、场次头、内外 / 地点 / 时间、每场开头 300 字）", Source: "按项目风格档案绑定的技能当前版本；场次取各剧集（kind=episode，没有剧集时取原文章节）保存的 HTML 转成的纯文本，按场次头切场（SplitScenes：同一集里连续同地点且内外相同的场次头并成一场），超过总字数预算时每场摘录同比缩短（不少于 80 字）"},
+			{Name: "anchor", Label: "【项目风格锚】", Source: "bible_json.style_anchor（风格锁定 style.lock 锁定的；本步骤只读不改）"},
+			{Name: "masterPalette", Label: "【主基调色卡】", Source: "bible_json.master_palette 全文：按主角组、配角组、道具组、环境组列出每个颜色的中文名、英文名、HEX、用途"},
 			{Name: "profile", Label: "【风格档案：…】", Source: "项目风格档案（profiles/*.json）的名称、画面质感段（style_block.zh，600 字）与光线政策"},
-			{Name: "existing", Label: "【已有风格锚】【已有色彩脚本】", Source: "bible_json 里已有的 style_anchor，以及这次不重写的各集的 color_script（承接用，只列场编号、场次头和颜色）"},
-			{Name: "contract", Label: "【受保护输出契约】", Source: "style.bible@1 schema 生成（第一行风格锚，之后一集一块：JSON 头加每场一行）"},
+			{Name: "existing", Label: "【已有场次色卡】", Source: "这次不重写的各集的 color_script（承接用，只列场编号、场次头和颜色，4000 字）"},
+			{Name: "contract", Label: "【受保护输出契约】", Source: "scene.palette@1 schema 生成（每场一行色彩脚本）"},
 		},
-		Parser:           "每一轮 StyleBibleFromText 解析出风格锚（第一轮）和这一集各场的色彩脚本，CountStyleBibleTurn 当轮校验 HEX、色数和承接色；任务收尾时解析全部轮次的输出",
-		Checks:           []string{"CheckStyleBible（R-STYLE-*：有风格锚、每场 ≥3 色、HEX 是 #RRGGBB、inherits_from 指向已有的场、shared_colors 的 HEX 与承接场一致、场次与剧集对得上）"},
+		Parser:           "每一轮 ScenePaletteFromText 解析出这一集各场的色彩脚本（缺括号补齐、字段类型不符单字段降级，风格锚行忽略），CountScenePaletteTurn 当轮校验 HEX、色数和承接色；任务收尾时解析全部轮次的输出",
+		Checks:           []string{"CheckScenePalette（R-SPAL-*：每场 3～32 色、HEX 是 #RRGGBB、inherits_from 指向已有的场、shared_colors 的 HEX 与承接场一致是 error；场次对不上、与主色卡同名色 HEX 不一致、缺英文名或分组、多写风格锚是 warn）"},
 		SkillBudgetChars: 32_000,
 		SkillLinkedFiles: 3,
-		DefaultSkill:     "yz-style-bible",
-		// 闸门先宽：只看解析率（解析出的场 / 应写的场 ≥ 0.9 且有风格锚才算这一章解析成功）。
+		DefaultSkill:     "yz-scene-palette",
+		// 闸门先宽：只看解析率（解析出的场 / 应写的场 ≥ 0.9 才算这一章解析成功）。
 		Gate:            StepGate{Metrics: []string{GateParseRate}, ParseRate: 0.9},
 		EvalConcurrency: 1,
 		EvalSet: []StepEvalChapter{
 			{ID: "qichuang-e01", Profile: "live-realism", Label: "《七床》第一集（悬疑·真人剧）"},
 		},
-		TaskSource: "short-drama-style-bible",
+		TaskSource: "short-drama-scene-palette",
 		Turns: TurnPlan{
 			Unit:  "集",
-			Intro: StyleBibleTurnPlan,
-			Next:  func(turns []ShotsScene, k int, _ int) string { return StyleBibleTurnPrompt(turns, k) },
-			Count: CountStyleBibleTurn,
+			Intro: ScenePaletteTurnPlan,
+			Next:  func(turns []ShotsScene, k int, _ int) string { return ScenePaletteTurnPrompt(turns, k) },
+			Count: CountScenePaletteTurn,
 		},
 	},
 	{
@@ -205,8 +241,8 @@ var steps = []Step{
 		Inputs: []StepInput{
 			{Name: "skill", Label: "技能上下文（skill-context）与用户任务：剧集或章节标题、正文", Source: "按项目风格档案绑定的技能当前版本；正文取单元保存的 HTML，按编辑器 getText 的规则转成纯文本"},
 			{Name: "known", Label: "【项目已有资产】", Source: "项目资产清单里的角色、场景、道具（不含归档的），名字、别名和是否缺外观，最多 120 项、4000 字"},
-			{Name: "anchor", Label: "【全局风格锚】", Source: "bible_json.style_anchor（导演风格写的）"},
-			{Name: "colorScript", Label: "【本集色彩脚本】", Source: "bible_json.color_script 里这一集的各场（集号按导演风格的编号：有剧集看剧集序号，没有剧集看原文章节序号），2400 字"},
+			{Name: "anchor", Label: "【全局风格锚】", Source: "bible_json.style_anchor（风格锁定写的）"},
+			{Name: "colorScript", Label: "【本集色彩脚本】", Source: "bible_json.color_script 里这一集的各场（场次色卡写的；集号按场次表的编号：有剧集看剧集序号，没有剧集看原文章节序号），2400 字"},
 			{Name: "profile", Label: "【风格档案：…】", Source: "项目风格档案（profiles/*.json）的名称、画面质感段（600 字）与光线政策"},
 			{Name: "projectStyle", Label: "【项目画风：…】", Source: "项目画风快照 styleProfileJson 的 title 与 prompt，按小节取到 1200 字"},
 			{Name: "contract", Label: "【受保护输出契约】", Source: "assets.extract@1 schema 生成（一个资产一行）"},

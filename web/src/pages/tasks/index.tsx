@@ -14,7 +14,7 @@ import { formatTaskKind, generationTaskStatusLabel, mediaDeliverySummary, operat
 import { buildVideoOperationPrompt } from "@/lib/prompts";
 import { backendProviderConfig, logicalModelIDForConfig } from "@/services/api/generation-task";
 
-import { createGenerationTask, formatTaskLog, listGenerationTasks, listTaskLogs, queryFailedVideoProviderTask, queryGenerationTask, retryGenerationTask, recoverGenerationTaskMedia, type CreateTaskInput, type GenerationTask, type TaskLog } from "@/services/api/task-center";
+import { cancelGenerationTask, createGenerationTask, formatTaskLog, listGenerationTasks, listTaskLogs, queryFailedVideoProviderTask, queryGenerationTask, retryGenerationTask, recoverGenerationTaskMedia, type CreateTaskInput, type GenerationTask, type TaskLog } from "@/services/api/task-center";
 import { syncGenerationTaskToCanvasStore } from "@/lib/canvas/canvas-generation-task-sync";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { resolveModelRequestConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -174,6 +174,7 @@ export default function TasksPage() {
             actingId={actingId}
             onOpen={() => void openTaskDetail(task)}
             onRetry={() => void runAction(task.id)}
+            onCancel={() => void cancelTask(task)}
             onPreview={() => task.previewUrl && setMediaPreview({ url: task.previewUrl, kind: task.previewKind === "video" ? "video" : "image", title: task.prompt || formatTaskKind(task) })}
         />
     );
@@ -185,6 +186,7 @@ export default function TasksPage() {
             actingId={actingId}
             onOpen={() => void openTaskDetail(task)}
             onRetry={() => void runAction(task.id)}
+            onCancel={() => void cancelTask(task)}
         />
     );
 
@@ -314,6 +316,21 @@ export default function TasksPage() {
             message.success(next.status === "succeeded" ? "任务已完成" : savingMedia ? "正在恢复作品保存，不会重新生成" : "任务已在队列中");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "操作失败");
+        } finally {
+            setActingId("");
+        }
+    };
+
+    // 只取消还没提交给第三方的任务（按钮已按同一规则置灰）；后端以数据库为准，提交在先时会拒绝并说明原因。
+    const cancelTask = async (task: GenerationTask) => {
+        setActingId(task.id);
+        try {
+            const next = await cancelGenerationTask(task.id);
+            setTasks((items) => items.map((item) => (item.id === task.id ? { ...item, ...next } : item)));
+            setDetailTask((current) => (current?.id === task.id ? { ...current, ...next } : current));
+            message.success("任务已取消");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "取消失败");
         } finally {
             setActingId("");
         }
@@ -553,7 +570,7 @@ function reconcileTaskSummaries(current: GenerationTask[], next: GenerationTask[
     let changed = false;
     const reconciled = next.map((task) => {
         const previous = currentById.get(task.id);
-        if (previous?.updatedAt === task.updatedAt && previous.previewUrl === task.previewUrl && previous.previewPosterUrl === task.previewPosterUrl && previous.billing?.status === task.billing?.status && previous.billing?.amountMicrocredits === task.billing?.amountMicrocredits) return previous;
+        if (previous?.updatedAt === task.updatedAt && previous.previewUrl === task.previewUrl && previous.previewPosterUrl === task.previewPosterUrl && previous.billing?.status === task.billing?.status && previous.billing?.amountMicrocredits === task.billing?.amountMicrocredits && previous.billing?.actualAmountMicrocredits === task.billing?.actualAmountMicrocredits) return previous;
         changed = true;
         return task;
     });

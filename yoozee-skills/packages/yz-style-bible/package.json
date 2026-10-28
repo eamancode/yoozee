@@ -1,9 +1,0 @@
-{
-  "id": "yz-style-bible",
-  "step": "style.bible",
-  "contract": "style.bible@1",
-  "profiles": ["action-epic", "anime-3d", "duanju-shiga", "game-ip", "live-realism"],
-  "version": "1.0.0",
-  "files": ["SKILL.md", "cards/色卡提示词卡-色板设计.md"],
-  "eval": ["qichuang-e01"]
-}

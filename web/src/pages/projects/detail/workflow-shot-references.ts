@@ -87,6 +87,31 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
     };
 }
 
+/**
+ * 这一段绑的本场场次色卡（生成分段装段时以 role=style 绑上）：有合成图时给参考图，色值给提示词用；旧版色卡、场次已不存在的不算。
+ * 视频参考图里色卡优先级最低：排在角色 / 场景 / 道具之后，名额满了不带图、只把色值写进提示词（withShotScenePalette）。分镜图和黑白预演不带。
+ */
+export function shotScenePalette(detail: ProjectDetail, shotId: string) {
+    const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
+    for (const reference of detail.shotReferences || []) {
+        if (reference.shotId !== shotId || reference.status !== "linked" || reference.role !== "style") continue;
+        const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
+        const palette = asset?.palette;
+        if (!asset || !palette || palette.master || palette.kind !== "scene" || palette.sceneGone) continue;
+        const colors = [...(palette.entry?.shared_colors || []), ...(palette.entry?.new_colors || [])].filter((color) => /^#[0-9A-F]{6}$/i.test(color.hex));
+        const image = projectAssetReferenceImage(asset, reference);
+        return { code: palette.code, image, colorsLine: colors.length ? `本场色值：${colors.map((color) => `${color.name_zh || color.name_en} ${color.hex.toUpperCase()}`.trim()).join("、")}。` : "" };
+    }
+    return undefined;
+}
+
+/** 把本场色卡加到视频参考图最后：模型的参考图名额（maxImages，没配时按 0 算，不带图）还有空位且有合成图时带图，否则返回要写进提示词的色值行。 */
+export function withShotScenePalette(images: ReferenceImage[], palette: ReturnType<typeof shotScenePalette>, maxImages: number) {
+    if (!palette) return { images, promptLine: "" };
+    if (palette.image && images.length < maxImages) return { images: [...images, palette.image], promptLine: `图片${images.length + 1} 是本场色卡（${palette.code}）：画面用色和光色以它为准，不把色卡本身画进画面。` };
+    return { images, promptLine: palette.colorsLine };
+}
+
 export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string } = {}) {
     const imageLabelByAssetId = new Map(context.mentionReferences.map((reference, index) => [reference.assetId, `图片${index + 1}`]));
     const unresolved = new Set<string>();
@@ -216,8 +241,12 @@ function stringValue(value: unknown) {
     return typeof value === "string" ? value.trim() : "";
 }
 
+// 编译清单的编号按模型方言写：即梦是 @图片N / @音频N，MiniMax-H3 是 <Picture N> / <Audio N>（提示词原样发给模型，编号不能改写）。
+const COMPILED_IMAGE_TAG = /^(?:@图片\d+|<Picture \d+>)$/;
+const COMPILED_AUDIO_TAG = /^(?:@音频\d+|<Audio \d+>)$/;
+
 /**
- * 把方言编译结果里的素材清单（@图片N / @音频N）换成生成任务的参考媒体，顺序与编号一致。
+ * 把方言编译结果里的素材清单（@图片N / <Picture N>、@音频N / <Audio N>）换成生成任务的参考媒体，顺序与编号一致。
  * 契约里 file 是柚子资产 ID 或资产版本 ID；找不到的素材返回在 missing 里，由调用方拦下。
  */
 export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: string, files: Array<{ file: string; tag: string; role: string }>) {
@@ -232,11 +261,11 @@ export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: st
     const missing: string[] = [];
     for (const item of files) {
         const found = findAsset(item.file);
-        if (item.tag.startsWith("@图片")) {
+        if (COMPILED_IMAGE_TAG.test(item.tag)) {
             const image = found ? projectAssetReferenceImage(found.asset, found.reference) : undefined;
             if (image) images.push(image);
             else missing.push(`${item.tag}（${item.file}）`);
-        } else if (item.tag.startsWith("@音频")) {
+        } else if (COMPILED_AUDIO_TAG.test(item.tag)) {
             const sampleResourceId = stringValue(found?.asset.character?.voice?.profile.sampleResourceId);
             if (found && sampleResourceId) audios.push({ id: `project-character-voice:${found.asset.id}`, name: `${found.asset.title}-声音样本`, type: "audio/*", url: resourceFileUrl(sampleResourceId), storageKey: resourceStorageKey(sampleResourceId) });
             else missing.push(`${item.tag}（${item.file}）`);

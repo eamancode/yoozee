@@ -224,7 +224,7 @@ func TestCompileProjectShotUsesProjectStyle(t *testing.T) {
 	if err := db.Create(&model.ProjectAssetLink{ID: newID(), ProjectID: project.ID, AssetID: "char-1", CreatedAt: now}).Error; err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: loadOnlineRowsRaw(t)})
+	result, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: loadOnlineRowsRaw(t), LegacyScenes: true})
 	if err != nil {
 		t.Fatal(err)
 	}

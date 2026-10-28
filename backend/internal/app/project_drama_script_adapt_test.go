@@ -93,9 +93,13 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome := result.DramaStep
-	// 写完剧集自动接着建导演风格任务（测试里没有计费用的渠道模型，建任务被拒，原因记在 chained 上，剧集照写）。
-	if outcome.Chained == nil || outcome.Chained.Step != drama.StepStyleBible || (outcome.Chained.TaskID == "" && outcome.Chained.Error == "") {
-		t.Fatalf("自动接着跑导演风格：%+v", outcome.Chained)
+	// 写完剧集自动接着建场次色卡任务；项目还没锁定风格时不建，原因记在 chained 上，剧集照写。
+	if outcome.Chained == nil || outcome.Chained.Step != drama.StepScenePalette || outcome.Chained.TaskID != "" || !strings.Contains(outcome.Chained.Error, "还没有锁定风格") {
+		t.Fatalf("没锁定风格时不接场次色卡：%+v", outcome.Chained)
+	}
+	var tasks int64
+	if err := db.Model(&model.Task{}).Where("id <> ?", queued.ID).Count(&tasks).Error; err != nil || tasks != 0 {
+		t.Fatalf("没锁定风格时剧本优化之后不该有别的任务：%d %v", tasks, err)
 	}
 	if outcome.Step != drama.StepScriptAdapt || outcome.Status != DramaStepOutcomeWritten || len(outcome.Episodes) != 2 || outcome.Errors != 0 {
 		t.Fatalf("outcome = %+v", outcome)
@@ -147,22 +151,24 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 		}
 	}
 
-	// 不计费时接着建的导演风格任务用同一文本模型，metadata.chainedFrom 指向剧本优化任务，定风格的是新写的两集。
+	// 锁定风格后接着建的场次色卡任务用同一文本模型，metadata.chainedFrom 指向剧本优化任务，做色卡的是新写的两集；
+	// 不计费时才建得成（测试里没有计费用的渠道模型）。
 	if _, err := svc.UpdateFeatureAvailability(&model.User{ID: "admin", Role: "admin"}, FeatureAvailability{CustomChannelsEnabled: true, TaskCenterEnabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	chained := svc.chainStyleBibleAfterAdapt(*queued, project.ID)
+	lockTestProjectStyle(t, db, project.ID)
+	chained := svc.chainScenePaletteAfterAdapt(*queued, project.ID)
 	if chained == nil || chained.TaskID == "" {
-		t.Fatalf("接着建导演风格任务：%+v", chained)
+		t.Fatalf("接着建场次色卡任务：%+v", chained)
 	}
-	styleTask, err := svc.repo.Task(chained.TaskID)
+	paletteTask, err := svc.repo.Task(chained.TaskID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta := taskDramaStyle(styleTask.InputJSON); meta == nil || meta.ChainedFrom != queued.ID || len(meta.Episodes) != 2 || meta.Episodes[0].UnitID != ep1.ID || !strings.Contains(styleTask.InputJSON, `"chainedFrom":"`+queued.ID+`"`) {
-		t.Fatalf("导演风格任务：%s", styleTask.InputJSON)
+	if meta := taskDramaScenePalette(paletteTask.InputJSON); meta == nil || meta.ChainedFrom != queued.ID || len(meta.Episodes) != 2 || meta.Episodes[0].UnitID != ep1.ID || !strings.Contains(paletteTask.InputJSON, `"chainedFrom":"`+queued.ID+`"`) {
+		t.Fatalf("场次色卡任务：%s", paletteTask.InputJSON)
 	}
-	if err := db.Delete(&model.Task{}, "id = ?", styleTask.ID).Error; err != nil {
+	if err := db.Delete(&model.Task{}, "id = ?", paletteTask.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 

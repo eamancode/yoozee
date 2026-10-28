@@ -40,8 +40,14 @@ type DramaShotlistWriteRequest struct {
 	// KeepDraft 为 true 时检查有 error 也不拒绝：分镜行、镜头表和检查结果照样写进镜头表记录（草稿），
 	// 但不装段、不动本章已有的段；用户处理完问题后用 repack 重新装段。生成分段的收尾用它。
 	KeepDraft bool `json:"-"`
+	// AcceptIssues 为 true 时是「先装段，到分镜制作再改」：检查有 error 也照样装段写库，检查结果记成已接受（check.accepted），
+	// 问题按镜头挂到段上（DramaSegmentView.Issues）。会让装段本身做不成的问题（镜头时长不是正数、一场找不到合法切点
+	// 只能整场装成一段而超过单段上限）仍然拒绝。
+	AcceptIssues bool `json:"-"`
 	// Parse 是服务端解析模型输出的统计，记进检查结果。
 	Parse *drama.ShotLinesStats `json:"-"`
+	// LegacyScenes 是重装切场规则改变前写的镜头表：台词表按旧规则（一个场次头一场）切，镜头保持原场编号，色卡按旧场所在的新场找。
+	LegacyScenes bool `json:"-"`
 }
 
 // DramaShotlistView 是一章的镜头表、台词表与最近一次检查结果。
@@ -53,6 +59,10 @@ type DramaShotlistView struct {
 	Check    drama.CheckReport `json:"check"`
 	// Draft 表示这份镜头表检查有 error、还没装段（本章的段仍是上一次装出的）。
 	Draft bool `json:"draft"`
+	// Accepted 表示检查有 error 但用户选了先装段：段已装好，问题挂在段和镜头上（Issues），到分镜制作逐张改。
+	Accepted bool `json:"accepted"`
+	// Issues 是检查的 error 挂到哪几镜、在哪一场、能不能一键修（见 drama.ShotIssues）；侧栏和分镜制作按它标问题、挑要重跑的场。
+	Issues []drama.ShotIssue `json:"issues"`
 	// CompileProfile 是装段用的编译档案版本（0 为内置默认）。
 	CompileProfile DramaCompileProfileRef `json:"compileProfile"`
 	UpdatedAt      time.Time              `json:"updatedAt"`
@@ -65,6 +75,8 @@ type DramaShotlistWriteResult struct {
 	Stats    drama.RowsStats    `json:"stats"`
 	// Draft 表示检查有 error，只存了草稿，没有装段（Segments 是本章原有的段）。
 	Draft bool `json:"draft"`
+	// Accepted 表示检查有 error，按 acceptIssues 带着问题装了段。
+	Accepted bool `json:"accepted"`
 	// Notes 是装段说明：找不到合法切点的场、渠道时长等，给用户看。
 	Notes []string `json:"notes"`
 	// Profile 是这章检查、装段用的风格档案及来由（如「真人剧（默认）（真人实拍…）」）。
@@ -478,6 +490,41 @@ func dramaCheckContext(script *drama.Script, pc dramaProjectContext, assets []Pr
 	return drama.CheckContext{Script: checkScript, Bible: bible, Profile: profile, Vocab: vocab, Rules: rules}, profile, nil
 }
 
+// dramaShotlistScript 是写镜头表用的台词表：正文切不出场时为 nil。legacy 为 true 时按旧规则切（重装、评测规则改变前写的镜头表）。
+func dramaShotlistScript(unit *model.ProjectUnit, legacy bool) *drama.Script {
+	text := chapterPlainText(unit.SourceText)
+	parsed := drama.ScriptFromText(text, unit.Title)
+	if legacy {
+		parsed = drama.LegacyScriptFromText(text, unit.Title)
+	}
+	if len(parsed.Scenes) == 0 {
+		return nil
+	}
+	return &parsed
+}
+
+// legacyScenePalettes 把按新场编号的色卡换成按旧场编号：旧第 k 场用它现在所在那一场的色卡（同一地点）。
+func legacyScenePalettes(unit *model.ProjectUnit, palettes map[string]string) map[string]string {
+	if len(palettes) == 0 {
+		return palettes
+	}
+	out := map[string]string{}
+	for _, sc := range drama.SplitScenes(chapterPlainText(unit.SourceText), unit.Title) {
+		if v := palettes[sc.ID]; v != "" {
+			for _, no := range sc.LegacyNos {
+				out[drama.SceneCode(1, no)] = v
+			}
+		}
+	}
+	return out
+}
+
+// storedScriptLegacy 是存下的台词表是切场规则改变前（一个场次头一场）切的。
+func storedScriptLegacy(scriptJSON string) bool {
+	var stored drama.Script
+	return strings.TrimSpace(scriptJSON) != "" && json.Unmarshal([]byte(scriptJSON), &stored) == nil && stored.SceneRule == 0
+}
+
 // WriteDramaShotlist 把一章的分镜行转成镜头表、检查、装段并整章替换段：检查有 error 时整批拒绝，不落库
 // （KeepDraft 时改为只存草稿，见 DramaShotlistWriteRequest）。
 func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID string, req DramaShotlistWriteRequest) (DramaShotlistWriteResult, error) {
@@ -504,10 +551,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	var script *drama.Script
-	if parsed := drama.ScriptFromText(chapterPlainText(unit.SourceText), unit.Title); len(parsed.Scenes) > 0 {
-		script = &parsed
-	}
+	script := dramaShotlistScript(unit, req.LegacyScenes)
 	assets, err := s.ProjectAssets(userID, projectID)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
@@ -522,7 +566,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	}
 	pc := projectDramaContext(project)
 	pc.Episode = s.dramaChapterEpisode(projectID, unit)
-	plan, err := planDramaShotlist(rows, script, assets, imaged, m, phrases, pc)
+	plan, err := planDramaShotlistWith(rows, script, assets, imaged, m, phrases, pc, req.AcceptIssues)
 	plan.Report.Parse = req.Parse
 	var appErr *AppError
 	if err != nil && req.KeepDraft && errors.As(err, &appErr) && appErr.Reason == ReasonShotlistCheckFailed {
@@ -530,6 +574,12 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	}
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
+	}
+	if req.AcceptIssues && plan.Report.HasErrors() {
+		if err := acceptedPackBlocked(plan, m); err != nil {
+			return DramaShotlistWriteResult{}, err
+		}
+		plan.Report.Accepted = true
 	}
 	shotlist, report, segments, problems := plan.Shotlist, plan.Report, plan.Segments, plan.Problems
 	rowByShot := make(map[string]shotlistRow, len(rows))
@@ -539,6 +589,9 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	palettes, err := s.unitScenePalettes(userID, project, unitID)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
+	}
+	if req.LegacyScenes {
+		palettes = legacyScenePalettes(unit, palettes)
 	}
 	inputs := make([]ReplaceProjectUnitShotInput, 0, len(segments))
 	for _, seg := range segments {
@@ -569,8 +622,42 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if script == nil {
 		notes = append(notes, "章节正文为空，台词覆盖（R-SHOT-001）没有检查")
 	}
-	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, CompileProfile: compileProfileRef(phrases), UpdatedAt: record.UpdatedAt}
-	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: report, Stats: plan.Stats, Notes: notes, Profile: dramaProfileNote(pc)}, nil
+	if report.Accepted {
+		notes = append(notes, fmt.Sprintf("镜头表检查有 %d 个问题，已带着问题装段；问题标在分镜制作的段和镜头上，逐张改完会自动重检", report.Errors))
+	}
+	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, Accepted: report.Accepted, Issues: drama.ShotIssues(report, shotlist, script, "error"), CompileProfile: compileProfileRef(phrases), UpdatedAt: record.UpdatedAt}
+	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: report, Stats: plan.Stats, Accepted: report.Accepted, Notes: notes, Profile: dramaProfileNote(pc)}, nil
+}
+
+// acceptedPackBlocked 是带问题装段时仍要拒绝的情形：这些问题让装出来的段本身不成立，改分镜卡也救不回来。
+//   - 镜头时长（spec.est）不是正数：段内时间轴排不出来。
+//   - 一场找不到合法切点（接话不拆、每段在上下限内），整场装成一段又超过单段上限：段会被压到上限、镜头挤在一起。
+func acceptedPackBlocked(plan dramaShotlistPlan, m drama.Model) error {
+	var reasons []string
+	est := make(map[string]float64, len(plan.Shotlist.Shots))
+	for _, sh := range plan.Shotlist.Shots {
+		// 镜头表转换时没写时长的镜头已补成分镜行时长（或 3 秒），这里剩下的是写成了 0 以下的。
+		if sh.Est <= 0 {
+			reasons = append(reasons, fmt.Sprintf("镜头 %s 的时长是 %v 秒", sh.ID, float64(sh.Est)))
+		}
+		est[sh.ID] = float64(sh.Est)
+	}
+	for _, seg := range plan.Segments {
+		content := 0.0
+		for _, id := range seg.ShotIDs {
+			content += est[id]
+		}
+		if content > float64(m.Duration.Max) {
+			reasons = append(reasons, fmt.Sprintf("%s（%s）镜头合计 %.1f 秒，超过 %s 一段的上限 %d 秒，又找不到合法切点", seg.ID, seg.Scene, content, m.Label, m.Duration.Max))
+		}
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+	err := NewAppError(http.StatusBadRequest, "这些问题会让装段本身做不成，不能带着问题装段，请重新生成或改正文后再装："+strings.Join(reasons, "；"))
+	err.Reason = ReasonShotlistCheckFailed
+	err.Details = map[string]any{"check": plan.Report, "stats": plan.Stats, "blocked": reasons}
+	return err
 }
 
 // writeDramaShotlistDraft 存检查没过的镜头表：分镜行、镜头表、台词表、检查结果写进镜头表记录，本章的段不动。
@@ -593,7 +680,7 @@ func (s *Service) writeDramaShotlistDraft(userID string, projectID string, unitI
 		return DramaShotlistWriteResult{}, err
 	}
 	notes := []string{fmt.Sprintf("镜头表检查有 %d 个 error，已存为草稿，没有装段；处理后重新装段", plan.Report.Errors)}
-	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: plan.Shotlist, Script: script, Check: plan.Report, Draft: true, CompileProfile: compileProfileRef(phrases), UpdatedAt: record.UpdatedAt}
+	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: plan.Shotlist, Script: script, Check: plan.Report, Draft: true, Issues: drama.ShotIssues(plan.Report, plan.Shotlist, script, "error"), CompileProfile: compileProfileRef(phrases), UpdatedAt: record.UpdatedAt}
 	return DramaShotlistWriteResult{Shotlist: view, Segments: views, Check: plan.Report, Stats: plan.Stats, Draft: true, Notes: notes, Profile: dramaProfileNote(pc)}, nil
 }
 
@@ -648,6 +735,11 @@ type dramaShotlistPlan struct {
 // 场按镜头表的 scene（E01S01…）分，不按绑定的场景资产分：两场戏用同一个场景资产时各装各的段，参考取各自镜头。
 // 风格档案按项目画风对照（pc），分段合计按每集目标时长查 R-SEG-008（warn，不拦保存）。
 func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, phrases *drama.CompileProfile, pc dramaProjectContext) (dramaShotlistPlan, error) {
+	return planDramaShotlistWith(rows, script, assets, imaged, m, phrases, pc, false)
+}
+
+// planDramaShotlistWith 同 planDramaShotlist；accept 为 true 时检查有 error 也照样装段（带问题装段、分镜卡编辑后重编）。
+func planDramaShotlistWith(rows []shotlistRow, script *drama.Script, assets []ProjectAssetSummary, imaged map[string]bool, m drama.Model, phrases *drama.CompileProfile, pc dramaProjectContext, accept bool) (dramaShotlistPlan, error) {
 	if phrases == nil {
 		var err error
 		if phrases, err = drama.DefaultCompileProfile(); err != nil {
@@ -666,7 +758,7 @@ func planDramaShotlist(rows []shotlistRow, script *drama.Script, assets []Projec
 	}
 	plan.Report = drama.CheckShots(plan.Shotlist, ctx)
 	plan.Report.AddSchemaIssues(converted.SchemaIssues)
-	if plan.Report.HasErrors() {
+	if plan.Report.HasErrors() && !accept {
 		return plan, shotlistCheckFailed(plan.Report, converted.Stats)
 	}
 	plan.Segments, plan.Problems = packDramaShotlist(plan.Shotlist, rows, script, assets, imaged, m, profile, ctx.Vocab, phrases)
@@ -765,9 +857,11 @@ func dramaSegmentShotInput(seg drama.Segment, rowByShot map[string]shotlistRow) 
 }
 
 // DramaShotlistRepackRequest 是用已存镜头表重新装段的参数：rule 与写镜头表时一样，是渠道实际能提交的段长。
-// 镜头表是检查没过的草稿时，重装仍要过检查：还有 error 就和写镜头表一样报 shotlist_check_failed，草稿不变。
+// 镜头表是检查没过的草稿时，重装仍要过检查：还有 error 就和写镜头表一样报 shotlist_check_failed，草稿不变；
+// acceptIssues 为 true 时是「先装段，到分镜制作再改」：带着 error 装段（见 DramaShotlistWriteRequest.AcceptIssues）。
 type DramaShotlistRepackRequest struct {
-	Rule *DramaShotlistRule `json:"rule,omitempty"`
+	Rule         *DramaShotlistRule `json:"rule,omitempty"`
+	AcceptIssues bool               `json:"acceptIssues,omitempty"`
 }
 
 // RepackDramaShotlist 用这一章已存的分镜行原文按当前生效的编译档案重新检查、装段（不调模型）：改了镜头画面句类的文字后用它让段换上新写法。
@@ -802,7 +896,18 @@ func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID st
 	// 解析统计只在生成分段收尾时有，重装沿用上一次的。
 	var previous drama.CheckReport
 	_ = json.Unmarshal([]byte(firstNonEmpty(record.CheckJSON, "{}")), &previous)
-	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, Parse: previous.Parse})
+	// 切场规则改变前写的镜头表（正文有并起来的场）：分镜行里的场编号是旧的，重装仍按旧规则切台词表，不换编号；要换成新场次就重新生成分段。
+	legacy := false
+	if storedScriptLegacy(record.ScriptJSON) {
+		unit, err := s.repo.ProjectUnit(projectID, unitID)
+		if err != nil {
+			return DramaShotlistWriteResult{}, err
+		}
+		legacy = drama.ScenesRenumbered(drama.SplitScenes(chapterPlainText(unit.SourceText), unit.Title))
+	}
+	// 已经带着问题装过段的，重装（改了时长、资产、编译档案）照样带着问题装，不用再选一次。
+	accept := req.AcceptIssues || previous.Accepted
+	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, Parse: previous.Parse, LegacyScenes: legacy, AcceptIssues: accept})
 }
 
 // DramaShotlist 读一章的镜头表、台词表与最近一次检查结果；这一章还没有镜头表时返回 nil。
@@ -847,7 +952,9 @@ func (s *Service) DramaShotlist(userID string, projectID string, unitID string) 
 	if strings.TrimSpace(record.CheckJSON) != "" {
 		_ = json.Unmarshal([]byte(record.CheckJSON), &view.Check)
 	}
-	view.Draft = view.Check.HasErrors()
+	view.Accepted = view.Check.HasErrors() && view.Check.Accepted
+	view.Draft = view.Check.HasErrors() && !view.Check.Accepted
+	view.Issues = drama.ShotIssues(view.Check, view.Shotlist, view.Script, "error")
 	return view, nil
 }
 

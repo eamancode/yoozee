@@ -1,33 +1,37 @@
 import { Button, Dropdown, Popconfirm, Tooltip } from "antd";
-import { MoveRight, Palette, Sparkles, Trash2 } from "lucide-react";
+import { MoveRight, Palette, RefreshCw, Trash2 } from "lucide-react";
 
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
 import { CachedResourceImage } from "@/components/cached-resource-image";
+import { MasterPaletteStrip, styleAnchorBrief } from "@/components/drama/master-palette";
+import { masterPaletteColors } from "@/services/api/drama";
 import type { DramaPaletteColor } from "@/services/api/drama";
-import type { DramaImageStatus, PaletteCheck, ProjectAsset, ProjectAssetPalette } from "@/services/api/projects";
+import type { ProjectAsset, ProjectAssetPalette } from "@/services/api/projects";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 
-export const IMAGE_STATUS_LABELS: Record<DramaImageStatus, string> = {
-    none: "还没出图",
-    waiting: "等空位出图",
-    queued: "出图中",
-    bound: "已出图",
-    stale: "图没绑上",
-    failed: "出图失败",
-};
+/** 主基调色卡的来源。 */
+export const MASTER_PALETTE_SOURCE_LABELS: Record<string, string> = { analysis: "风格分析", library: "风格库", preset: "按画风生成" };
+
+/** 场次色卡颜色的分组（与主基调色卡同一套）：按这个顺序显示，没写分组的归「其他」。 */
+const PALETTE_GROUPS: Array<{ key: string; label: string }> = [
+    { key: "protagonist", label: "主角组" },
+    { key: "supporting", label: "配角组" },
+    { key: "props", label: "道具组" },
+    { key: "environment", label: "环境组" },
+    { key: "other", label: "其他" },
+];
 
 export function paletteImageStatusLabel(palette: ProjectAssetPalette) {
+    if (palette.master) return palette.imageStatus === "bound" ? "代码合成" : "图没绑上";
     if (palette.sceneGone) return "场次已不存在";
-    return IMAGE_STATUS_LABELS[palette.imageStatus] || palette.imageStatus;
+    if (palette.kind !== "scene") return "旧版色卡";
+    return palette.imageStatus === "bound" ? "代码合成" : "图没合成上";
 }
 
-/** 取色校验的一句话：通过、哪几块偏了，或没法校验的原因。 */
-export function paletteCheckSummary(check?: PaletteCheck) {
-    if (!check) return "";
-    if (check.note) return `取色校验没做：${check.note}`;
-    if (check.passed) return `取色校验通过（每块 ΔE ≤ ${check.threshold}）`;
-    const off = check.blocks.map((block, index) => ({ ...block, index })).filter((block) => block.deltaE < 0 || block.deltaE > check.threshold);
-    return `取色偏差：${off.map((block) => `第 ${block.index + 1} 块 ${block.hex} 取到 ${block.sampled}（ΔE ${block.deltaE.toFixed(1)}）`).join("；")}`;
+/** 一场的颜色按分组排好（承接色在前，组内保持色彩脚本的顺序）。 */
+export function groupedPaletteColors(colors: DramaPaletteColor[]) {
+    const known = new Set(PALETTE_GROUPS.map((group) => group.key));
+    return PALETTE_GROUPS.map((group) => ({ ...group, colors: colors.filter((color) => (known.has(String(color.group || "")) ? color.group : "other") === group.key) })).filter((group) => group.colors.length);
 }
 
 /** 一排色块：色块、中文名、HEX、用途（悬停看全）。 */
@@ -50,33 +54,73 @@ export function PaletteSwatches({ colors, size = "sm" }: { colors: DramaPaletteC
     );
 }
 
-/** 资产页的色卡卡片：色卡图（没出图时按色彩脚本画色条）、色块、取色校验、出图状态和重新出图。 */
+/** 场次色卡的色板按分组显示：组名一行，下面一排色块；没写分组的旧色卡整排显示。 */
+export function GroupedPaletteSwatches({ colors, size = "sm" }: { colors: DramaPaletteColor[]; size?: "sm" | "md" }) {
+    const groups = groupedPaletteColors(colors);
+    if (groups.length <= 1 && !colors.some((color) => color.group)) return <PaletteSwatches colors={colors} size={size} />;
+    return (
+        <div className="grid gap-2">
+            {groups.map((group) => (
+                <section key={group.key} aria-label={group.label}>
+                    <div className="mb-1 flex items-baseline gap-2 text-[var(--fs-tiny)]">
+                        <span className="font-medium text-foreground/70">{group.label}</span>
+                        <span className="tabular-nums text-foreground/40">{group.colors.length} 色</span>
+                    </div>
+                    <PaletteSwatches colors={group.colors} size={size} />
+                </section>
+            ))}
+        </div>
+    );
+}
+
+/** 卡片上的分组色带：每组一行，组名在左，右边一条等宽色块（悬停看色名、HEX、用途）；没写分组的旧色卡整条显示。 */
+function GroupedPaletteStrip({ colors }: { colors: DramaPaletteColor[] }) {
+    const groups = colors.some((color) => color.group) ? groupedPaletteColors(colors) : [{ key: "all", label: "", colors }];
+    return (
+        <div className="grid gap-1" aria-label={`${colors.length} 色`}>
+            {groups.map((group) => (
+                <div key={group.key} className="flex items-center gap-2">
+                    {group.label ? <span className="w-9 shrink-0 text-[var(--fs-micro)] text-foreground/50">{group.label.replace("组", "")}</span> : null}
+                    <div className="flex h-4 min-w-0 flex-1 overflow-hidden rounded-sm border border-border/60">
+                        {group.colors.map((color, index) => (
+                            <Tooltip key={`${color.hex}-${index}`} title={[`${color.name_zh || color.name_en} ${color.hex}`, color.usage].filter(Boolean).join(" · ")}>
+                                <span className="min-w-0 flex-1" style={{ backgroundColor: color.hex }} />
+                            </Tooltip>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/** 资产页的场次色卡卡片：代码合成的色卡图（没合成上时按色彩脚本画色条）、按组的色块、「重新合成」（只重画图，不调模型）。 */
 export function ProjectPaletteCard({
     asset,
-    generating,
+    resynthesizing,
     busy,
     folderItems,
     onOpen,
-    onGenerate,
+    onResynthesize,
     onMove,
     onRemove,
 }: {
     asset: ProjectAsset;
-    generating: boolean;
+    resynthesizing: boolean;
     busy: boolean;
     folderItems: Array<{ key: string; label: string }>;
     onOpen: () => void;
-    onGenerate: () => void;
+    onResynthesize: () => void;
     onMove: (folderId: string) => void;
     onRemove: () => void;
 }) {
     const palette = asset.palette;
-    const colors = palette ? [...palette.entry.shared_colors, ...palette.entry.new_colors] : [];
     const resourceId = asset.mediaType === "image" ? resourceIdFromStorageKey(asset.storageKey) : "";
-    const queued = generating || palette?.imageStatus === "queued";
-    const check = palette?.check;
-    const warn = Boolean(check && !check.passed);
+    if (palette?.master) return <MasterPaletteCard asset={asset} resourceId={resourceId} busy={busy} folderItems={folderItems} onOpen={onOpen} onMove={onMove} onRemove={onRemove} />;
+    const colors = palette ? [...(palette.entry?.shared_colors || []), ...(palette.entry?.new_colors || [])] : [];
     const gone = Boolean(palette?.sceneGone);
+    const legacy = Boolean(palette && palette.kind !== "scene");
+    const missingImage = Boolean(palette && !gone && !legacy && palette.imageStatus !== "bound");
     return (
         <AssetLibraryCard className="project-asset-library-card">
             <AssetLibraryCardMedia className="relative aspect-video overflow-hidden bg-foreground/[.05]">
@@ -96,12 +140,8 @@ export function ProjectPaletteCard({
                     )}
                 </button>
                 <div className="pointer-events-none absolute inset-x-2 top-2 flex justify-between gap-2 text-[var(--fs-micro)] text-white">
-                    <span className="rounded bg-black/60 px-1.5 py-0.5">色卡 · v{Math.max(1, asset.versionCount)}</span>
-                    {palette ? (
-                        <span className={!gone && (palette.imageStatus === "failed" || warn) ? "rounded bg-[var(--status-error)] px-1.5 py-0.5" : "rounded bg-black/60 px-1.5 py-0.5"}>
-                            {!gone && warn && palette.imageStatus === "bound" ? "取色有偏差" : paletteImageStatusLabel(palette)}
-                        </span>
-                    ) : null}
+                    <span className="rounded bg-black/60 px-1.5 py-0.5">场次色卡 · v{Math.max(1, asset.versionCount)}</span>
+                    {palette ? <span className={missingImage ? "rounded bg-[var(--status-error)] px-1.5 py-0.5" : "rounded bg-black/60 px-1.5 py-0.5"}>{paletteImageStatusLabel(palette)}</span> : null}
                 </div>
             </AssetLibraryCardMedia>
             <div className="p-3">
@@ -110,26 +150,85 @@ export function ProjectPaletteCard({
                 </button>
                 {palette ? (
                     <>
-                        {gone ? <p className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-amber-600 dark:text-amber-400">当前剧集里没有这一场了：不再出图，不计入「色卡齐了」，用不上可以移出。</p> : null}
+                        {gone ? <p className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-amber-600 dark:text-amber-400">当前剧集里没有这一场了：不再合成、不绑镜头，不计入「色卡齐了」，用不上可以移出。</p> : null}
+                        {legacy && !gone ? <p className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-amber-600 dark:text-amber-400">旧版色卡（图片模型出图）：不绑镜头、不作视频参考，章节页「生成场次色卡」后换成代码合成的场次色卡。</p> : null}
+                        {palette.note ? <p className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-foreground/50">{palette.note}</p> : null}
                         <p className="mt-1 truncate text-[var(--fs-tiny)] text-foreground/50">{palette.design}</p>
                         <div className="mt-2">
-                            <PaletteSwatches colors={colors} />
+                            <GroupedPaletteStrip colors={colors} />
                         </div>
-                        {check ? <p className={warn ? "mt-2 text-[var(--fs-tiny)] leading-[18px] text-amber-600 dark:text-amber-400" : "mt-2 text-[var(--fs-tiny)] leading-[18px] text-foreground/50"}>{paletteCheckSummary(check)}</p> : null}
-                        {palette.imageError ? <p className="mt-2 text-[var(--fs-tiny)] leading-[18px] text-red-600 dark:text-red-400">{palette.imageError}</p> : null}
                     </>
                 ) : (
                     <p className="mt-2 text-[var(--fs-label)] text-foreground/55">色彩脚本没读到，请刷新</p>
                 )}
                 <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
-                    <Button size="small" icon={<Sparkles className="size-3.5" />} loading={queued} disabled={busy || !palette || gone} onClick={onGenerate}>
-                        {palette?.imageStatus === "waiting" ? "继续出图" : resourceId ? "重新出图" : "出图"}
-                    </Button>
+                    <Tooltip title={legacy ? "旧版色卡要先在章节页重新生成场次色卡" : "按当前色板重画色卡图（不调模型），镜头上的色卡跟到新版本"}>
+                        <Button size="small" icon={<RefreshCw className="size-3.5" />} loading={resynthesizing} disabled={busy || !palette || gone || legacy} onClick={onResynthesize}>
+                            重新合成
+                        </Button>
+                    </Tooltip>
                     <Dropdown trigger={["click"]} menu={{ selectedKeys: [asset.folderId || ""], items: folderItems, onClick: ({ key }) => onMove(key) }}>
                         <Button type="text" size="small" disabled={busy} icon={<MoveRight className="size-3.5" />} aria-label={`移动 ${asset.title}`} />
                     </Dropdown>
-                    <Popconfirm title="移出项目资产？" description="重跑导演风格会为这一场重新建一张色卡。" okText="移出" cancelText="取消" onConfirm={onRemove}>
-                        <Button type="text" danger size="small" disabled={queued} loading={busy} icon={<Trash2 className="size-3.5" />} aria-label={`移出 ${asset.title}`} />
+                    <Popconfirm title="移出项目资产？" description="重跑场次色卡会为这一场重新建一张色卡。" okText="移出" cancelText="取消" onConfirm={onRemove}>
+                        <Button type="text" danger size="small" disabled={resynthesizing} loading={busy} icon={<Trash2 className="size-3.5" />} aria-label={`移出 ${asset.title}`} />
+                    </Popconfirm>
+                </div>
+            </div>
+        </AssetLibraryCard>
+    );
+}
+
+/** 资产页的主基调色卡卡片：合成的色卡图（没绑上时画色带）、分组色带、来源；图由代码按色值合成，没有出图按钮。 */
+function MasterPaletteCard({
+    asset,
+    resourceId,
+    busy,
+    folderItems,
+    onOpen,
+    onMove,
+    onRemove,
+}: {
+    asset: ProjectAsset;
+    resourceId: string;
+    busy: boolean;
+    folderItems: Array<{ key: string; label: string }>;
+    onOpen: () => void;
+    onMove: (folderId: string) => void;
+    onRemove: () => void;
+}) {
+    const master = asset.palette?.master;
+    const count = masterPaletteColors(master?.palette).length;
+    return (
+        <AssetLibraryCard className="project-asset-library-card">
+            <AssetLibraryCardMedia className="relative aspect-video overflow-hidden bg-foreground/[.05]">
+                <button type="button" className="project-asset-media-button" onClick={onOpen} aria-label={`查看主基调色卡：${asset.title}`}>
+                    {resourceId ? (
+                        <CachedResourceImage storageKey={asset.storageKey} src={resourceFileUrl(resourceId)} alt={asset.title} className="h-full w-full object-contain" />
+                    ) : (
+                        <div className="h-full w-full bg-background p-[10%]">
+                            <MasterPaletteStrip palette={master?.palette} className="h-full" />
+                        </div>
+                    )}
+                </button>
+                <div className="pointer-events-none absolute inset-x-2 top-2 flex justify-between gap-2 text-[var(--fs-micro)] text-white">
+                    <span className="rounded bg-black/60 px-1.5 py-0.5">主基调色卡 · v{Math.max(1, asset.versionCount)}</span>
+                    <span className="rounded bg-black/60 px-1.5 py-0.5">{MASTER_PALETTE_SOURCE_LABELS[master?.source || ""] || "已锁定"}</span>
+                </div>
+            </AssetLibraryCardMedia>
+            <div className="p-3">
+                <button type="button" className="w-full truncate text-left text-sm font-semibold" onClick={onOpen}>
+                    {asset.title}
+                </button>
+                <p className="mt-1 truncate text-[var(--fs-tiny)] text-foreground/50">{[`${master?.palette.groups.length || 0} 组 ${count} 色`, styleAnchorBrief(master?.styleAnchor)].filter(Boolean).join(" · ")}</p>
+                <MasterPaletteStrip palette={master?.palette} className="mt-2 h-4" />
+                <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
+                    <span className="mr-auto text-[var(--fs-tiny)] text-foreground/45">图由代码按色值合成</span>
+                    <Dropdown trigger={["click"]} menu={{ selectedKeys: [asset.folderId || ""], items: folderItems, onClick: ({ key }) => onMove(key) }}>
+                        <Button type="text" size="small" disabled={busy} icon={<MoveRight className="size-3.5" />} aria-label={`移动 ${asset.title}`} />
+                    </Dropdown>
+                    <Popconfirm title="移出项目资产？" description="项目锁定的风格不变；重新锁定会再建一张主色卡。" okText="移出" cancelText="取消" onConfirm={onRemove}>
+                        <Button type="text" danger size="small" loading={busy} icon={<Trash2 className="size-3.5" />} aria-label={`移出 ${asset.title}`} />
                     </Popconfirm>
                 </div>
             </div>

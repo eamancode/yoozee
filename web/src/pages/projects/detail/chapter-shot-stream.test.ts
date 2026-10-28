@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseShotStream, shotStreamFromResult, storyboardOutcomeSummary, storyboardRunStop } from "./chapter-shot-stream";
+import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardOutcomeSummary, storyboardRunStop } from "./chapter-shot-stream";
 
 const marker = (index: number, attempt = 1) => JSON.stringify({ "@turn": { index, total: 2, scene: `E01S0${index}`, heading: index === 1 ? "内·病房走廊·夜" : "内·电梯口·夜", attempt } });
 const shot = (n: number, plot: string) => JSON.stringify({ shotNumber: n, plotDescription: plot, dialogue: "", shotSize: "中景", spec: { id: `E01S01-0${n}` } });
@@ -103,6 +103,28 @@ test("storyboardRunStop 第 1 场就失败、没有进度或收尾失败时只�
     assert.deepEqual(storyboardRunStop({ id: "t4", status: "cancelled", error: "" }, { total: 3, completed: 0 }), { kind: "failed", taskId: "t4", status: "cancelled", error: undefined });
 });
 
+test("storyboardRunStop 已有成功写入后取消或失败的重跑不给续写，说明当前结果来自哪次运行", () => {
+    const written = { createdAt: "2026-10-27T03:18:01Z", completedAt: "2026-10-27T03:27:46Z" };
+    const cancelledRerun = { id: "t2", status: "cancelled", error: "任务已取消", createdAt: "2026-10-27T03:44:43Z" };
+    assert.deepEqual(storyboardRunStop(cancelledRerun, { total: 2, completed: 1 }, written), { kind: "superseded", taskId: "t2", status: "cancelled", error: "任务已取消", resultAt: "2026-10-27T03:27:46Z" });
+    const failedRerun = { id: "t3", status: "failed", error: "第 2 场生成失败", createdAt: "2026-10-27T04:00:00Z" };
+    assert.equal(storyboardRunStop(failedRerun, { total: 2, completed: 1 }, written)?.kind, "superseded");
+    // 成功写入在停下的任务之后（列表顺序乱时）不算重跑：照常给续写。
+    assert.equal(storyboardRunStop({ ...cancelledRerun, createdAt: "2026-10-27T03:00:00Z" }, { total: 2, completed: 1 }, written)?.kind, "resume");
+    // 没有成功写入过：第一次运行中途停下，照常从下一场继续。
+    assert.equal(storyboardRunStop(cancelledRerun, { total: 2, completed: 1 })?.kind, "resume");
+});
+
+test("latestStoryboardWrite 取最近一次成功的生成分段任务", () => {
+    const tasks = [
+        { id: "a", status: "succeeded", createdAt: "2026-10-27T02:00:00Z" },
+        { id: "b", status: "cancelled", createdAt: "2026-10-27T04:00:00Z" },
+        { id: "c", status: "succeeded", createdAt: "2026-10-27T03:00:00Z" },
+    ];
+    assert.equal(latestStoryboardWrite(tasks)?.id, "c");
+    assert.equal(latestStoryboardWrite([tasks[1]]), undefined);
+});
+
 test("storyboardRunStop 成功或还在跑的任务不算停下", () => {
     assert.equal(storyboardRunStop({ id: "t1", status: "succeeded" }, { total: 3, completed: 3 }), undefined);
     assert.equal(storyboardRunStop({ id: "t1", status: "running" }, { total: 3, completed: 1 }), undefined);
@@ -137,4 +159,15 @@ test("回合标记带戏类：每场标上本场戏类，第一轮的标记带�
     const restored = shotStreamFromResult(JSON.stringify({ dramaRun: { total: 2, genres, turns: [{ index: 1, scene: "E01S01", heading: "内·病房走廊·夜", text: shot(1, "推门") }] } }));
     assert.equal(restored.scenes[0].genre, "文戏");
     assert.equal(restored.genres.length, 2);
+});
+
+test("parseShotStream 记下「重新生成问题场」要重写的场（回合标记的 only）", () => {
+    const only = JSON.stringify({ "@turn": { index: 2, total: 3, scene: "E01S02", heading: "内·电梯口·夜", attempt: 1, only: ["E01S02", "E01S03"] } });
+    const state = parseShotStream([only, shot(1, "电梯门")].join("\n") + "\n");
+    assert.deepEqual(state.only, ["E01S02", "E01S03"]);
+    assert.deepEqual(
+        state.scenes.map((scene) => [scene.index, scene.scene, scene.shots.length]),
+        [[2, "E01S02", 1]],
+    );
+    assert.equal(parseShotStream([marker(1), shot(1, "推门")].join("\n") + "\n").only, undefined);
 });

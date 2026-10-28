@@ -1,6 +1,6 @@
 // 生成分段的逐场注入（M7.2 第 6 阶段）：建任务时把戏类判定的提示词、本单元每场的色卡段（导演风格色彩脚本里这一场的颜色）
 // 和技能包里的四张戏类卡存进 metadata.dramaShots；worker 在第一轮之前用同一个模型判一次戏类（判定失败、判不出的场按文戏），
-// 结果写进任务结果 result.dramaRun（genres 与 scenes[i].genre），之后每一轮接上本场色卡和本场戏类的卡。
+// 结果写进任务结果 result.dramaRun（genres 与 scenes[i].genre），之后每一轮在本轮指令前面放本场色卡和本场戏类的卡。
 
 package app
 
@@ -131,7 +131,9 @@ func dramaShotsTurnScene(run dramaRunMeta, shots *dramaShotsMeta, k int) string 
 	return ""
 }
 
-// dramaShotsTurnExtra 是第 k 轮接在提示词后面的本场色卡和戏类段：这种戏类第一次出现时带整张卡，前面各轮已经给过就只提一句。
+// dramaShotsTurnExtra 是第 k 轮放在本轮指令前面的本场色卡和戏类段：这种戏类第一次出现时带整张卡，前面各轮已经给过就只提一句。
+// 放在前面是让本轮指令（第一轮是技能上下文、契约和分回合说明，续写是「继续写第 k 场」）排在最后：卡有七千多字时排在最后，
+// 评测里弱模型按卡写、丢了技能规则（漏台词、自造情绪弧 id）。
 func dramaShotsTurnExtra(shots *dramaShotsMeta, genre drama.SceneGenre, prior []dramaRunTurn) string {
 	var card *drama.SceneGenreCard
 	for i := range shots.Cards {
@@ -171,8 +173,9 @@ func joinTruthyStrings(parts ...string) string {
 	return strings.Join(kept, "\n\n")
 }
 
-// unitScenePalettes 是装段时绑到各场镜头的色卡：本单元每一场（单元内场编号 E01S02）对上的色卡资产主版本。色卡按项目级场编号
-// （导演风格的集号）认，对到场次表里属于本单元、色彩脚本还对得上当前场次表的场；场次已不存在（stale）、归档、没有主版本的跳过。
+// unitScenePalettes 是装段时绑到各场镜头的色卡：本单元每一场（单元内场编号 E01S02）对上的场次色卡（kind=scene）主版本。色卡按
+// 项目级场编号（场次色卡的集号）认，对到场次表里属于本单元、色彩脚本还对得上当前场次表的场；旧色卡（M8 之前图片模型出的）、
+// 场次已不存在（stale）、归档、没有主版本的跳过。
 func (s *Service) unitScenePalettes(userID string, project *model.Project, unitID string) (map[string]string, error) {
 	units, err := s.repo.ProjectUnits(project.ID)
 	if err != nil {
@@ -189,7 +192,7 @@ func (s *Service) unitScenePalettes(userID string, project *model.Project, unitI
 	out := map[string]string{}
 	for sceneID, e := range script {
 		a, ok := assets[e.Code()]
-		if !ok || paletteMetaOf(&a).Stale || a.PrimaryVersionID == "" || a.Status == model.AssetVersionStatusArchived {
+		if !ok || !scenePaletteUsable(&a) {
 			continue
 		}
 		out[sceneID] = a.PrimaryVersionID

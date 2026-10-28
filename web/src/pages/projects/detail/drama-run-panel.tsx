@@ -5,6 +5,7 @@ import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { Callout } from "@/components/ui/product/callout";
 
 import type { StoryboardRunStop } from "./chapter-shot-stream";
+import { formatTime } from "./shared";
 
 /** 侧栏里按轮分组的一组：生成分段是一场的镜头，剧本优化是一集的正文。 */
 export type DramaRunGroup = {
@@ -25,7 +26,7 @@ type DramaRunPanelProps = {
     /** 顶部一行状态（正在写第几轮、结果摘要）。 */
     status: ReactNode;
     /** 一轮叫什么（场、集）和这一步叫什么（生成分段、剧本优化），用在续写与失败提示里。 */
-    unit: "场" | "集";
+    unit: "场" | "集" | "轮";
     stepLabel: string;
     /** 上一次任务失败或取消：写完 ≥1 轮的给「从第 N 轮继续」，否则给失败原因和「重新生成」。 */
     stop?: StoryboardRunStop;
@@ -60,6 +61,7 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
     }, [running, followKey]);
     const resume = stop?.kind === "resume" ? stop : undefined;
     const failed = stop?.kind === "failed" ? stop : undefined;
+    const superseded = stop?.kind === "superseded" ? stop : undefined;
     return (
         <AppDrawer open={open} onClose={onClose} placement="right" size="min(520px, 100vw)" mask={false} title={title}>
             <div className="flex h-full min-h-0 flex-col gap-3">
@@ -93,6 +95,20 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
                     >
                         {failed.error ? `原因：${sentence(failed.error)}` : `没有写完任何一${unit}。`}
                         {failedNote ? ` ${failedNote}` : ""}
+                    </Callout>
+                ) : null}
+
+                {superseded && !running ? (
+                    <Callout
+                        tone="info"
+                        title={`上一次重跑${superseded.status === "cancelled" ? "已取消" : "失败"}，当前结果来自 ${formatTime(superseded.resultAt)} 的运行`}
+                        action={
+                            <Button size="small" onClick={onRegenerate}>
+                                重新生成
+                            </Button>
+                        }
+                    >
+                        重跑没有写进去，本章现有的结果没变。{superseded.status === "failed" && superseded.error ? `原因：${sentence(superseded.error)}` : ""}
                     </Callout>
                 ) : null}
 

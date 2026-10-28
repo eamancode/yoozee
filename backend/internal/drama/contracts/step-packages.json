@@ -3,6 +3,19 @@
   "hashFile": "package.hash.json",
   "steps": [
     {
+      "id": "style.lock",
+      "contract": "style.lock@1",
+      "skillBudgetChars": 32000,
+      "skillLinkedFiles": 3,
+      "evalSet": [
+        {
+          "id": "qichuang-e01",
+          "profile": "live-realism",
+          "label": "《七床》第一集（悬疑·真人剧，按画风定风格）"
+        }
+      ]
+    },
+    {
       "id": "script.adapt",
       "contract": "script.adapt@1",
       "skillBudgetChars": 32000,
@@ -16,8 +29,8 @@
       ]
     },
     {
-      "id": "style.bible",
-      "contract": "style.bible@1",
+      "id": "scene.palette",
+      "contract": "scene.palette@1",
       "skillBudgetChars": 32000,
       "skillLinkedFiles": 3,
       "evalSet": [

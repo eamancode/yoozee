@@ -8,7 +8,7 @@ export const statusLabel: Record<TaskStatus, string> = {
     cancelled: "已取消",
 };
 
-type GenerationTaskDisplayTarget = Pick<GenerationTask, "status" | "stage" | "mediaStage" | "progress" | "providerRequestId" | "providerCancelStatus">;
+type GenerationTaskDisplayTarget = Pick<GenerationTask, "status" | "stage" | "mediaStage" | "progress" | "providerRequestId" | "providerCancelStatus" | "dramaRun">;
 
 const cancellablePreSubmissionStages = new Set(["queued", "等待队列调度", "后端接管任务", "正在准备创作"]);
 
@@ -21,6 +21,8 @@ const cancellablePreSubmissionStages = new Set(["queued", "等待队列调度", 
  */
 export function canCancelGenerationTask(task: GenerationTaskDisplayTarget) {
     if (task.status !== "queued" && task.status !== "running") return false;
+    // 逐轮续写的文本任务没有上游取消，后端运行中也允许取消（只丢正在写的一轮），与出图、视频不同。
+    if (task.dramaRun && !task.mediaStage && !task.providerCancelStatus) return true;
     if (task.providerRequestId || task.providerCancelStatus || task.mediaStage) return false;
     const stage = (task.stage || "").trim().toLowerCase();
     // Unknown running stages are treated as already submitted. A provider may
@@ -28,6 +30,16 @@ export function canCancelGenerationTask(task: GenerationTaskDisplayTarget) {
     // more dangerous than conservatively hiding it after billing may begin.
     if (!stage) return task.status === "queued";
     return cancellablePreSubmissionStages.has(stage);
+}
+
+/** 排队中或运行中、但不能取消的任务：说清为什么（任务中心的取消按钮置灰时显示）。可以取消或已结束时返回空串。 */
+export function generationTaskCancelBlockedReason(task: GenerationTaskDisplayTarget) {
+    if (task.status !== "queued" && task.status !== "running") return "";
+    if (canCancelGenerationTask(task)) return "";
+    if (task.providerCancelStatus) return "已经向上游请求取消，等上游确认";
+    if (task.mediaStage) return "已经生成完，正在保存结果，不能取消";
+    if (isGenerationTaskSubmissionUncertain(task)) return "上一次提交结果不明确，为避免重复扣费不能取消";
+    return "请求已提交给第三方，上游不支持中途取消，只能等它结束；费用按实际结果结算";
 }
 
 export function mediaDeliverySummary(status: TaskStatus | undefined, stage: GenerationTask["mediaStage"]) {

@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 66
+const CurrentSchemaVersion int64 = 68
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -243,6 +243,79 @@ var schemaMigrations = []migration{
 	{version: 66, name: "drama_step_eval_model", checksum: "sha256:drama-step-eval-model-v66-20261024", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaEvalRun{})
 	}},
+	// M8 卡 A：平台风格库 drama_style_library；五个风格档案的风格锁定（style.lock）绑到默认技能 yz-style-lock。
+	{version: 67, name: "drama_style_library", checksum: "sha256:drama-style-library-v67-20261027", apply: migrateDramaStyleLibrary},
+	// M8 卡 B：导演风格（style.bible）改成场次色卡（scene.palette），五个风格档案绑默认技能 yz-scene-palette、去掉 style.bible 的绑定；
+	// 平台风格库同一项目类型不重名（唯一索引，已有重名的先在后建的名字后面加序号）。
+	{version: 68, name: "drama_scene_palette", checksum: "sha256:drama-scene-palette-v68-20261028", apply: migrateDramaScenePalette},
+}
+
+// migrateDramaScenePalette 给五个风格档案写 scene.palette → 步骤默认技能的绑定（已有的格子不动），删掉已经没有的 style.bible 步骤的绑定；
+// 平台风格库同一项目类型里重名的条目（按建的先后，第一条不动）在名字后面加「（2）」「（3）」……，再建 (project_type, name) 唯一索引。
+func migrateDramaScenePalette(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.DramaStepBinding{}); err != nil {
+		return err
+	}
+	if err := tx.Where("step = ?", "style.bible").Delete(&model.DramaStepBinding{}).Error; err != nil {
+		return err
+	}
+	step, ok := drama.StepByID(drama.StepScenePalette)
+	if !ok {
+		return errors.New("步骤表缺少 scene.palette")
+	}
+	now := time.Now()
+	for _, profile := range drama.BuiltinProfileIDs() {
+		row := model.DramaStepBinding{ID: "dsb-" + profile + "-" + step.ID, StyleProfile: profile, Step: step.ID, SkillID: step.DefaultSkill, CreatedAt: now, UpdatedAt: now}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
+			return fmt.Errorf("写入默认绑定 %s × %s：%w", profile, step.ID, err)
+		}
+	}
+	var entries []model.DramaStyleLibraryEntry
+	if err := tx.Order("created_at ASC, id ASC").Find(&entries).Error; err != nil {
+		return err
+	}
+	taken := map[string]bool{}
+	for _, e := range entries {
+		taken[e.ProjectType+"\x00"+e.Name] = true
+	}
+	seen := map[string]bool{}
+	for _, e := range entries {
+		key := e.ProjectType + "\x00" + e.Name
+		if !seen[key] {
+			seen[key] = true
+			continue
+		}
+		for n := 2; ; n++ {
+			name := drama.JSTruncate(e.Name, 110) + fmt.Sprintf("（%d）", n)
+			if candidate := e.ProjectType + "\x00" + name; !taken[candidate] {
+				taken[candidate], seen[candidate] = true, true
+				if err := tx.Model(&model.DramaStyleLibraryEntry{}).Where("id = ?", e.ID).Update("name", name).Error; err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
+	return tx.AutoMigrate(&model.DramaStyleLibraryEntry{})
+}
+
+// migrateDramaStyleLibrary 建平台风格库表，并给五个风格档案写 style.lock → 步骤默认技能的绑定（已有的格子不动）。
+func migrateDramaStyleLibrary(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.DramaStyleLibraryEntry{}, &model.DramaStepBinding{}); err != nil {
+		return err
+	}
+	step, ok := drama.StepByID(drama.StepStyleLock)
+	if !ok {
+		return errors.New("步骤表缺少 style.lock")
+	}
+	now := time.Now()
+	for _, profile := range drama.BuiltinProfileIDs() {
+		row := model.DramaStepBinding{ID: "dsb-" + profile + "-" + step.ID, StyleProfile: profile, Step: step.ID, SkillID: step.DefaultSkill, CreatedAt: now, UpdatedAt: now}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
+			return fmt.Errorf("写入默认绑定 %s × %s：%w", profile, step.ID, err)
+		}
+	}
+	return nil
 }
 
 // migrateDramaStepPackages 加 skill_versions.manifest，把每个步骤默认技能（现在只有 yz-chapter-shots）的当前版本标成第一个包版本：

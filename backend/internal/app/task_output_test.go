@@ -130,9 +130,9 @@ func TestTaskClientContextMarksScriptAdapt(t *testing.T) {
 	if context == nil || context.ChapterOperation != "script-adapt" || context.DomainProjectID != "project-1" || context.ChapterID != "" {
 		t.Fatalf("context = %+v", context)
 	}
-	style := taskClientContext(`{"metadata":{"source":"short-drama-style-bible","domainProjectId":"project-1"}}`)
-	if style == nil || style.ChapterOperation != "style-bible" || style.DomainProjectID != "project-1" {
-		t.Fatalf("导演风格 context = %+v", style)
+	palette := taskClientContext(`{"metadata":{"source":"short-drama-scene-palette","domainProjectId":"project-1"}}`)
+	if palette == nil || palette.ChapterOperation != "scene-palette" || palette.DomainProjectID != "project-1" {
+		t.Fatalf("场次色卡 context = %+v", palette)
 	}
 }
 
@@ -185,5 +185,39 @@ func TestTaskOutputResourceReadsPersistedMedia(t *testing.T) {
 	id, mediaType := taskOutputResource(`{"mode":"video","video":{"resourceId":"resource-1","storageKey":"resource:resource-1"}}`, "canvas_video")
 	if id != "resource-1" || mediaType != "video" {
 		t.Fatalf("unexpected task output resource: id=%q mediaType=%q", id, mediaType)
+	}
+}
+
+// 任务卡结算后显示实扣：Token 计费超出预授权补扣差额时，actualAmountMicrocredits 是实扣、amountMicrocredits 仍是预授权；未结算的不带实扣。
+func TestTaskSummaryBillingShowsSettledActualAmount(t *testing.T) {
+	tasks := []model.Task{{ID: "settled", BillingOrderID: "order-1"}, {ID: "running", BillingOrderID: "order-2"}}
+	orders := map[string]model.BillingOrder{
+		"settled": {ID: "order-1", AmountMicrocredits: 74850, ReservedAmountMicrocredits: 74850, ActualAmountMicrocredits: 1054252, Status: model.BillingStatusSettled},
+		"running": {ID: "order-2", AmountMicrocredits: 74850, Status: model.BillingStatusRunning},
+	}
+	summaries := taskSummariesForOutputWithBilling(tasks, orders)
+	settled := summaries[0].Billing
+	if settled == nil || settled.AmountMicrocredits != 74850 || settled.ActualAmountMicrocredits == nil || *settled.ActualAmountMicrocredits != 1054252 {
+		t.Fatalf("结算后应带实扣 1054252、预授权 74850：%+v", settled)
+	}
+	running := summaries[1].Billing
+	if running == nil || running.ActualAmountMicrocredits != nil {
+		t.Fatalf("未结算的不该带实扣：%+v", running)
+	}
+	encoded, _ := json.Marshal(running)
+	if strings.Contains(string(encoded), "actualAmountMicrocredits") {
+		t.Fatalf("未结算的 JSON 不该有 actualAmountMicrocredits：%s", encoded)
+	}
+}
+
+// 逐轮续写的文本任务在任务摘要上标 dramaRun：任务中心按它放开运行中的取消（与后端取消规则一致）。
+func TestTaskSummaryMarksDramaRun(t *testing.T) {
+	run := taskSummaryForOutput(model.Task{Status: model.TaskStatusRunning, InputJSON: `{"metadata":{"dramaRun":{"runId":"run-1"}}}`})
+	if !run.DramaRun {
+		t.Fatalf("带 dramaRun 的任务应标 dramaRun：%+v", run)
+	}
+	image := taskSummaryForOutput(model.Task{Status: model.TaskStatusRunning, InputJSON: `{"metadata":{"source":"short-drama-asset"}}`})
+	if image.DramaRun {
+		t.Fatalf("出图任务不该标 dramaRun：%+v", image)
 	}
 }

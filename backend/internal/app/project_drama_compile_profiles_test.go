@@ -55,7 +55,7 @@ func TestDramaCompileProfileVersionsDriveShotlistAndCompile(t *testing.T) {
 	}
 
 	rows := loadOnlineRowsRaw(t)
-	base, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows})
+	base, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows, LegacyScenes: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestDramaCompileProfileVersionsDriveShotlistAndCompile(t *testing.T) {
 	if err != nil || compiled.CompileProfile.Version != 1 || compiled.CompileProfile.Name != "光源写法" || !strings.Contains(compiled.Result.Prompt, "要求：") || strings.Contains(compiled.Result.Prompt, "约束：") {
 		t.Fatalf("v1 编译：%v %+v", err, compiled.CompileProfile)
 	}
-	again, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows})
+	again, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: rows, LegacyScenes: true})
 	if err != nil || again.Shotlist.CompileProfile.Version != 1 || !strings.Contains(segmentsText(t, again.Segments), "主光源：") || len(again.Segments) != len(base.Segments) {
 		t.Fatalf("v1 装段：%v %+v", err, again.Shotlist.CompileProfile)
 	}

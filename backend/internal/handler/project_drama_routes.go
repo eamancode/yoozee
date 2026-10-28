@@ -25,6 +25,18 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"models": models})
 	})
+	r.GET("/drama/shot-vocab", func(c *gin.Context) {
+		if _, err := currentUser(c, svc); err != nil {
+			failService(c, err)
+			return
+		}
+		vocab, err := svc.DramaShotVocab()
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"vocab": vocab})
+	})
 	r.GET("/projects/:id/drama/progress", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
@@ -102,12 +114,58 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		segments, err := svc.WriteDramaSegments(user.ID, c.Param("id"), req)
+		result, err := svc.WriteDramaSegmentsChecked(user.ID, c.Param("id"), req)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"segments": segments})
+		ok(c, result)
+	})
+	r.GET("/projects/:id/drama/scenes", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		units, err := svc.ProjectDramaScenes(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"units": units})
+	})
+	r.GET("/projects/:id/units/:unitId/drama/scenes", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		scenes, err := svc.DramaScenes(user.ID, c.Param("id"), c.Param("unitId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, scenes)
+	})
+	r.POST("/projects/:id/drama/scenes/renumber", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var req service.DramaSceneRenumberRequest
+		if c.Request.ContentLength != 0 {
+			if err := c.ShouldBindJSON(&req); err != nil {
+				fail(c, http.StatusBadRequest, err)
+				return
+			}
+		}
+		result, err := svc.RenumberDramaScenes(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
 	})
 	r.GET("/projects/:id/units/:unitId/drama/shotlist", func(c *gin.Context) {
 		user, err := currentUser(c, svc)

@@ -1,6 +1,6 @@
 // 短剧流程步骤（M6）：按项目风格档案查绑定、取技能当前版本，在服务端组装提示词（技能上下文 + 代码变量 + 按 schema 生成的契约），
-// 再创建文本任务；前端只说「对这一章跑这一步」（生成分段、资产设计，资产设计见 project_drama_assets.go）或「对这个项目跑这一步」（剧本优化、导演风格，见 project_drama_script_adapt.go、
-// project_drama_style_bible.go）。
+// 再创建文本任务；前端只说「对这一章跑这一步」（生成分段、资产设计，资产设计见 project_drama_assets.go）或「对这个项目跑这一步」（风格锁定、剧本优化、导演风格，
+// 见 project_drama_style_lock.go、project_drama_script_adapt.go、project_drama_style_bible.go）。
 // 另有管理员读写「风格档案 × 步骤 → 技能」绑定表的接口。
 
 package app
@@ -53,6 +53,10 @@ type DramaStepRunRequest struct {
 	Config         map[string]any `json:"config"`
 	// ResumeTaskID 是「从第 N 场继续」：同一章上一次没跑完的生成分段任务，新任务带上它已写完的场接着写。
 	ResumeTaskID string `json:"resumeTaskId,omitempty"`
+	// OnlyScenes 是生成分段的「重新生成问题场」：只重写这几场（剧本场编号，如 E01S02），其余场的镜头行取本章镜头表里已有的。
+	OnlyScenes []string `json:"onlyScenes,omitempty"`
+	// OnlySections 留给按小节生成以后的「重新生成这一节」；现在按场生成，给了就拒绝。
+	OnlySections []string `json:"onlySections,omitempty"`
 	// Rule 是视频渠道实际能提交的段长，收尾装段时叠在项目生成模型上限上（只收紧）。
 	Rule *DramaShotlistRule `json:"rule,omitempty"`
 	// ImageTask 是资产设计写完后给新资产出图用的图片任务模板（前端按图片模型组好）；不给时只建资产不出图。
@@ -99,12 +103,15 @@ type dramaStepPlan struct {
 	record map[string]any
 	// adapt 是剧本优化的运行参数（metadata.dramaAdapt），收尾按它写剧集。
 	adapt *dramaAdaptMeta
-	// style 是导演风格的运行参数（metadata.dramaStyle），收尾按它检查场次、排色卡出图。
-	style *dramaStyleMeta
+	// palette 是场次色卡的运行参数（metadata.dramaScenePalette），收尾按它检查场次。
+	palette *dramaScenePaletteMeta
 	// assets 是资产设计的运行参数（metadata.dramaAssets），收尾按它取本集色彩脚本、排资产出图。
 	assets *dramaAssetsMeta
 	// shots 是生成分段的逐场注入（metadata.dramaShots）：戏类判定的提示词、每场的色卡段和戏类卡。
 	shots *dramaShotsMeta
+	// lock 是风格锁定的运行参数（metadata.dramaStyleLock）；referenceImages 是随任务发给模型的参考图（input.referenceImages）。
+	lock            *dramaStyleLockMeta
+	referenceImages []map[string]any
 }
 
 func dramaStep(stepID string) (drama.Step, error) {
@@ -189,7 +196,14 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	}
 	run := newDramaRunMeta(plan, unitID)
 	if resumeID := strings.TrimSpace(req.ResumeTaskID); resumeID != "" {
+		if len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 {
+			return DramaStepRunResult{}, BadAuthRequest("「从第 N 场继续」沿用上一次要重写的场，不用再给 onlyScenes")
+		}
 		if run, err = s.resumeDramaRun(userID, project.ID, unitID, plan, resumeID); err != nil {
+			return DramaStepRunResult{}, err
+		}
+	} else if len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 {
+		if run, err = s.onlyScenesRun(project.ID, unitID, plan, run, req.OnlyScenes, req.OnlySections); err != nil {
 			return DramaStepRunResult{}, err
 		}
 	}
@@ -252,8 +266,8 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	if plan.adapt != nil {
 		metadata["dramaAdapt"] = plan.adapt
 	}
-	if plan.style != nil {
-		metadata["dramaStyle"] = plan.style
+	if plan.palette != nil {
+		metadata["dramaScenePalette"] = plan.palette
 	}
 	if plan.assets != nil {
 		metadata["dramaAssets"] = plan.assets
@@ -261,10 +275,20 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	if plan.shots != nil {
 		metadata["dramaShots"] = plan.shots
 	}
+	if plan.lock != nil {
+		metadata["dramaStyleLock"] = plan.lock
+	}
 	// 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
 	input := map[string]any{"mode": "text", "metadata": metadata}
 	for k, v := range plan.record {
 		input[k] = v
+	}
+	if len(plan.referenceImages) > 0 {
+		refs := make([]any, 0, len(plan.referenceImages))
+		for _, ref := range plan.referenceImages {
+			refs = append(refs, ref)
+		}
+		input["referenceImages"] = refs
 	}
 	if req.Config != nil {
 		input["config"] = req.Config

@@ -238,30 +238,34 @@ describe("短剧流程步骤（M6）", () => {
         expect(drama.dramaStepOutcomeOf(task)).toBeUndefined();
     });
 
-    test("导演风格走项目级入口带色卡出图模板；色卡出图 / 重新出图；结果摘要按步骤区分", async () => {
-        transport.responses["/projects/p1/drama/steps/style.bible/run"] = { task: { id: "t4" }, usage: { step: "style.bible" } };
-        const imageTask = { model: "gpt-image-2", input: { mode: "image", config: { size: "16:9" } } };
-        await drama.runDramaProjectStep("p1", "style.bible", { model: "deepseek", config: {}, sourceUnitIds: ["e1"], paletteImages: imageTask });
-        expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/drama/steps/style.bible/run", body: { sourceUnitIds: ["e1"], paletteImages: imageTask } });
-        transport.responses["/projects/p1/drama/palettes/images"] = { queued: ["a1"], waiting: [], failed: [] };
-        await drama.queueDramaPaletteImages("p1", { assetIds: ["a1"], imageTask });
-        expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/drama/palettes/images", body: { assetIds: ["a1"], imageTask } });
+    test("场次色卡走项目级入口（不带出图模板）；重新合成色卡；视频编译带参考图名额；结果摘要按步骤区分", async () => {
+        transport.responses["/projects/p1/drama/steps/scene.palette/run"] = { task: { id: "t4" }, usage: { step: "scene.palette" } };
+        await drama.runDramaProjectStep("p1", "scene.palette", { model: "deepseek", config: {}, sourceUnitIds: ["e1"] });
+        expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/drama/steps/scene.palette/run", body: { sourceUnitIds: ["e1"] } });
+        transport.responses["/projects/p1/drama/palettes/resynthesize"] = { rendered: ["a1"], failed: [] };
+        await drama.resynthesizeDramaPalettes("p1", { assetIds: ["a1"] });
+        expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/drama/palettes/resynthesize", body: { assetIds: ["a1"] } });
+        transport.responses["/projects/p1/shots/s1/compile"] = { compiled: {} };
+        await drama.compileProjectShot("p1", "s1", { maxReferenceImages: 4 });
+        expect(lastCall()).toMatchObject({ method: "post", url: "/projects/p1/shots/s1/compile", body: { maxReferenceImages: 4 } });
 
-        const style = {
-            step: "style.bible",
+        const palette = {
+            step: "scene.palette",
             status: "written",
             episodes: 2,
             scenes: 3,
-            parse: { episodes: 2, scenes: 3, invalid: 0, anchor: true },
+            parse: { episodes: 2, scenes: 3, invalid: 0 },
             errors: 0,
             warnings: 0,
             palettes: { created: 3, versioned: 0 },
-            images: { queued: ["a1"], waiting: ["a2"], failed: [] },
+            rendered: 3,
         };
-        const task = { resultJson: JSON.stringify({ dramaStep: style }) };
-        expect(drama.dramaStyleBibleOutcomeOf(task)?.palettes.created).toBe(3);
+        const task = { resultJson: JSON.stringify({ dramaStep: palette }) };
+        expect(drama.dramaScenePaletteOutcomeOf(task)?.rendered).toBe(3);
         expect(drama.dramaScriptAdaptOutcomeOf(task)).toBeUndefined();
         expect(drama.dramaSceneCode(1, 2)).toBe("E01S02");
+        const adapt = { step: "script.adapt", status: "written", mode: "adapt", episodes: [], parse: { blocks: 1, episodes: 1, rate: 1 }, errors: 0, warnings: 0, chained: { step: "scene.palette", taskId: "t5" } };
+        expect(drama.dramaScriptAdaptOutcomeOf({ resultJson: JSON.stringify({ dramaStep: adapt }) })?.chained?.taskId).toBe("t5");
     });
 
     test("风格档案按后端画风对照表推荐，与 StyleMap.ProfileFor 同一规则", () => {

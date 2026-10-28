@@ -38,6 +38,7 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 	registerProjectDramaRoutes(r, svc)
 	registerDramaCompileProfileRoutes(r, svc)
 	registerDramaStepRoutes(r, svc)
+	registerDramaStyleLibraryRoutes(r, svc)
 }
 
 // parsePositiveQueryInt 解析列表查询里的正整数。分页和筛选查询名统一用 camelCase：page、pageSize、projectId、folderId、mediaType、unitId。

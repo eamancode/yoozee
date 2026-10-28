@@ -35,6 +35,8 @@ export type ShotStreamState = {
     shotCount: number;
     /** 各场戏类（第一轮之前判出，没有时为空）。 */
     genres: StreamGenre[];
+    /** 「重新生成问题场」时要重写的场（回合标记带的；只有这几场有输出）。 */
+    only?: string[];
 };
 
 /** 回合标记行的键（与后端 drama.ShotLinesMarkerKey 一致）。 */
@@ -77,6 +79,7 @@ export function parseShotStream(text: string): ShotStreamState {
             const genre = textOf(marker.genre);
             if (genre) Object.assign(next, { genre, genreReason: textOf(marker.genreReason) || undefined });
             if (Array.isArray(marker.genres)) state.genres = streamGenres(marker.genres);
+            if (Array.isArray(marker.only)) state.only = marker.only.map(textOf).filter(Boolean);
             const existing = state.scenes.findIndex((item) => item.index === index);
             if (existing >= 0) state.scenes[existing] = next;
             else state.scenes.push(next);
@@ -158,14 +161,27 @@ export function shotStreamFromResult(resultJson?: string): ShotStreamState {
 }
 
 /** 上一次生成分段任务停下来的样子：写完 ≥1 场的可以从下一场续写（resume），一场都没写完或收尾失败的只能重新生成（failed）。 */
-export type StoryboardRunStop = { kind: "resume"; taskId: string; from: number; total: number; error?: string } | { kind: "failed"; taskId: string; status: "failed" | "cancelled"; error?: string };
+export type StoryboardRunStop =
+    | { kind: "resume"; taskId: string; from: number; total: number; error?: string }
+    | { kind: "failed"; taskId: string; status: "failed" | "cancelled"; error?: string }
+    /** 本章已有一次成功写入，之后的重跑停下了：当前结果仍是 resultAt 那次运行的，不给续写（续写会拿重跑写的前几场替换现有结果）。 */
+    | { kind: "superseded"; taskId: string; status: "failed" | "cancelled"; error?: string; resultAt: string };
 
-/** 只看失败或取消的任务；progress 是任务结果里的 dramaRun（整章一轮或还没开始逐场时没有）。 */
-export function storyboardRunStop(task: { id: string; status: string; error?: string }, progress?: { total: number; completed: number }): StoryboardRunStop | undefined {
+/**
+ * 只看失败或取消的任务；progress 是任务结果里的 dramaRun（整章一轮或还没开始逐场时没有）。
+ * lastWrite 是比这个任务更早、成功写入的那次任务（同一章）：有它时停下的是重跑，不给「从第 N 场继续」。
+ */
+export function storyboardRunStop(task: { id: string; status: string; error?: string; createdAt?: string }, progress?: { total: number; completed: number }, lastWrite?: { createdAt: string; completedAt?: string }): StoryboardRunStop | undefined {
     if (task.status !== "failed" && task.status !== "cancelled") return undefined;
     const error = task.error?.trim() || undefined;
+    if (lastWrite && (!task.createdAt || Date.parse(lastWrite.createdAt) < Date.parse(task.createdAt))) return { kind: "superseded", taskId: task.id, status: task.status, error, resultAt: lastWrite.completedAt || lastWrite.createdAt };
     if (progress && progress.completed >= 1 && progress.completed < progress.total) return { kind: "resume", taskId: task.id, from: progress.completed + 1, total: progress.total, error };
     return { kind: "failed", taskId: task.id, status: task.status, error };
+}
+
+/** 本章最近一次成功写入的生成分段任务（tasks 是本章的生成分段任务，顺序不限）。 */
+export function latestStoryboardWrite<T extends { status: string; createdAt: string }>(tasks: T[]): T | undefined {
+    return tasks.filter((task) => task.status === "succeeded").reduce<T | undefined>((latest, task) => (!latest || Date.parse(task.createdAt) > Date.parse(latest.createdAt) ? task : latest), undefined);
 }
 
 /**

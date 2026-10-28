@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://yoozee.dev/contracts/bible.schema.json",
   "title": "资产圣经（连戏表）",
-  "description": "生成照它写，审片照它核；也是素材库清单。2.0 新增：角色层级与硬产物、原文依据 / 推导 / 设计建议标记、JSON 视觉锚点、服装变体（须剧本节拍证据）、场景空间类型与大白话、四方位、禁人物自检、空间图（米数、朝向、遮挡、机位侧）、伏笔物件、风格锚点。身份在这里，演出状态在镜头。",
+  "description": "生成照它写，审片照它核；也是素材库清单。2.0 新增：角色层级与硬产物、原文依据 / 推导 / 设计建议标记、JSON 视觉锚点、服装变体（须剧本节拍证据）、场景空间类型与大白话、四方位、禁人物自检、空间图（米数、朝向、遮挡、机位侧）、伏笔物件、风格锚点；M8 加主基调色卡（master_palette）与风格锁定来源（style_lock）。身份在这里，演出状态在镜头。",
   "type": "object",
   "additionalProperties": false,
   "$defs": {
     "evidence": {"type": "array", "items": {"type": "string"}, "description": "原文依据（引号原句）"},
     "image": {"type": "string", "description": "素材路径或柚子资产 ID"},
-    "color": {"type": "object", "required": ["name_zh", "name_en", "hex", "usage"], "properties": {"name_zh": {"type": "string"}, "name_en": {"type": "string"}, "hex": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}, "usage": {"type": "string"}}}
+    "color": {"type": "object", "required": ["name_zh", "name_en", "hex", "usage"], "properties": {"name_zh": {"type": "string"}, "name_en": {"type": "string"}, "hex": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}, "usage": {"type": "string"}, "group": {"type": "string", "enum": ["protagonist", "supporting", "props", "environment", "other"], "description": "场次色卡里这个颜色归主基调色卡的哪一组"}}}
   },
   "properties": {
     "characters": {
@@ -163,10 +163,10 @@
         }
       }
     },
-    "style_anchor": {"type": "object", "additionalProperties": false, "description": "全局风格锚（导演风格 style.bible@1 写入）", "properties": {"art_style": {"type": "string"}, "render_quality": {"type": "string"}, "era": {"type": "string"}, "genre": {"type": "string"}, "medium": {"type": "string", "description": "画风 / 媒介"}, "lighting": {"type": "string", "description": "光比与光线政策"}, "camera": {"type": "string", "description": "镜头语言"}, "grading": {"type": "string", "description": "调色倾向"}, "forbidden": {"type": "array", "items": {"type": "string"}, "description": "禁用项"}}},
+    "style_anchor": {"type": "object", "additionalProperties": false, "description": "全局风格锚（风格锁定 style.lock@1 写入；场次色卡只读）", "properties": {"art_style": {"type": "string"}, "render_quality": {"type": "string"}, "era": {"type": "string"}, "genre": {"type": "string"}, "medium": {"type": "string", "description": "画风 / 媒介"}, "lighting": {"type": "string", "description": "光比与光线政策"}, "camera": {"type": "string", "description": "镜头语言"}, "grading": {"type": "string", "description": "调色倾向"}, "forbidden": {"type": "array", "items": {"type": "string"}, "description": "禁用项"}}},
     "color_script": {
       "type": "array",
-      "description": "逐场色彩脚本（导演风格 style.bible@1 写入；每场一张色卡资产，category=palette）",
+      "description": "逐场色彩脚本（场次色卡 scene.palette@1 写入；每场一张代码合成的场次色卡资产，category=palette、payload.metadata.palette.kind=scene）",
       "items": {
         "type": "object",
         "required": ["episode", "scene_no", "scene", "inherits_from", "shared_colors", "new_colors"],
@@ -179,8 +179,42 @@
           "new_colors": {"type": "array", "items": {"$ref": "#/$defs/color"}},
           "purpose": {"type": "string"},
           "references": {"type": "string"},
-          "unit_id": {"type": "string", "description": "写这一场时它所在的单元（剧集或原文章节），服务端填"}
+          "unit_id": {"type": "string", "description": "写这一场时它所在的单元（剧集或原文章节），服务端填"},
+          "scene_rule": {"type": "integer", "description": "写这一场时的切场规则（2 = 连续同地点且内外相同并成一场），服务端填"}
         }
+      }
+    },
+    "master_palette": {
+      "type": "object",
+      "description": "主基调色卡（风格锁定 style.lock@1 写入，用户点「锁定此风格」或从平台风格库选用时写；主色卡图由代码合成，资产 category=palette、payload.metadata.masterPalette.kind=master）",
+      "required": ["groups"],
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "name", "colors"],
+            "properties": {
+              "key": {"type": "string", "enum": ["protagonist", "supporting", "props", "environment", "other"], "description": "主角组、配角组、道具组、环境组；认不出的分组是 other"},
+              "name": {"type": "string", "description": "分组中文名"},
+              "colors": {"type": "array", "items": {"$ref": "#/$defs/color"}}
+            }
+          }
+        }
+      }
+    },
+    "style_lock": {
+      "type": "object",
+      "description": "项目锁定风格的来源（服务端写）：source 是 analysis（风格分析）/ library（平台风格库）/ preset（只按画风当场生成）",
+      "properties": {
+        "source": {"type": "string", "enum": ["analysis", "library", "preset"]},
+        "library_id": {"type": "string", "description": "选用或存进的平台风格库条目（drama_style_library.id）"},
+        "project_type": {"type": "string", "description": "项目类型：live-action / 3d-anime / realistic-cg / 2d-anime"},
+        "task_id": {"type": "string", "description": "风格分析任务（source=analysis / preset）"},
+        "asset_id": {"type": "string", "description": "项目里的主色卡资产"},
+        "resource_id": {"type": "string", "description": "合成的主色卡图"},
+        "locked_at": {"type": "string"},
+        "locked_by": {"type": "string"}
       }
     },
     "version": {"type": "string", "description": "归档版本（复用时）"}

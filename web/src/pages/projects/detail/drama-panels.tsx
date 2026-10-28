@@ -8,7 +8,7 @@ import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Callout } from "@/components/ui/product/callout";
 import { Select } from "@/components/ui/base/select";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
-import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, getDramaBible, getDramaBrief, putDramaBible, putDramaBrief, framesShotArtifact, getDramaProgress, listDramaEvidence, listDramaSegments, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, writeDramaSegments, type DramaBible, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaLine, type DramaProgress, type DramaSegment, type DramaSegmentProgress, type DramaSegmentView, type DramaSubShot } from "@/services/api/drama";
+import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, getDramaBible, getDramaBrief, getDramaShotlist, getDramaShotVocab, putDramaBible, putDramaBrief, framesShotArtifact, getDramaProgress, listDramaEvidence, listDramaSegments, parseEvidenceMetrics, pickShotArtifact, runDramaGate, transcribeShotArtifact, writeDramaSegments, type DramaBible, type DramaEvidence, type DramaEvidenceKind, type DramaGateCheck, type DramaLine, type DramaProgress, type DramaSegment, type DramaSegmentProgress, type DramaSegmentView, type DramaShotIssue, type DramaSubShot } from "@/services/api/drama";
 import { listProjectAssets, type ShotArtifact } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
 import { waitForGenerationTask } from "@/services/api/task-center";
@@ -17,14 +17,18 @@ import type { ReferenceImage } from "@/types/image";
 import { dramaAuthLabel } from "../drama-model";
 import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
 import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
-import { editSubShot, mergeWithNext, moveEdgeShot, segmentLacksReferences, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
+import { editShotCard, editSubShot, failedSegmentEditHint, mergeWithNext, moveEdgeShot, segmentLacksReferences, shotFixEdit, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
+import { ShotCardEditor } from "./shot-card-editor";
+import { issueFixLabel, issueFixShots, scriptLineOptions, shotIssues } from "./shot-issues";
 import { StyleBibleEditor } from "./drama-style-bible-editor";
-import { EVIDENCE_LABELS, pendingReviewSegments, reviewGap } from "./drama-review-queue";
+import { EVIDENCE_LABELS, issueSegments, pendingReviewSegments, reviewGap } from "./drama-review-queue";
 import { applyBriefFacts, bibleSummary, BRIEF_FACTS, BRIEF_STATUSES, briefConfirmedCount, briefFactsFromDocument, dramaBriefKey, parseDocumentJson, type BriefFactDraft, type BriefFactKey } from "./drama-brief";
 
 export const dramaProgressKey = (projectId: string) => ["project", projectId, "drama", "progress"] as const;
 export const dramaEvidenceKey = (projectId: string) => ["project", projectId, "drama", "evidence"] as const;
 export const dramaSegmentsKey = (projectId: string, unitId: string) => ["project", projectId, "drama", "segments", unitId] as const;
+/** 一章的镜头表（与章节页「生成分段」侧栏同一个 key）。 */
+export const dramaShotlistKey = (projectId: string, unitId: string) => ["project", projectId, "drama-shotlist", unitId] as const;
 
 export function useDramaProgress(projectId: string) {
     return useQuery({ queryKey: dramaProgressKey(projectId), queryFn: async ({ signal }) => (await getDramaProgress(projectId, signal)).progress });
@@ -98,8 +102,30 @@ export function DramaOverviewPanel({ projectId }: { projectId: string }) {
                     {progress.segments.length > 12 ? <Button className="mt-2" size="small" type="link" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : `展开全部 ${progress.segments.length} 段`}</Button> : null}
                 </div>
             ) : null}
+            <DramaIssueQueue projectId={projectId} segments={progress.segments} />
             <DramaReviewQueue projectId={projectId} segments={progress.segments} />
         </section>
+    );
+}
+
+/** 总览的带问题段列表：带着检查问题装段、还没改完的段，点了跳到制作台这一段逐张改（视频阶段，段时间轴在那里）。 */
+function DramaIssueQueue({ projectId, segments }: { projectId: string; segments: DramaSegmentProgress[] }) {
+    const marked = issueSegments(segments);
+    if (!marked.length) return null;
+    return (
+        <div className="mt-4 border-t border-border/50 pt-3">
+            <h3 className="text-xs font-medium">带问题的段 {marked.length}<span className="ml-1.5 font-normal text-foreground/45">先装段、还没改完的镜头表检查问题，按章节顺序</span></h3>
+            <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                {marked.map((segment) => (
+                    <li key={segment.shotId}>
+                        <Link to={`/projects/${projectId}/workflow/${segment.unitId}/video?shot=${encodeURIComponent(segment.shotId)}`} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-xs hover:border-[var(--workspace-accent)]/50">
+                            <span className="min-w-0 flex-1 truncate"><span className="text-foreground/50">{segment.unitTitle || "未命名章节"} · </span><span className="font-medium">{segment.segmentId}</span> <span className="text-foreground/60">{segment.title.startsWith(segment.segmentId) ? segment.title.slice(segment.segmentId.length).trim() : segment.title}</span></span>
+                            <span className="shrink-0 text-[var(--fs-label)] text-red-600 dark:text-red-400">{segment.issues} 个问题</span>
+                        </Link>
+                    </li>
+                ))}
+            </ul>
+        </div>
     );
 }
 
@@ -438,7 +464,8 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingShot, setEditingShot] = useState<number | null>(null);
-    const [saveError, setSaveError] = useState("");
+    // 保存失败的改动留在这里（拆合、移镜头、改镜头），可以重试或放弃；不能因为网关 502 之类的失败让改动悄悄没了。
+    const [failed, setFailed] = useState<{ edit: SegmentEdit; success: string; error: string } | null>(null);
     const spec = useMemo(() => {
         try {
             return JSON.parse(specJson) as DramaSegment;
@@ -457,26 +484,37 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
         queryFn: async ({ signal }) => (await listDramaSegments(projectId, unitId, signal)).segments,
         enabled: Boolean(unitId),
     });
+    // 分镜卡编辑改的是镜头表里的镜头：镜头表装过段（不是草稿）时，有 shot_id 的镜头按镜头表编辑，否则只能改段内文字。
+    const shotlistQuery = useQuery({
+        queryKey: dramaShotlistKey(projectId, unitId),
+        queryFn: async ({ signal }) => (await getDramaShotlist(projectId, unitId, signal)).shotlist,
+        enabled: Boolean(unitId),
+    });
+    const vocabQuery = useQuery({ queryKey: ["drama", "shot-vocab"], queryFn: async ({ signal }) => (await getDramaShotVocab(signal)).vocab, staleTime: Infinity });
+    const shotlist = shotlistQuery.data && !shotlistQuery.data.draft ? shotlistQuery.data : undefined;
+    const scriptLines = useMemo(() => scriptLineOptions(shotlist?.script), [shotlist?.script]);
     // 本段以工作台当前版本为准，相邻段取服务端分段列表。
     const list = useMemo(() => (segmentsQuery.data || []).map((view) => view.shotId === shotId && spec ? { ...view, spec } : view), [segmentsQuery.data, shotId, spec]);
     const index = list.findIndex((view) => view.shotId === shotId);
     useEffect(() => {
         setEditingShot(null);
-        setSaveError("");
+        setFailed(null);
     }, [shotId]);
     const save = useMutation({
-        mutationFn: (edit: SegmentEdit) => writeDramaSegments(projectId, { unitId, segments: edit.segments, ...(edit.order ? { order: edit.order } : {}), ...(edit.inherit ? { inherit: edit.inherit } : {}) }),
+        mutationFn: (edit: SegmentEdit) => writeDramaSegments(projectId, { unitId, segments: edit.segments, ...(edit.order ? { order: edit.order } : {}), ...(edit.inherit ? { inherit: edit.inherit } : {}), ...(edit.shots?.length ? { shots: edit.shots, shotlistVersion: shotlist?.version } : {}) }),
         onSuccess: async (result, edit) => {
-            setSaveError("");
+            setFailed(null);
             setEditingShot(null);
             queryClient.setQueryData(dramaSegmentsKey(projectId, unitId), result.segments);
+            if (result.check) {
+                // 分镜卡编辑后整章重检：问题清掉的镜头不再标；镜头表、进度里的带问题段数一起刷新。
+                message.info(result.check.errors ? `已重检：本章还有 ${result.check.errors} 个问题` : "已重检：本章镜头表检查没有问题了");
+                void queryClient.invalidateQueries({ queryKey: dramaShotlistKey(projectId, unitId) });
+                void queryClient.invalidateQueries({ queryKey: dramaProgressKey(projectId) });
+            }
             await onEdited?.(edit.selectShotId);
         },
-        onError: (error) => {
-            const text = error instanceof Error ? error.message : "段保存失败";
-            setSaveError(text);
-            message.error(`段保存失败：${text}`);
-        },
+        onError: (error) => message.error(`段保存失败：${error instanceof Error ? error.message : "未知错误"}`),
     });
     if (!spec) return null;
     const result = compileQuery.data?.result;
@@ -485,6 +523,12 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     const next = index >= 0 && index < list.length - 1 && !list[index + 1].derived ? list[index + 1] : undefined;
     const takesOf = (id: string) => takeCounts?.[id] || 0;
 
+    /** 写回一次段编辑：成功提示 success；失败把改动和原因留在卡片上（重试或放弃），不吞掉。 */
+    const submitEdit = (edit: SegmentEdit, success: string) =>
+        save.mutateAsync(edit).then(
+            () => { message.success(success); },
+            (error: unknown) => { setFailed({ edit, success, error: error instanceof Error ? error.message : "未知错误" }); },
+        );
     /** 先在前端算出要写回的段，再按影响确认：被删的段和已有生成结果的段都要说清楚。 */
     const apply = (build: (rule: SegmentDurationRule) => SegmentEdit, success: (edit: SegmentEdit) => string, confirm?: (edit: SegmentEdit) => { title: string; lines: string[]; danger?: boolean }) => {
         if (!durationRule || save.isPending) return;
@@ -501,7 +545,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
             message.warning(`${busy.spec.id} 正在生成，等它结束再改`);
             return;
         }
-        const submit = () => save.mutateAsync(edit).then(() => { message.success(success(edit)); }, () => undefined);
+        const submit = () => submitEdit(edit, success(edit));
         const stale = touched.filter((id) => !edit.removedShotIds.includes(id) && takesOf(id) > 0).map((id) => list.find((view) => view.shotId === id)?.spec.id || "").filter(Boolean);
         const asked = confirm?.(edit);
         if (!asked && !stale.length) {
@@ -539,11 +583,18 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     };
     const shotSeconds = subShotSeconds(spec);
     const lacksReferences = segmentLacksReferences(spec);
+    // 带问题装段后挂在本段镜头上的检查 error（以服务端分段列表为准，改完重检后跟着变）。
+    const issues: DramaShotIssue[] = (index >= 0 ? list[index].issues : undefined) || [];
+    const cardShot = (shot: DramaSubShot) => (shot.shot_id ? shotlist?.shotlist.shots.find((item) => item.id === shot.shot_id) : undefined);
+    const runFix = (issue: DramaShotIssue, shotIdOfCard: string) => {
+        const label = issueFixLabel(issue) || "修复";
+        apply(() => shotFixEdit(list, index, issueFixShots(shotlist?.shotlist.shots || [], issue, shotIdOfCard)), () => `已${label}：${issue.lineId || ""}`);
+    };
 
     return (
         <div className="mb-3 rounded-lg border border-border/70 px-3 py-2.5 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium">{spec.id} · {spec.scene} · {spec.dur} 秒 · 段内 {spec.shots.length} 个镜头</span>
+                <span className="flex items-center gap-1.5 font-medium">{spec.id} · {spec.scene} · {spec.dur} 秒 · 段内 {spec.shots.length} 个镜头{issues.length ? <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[var(--fs-tiny)] font-medium text-red-600 dark:text-red-400">{issues.length} 个问题</span> : null}</span>
                 <span className="flex flex-wrap items-center gap-1">
                     {editable && previous ? <Button size="small" type="text" disabled={save.isPending} onClick={() => apply((rule) => mergeWithNext(list, index - 1, rule), mergedMessage, mergeConfirm(previous, list[index]))}>并入 {previous.spec.id}</Button> : null}
                     {editable && next ? <Button size="small" type="text" disabled={save.isPending} onClick={() => apply((rule) => mergeWithNext(list, index, rule), mergedMessage, mergeConfirm(list[index], next))}>合并 {next.spec.id}</Button> : null}
@@ -551,22 +602,51 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
                 </span>
             </div>
             {durationRule ? <p className="mt-1 leading-5 text-foreground/40">{editable ? `段长按当前视频渠道（${durationRule.label}）取档：拆段、合并、改时长后自动取能提交的段长。` : segmentsQuery.isLoading ? "正在读取本章分段…" : segmentsQuery.isError ? "本章分段读取失败，暂时不能拆合。" : "这一段还不是分段表里的段，不能拆合。"}</p> : null}
-            {saveError ? <p className="mt-1 text-red-500" role="alert">保存失败：{saveError}</p> : null}
+            {failed ? (
+                <Callout
+                    tone="error"
+                    role="alert"
+                    className="mt-2 px-2.5 py-2"
+                    action={<span className="flex gap-1"><Button size="small" type="primary" loading={save.isPending} onClick={() => void submitEdit(failed.edit, failed.success)}>重试</Button><Button size="small" disabled={save.isPending} onClick={() => { setFailed(null); setEditingShot(null); }}>放弃改动</Button></span>}
+                >
+                    {failedSegmentEditHint(failed.edit, failed.error)}
+                </Callout>
+            ) : null}
             {lacksReferences ? <Callout tone="warning" className="mt-2 px-2.5 py-2" action={onPickAssets ? <Button size="small" onClick={onPickAssets}>选择资产</Button> : undefined}>{NO_REFERENCE_HINT}</Callout> : null}
             <ol className="mt-2 space-y-1">
                 {spec.shots.map((shot, shotIndex) => {
                     const end = spec.shots[shotIndex + 1]?.at ?? spec.dur;
                     const actions = editable ? shotActions(shotIndex) : [];
+                    const source = cardShot(shot);
+                    const onShot = shotIssues(issues, shot.shot_id);
                     if (editingShot === shotIndex && editable) {
+                        if (source) {
+                            return <li key={`${shot.at}-${shotIndex}`}><ShotCardEditor shot={source} vocab={vocabQuery.data} lines={scriptLines} saving={save.isPending} onCancel={() => setEditingShot(null)} onSave={(next) => apply((rule) => editShotCard(list, index, shotIndex, source, next, rule), () => `已保存 ${spec.id} 第 ${shotIndex + 1} 个镜头`)} /></li>;
+                        }
                         return <li key={`${shot.at}-${shotIndex}`}><SubShotEditor shot={shot} seconds={shotSeconds[shotIndex]} saving={save.isPending} onCancel={() => setEditingShot(null)} onSave={(patch) => apply((rule) => editSubShot(list, index, shotIndex, patch, rule), () => `已保存 ${spec.id} 第 ${shotIndex + 1} 个镜头`)} /></li>;
                     }
                     return (
-                        <li key={`${shot.at}-${shotIndex}`} className="flex gap-2 leading-5">
+                        <li key={`${shot.at}-${shotIndex}`} className={`flex gap-2 leading-5 ${onShot.length ? "rounded-md bg-red-500/5 ring-1 ring-red-500/30" : ""}`}>
                             <span className="w-16 shrink-0 tabular-nums text-foreground/45">{shot.at}–{end}s</span>
-                            <span className="min-w-0 flex-1 text-foreground/70">{[shot.size, shot.camera].filter(Boolean).join(" · ")}{shot.size || shot.camera ? "：" : ""}{shot.text}{shot.lines?.length ? <span className="block text-foreground/55">{shot.lines.map((line) => `${line.speaker}${line.vo ? "（画外）" : ""}：「${line.text}」`).join(" ")}</span> : null}<SubShotDetails shot={shot} /></span>
+                            <span className="min-w-0 flex-1 text-foreground/70">{[shot.size, shot.camera].filter(Boolean).join(" · ")}{shot.size || shot.camera ? "：" : ""}{shot.text}{shot.lines?.length ? <span className="block text-foreground/55">{shot.lines.map((line) => `${line.speaker}${line.vo ? "（画外）" : ""}：「${line.text}」`).join(" ")}</span> : null}<SubShotDetails shot={shot} />
+                                {onShot.length ? (
+                                    <ul className="mt-1 space-y-1 pl-0" aria-label={`第 ${shotIndex + 1} 个镜头的检查问题`}>
+                                        {onShot.map((issue, issueIndex) => {
+                                            const fix = editable && source ? issueFixLabel(issue) : undefined;
+                                            return (
+                                                <li key={`${issue.rule}-${issue.lineId || ""}-${issueIndex}`} className="flex list-none flex-wrap items-center gap-x-2 gap-y-0.5 text-red-600 dark:text-red-400">
+                                                    <span className="font-mono text-[var(--fs-tiny)] text-foreground/45">{issue.rule}</span>
+                                                    <span className="min-w-0 flex-1">{issue.message}</span>
+                                                    {fix ? <Button size="small" danger disabled={save.isPending} onClick={() => runFix(issue, shot.shot_id || "")}>{fix}</Button> : null}
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                ) : null}
+                            </span>
                             {editable ? (
                                 <span className="flex shrink-0 items-start">
-                                    <Button type="text" size="small" disabled={save.isPending} icon={<Pencil className="size-3.5" />} aria-label={`编辑第 ${shotIndex + 1} 个镜头的画面、台词和时长`} title="改画面、台词和时长" onClick={() => setEditingShot(shotIndex)} />
+                                    <Button type="text" size="small" disabled={save.isPending} icon={<Pencil className="size-3.5" />} aria-label={source ? `编辑第 ${shotIndex + 1} 个镜头的分镜卡` : `编辑第 ${shotIndex + 1} 个镜头的画面、台词和时长`} title={source ? "改动作、画面、台词、景别、时长、机位运镜、情绪弧、站位、灯光" : "改画面、台词和时长"} onClick={() => setEditingShot(shotIndex)} />
                                     {actions.length ? (
                                         <Dropdown trigger={["click"]} disabled={save.isPending} menu={{ items: actions, onClick: ({ key }) => runShotAction(shotIndex, key) }}>
                                             <Button type="text" size="small" icon={<MoreHorizontal className="size-3.5" />} aria-label={`第 ${shotIndex + 1} 个镜头：拆段或移到相邻段`} />

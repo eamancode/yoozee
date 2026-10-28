@@ -247,9 +247,12 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 	case drama.StepAssetsExtract:
 		// 资产设计的评测：评测集的资产清单当已有资产，提取这一章（只出资产行，不写资产、不出图）。
 		plan, err = assetsExtractPlan(in.project, in.unit, []model.ProjectUnit{*in.unit}, in.assets, usage, skillRef)
-	case drama.StepStyleBible:
-		// 导演风格的评测：这一章当第 1 集定风格（只出风格锚和色彩脚本，不建色卡、不出图）。
-		plan, err = styleBiblePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, nil, usage, skillRef)
+	case drama.StepStyleLock:
+		// 风格锁定的评测：评测项目的类型按风格档案推，不写风格文字、不带参考图，只按画风定（只出风格锚和主基调色卡，不锁定）。
+		plan, err = styleLockPlan(in.project, &dramaStyleLockMeta{ProjectType: dramaEvalProjectType(c.Profile), Source: drama.StyleLockSourcePreset}, usage, skillRef)
+	case drama.StepScenePalette:
+		// 场次色卡的评测：这一章当第 1 集写色彩脚本（只出色彩脚本，不建色卡、不合成图）；评测项目锁定了风格时带上风格锚和主色卡。
+		plan, err = scenePalettePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, nil, usage, skillRef)
 	default:
 		plan, err = chapterShotsPlan(in.project, in.unit, []model.ProjectUnit{*in.unit}, in.assets, usage, skillRef)
 	}
@@ -689,8 +692,10 @@ func dramaStepEvalChapterResult(step drama.Step, c drama.StepEvalChapter, taskID
 	switch step.ID {
 	case drama.StepScriptAdapt:
 		return scriptAdaptEvalResult(r, in, output.Text), ""
-	case drama.StepStyleBible:
-		return styleBibleEvalResult(r, in, output.Text), ""
+	case drama.StepStyleLock:
+		return styleLockEvalResult(r, output.Text), ""
+	case drama.StepScenePalette:
+		return scenePaletteEvalResult(r, in, output.Text), ""
 	case drama.StepAssetsExtract:
 		return assetsExtractEvalResult(r, in, output.Text), ""
 	}
@@ -771,12 +776,13 @@ func scriptAdaptEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInp
 	return r
 }
 
-// styleBibleEvalResult 是导演风格一章的指标：有风格锚、解析出的场占应写的场 ≥ 0.9 才算解析成功；Rows 是场数，Shots 是应写的场数。
-func styleBibleEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInput, text string) drama.StepEvalChapterResult {
-	out, stats := drama.StyleBibleFromText(text, 1)
-	scenes := drama.StyleBibleScenes(chapterPlainText(in.unit.SourceText), in.unit.Title, drama.StyleBibleSceneExcerptChars)
-	episode := drama.StyleBibleEpisode{No: 1, UnitID: in.unit.ID, Title: in.unit.Title, Scenes: scenes}
-	report := drama.CheckStyleBible(out, drama.StyleBibleCheckContext{Episodes: []drama.StyleBibleEpisode{episode}})
+// scenePaletteEvalResult 是场次色卡一章的指标：解析出的场占应写的场 ≥ 0.9、检查没有 error 才算解析成功；Rows 是场数，Shots 是应写的场数。
+func scenePaletteEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInput, text string) drama.StepEvalChapterResult {
+	out, _ := drama.ScenePaletteFromText(text, 1)
+	scenes := drama.ScenePaletteScenes(chapterPlainText(in.unit.SourceText), in.unit.Title, drama.ScenePaletteSceneExcerptChars)
+	episode := drama.ScenePaletteEpisode{No: 1, UnitID: in.unit.ID, Title: in.unit.Title, Scenes: scenes}
+	_, master, _, _ := projectLockedStyle(in.project.BibleJSON)
+	report := drama.CheckScenePalette(out, drama.ScenePaletteCheckContext{Episodes: []drama.ScenePaletteEpisode{episode}, Master: master})
 	parsed := len(styleBibleRunEntries(out.Script, map[int]bool{1: true}))
 	r.Rows, r.Shots, r.Errors, r.Warnings = parsed, len(scenes), report.Errors, report.Warnings
 	for _, item := range report.Items {
@@ -789,9 +795,35 @@ func styleBibleEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterInpu
 	if len(scenes) > 0 {
 		rate = float64(min(parsed, len(scenes))) / float64(len(scenes))
 	}
-	r.Parsed = stats.Anchor && rate >= 0.9
+	r.Parsed = rate >= 0.9 && report.Errors == 0
 	if !r.Parsed {
-		r.Failure = fmt.Sprintf("解析出 %d/%d 场，%s", parsed, len(scenes), firstNonEmpty(out.AnchorProblem(), "有风格锚"))
+		r.Failure = fmt.Sprintf("解析出 %d/%d 场，检查 %d 个 error", parsed, len(scenes), report.Errors)
+	}
+	return r
+}
+
+// dramaEvalProjectType 是评测项目的类型（风格锁定要）：动漫档案取 3D 动漫，其余按仿真人。
+func dramaEvalProjectType(profile string) string {
+	if profile == "anime-3d" {
+		return "3d-anime"
+	}
+	return "live-action"
+}
+
+// styleLockEvalResult 是风格锁定的指标：有风格锚、主基调色卡至少 4 色、检查没有 error 才算解析成功；Rows 是颜色数，Shots 是色数下限。
+func styleLockEvalResult(r drama.StepEvalChapterResult, text string) drama.StepEvalChapterResult {
+	out, stats := drama.StyleLockFromText(text)
+	report := drama.CheckStyleLock(out)
+	r.Rows, r.Shots, r.Errors, r.Warnings = stats.Colors, drama.StyleLockMinColors, report.Errors, report.Warnings
+	for _, item := range report.Items {
+		if r.Rules == nil {
+			r.Rules = map[string]int{}
+		}
+		r.Rules[item.Rule]++
+	}
+	r.Parsed = stats.Anchor && report.Errors == 0
+	if !r.Parsed {
+		r.Failure = fmt.Sprintf("读出 %d 组 %d 色，%s", stats.Groups, stats.Colors, firstNonEmpty(out.AnchorProblem(), "有风格锚"))
 	}
 	return r
 }

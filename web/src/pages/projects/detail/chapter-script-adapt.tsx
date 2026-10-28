@@ -23,8 +23,6 @@ import { queryGenerationTask, type GenerationTask } from "@/services/api/task-ce
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { storyboardRunStop } from "./chapter-shot-stream";
-import { paletteImageTaskTemplate } from "./drama-image-task";
-import { turnaroundImageModel } from "./project-character-media";
 import { briefEpisodeSeconds, dramaBriefKey, EPISODE_SECONDS_RANGE } from "./drama-brief";
 import { followDramaRunTask, isScriptAdaptTask, runScriptAdapt } from "./project-chapter-ai";
 import { scriptAdaptDefaultMode } from "./script-adapt-mode";
@@ -41,7 +39,7 @@ type ScriptAdaptControlProps = {
     disabled?: boolean;
     /** 写完以后切到剧集视图，选中第一集。 */
     onWritten: (outcome: DramaScriptAdaptOutcome) => void;
-    /** 写完剧集后服务端自动接着建了导演风格任务：交给导演风格按钮接上它的流。 */
+    /** 写完剧集后服务端自动接着建了场次色卡任务：交给「生成场次色卡」按钮接上它的流。 */
     onChained?: (taskId: string) => void;
 };
 
@@ -185,10 +183,6 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
         setResumeView(options.resumeTaskId && resume ? { from: resume.from, total: resume.total, episodes: scriptAdaptStreamFromResult(taskDetail?.resultJson).episodes.filter((episode) => episode.index < resume.from) } : undefined);
         setPanelOpen(true);
         try {
-            // 剧本写完后服务端自动接着跑导演风格：用项目默认图片模型给色卡出图；图片模型没配好就只建色卡、不出图。
-            const imageModel = turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
-            const imageConfig = { ...effectiveConfig, model: imageModel };
-            const paletteImages = imageModel && isAiConfigReady(imageConfig, imageModel) ? await paletteImageTaskTemplate(imageConfig, imageModel).catch(() => undefined) : undefined;
             const result = await runScriptAdapt(
                 {
                     projectId,
@@ -200,7 +194,6 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                     ...(!previous && mode === "adapt" && settings.countBy === "seconds" ? { episodeSeconds: settings.episodeSeconds } : {}),
                     replace: options.replace || previous?.replace,
                     resumeTaskId: options.resumeTaskId,
-                    paletteImages,
                 },
                 {
                     onTaskUpdate: (task) => {
@@ -218,6 +211,8 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                 if (chainedTaskId) {
                     setPanelOpen(false);
                     onChained?.(chainedTaskId);
+                } else if (result.outcome.chained?.error) {
+                    message.warning(`场次色卡没有自动开始：${result.outcome.chained.error}`);
                 }
             }
         } catch (error) {

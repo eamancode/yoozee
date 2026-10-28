@@ -1,6 +1,6 @@
 import { compactApiParams, http } from "@/services/api/request";
 import { normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
-import type { DramaColorScriptEntry } from "@/services/api/drama";
+import type { DramaColorScriptEntry, DramaMasterPalette, DramaStyleAnchor } from "@/services/api/drama";
 import type { GenerationTask } from "@/services/api/task-center";
 
 
@@ -93,22 +93,21 @@ export type DramaImageStatus = "none" | "waiting" | "queued" | "bound" | "stale"
 
 export type ProjectAssetImageQueue = { status: DramaImageStatus; taskId?: string; error?: string };
 
-/** 色卡取色校验：每块取到的颜色与 HEX 的 ΔE2000；任一块超过阈值 passed=false（只是警告，图保留）。 */
-export type PaletteCheck = { blocks: Array<{ hex: string; sampled: string; deltaE: number }>; passed: boolean; threshold: number; note?: string };
-
 export type ProjectAssetPalette = {
+    /** 主基调色卡（风格锁定建的，没有场编号）：分组色板、风格锚和来源；有它时 code / entry 是空的。 */
+    master?: { title: string; palette: DramaMasterPalette; styleAnchor?: DramaStyleAnchor; source: string; libraryId?: string };
+    /** scene 是场次色卡（代码合成图）；没有是 M8 之前导演风格建的旧色卡（图片模型出图），重新生成场次色卡后改成场次色卡。 */
+    kind?: "scene";
     code: string;
     entry: DramaColorScriptEntry;
     /** 《色卡提示词卡》【色板设计】的结构句。 */
     design: string;
-    /** 出图用的英文提示词（代码按模板拼，HEX 取自色彩脚本）。 */
-    prompt: string;
-    /** 这一场在当前剧集里已不存在（重跑导演风格时标的）：色卡保留，不再出图，不计入「色卡齐了」。 */
+    /** 这一场在当前剧集里已不存在（重跑场次色卡时标的）：色卡保留，不再合成、不绑镜头，不计入「色卡齐了」。 */
     sceneGone?: boolean;
+    /** 按新场次重排时记下的说明（换了场编号、并进了别的场）。 */
+    note?: string;
+    /** bound 是主版本有图；none 是还没合成上（资产页「重新合成」）。 */
     imageStatus: DramaImageStatus;
-    taskId?: string;
-    imageError?: string;
-    check?: PaletteCheck;
 };
 
 export type ProjectAssetFolder = {

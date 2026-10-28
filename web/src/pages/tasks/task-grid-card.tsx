@@ -8,9 +8,10 @@ import { CONTENT_MODERATION_ERROR_CODE, isContentModerationError } from "@/lib/g
 import { generationTaskShowsProgress, generationTaskStageLabel, generationTaskStatusLabel } from "@/lib/generation-task-display";
 import type { GenerationTask } from "@/services/api/task-center";
 import { isTaskFailed, statusDotClassName, taskAttentionReason, TaskDate } from "./task-shared";
+import { TaskCancelButton } from "./task-list-row";
 import { TaskVideoThumbnail } from "./task-video-thumbnail";
 
-export function TaskGridCard({ task, actingId, onOpen, onRetry }: { task: GenerationTask; actingId: string; onOpen: () => void; onRetry: () => void }) {
+export function TaskGridCard({ task, actingId, onOpen, onRetry, onCancel }: { task: GenerationTask; actingId: string; onOpen: () => void; onRetry: () => void; onCancel: () => void }) {
     const isActive = task.status === "queued" || task.status === "running";
     const isFailed = isTaskFailed(task);
     const retryDisabled = task.errorCode === CONTENT_MODERATION_ERROR_CODE || isContentModerationError(task.error);
@@ -34,6 +35,7 @@ export function TaskGridCard({ task, actingId, onOpen, onRetry }: { task: Genera
                     <Tooltip title="查看详情">
                         <IconButton size="sm" variant="ghost" icon={Eye} aria-label="查看详情" onClick={onOpen} />
                     </Tooltip>
+                    {isActive ? <TaskCancelButton task={task} acting={actingId === task.id} onCancel={onCancel} /> : null}
                     {isFailed ? (
                         <Tooltip title={retryDisabled ? "内容审核失败，无法自动重试" : task.canRecoverMedia ? "重试保存，不重新生成" : "重试任务"}>
                             <Button
