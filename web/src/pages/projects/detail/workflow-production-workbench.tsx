@@ -419,7 +419,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const mode = generationCapability;
             let config = { ...generationConfig, videoSeconds: String(Math.max(1, Math.round(values.durationSeconds))) };
             // 视频按项目生成模型的方言编译：分段 JSON 存在时，提示词和参考清单都以编译结果为准。
-            let dialect: { prompt: string; images: typeof shotAssetReferenceContext.referenceImages; audios: typeof generationReferenceAudios; metadata: Record<string, unknown> } | null = null;
+            let dialect: { prompt: string; images: typeof shotAssetReferenceContext.referenceImages; audios: typeof generationReferenceAudios; frames: boolean; metadata: Record<string, unknown> } | null = null;
             if (mode === "video") {
                 // 本场色卡排在参考图最后，名额按这次的视频模型算：放不下时编译结果里不带图、色值写进提示词。
                 const { compiled } = await compileProjectShot(projectId, saved.shot.id, maxVideoReferenceImages ? { maxReferenceImages: maxVideoReferenceImages } : {});
@@ -428,10 +428,16 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 if (!compiled.derived) {
                     const media = referenceMediaForCompiledFiles(detail, saved.shot.id, compiled.result.files);
                     if (media.missing.length) throw new Error(`编译清单里的素材没有绑定到这一段：${media.missing.join("、")}`);
+                    if (media.unsupported.length) throw new Error(media.unsupported.join("；"));
+                    if (media.frames) {
+                        // 首尾帧走图生视频通道：按这次的视频模型复核一遍（上面的兼容检查按段上绑的参考图算，不代表首尾帧能发）。
+                        const frameError = modelCompatibilityError(effectiveConfig, routedModel, { ...modelRequirements, input: { textCount: 1, imageCount: media.images.length, videoCount: 0, audioCount: 0, characterCount: 0 }, videoOperation: "image_to_video" });
+                        if (frameError) throw new Error(`当前视频模型不能按首尾帧生成这一段：${frameError}`);
+                    }
                     const warnings = compiled.result.issues.filter((issue) => issue.level === "warn");
                     if (warnings.length) message.warning(warnings.map((issue) => issue.message).join("；"));
                     config = { ...config, videoSeconds: String(compiled.result.duration) };
-                    dialect = { prompt: compiled.result.prompt, images: media.images, audios: media.audios, metadata: { promptSource: "yoozee-dialect", dramaModel: compiled.result.model, dramaSegment: compiled.result.segment, dramaCompileProfileVersion: compiled.compileProfile?.version ?? 0 } };
+                    dialect = { prompt: compiled.result.prompt, images: media.images, audios: media.audios, frames: media.frames, metadata: { promptSource: "yoozee-dialect", dramaModel: compiled.result.model, dramaSegment: compiled.result.segment, dramaCompileProfileVersion: compiled.compileProfile?.version ?? 0 } };
                 }
             }
             if (!isAiConfigReady(config, routedModel)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
@@ -476,7 +482,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     artifactType,
                     role: "output",
                     source: "short-drama-workflow",
-                    ...(mode === "video" && (dialect ? dialect.images.length : fallbackPalette.images.length) ? { videoEditOperation: "reference_to_video" } : {}),
+                    // 首尾帧段（MiniMax-H3 锁首帧）按图生视频提交，图片自带 first_frame / last_frame 角色；其余带图的都是参考生视频。
+                    ...(mode === "video" && (dialect ? dialect.images.length : fallbackPalette.images.length) ? { videoEditOperation: dialect?.frames ? "image_to_video" : "reference_to_video" } : {}),
                     resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
                     artifactMetadata: { model: routedModel, aspectRatio, resolution, durationSeconds: values.durationSeconds, ...skillExecution.metadata },
                 },

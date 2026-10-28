@@ -2429,6 +2429,45 @@ func TestNewAPIChannel1VideoBodyMapsFramesAndReferences(t *testing.T) {
 	}
 }
 
+// 柚子工作台提交 MiniMax-H3 锁首帧段：图片自带 first_frame / last_frame 角色、videoEditOperation=image_to_video，没有帧节点 ID。
+func TestMiniMaxVideoBodyKeepsWorkbenchFrameRoles(t *testing.T) {
+	body := officialVideoCreateBody(t, canvasGenerationInput{
+		Mode:   "video",
+		Prompt: "integrated_multimodal_description:",
+		Config: providerConfig{Model: "MiniMax-H3", InterfaceType: string(model.ChannelInterfaceMiniMaxVideo), VideoSeconds: "6"},
+		ReferenceImages: []providerMedia{
+			{ID: "frame-a", URL: "https://example.com/first.png", Role: "first_frame"},
+			{ID: "frame-b", URL: "https://example.com/last.png", Role: "last_frame"},
+		},
+		Metadata: map[string]interface{}{"videoEditOperation": "image_to_video"},
+	})
+	content := body["content"].([]any)
+	if len(content) != 3 {
+		t.Fatalf("content = %#v", content)
+	}
+	for index, want := range []string{"first_frame", "last_frame"} {
+		item := content[index+1].(map[string]any)
+		if item["role"] != want || item["type"] != "image_url" {
+			t.Fatalf("content[%d] = %#v, want role %s", index+1, item, want)
+		}
+	}
+	if body["ratio"] != "adaptive" {
+		t.Fatalf("frame mode ratio = %#v", body["ratio"])
+	}
+	// H3 的尾帧不能脱离首帧：插件直接拒绝，不发上游。
+	adapter, _ := loadOfficialFallbackRegistry().Resolve(string(model.ChannelInterfaceMiniMaxVideo))
+	_, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: protocolRequestFromInput(canvasGenerationInput{
+		Mode:            "video",
+		Prompt:          "integrated_multimodal_description:",
+		Config:          providerConfig{Model: "MiniMax-H3", InterfaceType: string(model.ChannelInterfaceMiniMaxVideo), VideoSeconds: "6"},
+		ReferenceImages: []providerMedia{{ID: "frame-b", URL: "https://example.com/last.png", Role: "last_frame"}},
+		Metadata:        map[string]interface{}{"videoEditOperation": "image_to_video"},
+	})})
+	if err == nil || !strings.Contains(err.Error(), "使用尾帧时必须同时提供首帧") {
+		t.Fatalf("last frame only error = %v", err)
+	}
+}
+
 func TestProtocolRequestPreservesVideoImageIDsAndRoles(t *testing.T) {
 	request := protocolRequestFromInput(canvasGenerationInput{
 		Mode: "video",
