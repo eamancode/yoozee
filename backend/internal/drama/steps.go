@@ -325,6 +325,52 @@ var steps = []Step{
 	},
 }
 
+// 按小节生成（M8 卡 F）的戏类步骤：绑定表里「chapter.shots#<戏类>」一格绑一整套分镜技能。前端仍然只跑 chapter.shots，
+// 服务端按项目视频模型单段上限选戏类（DefaultShotGenre），按戏类取绑定的技能、切小节、一轮一节；收尾按戏类换转换器。
+// 预算按包放宽到 4 万字符、4 张卡（§5 第 4 条）；评测集还没有按小节的章节，包上传后不能真跑评测（见 docs pending-test）。
+const (
+	SectionSkillBudgetChars = 40_000
+	SectionSkillLinkedFiles = 4
+)
+
+func init() {
+	defaults := map[string]string{ShotGenreWenxi15: "yz-shots-wenxi15", ShotGenreWenxi30: "yz-shots-wenxi30"}
+	base, _ := StepByID(StepChapterShots)
+	for _, g := range shotGenres {
+		steps = append(steps, Step{
+			ID: g.Step, Label: "生成分段 · " + g.Label, Scope: StepScopeUnit, Contract: g.Contract,
+			Inputs: []StepInput{
+				{Name: "skill", Label: "技能上下文（skill-context）与用户任务：章节标题、章节正文（只供理解前后剧情）", Source: "按项目风格档案绑定的这一戏类的技能当前版本；SKILL.md 点名必读的 4 张卡全部注入"},
+				{Name: "projectStyle", Label: "【项目画风：…】", Source: "同 chapter.shots"},
+				{Name: "anchor", Label: "【全局风格锚】", Source: "bible_json.style_anchor"},
+				{Name: "masterPalette", Label: "【主基调色卡】", Source: "bible_json.master_palette（风格锁定时生成），按分组列色名和 HEX"},
+				{Name: "characters", Label: "【已确认角色外观】", Source: "同 chapter.shots"},
+				{Name: "episodeSeconds", Label: "【本集时长】", Source: "需求文档 brief_json.episode_seconds"},
+				{Name: "assets", Label: "【项目已确认资产】", Source: "同 chapter.shots"},
+				{Name: "sections", Label: "【分节生成说明】", Source: "代码按戏类切好的小节表（PlanSections：按台词与动作估时，不超过戏类与视频模型的单段上限，不在接话中间切）"},
+				{Name: "turn", Label: "【第 k 节】（每一轮）", Source: "本场第一节带【本场色卡】；本节剧本范围原文、本节台词表（台词 id + 说话人 + 原文）、本节人物与资产（含子卡名「名·变体」）、本节输出要求（技能原生格式、时长上限、片段 / 小节号）"},
+			},
+			Parser:           "每一轮 ConvertSection 按戏类读技能原生输出（读不出镜头按临时失败重试）；收尾逐节转成分镜行（台词对本节台词表落 line_id、片段级站位灯光音效下沉、室内补光源锚点、配乐字样剥掉），按名字绑资产后 RowsToShotlist 转镜头表；每节原样输出存进 drama_shotlists.sections_json",
+			Checks:           []string{"CheckShots（R-SHOT-*；R-SHOT-006/022/024/026 按戏类放宽成 warn）", "CheckSectionDurations（R-SEG-001：一节估时不超过模型单段上限）", "Pack 一节一段（R-SEG-008 每集时长）"},
+			SkillBudgetChars: SectionSkillBudgetChars,
+			SkillLinkedFiles: SectionSkillLinkedFiles,
+			DefaultSkill:     defaults[g.ID],
+			Gate:             base.Gate,
+			EvalConcurrency:  1,
+			TaskSource:       base.TaskSource,
+			Rows:             RowsToShotlist,
+			Check:            CheckShots,
+			Pack:             Pack,
+			Turns: TurnPlan{
+				Unit:  "节",
+				Intro: func([]ShotsScene) string { return "" },
+				Next:  func([]ShotsScene, int, int) string { return "" },
+				Count: CountSectionTurn(g.ID),
+			},
+		})
+	}
+}
+
 // EvalChapter 查这一步评测集里的一章。
 func (s Step) EvalChapter(id string) (StepEvalChapter, bool) {
 	for _, c := range s.EvalSet {

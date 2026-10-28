@@ -192,6 +192,11 @@ type Shot struct {
 	Composition     string            `json:"composition,omitempty"`
 	Transition      *Transition       `json:"transition,omitempty"`
 	VO              string            `json:"vo,omitempty"`
+	// Section / Genre 是按小节生成时这一镜所在的小节（E01S02-P1）和戏类（wenxi15 / wenxi30 / wuxi）；装段一节一段。
+	Section string `json:"section,omitempty"`
+	Genre   string `json:"genre,omitempty"`
+	// Extras 是技能原生输出里统一镜头表没有对应字段的标签（7.3 的风格、核心情绪，即梦的镜头运动方向、场景锚点等），原样带着给编译和展示用。
+	Extras map[string]string `json:"extras,omitempty"`
 }
 
 func (s *Shot) light() Light {
@@ -212,7 +217,7 @@ func (s *Shot) camF() CamF {
 var shotKnownFields = map[string]bool{}
 
 func init() {
-	for _, k := range []string{"id", "scene", "purpose", "subject", "focus", "size", "cam", "move", "camera_emotion", "dof", "blocking", "camera_side", "action", "fight", "performance", "state", "light", "color", "vfx", "lines", "voice", "sfx", "bridge", "strategy", "est", "start_state", "end_state", "refs_hint", "risk_tags", "tag", "plant_id", "emotion_arc", "expression_terms", "action_pattern", "composition", "transition", "vo"} {
+	for _, k := range []string{"id", "scene", "purpose", "subject", "focus", "size", "cam", "move", "camera_emotion", "dof", "blocking", "camera_side", "action", "fight", "performance", "state", "light", "color", "vfx", "lines", "voice", "sfx", "bridge", "strategy", "est", "start_state", "end_state", "refs_hint", "risk_tags", "tag", "plant_id", "emotion_arc", "expression_terms", "action_pattern", "composition", "transition", "vo", "section", "genre", "extras"} {
 		shotKnownFields[k] = true
 	}
 }

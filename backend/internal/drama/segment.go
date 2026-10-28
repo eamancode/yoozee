@@ -38,6 +38,9 @@ type Segment struct {
 	Handles          []Handle          `json:"handles,omitempty"`
 	Warnings         []string          `json:"warnings,omitempty"`
 	ContinuityBridge *ContinuityBridge `json:"continuity_bridge,omitempty"`
+	// Section / Genre 是按小节生成的段对应的小节（一节一段）和戏类；旧镜头表装出的段为空。
+	Section string `json:"section,omitempty"`
+	Genre   string `json:"genre,omitempty"`
 }
 
 type Ref struct {
