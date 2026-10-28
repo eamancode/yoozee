@@ -364,7 +364,10 @@ type DramaShotlist struct {
 	ScriptJSON   string `json:"scriptJson" gorm:"type:text"`
 	CheckJSON    string `json:"checkJson" gorm:"type:text"`
 	// RowsJSON 是这次写入的分镜行原文（评测重放用）；CompileProfileVersion 是装段用的编译档案版本，0 为内置默认。
-	RowsJSON              string    `json:"-" gorm:"type:text"`
+	RowsJSON string `json:"-" gorm:"type:text"`
+	// SectionsJSON 是按小节生成时每一节的原样输出（drama.SectionOutput 数组，M8）：分镜卡按戏类版式显示、只重写几节时作对话历史；
+	// 旧镜头表、手写镜头表为空。
+	SectionsJSON          string    `json:"-" gorm:"type:text"`
 	CompileProfileVersion int       `json:"compileProfileVersion" gorm:"not null;default:0"`
 	CreatedBy             string    `json:"createdBy,omitempty" gorm:"size:36"`
 	CreatedAt             time.Time `json:"createdAt"`

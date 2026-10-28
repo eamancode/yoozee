@@ -86,6 +86,27 @@
           "label": "《第七病区》第一集（悬疑）"
         }
       ]
+    },
+    {
+      "id": "chapter.shots#wenxi15",
+      "contract": "section.wenxi15@1",
+      "skillBudgetChars": 40000,
+      "skillLinkedFiles": 4,
+      "evalSet": null
+    },
+    {
+      "id": "chapter.shots#wenxi30",
+      "contract": "section.wenxi30@1",
+      "skillBudgetChars": 40000,
+      "skillLinkedFiles": 4,
+      "evalSet": null
+    },
+    {
+      "id": "chapter.shots#wuxi",
+      "contract": "section.wuxi@1",
+      "skillBudgetChars": 40000,
+      "skillLinkedFiles": 4,
+      "evalSet": null
     }
   ],
   "profiles": [

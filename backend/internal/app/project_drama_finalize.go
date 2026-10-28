@@ -31,6 +31,9 @@ type DramaStepTaskOutcome struct {
 	Version  int                  `json:"version"`
 	Notes    []string             `json:"notes,omitempty"`
 	Profile  string               `json:"profile,omitempty"`
+	// Genre / Sections 是按小节生成时的戏类和写了几节。
+	Genre    string `json:"genre,omitempty"`
+	Sections int    `json:"sections,omitempty"`
 }
 
 const (
@@ -135,18 +138,27 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 }
 
 // applyChapterShotsTask 是生成分段的 Apply：模型输出 → 分镜行 → 按名字绑资产 → 镜头表 → 检查 → 装段写库。
+// 按小节生成的任务逐节用戏类的转换器把原样输出转成分镜行，原样输出存进镜头表记录（sections_json），任务结果的 text 换成转出的镜头行。
 // 检查有 error 时不拒绝：行和检查结果存成草稿（check_json），不装段；检查结果不写成证据（kind=gate 的证据是成片门禁）。
 func (s *Service) applyChapterShotsTask(task model.Task, meta *dramaStepTaskMeta, result map[string]interface{}) (DramaStepTaskOutcome, error) {
 	target, err := taskDramaStepTarget(task)
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
-	text, _ := result["text"].(string)
-	rows, stats, err := drama.StoryboardRowsFromText(text)
+	assets, err := s.ProjectAssets(task.UserID, target.ProjectID)
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
-	assets, err := s.ProjectAssets(task.UserID, target.ProjectID)
+	shots := taskDramaShots(task.InputJSON)
+	var rows []map[string]any
+	var stats drama.ShotLinesStats
+	var sections []drama.SectionOutput
+	if shots != nil {
+		rows, stats, sections, err = sectionShotsRows(shots, result, assets)
+	} else {
+		text, _ := result["text"].(string)
+		rows, stats, err = drama.StoryboardRowsFromText(text)
+	}
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
@@ -159,7 +171,7 @@ func (s *Service) applyChapterShotsTask(task model.Task, meta *dramaStepTaskMeta
 		}
 		raws = append(raws, encoded)
 	}
-	written, err := s.WriteDramaShotlist(task.UserID, target.ProjectID, target.UnitID, DramaShotlistWriteRequest{Rows: raws, Rule: meta.Rule, KeepDraft: true, Parse: &stats})
+	written, err := s.WriteDramaShotlist(task.UserID, target.ProjectID, target.UnitID, DramaShotlistWriteRequest{Rows: raws, Rule: meta.Rule, KeepDraft: true, Parse: &stats, Sections: sections})
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
@@ -167,6 +179,27 @@ func (s *Service) applyChapterShotsTask(task model.Task, meta *dramaStepTaskMeta
 		Step: meta.Step, Status: DramaStepOutcomeWritten, UnitID: target.UnitID, Parse: stats,
 		Errors: written.Check.Errors, Warnings: written.Check.Warnings, Shots: len(written.Shotlist.Shotlist.Shots),
 		Version: written.Shotlist.Version, Notes: written.Notes, Profile: written.Profile,
+	}
+	if shots != nil {
+		outcome.Genre, outcome.Sections = shots.Genre, len(sections)
+		// 切节时的提醒（文戏 15 连着接话超过两句台词等）只是 warn：记进摘要说明，不拦写库和装段。
+		for _, sec := range sections {
+			for _, w := range sec.Warnings {
+				outcome.Notes = append(outcome.Notes, "小节 "+sec.ID+"："+w)
+			}
+		}
+		// 原样输出已存进镜头表记录：任务结果里换成转出的镜头行（一行一镜，侧栏刷新后按镜头还原），去掉各节原文。
+		lines := make([]string, 0, len(raws))
+		for _, raw := range raws {
+			lines = append(lines, string(raw))
+		}
+		result["text"] = strings.Join(lines, "\n") + "\n"
+		if progress, ok := resultDramaRunProgress(result); ok {
+			for i := range progress.Turns {
+				progress.Turns[i].Text, progress.Turns[i].KeptRows = "", ""
+			}
+			result["dramaRun"] = progress
+		}
 	}
 	if written.Draft {
 		outcome.Status = DramaStepOutcomeDraft
@@ -178,4 +211,83 @@ func (s *Service) applyChapterShotsTask(task model.Task, meta *dramaStepTaskMeta
 	}
 	outcome.Segments, outcome.Scenes = len(written.Segments), len(scenes)
 	return outcome, nil
+}
+
+// resultDramaRunProgress 读任务结果里的运行进度（runDramaRun 放进去的是结构体，从库里读回来是 map）。
+func resultDramaRunProgress(result map[string]interface{}) (dramaRunProgress, bool) {
+	raw, ok := result["dramaRun"]
+	if !ok {
+		return dramaRunProgress{}, false
+	}
+	if progress, ok := raw.(dramaRunProgress); ok {
+		return progress, true
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return dramaRunProgress{}, false
+	}
+	var progress dramaRunProgress
+	if json.Unmarshal(encoded, &progress) != nil {
+		return dramaRunProgress{}, false
+	}
+	return progress, true
+}
+
+// sectionShotsRows 把按小节生成的各节输出转成整章的分镜行：重写的节按戏类转换器转（项目资产名、本场锚点、内景补光源），
+// 不重写的节（「重新生成问题小节」）直接用镜头表里原有的镜头行；镜头 id 按场接着往下编。返回分镜行、解析统计和每一节的原样输出。
+func sectionShotsRows(shots *dramaShotsMeta, result map[string]interface{}, assets []ProjectAssetSummary) ([]map[string]any, drama.ShotLinesStats, []drama.SectionOutput, error) {
+	progress, ok := resultDramaRunProgress(result)
+	if !ok || len(progress.Turns) != len(shots.Sections) {
+		return nil, drama.ShotLinesStats{}, nil, fmt.Errorf("按小节生成的结果不完整：%d 节只写了 %d 节", len(shots.Sections), len(progress.Turns))
+	}
+	var rows []map[string]any
+	var stats drama.ShotLinesStats
+	outputs := make([]drama.SectionOutput, 0, len(shots.Sections))
+	offset := map[string]int{}
+	for i, turn := range progress.Turns {
+		sec := shots.Sections[i]
+		ctx := sectionConvertContext(sec, assets, offset[sec.Scene])
+		conv, err := drama.ConvertSection(shots.Genre, turn.Text, ctx)
+		var part []map[string]any
+		switch {
+		case turn.Kept:
+			kept, _, keptErr := drama.StoryboardRowsFromText(turn.KeptRows)
+			if keptErr != nil {
+				return nil, drama.ShotLinesStats{}, nil, fmt.Errorf("小节 %s 原有的镜头行读不出来：%w", sec.ID, keptErr)
+			}
+			part = renumberSectionRows(kept, sec, offset[sec.Scene])
+		case err != nil:
+			return nil, drama.ShotLinesStats{}, nil, fmt.Errorf("小节 %s 的输出转不成镜头：%w", sec.ID, err)
+		default:
+			part = conv.Rows
+		}
+		out := drama.NewSectionOutput(sec, turn.Text, conv)
+		out.TaskID = turn.TaskID
+		outputs = append(outputs, out)
+		offset[sec.Scene] += len(part)
+		rows = append(rows, part...)
+		stats.Rows += len(part)
+		stats.Rejected += conv.Stats.Rejected
+	}
+	stats.Lines = stats.Rows + stats.Rejected
+	if stats.Lines > 0 {
+		stats.Rate = float64(stats.Rows) / float64(stats.Lines)
+	}
+	if len(rows) == 0 {
+		return nil, stats, nil, drama.ErrNoStoryboardRows
+	}
+	return drama.NormalizeStoryboardRows(rows), stats, outputs, nil
+}
+
+// renumberSectionRows 给不重写的节原有的镜头行按本场接着编镜头 id（前面重写的节镜头数变了，id 跟着挪）。
+func renumberSectionRows(rows []map[string]any, sec drama.Section, offset int) []map[string]any {
+	for i, row := range rows {
+		spec, _ := row["spec"].(map[string]any)
+		if spec == nil {
+			continue
+		}
+		spec["id"] = fmt.Sprintf("%s-%02d", sec.Scene, offset+i+1)
+		spec["scene"], spec["section"] = sec.Scene, sec.ID
+	}
+	return rows
 }

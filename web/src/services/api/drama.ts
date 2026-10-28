@@ -81,7 +81,23 @@ export type DramaSegment = {
     handles?: Array<{ tag: string; text: string }>;
     warnings?: string[];
     continuity_bridge?: { prev_segment: string; handoff_state: string; shared_refs: string[]; bridge_frame?: string; bridge_clip?: string; reanchor_text?: string; shared_bed?: string };
+    /** 按小节生成（M8）：这一段对应的小节（一节一段，E01S02-P1）和戏类（wenxi15 / wenxi30 / wuxi）；旧镜头表装出的段没有。 */
+    section?: string;
+    genre?: DramaShotGenreId;
 };
+
+/** 戏类：文戏 15（7.3 规则书）、文戏 30（即梦小节分镜）、武戏（预留，卡 E）。按项目视频模型单段上限选文戏 15 / 30。 */
+export type DramaShotGenreId = "wenxi15" | "wenxi30" | "wuxi";
+
+const dramaShotGenreLabels: Record<string, string> = { wenxi15: "文戏 15", wenxi30: "文戏 30", wuxi: "武戏" };
+
+/** 戏类的中文名；不认识的原样返回。 */
+export function dramaShotGenreLabel(genre?: string) {
+    return genre ? dramaShotGenreLabels[genre] || genre : "";
+}
+
+/** 生成分段这次用的戏类：maxSeconds 是一节的上限（戏类口径与项目视频模型单段上限取小），model 是视频模型名。 */
+export type DramaStepGenre = { id: DramaShotGenreId; label: string; maxSeconds: number; model: string };
 
 export type DramaIssue = { level: "error" | "warn"; message: string };
 export type DramaCompileResult = {
@@ -276,6 +292,10 @@ export type DramaShot = {
     light?: DramaShotLight;
     lines?: DramaShotLine[];
     emotion_arc?: { id: string; phase_from?: number; phase_to?: number; continues?: string; intensity?: string; trigger?: string };
+    /** 按小节生成时这一镜所在的小节、戏类，和技能原生输出里统一镜头表没有对应字段的标签（风格、核心情绪、场景锚点等）。 */
+    section?: string;
+    genre?: DramaShotGenreId;
+    extras?: Record<string, string>;
     [key: string]: unknown;
 };
 
@@ -283,10 +303,10 @@ export type DramaShot = {
 export type DramaSegmentsCheck = { version: number; errors: number; warnings: number; accepted: boolean };
 
 /**
- * 镜头表检查的一条问题挂到哪几镜上：shots 是镜头表 id；scene 是所在场（「重新生成问题场」按它挑场）。
+ * 镜头表检查的一条问题挂到哪几镜上：shots 是镜头表 id；scene 是所在场，section 是所在小节（「重新生成问题小节」按它挑节）。
  * fix 是台词类快捷修复：add_line 把 lineId 补进这一镜，keep_line 只保留在这一镜（其余镜头去掉）。
  */
-export type DramaShotIssue = DramaCheckItem & { scene?: string; shots?: string[]; fix?: "add_line" | "keep_line" };
+export type DramaShotIssue = DramaCheckItem & { scene?: string; section?: string; shots?: string[]; fix?: "add_line" | "keep_line" };
 
 /** 镜头表门禁的一条结果：shotId 是规则指向的镜头（整表级规则为空）。 */
 export type DramaCheckItem = { level: "error" | "warn"; rule: string; message: string; shotId?: string; lineId?: string };
@@ -308,7 +328,44 @@ export type DramaShotlistView = {
     /** 检查的 error 挂到哪几镜、哪一场、能不能一键修。 */
     issues?: DramaShotIssue[];
     compileProfile?: DramaCompileProfileRef;
+    /** 按小节生成时每一节的原样输出（技能原生格式，含 BGM 等不进镜头表的内容）、转换统计和转出的镜头；旧镜头表没有。 */
+    sections?: DramaSectionOutput[];
     updatedAt: string;
+};
+
+/** 一节原样输出里读出的小节级字段（7.3 的要素提取、当前空间站位，即梦的小节头和小节尾）。 */
+export type DramaSectionField = { name: string; value: string };
+/** 一节的转换统计：lineMerged 是一句拆在相邻两镜合回第一镜的，lineDuplicate 是落了不相邻两镜的，lineMissing 是没写到的，noLight 是室内补不出光源锚点的。 */
+export type DramaSectionConvertStats = {
+    blocks: number;
+    shots: number;
+    rejected?: number;
+    lines: number;
+    lineUnmatched?: number;
+    lineMerged?: number;
+    lineDuplicate?: number;
+    lineMissing?: number;
+    noLight?: number;
+    musicStripped?: number;
+    noSize?: number;
+};
+/** 按小节生成时一节的原样输出（drama_shotlists.sections_json 的一项）。 */
+export type DramaSectionOutput = {
+    id: string;
+    scene: string;
+    heading: string;
+    no: number;
+    genre: DramaShotGenreId;
+    lines: [number, number];
+    lineIds: string[];
+    est: number;
+    raw: string;
+    fields?: DramaSectionField[];
+    stats: DramaSectionConvertStats;
+    shots: string[];
+    taskId?: string;
+    /** 切节时没满足戏类口径的提醒（如文戏 15 连着接话超过两句台词），只是 warn。 */
+    warnings?: string[];
 };
 /** profile 是这章检查、装段用的风格档案及来由（按项目画风对照）；draft 为 true 时检查有 error，只存了草稿没装段。 */
 export type DramaShotlistWriteResult = { shotlist: DramaShotlistView; segments: DramaSegmentView[]; check: DramaCheckReport; stats: DramaShotlistStats; draft: boolean; accepted?: boolean; notes: string[]; profile?: string };
@@ -339,7 +396,7 @@ export function shotlistCheckFailure(error: unknown): DramaCheckReport | undefin
  * 镜头表是检查没过的草稿时仍要过检查：还有 error 就抛 ApiError（reason=shotlist_check_failed，details.check 是检查结果），草稿不变。
  * acceptIssues 是「先装段，到分镜制作改」：带着 error 装段，问题挂到段和镜头上；会让装段做不成的问题（镜头时长不是正数、整场超单段上限）仍拒绝。
  */
-export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: { maxSeconds: number; minSeconds: number }; acceptIssues?: boolean } = {}) {
+export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: DramaSegmentRule; acceptIssues?: boolean } = {}) {
     return http.post<DramaShotlistWriteResult>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist/repack`, input);
 }
 
@@ -446,22 +503,35 @@ export type DramaStepUsage = {
     profile: DramaStyleProfile;
     skill: { id: string; name: string; versionId: string; version: string; contentHash: string };
     bound: boolean;
+    /** 生成分段这次用的戏类（按项目视频模型单段上限选）和绑定表里实际查的那一格（chapter.shots#wenxi15）；其余步骤没有。 */
+    genre?: DramaStepGenre;
+    bindingStep?: string;
 };
 
-export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?: AbortSignal) {
-    return http.get<{ usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}`, { signal });
+/** 视频渠道实际能提交的段长（只收紧）：生成分段按它选戏类、切小节、装段。 */
+export type DramaSegmentRule = { maxSeconds: number; minSeconds: number };
+
+/** 步骤用法、场次表带上与生成分段同一个 rule，弹窗的戏类和场次条的节数才与实际运行一致。 */
+function dramaRuleParams(rule?: DramaSegmentRule) {
+    return rule ? { maxSeconds: rule.maxSeconds, minSeconds: rule.minSeconds } : undefined;
+}
+
+/** 这一步用的风格档案和技能；生成分段要带上运行时同一个 rule（见 dramaRuleParams）。 */
+export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?: AbortSignal, rule?: DramaSegmentRule) {
+    return http.get<{ usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}`, { params: dramaRuleParams(rule), signal });
 }
 
 /**
  * 对这一章跑这一步：提示词由服务端组装，这里只带文本模型选择。服务端在一个任务里按场续写，任务成功前写库（结果摘要在任务 result.dramaStep）：
  * 生成分段解析、绑资产、写镜头表并装段，rule 是视频渠道实际能提交的段长（只收紧）；资产设计写已确认资产，带了 imageTask 时接着给新资产排出图。
- * resumeTaskId 是「从第 N 场继续」的上一次任务；onlyScenes 是生成分段的「重新生成问题场」：只重写这几场，其余场用镜头表里已有的镜头行。
+ * resumeTaskId 是「从第 N 节继续」的上一次任务；onlySections 是生成分段的「重新生成问题小节」：只重写这几节，其余节用镜头表里已有的镜头行、
+ * 原样输出进对话历史；onlyScenes 等于重写这几场的全部小节。
  */
 export function runDramaStep(
     projectId: string,
     unitId: string,
     step: "chapter.shots" | "assets.extract",
-    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: { maxSeconds: number; minSeconds: number }; resumeTaskId?: string; onlyScenes?: string[]; imageTask?: DramaImageTaskTemplate },
+    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule; resumeTaskId?: string; onlyScenes?: string[]; onlySections?: string[]; imageTask?: DramaImageTaskTemplate },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
 }
@@ -575,7 +645,12 @@ export type DramaScene = {
     /** 这一场能用的场次色卡；environments 是提取资产时按地点回填绑到这一场的场景资产。 */
     paletteAssetId?: string;
     environments?: Array<{ id: string; title: string }>;
+    /** 这一场按戏类切出的小节（一节 = 一次生成 = 一段视频）。 */
+    sections?: DramaSceneSection[];
 };
+
+/** 场次表里的一个小节：id 是小节编号（E01S02-P1），lines 是覆盖的正文行，est 是估时秒数；warnings 是切节没满足戏类口径的地方。 */
+export type DramaSceneSection = { id: string; no: number; genre: DramaShotGenreId; lines: [number, number]; lineIds: string[]; speakers: string[]; est: number; warnings?: string[] };
 
 /** 场次规则改变后编号错位的已有数据。 */
 export type DramaSceneRuleNotice = { legacyScenes: number; colorScript: string[]; palettes: string[]; shotlist: boolean; message: string };
@@ -591,20 +666,22 @@ export type DramaScenes = {
     notice?: DramaSceneRuleNotice;
     /** 这个单元已有场次色卡（至少一场有能用的色卡）：提取资产要先有它（否则接口返回 reason=palette_required）。 */
     paletteReady: boolean;
+    /** 生成分段按哪个戏类切小节（项目视频模型单段上限 ≤15 秒文戏 15，更长文戏 30）。 */
+    genre?: DramaStepGenre;
 };
 
 export function dramaScenesKey(projectId: string, unitId?: string) {
     return unitId ? (["project", projectId, "drama-scenes", unitId] as const) : (["project", projectId, "drama-scenes"] as const);
 }
 
-/** 一个单元的场次表（按正文实时切）。 */
-export function getDramaScenes(projectId: string, unitId: string, signal?: AbortSignal) {
-    return http.get<DramaScenes>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/scenes`, { signal });
+/** 一个单元的场次表（按正文实时切）；每场的小节按 rule 选的戏类切，与生成分段同口径。 */
+export function getDramaScenes(projectId: string, unitId: string, signal?: AbortSignal, rule?: DramaSegmentRule) {
+    return http.get<DramaScenes>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/scenes`, { params: dramaRuleParams(rule), signal });
 }
 
 /** 项目场次表里每个单元（全部剧集，没有剧集时全部原文章节）的场次表。 */
-export function getProjectDramaScenes(projectId: string, signal?: AbortSignal) {
-    return http.get<{ units: DramaScenes[] }>(`/projects/${encodeURIComponent(projectId)}/drama/scenes`, { signal });
+export function getProjectDramaScenes(projectId: string, signal?: AbortSignal, rule?: DramaSegmentRule) {
+    return http.get<{ units: DramaScenes[] }>(`/projects/${encodeURIComponent(projectId)}/drama/scenes`, { params: dramaRuleParams(rule), signal });
 }
 
 /** 剧本优化收尾的摘要（任务 result.dramaStep）：写出的各集、替换或改写了哪些已有剧集、检查提醒。 */
@@ -689,8 +766,10 @@ export type DramaRunProgress = {
     runId: string;
     total: number;
     completed: number;
-    scenes?: Array<{ scene: string; heading: string; opening: string }>;
-    turns: Array<{ index: number; scene?: string; heading?: string; rows: number; attempts: number; taskId: string }>;
+    scenes?: Array<{ scene: string; heading: string; opening: string; section?: string; genre?: DramaShotGenreId; est?: number }>;
+    turns: Array<{ index: number; scene?: string; heading?: string; section?: string; rows: number; attempts: number; taskId: string; kept?: boolean }>;
+    /** 按小节生成时这次运行的戏类。 */
+    genre?: DramaShotGenreId;
 };
 
 /** 生成分段收尾的摘要（任务 result.dramaStep）：written 已写镜头表并装段；draft 检查有 error，只存了草稿。 */
@@ -707,6 +786,9 @@ export type DramaStepOutcome = {
     version: number;
     notes?: string[];
     profile?: string;
+    /** 按小节生成时的戏类和写了几节。 */
+    genre?: DramaShotGenreId;
+    sections?: number;
 };
 
 function taskResultRecord(task: Pick<GenerationTask, "resultJson">): Record<string, unknown> {

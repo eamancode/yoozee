@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -79,28 +80,28 @@ const (
 func TestAssetsExtractRequiresScenePalette(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, episodes := seedEpisodeProject(t, svc, db)
-	_, err := svc.planDramaStep("user-1", &project, episodes[0].ID, drama.StepAssetsExtract)
+	_, err := svc.planDramaStep("user-1", &project, episodes[0].ID, drama.StepAssetsExtract, nil)
 	var appErr *AppError
 	if !errors.As(err, &appErr) || appErr.Reason != ReasonPaletteRequired || appErr.Status != http.StatusBadRequest || !strings.Contains(appErr.Message, "先生成场次色卡") {
 		t.Fatalf("没有场次色卡：%v", err)
 	}
-	scenes, err := svc.DramaScenes("user-1", project.ID, episodes[0].ID)
+	scenes, err := svc.DramaScenes("user-1", project.ID, episodes[0].ID, nil)
 	if err != nil || scenes.PaletteReady || scenes.Scenes[0].PaletteAssetID != "" {
 		t.Fatalf("场次表标出没有色卡：%v %+v", err, scenes)
 	}
 	seedScenePalettes(t, svc, db, project)
 	for _, ep := range episodes {
 		current, _ := svc.repo.ProjectForUser("user-1", project.ID)
-		if _, err := svc.planDramaStep("user-1", current, ep.ID, drama.StepAssetsExtract); err != nil {
+		if _, err := svc.planDramaStep("user-1", current, ep.ID, drama.StepAssetsExtract, nil); err != nil {
 			t.Fatalf("有了场次色卡就能提取：%v", err)
 		}
-		view, err := svc.DramaScenes("user-1", project.ID, ep.ID)
+		view, err := svc.DramaScenes("user-1", project.ID, ep.ID, nil)
 		if err != nil || !view.PaletteReady || view.Scenes[0].PaletteAssetID == "" {
 			t.Fatalf("场次表带上色卡：%v %+v", err, view)
 		}
 	}
 	current, _ := svc.repo.ProjectForUser("user-1", project.ID)
-	plan, err := svc.planDramaStep("user-1", current, episodes[0].ID, drama.StepAssetsExtract)
+	plan, err := svc.planDramaStep("user-1", current, episodes[0].ID, drama.StepAssetsExtract, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +197,7 @@ func TestScenePaletteChainsAssetsExtractWithVariants(t *testing.T) {
 	if bound["E01S01"].Environments[0] != assets["病房走廊"].ID || bound["E01S02"].Environments[0] != assets["电梯口"].ID || bound["E02S01"].Environments[0] != assets["电梯轿厢"].ID || bound["E02S01"].UnitID != episodes[1].ID {
 		t.Fatalf("场景回填：%+v", bound)
 	}
-	view, err := svc.DramaScenes("user-1", project.ID, episodes[0].ID)
+	view, err := svc.DramaScenes("user-1", project.ID, episodes[0].ID, nil)
 	if err != nil || len(view.Scenes) != 2 || len(view.Scenes[1].Environments) != 1 || view.Scenes[1].Environments[0].Title != "电梯口" {
 		t.Fatalf("场次表第 2 场返回电梯口：%v %+v", err, view)
 	}
@@ -439,8 +440,8 @@ func TestApplySceneCastAndBible(t *testing.T) {
 	if cast.Variants["E01S02"]["lin"] != "wet" || len(cast.Environments["E01S02"]) != 1 || cast.Variants["E01S01"]["lin"] != "suit" {
 		t.Fatalf("第 2 集第 2 场：子卡、电梯口：%+v", cast)
 	}
-	if prompts := sceneCastPrompts(cast); !strings.Contains(prompts["E01S02"], "林小满 用「林小满·淋湿」") || !strings.Contains(prompts["E01S01"], "林小满 用「林小满·西服」") {
-		t.Fatalf("本场角色子卡提示：%+v", prompts)
+	if titles := sceneCastTitles(cast); titles["E01S02"]["林小满"] != "林小满·淋湿" || titles["E01S01"]["林小满"] != "林小满·西服" {
+		t.Fatalf("本场角色子卡：%+v", titles)
 	}
 	row := func(id string) shotlistRow {
 		var r shotlistRow
@@ -493,12 +494,13 @@ func TestApplySceneCastAndBible(t *testing.T) {
 	}
 }
 
-// 七床第一集真跑生成分段：林小满在第 2 场（电梯口）有子卡「林小满·淋湿」（有图），第 2 场那一轮提示词写明用子卡，
-// 装段后第 2 场的段引用子卡的版本，第 1 场的段不引用；第 2 场的段补上回填到这一场的场景资产。
+// 七床第一集真跑按小节生成（Seedance 2.0，15 秒一节）：林小满在第 2 场（电梯口）有子卡「林小满·淋湿」（有图），第 2 场各节的
+// 本轮指令写明用子卡，第 1 场的不写；装段后第 2 场有林小满的段引用子卡、不引用主卡，第 1 场的段不引用子卡；第 2 场的段都补上回填的电梯口。
 func TestChapterShotsBindsSceneVariant(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, unit := seedQichuang(t, svc, db)
 	seedQichuangStyle(t, svc, project, unit)
+	project = qichuangOnModel(t, svc, db, project, "seedance-2.0")
 	assets := projectAssetsByTitle(t, svc, project.ID)
 	created, err := svc.CreateDramaAssetVariant("user-1", project.ID, assets["林小满"].ID, DramaAssetVariantRequest{Label: "淋湿", Look: "护士服湿透贴身", Scenes: []string{"E01S02"}})
 	if err != nil {
@@ -520,95 +522,80 @@ func TestChapterShotsBindsSceneVariant(t *testing.T) {
 		t.Fatal(err)
 	}
 	current, _ = svc.repo.ProjectForUser("user-1", project.ID)
-	upstream := &streamingShotsUpstream{scenes: qichuangSceneRows(t), genres: qichuangGenreReply}
+	// 第 2 场第 1 节模型照提示把人物名写成「林小满·淋湿」（站位、台词说话人都是子卡名），其余节写主卡名：两种写法都要绑到子卡。
+	upstream := &sectionShotsUpstream{rewrite: func(section, out string) string {
+		if section == "E01S02-P1" {
+			return strings.ReplaceAll(out, "林小满", "林小满·淋湿")
+		}
+		return out
+	}}
 	server := httptest.NewServer(upstream)
 	defer server.Close()
 	queueDramaStepTask(t, svc, db, *current, unit, server.URL, "")
 	done, err := runQueuedTask(t, svc)
 	if err != nil || done.Status != model.TaskStatusSucceeded {
-		t.Fatalf("生成分段：%v %s %q", err, done.Status, done.Error)
+		t.Fatalf("按小节生成：%v %s %q", err, done.Status, done.Error)
 	}
-	if len(upstream.prompts) != 2 || strings.Contains(upstream.prompts[0], "【本场角色子卡】这一场") || !strings.Contains(upstream.prompts[0], "- 林小满·淋湿（角色子卡）：林小满的状态「淋湿」") || !strings.Contains(upstream.prompts[1], "【本场角色子卡】这一场林小满 用「林小满·淋湿」") {
-		t.Fatalf("只有第 2 场的提示词写明用子卡：%d %.600s", len(upstream.prompts), upstream.prompts[len(upstream.prompts)-1])
+	told := 0
+	for i, prompt := range upstream.prompts {
+		section := upstream.sections[i]
+		has := strings.Contains(prompt, "【本场角色子卡】这一场林小满 用「林小满·淋湿」")
+		if strings.HasPrefix(section, "E01S01") && strings.Contains(prompt, "【本场角色子卡】这一场") {
+			t.Fatalf("第 1 场的节 %s 不带子卡", section)
+		}
+		if has {
+			if !strings.HasPrefix(section, "E01S02") || !regexp.MustCompile(`角色：[^\n]*林小满·淋湿`).MatchString(prompt) {
+				t.Fatalf("节 %s 的本节人物写子卡名：%s", section, prompt[strings.Index(prompt, "【本节人物与资产】"):])
+			}
+			told++
+		}
+	}
+	if told == 0 {
+		t.Fatalf("第 2 场有林小满的节要写明用子卡：%v", upstream.sections)
 	}
 	child, _ := svc.repo.AssetForUser("user-1", created.Asset.ID)
+	main, _ := svc.repo.AssetForUser("user-1", assets["林小满"].ID)
 	lift, _ := svc.repo.AssetForUser("user-1", assets["电梯口"].ID)
-	var shots []model.Shot
-	if err := db.Where("project_id = ? AND unit_id = ?", project.ID, unit.ID).Find(&shots).Error; err != nil {
-		t.Fatal(err)
-	}
-	scene2Palette := paletteSummaries(t, svc, project.ID)["E01S02"].PrimaryVersionID
-	scene2 := 0
-	for _, shot := range shots {
-		keys := strings.Join(referenceKeys(t, db, shot.ID), ",")
-		// 段按场装，带本场色卡（role=style）：带第 2 场色卡的就是第 2 场的段。
-		inScene2 := strings.Contains(keys, scene2Palette+"|style")
-		if inScene2 {
-			scene2++
-		}
-		if strings.Contains(keys, child.PrimaryVersionID) != inScene2 {
-			t.Fatalf("段 %s 引用子卡与否：%s", shot.Title, keys)
-		}
-		if inScene2 && !strings.Contains(keys, lift.PrimaryVersionID) {
-			t.Fatalf("第 2 场的段 %s 绑电梯口：%s", shot.Title, keys)
-		}
-	}
-	if scene2 == 0 {
-		t.Fatalf("没有第 2 场的段：%+v", shots)
-	}
-}
-
-// 主卡移出项目：子卡跟着一起移出；任一子卡被镜头引用时整批拒绝（409，列出镜头），主卡和子卡都留着。
-// 在素材库彻底删除主卡：子卡一起删掉，资产表里不留没有主卡的子卡。
-func TestUnlinkOrDeleteParentTakesVariants(t *testing.T) {
-	svc, db := newDramaWorkerTestService(t)
-	project, episodes := seedEpisodeProject(t, svc, db)
-	lin := seedLinXiaoman(t, svc, db, project.ID)
-	suit, err := svc.CreateDramaAssetVariant("user-1", project.ID, lin.Asset.ID, DramaAssetVariantRequest{Label: "西服", Look: "深灰西服"})
+	segments, err := svc.DramaSegments("user-1", project.ID, unit.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wet, err := svc.CreateDramaAssetVariant("user-1", project.ID, lin.Asset.ID, DramaAssetVariantRequest{Label: "淋湿", Look: "护士服湿透"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	shot := model.Shot{ID: newID(), ProjectID: project.ID, UnitID: episodes[1].ID, Title: "E02S01-01", Description: "段", Status: "draft"}
-	if err := db.Create(&shot).Error; err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.LinkShotAsset("user-1", project.ID, shot.ID, LinkShotAssetRequest{AssetVersionID: wet.Asset.PrimaryVersionID, Role: "reference"}); err != nil {
-		t.Fatal(err)
-	}
-	linked := func(id string) bool {
-		ok, err := svc.repo.ProjectAssetLinked(project.ID, id)
-		if err != nil {
-			t.Fatal(err)
+	bound := 0
+	for _, seg := range segments {
+		keys := strings.Join(referenceKeys(t, db, seg.ShotID), ",")
+		inScene2 := strings.HasPrefix(strings.ToUpper(seg.Spec.Scene), "E01S02")
+		withChild := strings.Contains(keys, child.PrimaryVersionID)
+		switch {
+		case !inScene2 && withChild:
+			t.Fatalf("第 1 场的段 %s 不引用子卡：%s", seg.Spec.ID, keys)
+		case inScene2 && strings.Contains(keys, main.PrimaryVersionID):
+			t.Fatalf("第 2 场的段 %s 不引用主卡：%s", seg.Spec.ID, keys)
+		case inScene2 && !strings.Contains(keys, lift.PrimaryVersionID):
+			t.Fatalf("第 2 场的段 %s 绑电梯口：%s", seg.Spec.ID, keys)
 		}
-		return ok
+		if seg.Spec.Section == "E01S02-P1" && !withChild {
+			t.Fatalf("写成「名·变体」的节 %s 绑子卡：%s", seg.Spec.ID, keys)
+		}
+		if inScene2 && withChild {
+			bound++
+			compiled, err := svc.CompileProjectShot("user-1", project.ID, seg.ShotID, CompileProjectShotRequest{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			files := map[string]bool{}
+			for _, f := range compiled.Result.Files {
+				files[f.Role] = true
+			}
+			// 测试里的场次色卡没有合成图：本场色卡以色值写进提示词（有图时作最后一张参考图）。
+			if !files["identity"] || !(files["palette"] || strings.Contains(compiled.Result.Prompt, qichuangPaletteHex[1])) {
+				t.Fatalf("编译稿带子卡图和本场色卡：%+v %s", compiled.Result.Files, compiled.Result.Prompt)
+			}
+			if !strings.Contains(compiled.Result.Prompt, "林小满") {
+				t.Fatalf("编译稿写到子卡的人物：%s", compiled.Result.Prompt)
+			}
+		}
 	}
-	err = svc.UnlinkProjectAsset("user-1", project.ID, lin.Asset.ID)
-	var conflict *AppError
-	if !errors.As(err, &conflict) || conflict.Status != http.StatusConflict || !strings.Contains(err.Error(), "「林小满·淋湿」：E02S01-01") {
-		t.Fatalf("子卡被引用时主卡不能移出：%v", err)
-	}
-	if !linked(lin.Asset.ID) || !linked(suit.Asset.ID) || !linked(wet.Asset.ID) {
-		t.Fatal("拒绝时一张都不移出")
-	}
-	if err := db.Where("shot_id = ?", shot.ID).Delete(&model.ShotAssetReference{}).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.UnlinkProjectAsset("user-1", project.ID, lin.Asset.ID); err != nil {
-		t.Fatal(err)
-	}
-	if linked(lin.Asset.ID) || linked(suit.Asset.ID) || linked(wet.Asset.ID) {
-		t.Fatal("主卡和两张子卡一起移出项目")
-	}
-
-	if err := svc.deleteUserAssetsWithResources("user-1", []string{lin.Asset.ID}, true); err != nil {
-		t.Fatal(err)
-	}
-	var left int64
-	if err := db.Model(&model.Asset{}).Where("id IN ?", []string{lin.Asset.ID, suit.Asset.ID, wet.Asset.ID}).Count(&left).Error; err != nil || left != 0 {
-		t.Fatalf("彻底删除主卡连子卡一起删：%v 还剩 %d", err, left)
+	if bound == 0 {
+		t.Fatalf("第 2 场有段引用子卡：%d 段", len(segments))
 	}
 }

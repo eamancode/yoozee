@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"strings"
 
 	"yingce/backend/internal/drama"
@@ -200,7 +199,7 @@ func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, ass
 }
 
 // applySceneCast 按场换分镜行绑的资产（rows 与 shots 一一对应，原地改）：绑了主卡、这一场有子卡的换成子卡（characters 一起换），
-// 镜头 refs_hint 里的主卡名换成子卡名；这一行一个场景都没绑的补上本场绑的场景资产。
+// 镜头 refs_hint 里的主卡名换成子卡名；没图的子卡退回主卡；这一场回填了场景资产时行里的场景换成它。
 func applySceneCast(rows []shotlistRow, shots []drama.Shot, cast *dramaSceneCast) {
 	if cast.empty() {
 		return
@@ -211,7 +210,6 @@ func applySceneCast(rows []shotlistRow, shots []drama.Shot, cast *dramaSceneCast
 		}
 		scene := strings.ToUpper(strings.TrimSpace(shots[i].Scene))
 		swaps := cast.Variants[scene]
-		hasScene := false
 		for child, parent := range cast.Fallback {
 			for k, hint := range shots[i].RefsHint {
 				if title := cast.titles[child]; title != "" && strings.TrimSpace(hint) == title {
@@ -232,9 +230,6 @@ func applySceneCast(rows []shotlistRow, shots []drama.Shot, cast *dramaSceneCast
 			if child, ok := swaps[b.NodeID]; ok {
 				b.NodeID = child
 			}
-			if b.Role == "environment" || b.Role == "scene" {
-				hasScene = true
-			}
 		}
 		for j := range rows[i].Characters {
 			c := &rows[i].Characters[j]
@@ -253,35 +248,41 @@ func applySceneCast(rows []shotlistRow, shots []drama.Shot, cast *dramaSceneCast
 				}
 			}
 		}
-		if envs := cast.Environments[scene]; !hasScene && len(envs) > 0 {
+		// 这一场回填了场景资产：它就是这一场的场景（与装段「一场只认本场自己的场景」同一口径），行里别的场景换掉，没绑的补上。
+		if envs := cast.Environments[scene]; len(envs) > 0 {
+			kept := rows[i].AssetBindings[:0:0]
+			for _, b := range rows[i].AssetBindings {
+				if (b.Role == "environment" || b.Role == "scene") && !slices.Contains(envs, b.NodeID) {
+					continue
+				}
+				kept = append(kept, b)
+			}
 			for _, id := range envs {
-				if !slices.ContainsFunc(rows[i].AssetBindings, func(b drama.RowAssetBinding) bool { return b.NodeID == id }) {
-					rows[i].AssetBindings = append(rows[i].AssetBindings, drama.RowAssetBinding{NodeID: id, Role: "environment", Priority: 1})
+				if !slices.ContainsFunc(kept, func(b drama.RowAssetBinding) bool { return b.NodeID == id }) {
+					kept = append(kept, drama.RowAssetBinding{NodeID: id, Role: "environment", Priority: 1})
 				}
 			}
+			rows[i].AssetBindings = kept
 		}
 	}
 }
 
-// sceneCastPrompts 是生成分段每一轮带的【本场角色子卡】：这一场哪些角色用哪张子卡（键是单元内场编号）。
-func sceneCastPrompts(cast *dramaSceneCast) map[string]string {
-	out := map[string]string{}
+// sceneCastTitles 是按小节生成每一节带的本场子卡（单元内场编号 → 主卡名 → 子卡名「名·变体」），没图的子卡不在里面。
+func sceneCastTitles(cast *dramaSceneCast) map[string]map[string]string {
+	out := map[string]map[string]string{}
 	if cast.empty() {
 		return out
 	}
 	for scene, swaps := range cast.Variants {
-		var parts []string
-		for _, parent := range slices.Sorted(maps.Keys(swaps)) {
-			child := swaps[parent]
-			if cast.titles[parent] != "" && cast.titles[child] != "" {
-				parts = append(parts, fmt.Sprintf("%s 用「%s」", cast.titles[parent], cast.titles[child]))
+		for parent, child := range swaps {
+			if cast.titles[parent] == "" || cast.titles[child] == "" {
+				continue
 			}
+			if out[scene] == nil {
+				out[scene] = map[string]string{}
+			}
+			out[scene][cast.titles[parent]] = cast.titles[child]
 		}
-		if len(parts) == 0 {
-			continue
-		}
-		sort.Strings(parts)
-		out[scene] = "【本场角色子卡】这一场" + strings.Join(parts, "；") + "：assets、characters 写子卡名（照抄「名·变体」），外貌按子卡的服装 / 状态写。"
 	}
 	return out
 }

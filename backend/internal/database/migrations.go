@@ -248,8 +248,11 @@ var schemaMigrations = []migration{
 	// M8 卡 B：导演风格（style.bible）改成场次色卡（scene.palette），五个风格档案绑默认技能 yz-scene-palette、去掉 style.bible 的绑定；
 	// 平台风格库同一项目类型不重名（唯一索引，已有重名的先在后建的名字后面加序号）。
 	{version: 68, name: "drama_scene_palette", checksum: "sha256:drama-scene-palette-v68-20261028", apply: migrateDramaScenePalette},
+	// M8 卡 F：按小节生成，drama_shotlists 加 sections_json（每一节的原样输出）。戏类绑定沿用 drama_step_bindings，步骤列写「chapter.shots#<戏类>」，不改表。
+	{version: 69, name: "drama_shotlist_sections", checksum: "sha256:drama-shotlist-sections-v69-20261028", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaShotlist{})
+	}},
 	// M8 卡 D：角色子卡（服装 / 状态）是独立的角色资产，assets 加 parent_asset_id（指向主卡，带索引）和 variant_label（变体名）。
-	// 69 留给卡 F（drama_shotlist_sections）；两张卡哪个先合都不改这里的版本号。
 	{version: 70, name: "asset_character_variants", checksum: "sha256:asset-character-variants-v70-20261028", apply: migrateAssetCharacterVariants},
 }
 

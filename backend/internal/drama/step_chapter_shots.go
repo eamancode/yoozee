@@ -360,9 +360,10 @@ type ShotsScene struct {
 	Opening string `json:"opening"`
 	// SourceHeadings 是并成这一场的正文场次头（连续同地点，两个以上才有）。
 	SourceHeadings []string `json:"sourceHeadings,omitempty"`
-	// Genre / GenreReason 是生成分段这一场判出的戏类（只在任务结果的进度里有，轮次表本身不带）。
-	Genre       string `json:"genre,omitempty"`
-	GenreReason string `json:"genreReason,omitempty"`
+	// Section / Genre / Est 是按小节生成时这一轮写的小节（E01S02-P1）、戏类（wenxi15 / wenxi30）和估时秒数：一轮一节。
+	Section string  `json:"section,omitempty"`
+	Genre   string  `json:"genre,omitempty"`
+	Est     float64 `json:"est,omitempty"`
 }
 
 const shotsSceneOpeningChars = 30

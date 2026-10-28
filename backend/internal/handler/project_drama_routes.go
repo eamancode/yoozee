@@ -4,8 +4,11 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"yingce/backend/internal/service"
 
@@ -127,7 +130,12 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		units, err := svc.ProjectDramaScenes(user.ID, c.Param("id"))
+		rule, err := dramaRuleQuery(c)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		units, err := svc.ProjectDramaScenes(user.ID, c.Param("id"), rule)
 		if err != nil {
 			failService(c, err)
 			return
@@ -140,7 +148,12 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		scenes, err := svc.DramaScenes(user.ID, c.Param("id"), c.Param("unitId"))
+		rule, err := dramaRuleQuery(c)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		scenes, err := svc.DramaScenes(user.ID, c.Param("id"), c.Param("unitId"), rule)
 		if err != nil {
 			failService(c, err)
 			return
@@ -331,4 +344,29 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 		c.Header("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(pkg.FileName))
 		c.Data(http.StatusOK, "application/zip", pkg.Data)
 	})
+}
+
+// dramaRuleQuery 读查询参数里的视频渠道段长 maxSeconds / minSeconds（与生成分段 run 请求的 rule 同口径）：
+// 步骤用法和场次表按它选戏类、切小节，与实际运行一致。都没带时为 nil（只按项目生成模型和需求文档）。
+func dramaRuleQuery(c *gin.Context) (*service.DramaShotlistRule, error) {
+	maxRaw, minRaw := strings.TrimSpace(c.Query("maxSeconds")), strings.TrimSpace(c.Query("minSeconds"))
+	if maxRaw == "" && minRaw == "" {
+		return nil, nil
+	}
+	rule := &service.DramaShotlistRule{}
+	for _, field := range []struct {
+		name string
+		raw  string
+		dst  *int
+	}{{"maxSeconds", maxRaw, &rule.MaxSeconds}, {"minSeconds", minRaw, &rule.MinSeconds}} {
+		if field.raw == "" {
+			continue
+		}
+		value, err := strconv.Atoi(field.raw)
+		if err != nil || value <= 0 {
+			return nil, fmt.Errorf("%s 必须是正整数", field.name)
+		}
+		*field.dst = value
+	}
+	return rule, nil
 }

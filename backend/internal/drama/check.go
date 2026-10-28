@@ -151,6 +151,8 @@ type CheckContext struct {
 	Profile *Profile
 	Vocab   *Vocab
 	Rules   RuleLevels
+	// WarnOnly 是这次检查一律按 warn 记的规则（按小节生成时按戏类放宽，见 GenreRelaxedRules）。
+	WarnOnly []string
 }
 
 var (
@@ -159,7 +161,7 @@ var (
 	wideSizes   = map[string]bool{"大远景": true, "远景": true, "全景": true, "中全景": true, "中景": true}
 	closeSizes  = map[string]bool{"特写": true, "大特写": true}
 	actionVerbs = []string{"走", "转", "起", "坐", "递", "拿", "抬", "放", "推", "拉", "倒", "摸", "敲", "点", "摔", "靠", "退", "上前", "低头", "抬头", "伸手", "握", "松", "翻", "撑", "靠近", "后退", "整理", "踱", "跑", "跳", "甩", "挥", "踢", "打", "拔", "收", "扶", "蹲", "站", "躺", "扑", "拽", "捶", "拍", "指", "擦", "撩", "挠", "搓", "掀", "开", "关", "系", "解", "穿", "脱", "喝", "吃", "写", "按", "滑", "撞", "挪", "插", "攥", "捏", "扣", "叠", "揣", "绕", "掏", "塞", "拭", "抹", "揉", "搂", "托", "举", "蹭", "挡", "探", "缩", "蜷", "撑住", "拨"}
-	moveAxis    = map[string]string{"push": "z", "pull": "z", "zoom": "z", "dolly_zoom": "z", "crane_up": "y", "crane_down": "y", "truck": "x", "track": "x", "pan": "rot", "tilt": "rot", "roll": "rot", "orbit": "x", "spiral": "xy", "handheld_micro": "", "handheld": "", "handheld_violent": "", "rack_focus": "", "fixed": "", "snorricam": "", "jib": "xy", "fpv": "xy", "one_take": ""}
+	moveAxis    = map[string]string{"push": "z", "pull": "z", "zoom": "z", "dolly_zoom": "z", "crane_up": "y", "crane_down": "y", "truck": "x", "track": "x", "pan": "rot", "tilt": "rot", "roll": "rot", "orbit": "x", "spiral": "xy", "handheld_micro": "", "handheld": "", "handheld_violent": "", "rack_focus": "", "fixed": "", "snorricam": "", "jib": "xy", "fpv": "xy", "one_take": "", "whip": "rot"}
 	bgmWords    = []string{"配乐", "BGM", "背景音乐", "弦乐", "钢琴声", "鼓点", "音乐卡点", "紧张弦乐", "温暖钢琴", "史诗鼓点"}
 	genericEmo  = []string{"惊讶", "悲伤", "愤怒", "紧张", "害怕", "震惊", "开心", "难过", "焦虑"}
 	// 小墨第 9 条：空间类型的通用默认禁令，档案 space_policy 可覆盖。
@@ -269,8 +271,14 @@ func (c CheckContext) vfxIDs() map[string]bool {
 // CheckShots 检查一张镜头表。
 func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 	R := CheckReport{Kind: "shots", Items: []CheckItem{}, Skipped: []CheckSkip{}}
-	add := func(rule, shotID, message string) { R.add(ctx.Rules, rule, shotID, "", message) }
-	addLevel := func(rule, level, message string) { R.add(ctx.Rules, rule, "", level, message) }
+	relaxed := func(rule, level string) string {
+		if slices.Contains(ctx.WarnOnly, rule) {
+			return "warn"
+		}
+		return level
+	}
+	add := func(rule, shotID, message string) { R.add(ctx.Rules, rule, shotID, relaxed(rule, ""), message) }
+	addLevel := func(rule, level, message string) { R.add(ctx.Rules, rule, "", relaxed(rule, level), message) }
 	prof := ctx.Profile
 	if prof == nil {
 		prof = &Profile{}
@@ -437,7 +445,7 @@ func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 			if len(anchors) > 0 {
 				var bad []string
 				for _, b := range sh.Blocking {
-					if !anchors[b.At] {
+					if b.At != "" && !anchors[b.At] {
 						bad = append(bad, b.At)
 					}
 				}

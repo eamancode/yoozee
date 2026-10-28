@@ -1,0 +1,21 @@
+{
+  "id": "yz-shots-wenxi15",
+  "step": "chapter.shots#wenxi15",
+  "contract": "section.wenxi15@1",
+  "profiles": [
+    "action-epic",
+    "anime-3d",
+    "duanju-shiga",
+    "game-ip",
+    "live-realism"
+  ],
+  "version": "1.0.0",
+  "files": [
+    "SKILL.md",
+    "cards/01-输出格式.md",
+    "cards/02-时长与台词.md",
+    "cards/03-片段边界.md",
+    "cards/04-导演镜头.md"
+  ],
+  "eval": []
+}

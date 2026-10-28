@@ -1,15 +1,14 @@
-// 生成分段的逐场注入（M7.2 第 6 阶段）：建任务时把戏类判定的提示词、本单元每场的色卡段（导演风格色彩脚本里这一场的颜色）
-// 和技能包里的四张戏类卡存进 metadata.dramaShots；worker 在第一轮之前用同一个模型判一次戏类（判定失败、判不出的场按文戏），
-// 结果写进任务结果 result.dramaRun（genres 与 scenes[i].genre），之后每一轮在本轮指令前面放本场色卡和本场戏类的卡。
+// 生成分段按小节写（M8 卡 F）：建任务时按项目视频模型单段上限选戏类（文戏 15 / 文戏 30），按戏类把本单元切成小节（不调模型），
+// 小节表和每一节的本轮指令（本场第一节带本场色卡）存进 metadata.dramaShots；worker 一轮一节（project_drama_run.go），
+// 收尾逐节用戏类的转换器把技能原生输出转成分镜行（project_drama_finalize.go），原样输出按节存进 drama_shotlists.sections_json。
+// M7.2 第 6 阶段开跑前的戏类判定调用和四张戏类卡已经去掉；整章 JSON Lines 的旧拼法（yz-chapter-shots）只留给技能包评测。
 
 package app
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
+	"slices"
 	"strings"
-	"time"
 
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
@@ -17,34 +16,136 @@ import (
 
 // dramaShotsMeta 是任务 metadata.dramaShots。
 type dramaShotsMeta struct {
-	// GenrePrompt 是戏类判定那一次调用的提示词；GenreScenes 是要判的场（场编号，按顺序；没有场次头的正文是一场 E01S01）。
-	GenrePrompt string   `json:"genrePrompt"`
-	GenreScenes []string `json:"genreScenes"`
-	// Palettes 是每场的【本场色卡】段，按场编号（导演风格没写到、对不上当前场次表的场没有）。
-	Palettes map[string]string `json:"palettes,omitempty"`
-	// Cards 是技能包里的戏类卡；老版本包没有戏类卡时为空，每一轮只写判定结果。
-	Cards []drama.SceneGenreCard `json:"cards,omitempty"`
-	// Casts 是每场的【本场角色子卡】段（这一场哪些角色用哪张子卡，M8 卡 D），按场编号；没有子卡的场没有。
-	Casts map[string]string `json:"casts,omitempty"`
+	// Genre 是这次运行的戏类（wenxi15 / wenxi30）；ModelMax 是切节用的单段上限（秒）。
+	Genre    string `json:"genre"`
+	ModelMax int    `json:"modelMax"`
+	// Sections 是切好的小节（一轮一节）；Turns 是每一节的本轮指令，第一节接在任务提示词后面。
+	Sections []drama.Section `json:"sections"`
+	Turns    []string        `json:"turns"`
 }
 
-// chapterShotsSceneMeta 组装逐场注入的参数；正文切不出场时返回 nil（planDramaStep 已先拦下没有正文的单元）。
-func chapterShotsSceneMeta(project *model.Project, unit *model.ProjectUnit, units []model.ProjectUnit, skill drama.StepSkill) *dramaShotsMeta {
-	scenes := drama.ChapterShotsGenreScenes(chapterPlainText(unit.SourceText), unit.Title)
-	if len(scenes) == 0 {
+// taskDramaShots 从任务输入读 metadata.dramaShots；不是按小节生成的任务返回 nil。metadata 不含密钥，不用解密。
+func taskDramaShots(inputJSON string) *dramaShotsMeta {
+	if !strings.Contains(inputJSON, `"dramaShots"`) {
 		return nil
 	}
-	meta := &dramaShotsMeta{GenrePrompt: drama.SceneGenrePrompt(unit.Title, scenes), Cards: drama.SceneGenreCards(skill), Palettes: map[string]string{}}
-	script := unitSceneColorScript(project.BibleJSON, units, unit.ID)
-	for _, sc := range scenes {
-		meta.GenreScenes = append(meta.GenreScenes, sc.ID)
-		if e, ok := script[sc.ID]; ok {
-			if text := drama.ScenePalettePrompt(&e); text != "" {
-				meta.Palettes[sc.ID] = text
-			}
+	var input struct {
+		Metadata struct {
+			DramaShots *dramaShotsMeta `json:"dramaShots"`
+		} `json:"metadata"`
+	}
+	if json.Unmarshal([]byte(inputJSON), &input) != nil || input.Metadata.DramaShots == nil || len(input.Metadata.DramaShots.Sections) == 0 {
+		return nil
+	}
+	return input.Metadata.DramaShots
+}
+
+// projectShotGenre 是项目生成分段用的戏类和段长：项目生成模型的单段上限，叠上需求文档的单段秒数和渠道段长规则（只收紧）。
+func projectShotGenre(project *model.Project, rule *DramaShotlistRule) (drama.ShotGenre, drama.Model, error) {
+	m, err := dramaShotlistModel(project, briefSegmentRule(project.BriefJSON, rule))
+	if err != nil {
+		return drama.ShotGenre{}, drama.Model{}, err
+	}
+	return drama.DefaultShotGenre(m.Duration.Max), m, nil
+}
+
+// unitScenePalettePrompts 是本单元各场的【本场色卡】段（单元内场编号 → 文字）；导演风格没写到、对不上当前场次表的场没有。
+func unitScenePalettePrompts(project *model.Project, units []model.ProjectUnit, unitID string) map[string]string {
+	out := map[string]string{}
+	for scene, e := range unitSceneColorScript(project.BibleJSON, units, unitID) {
+		if text := drama.ScenePalettePrompt(&e); text != "" {
+			out[scene] = text
 		}
 	}
-	return meta
+	return out
+}
+
+// projectMasterPalette 是项目锁定风格时定的主基调色卡（bible_json.master_palette）；没有时为 nil。
+func projectMasterPalette(bibleJSON string) *drama.MasterPalette {
+	var doc struct {
+		MasterPalette *drama.MasterPalette `json:"master_palette"`
+	}
+	if raw := strings.TrimSpace(bibleJSON); raw == "" || json.Unmarshal([]byte(raw), &doc) != nil || doc.MasterPalette.Empty() {
+		return nil
+	}
+	return doc.MasterPalette
+}
+
+// sectionShotsPlan 是按小节生成的一次运行：按戏类切小节、组装第一轮提示词和每一节的本轮指令（不读库，测试直接拿接口 JSON 喂进来）。
+func sectionShotsPlan(project *model.Project, unit *model.ProjectUnit, units []model.ProjectUnit, assets []ProjectAssetSummary, usage DramaStepUsage, skill drama.StepSkill, genre drama.ShotGenre, m drama.Model) (*dramaStepPlan, error) {
+	style := projectStyleSnapshot(project)
+	anchor, _ := projectStyleBible(project.BibleJSON)
+	stepAssets, assetRecords := chapterShotsAssets(assets)
+	characters, characterRecords := chapterShotsCharacters(assets)
+	plan := drama.PlanSections(chapterPlainText(unit.SourceText), unit.Title, genre, m.Duration.Max)
+	if len(plan.Sections) == 0 {
+		return nil, BadAuthRequest("当前章节没有可用于分镜的正文")
+	}
+	prompt, err := drama.BuildSectionShotsPrompt(drama.SectionShotsInput{
+		ChapterShotsInput: drama.ChapterShotsInput{
+			ChapterTitle:   unit.Title,
+			SourceText:     chapterEditorText(unit.SourceText),
+			Style:          drama.StepStyle{Title: style.Title, Prompt: style.Prompt},
+			Characters:     characters,
+			Assets:         stepAssets,
+			EpisodeSeconds: briefEpisodeSeconds(project.BriefJSON),
+			Anchor:         anchor,
+			Skill:          skill,
+		},
+		Genre: genre, Plan: plan, ModelLabel: m.Label,
+		MasterPalette: projectMasterPalette(project.BibleJSON),
+		Palettes:      unitScenePalettePrompts(project, units, unit.ID),
+		Casts:         sceneCastTitles(sceneCastOf(project.BibleJSON, units, unit.ID, assets)),
+	})
+	if err != nil {
+		return nil, err
+	}
+	turns := make([]drama.ShotsScene, 0, len(plan.Sections))
+	for _, sec := range plan.Sections {
+		turns = append(turns, drama.ShotsScene{ID: sec.Scene, Heading: sec.Heading, Section: sec.ID, Genre: sec.Genre, Est: sec.Est})
+	}
+	record := map[string]any{
+		"canvasAssets":        assetRecords,
+		"requirements":        "按小节输出技能原生格式的分镜，服务端转成镜头表写入分镜制作。",
+		"projectStyle":        map[string]any{"presetId": style.PresetID, "title": style.Title, "prompt": style.Prompt},
+		"characters":          characterRecords,
+		"shotDurationSeconds": 0,
+		"shotCount":           0,
+	}
+	shots := &dramaShotsMeta{Genre: genre.ID, ModelMax: m.Duration.Max, Sections: plan.Sections, Turns: prompt.Turns}
+	return &dramaStepPlan{usage: usage, prompt: prompt.StepPrompt, skill: skill, scenes: turns, record: record, shots: shots}, nil
+}
+
+// sectionConvertContext 是收尾转换一节要的上下文：项目资产名（角色、场景、道具）、本场场景的锚点、是不是内景。
+func sectionConvertContext(sec drama.Section, assets []ProjectAssetSummary, offset int) drama.SectionContext {
+	ctx := drama.SectionContext{Section: sec, ShotOffset: offset, Indoor: strings.Contains(drama.ParseSceneHeading(sec.Heading).InOut, "内")}
+	var allAnchors []string
+	for _, a := range assets {
+		if string(a.Status) == "archived" || strings.TrimSpace(a.Title) == "" {
+			continue
+		}
+		category := string(a.Category)
+		switch {
+		case category == "character":
+			ctx.Characters = append(ctx.Characters, a.Title)
+		case slices.Contains(chapterShotsSceneCategories, category):
+			ctx.Places = append(ctx.Places, a.Title)
+			var anchors []string
+			if a.Visual != nil {
+				anchors = sceneAnchorList(a.Visual.Definition["anchors"])
+			}
+			allAnchors = append(allAnchors, anchors...)
+			if drama.SectionPlaceMatches(sec.Heading, a.Title) {
+				ctx.Anchors = append(ctx.Anchors, anchors...)
+			}
+		case category == "prop" || category == "wardrobe" || category == "weapon" || category == "accessory":
+			ctx.Props = append(ctx.Props, a.Title)
+		}
+	}
+	if len(ctx.Anchors) == 0 {
+		ctx.Anchors = allAnchors
+	}
+	return ctx
 }
 
 // unitSceneColorScript 是这个单元各场的色彩脚本，按单元内的场编号（E01S02，与镜头 spec.scene 同一套）：
@@ -60,107 +161,6 @@ func unitSceneColorScript(bibleJSON string, units []model.ProjectUnit, unitID st
 		if slot, ok := table[e.Code()]; ok && slot.UnitID == unitID && colorScriptCurrent(e, table) {
 			out[drama.SceneCode(1, e.SceneNo)] = e
 		}
-	}
-	return out
-}
-
-// taskDramaShots 从任务输入读 metadata.dramaShots；没有返回 nil。metadata 不含密钥，不用解密。
-func taskDramaShots(inputJSON string) *dramaShotsMeta {
-	if !strings.Contains(inputJSON, `"dramaShots"`) {
-		return nil
-	}
-	var input struct {
-		Metadata struct {
-			DramaShots *dramaShotsMeta `json:"dramaShots"`
-		} `json:"metadata"`
-	}
-	if json.Unmarshal([]byte(inputJSON), &input) != nil || input.Metadata.DramaShots == nil || len(input.Metadata.DramaShots.GenreScenes) == 0 {
-		return nil
-	}
-	return input.Metadata.DramaShots
-}
-
-// classifySceneGenres 是第一轮之前的戏类判定：同一个模型、不带对话历史、不进文本流，用一次分镜超时。调用失败各场按文戏；
-// 只有任务本身被取消或到总时限时返回错误。
-func (s *Service) classifySceneGenres(ctx context.Context, task model.Task, input canvasGenerationInput, shots *dramaShotsMeta, timeout time.Duration) ([]drama.SceneGenre, map[string]any, error) {
-	call := input
-	call.Prompt, call.TextHistory, call.OnTextDelta = shots.GenrePrompt, nil, func(string) {}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	result, err := runTextTask(callCtx, call)
-	cancel()
-	if ctx.Err() != nil {
-		return nil, nil, ctx.Err()
-	}
-	if err != nil {
-		_ = s.log(task.UserID, task.ID, "warn", "戏类判定失败，各场按文戏写", err.Error())
-		return drama.FallbackSceneGenres(shots.GenreScenes, "戏类判定失败，按文戏"), nil, nil
-	}
-	text, _ := result["text"].(string)
-	genres, recognized := drama.ParseSceneGenres(text, shots.GenreScenes)
-	if recognized < len(genres) {
-		_ = s.log(task.UserID, task.ID, "warn", fmt.Sprintf("戏类判定只判出 %d/%d 场，其余按文戏写", recognized, len(genres)), jsTruncateForLog(text))
-	}
-	usage, _ := result["usage"].(map[string]any)
-	return genres, usage, nil
-}
-
-func jsTruncateForLog(text string) string {
-	runes := []rune(strings.TrimSpace(text))
-	if len(runes) > 400 {
-		return string(runes[:400]) + "…"
-	}
-	return string(runes)
-}
-
-// sceneGenreOf 是某一场的判定；没有判定（不该发生）时按文戏。
-func sceneGenreOf(genres []drama.SceneGenre, scene string) drama.SceneGenre {
-	for _, g := range genres {
-		if g.Scene == scene {
-			return g
-		}
-	}
-	return drama.SceneGenre{Scene: scene, Genre: drama.SceneGenreFallback, Fallback: true}
-}
-
-// dramaShotsTurnScene 是第 k 轮写的场：逐场续写取轮次表，整章一轮时取正文唯一的一场。
-func dramaShotsTurnScene(run dramaRunMeta, shots *dramaShotsMeta, k int) string {
-	if k <= len(run.Scenes) {
-		return run.Scenes[k-1].ID
-	}
-	if len(shots.GenreScenes) > 0 {
-		return shots.GenreScenes[0]
-	}
-	return ""
-}
-
-// dramaShotsTurnExtra 是第 k 轮放在本轮指令前面的本场色卡和戏类段：这种戏类第一次出现时带整张卡，前面各轮已经给过就只提一句。
-// 放在前面是让本轮指令（第一轮是技能上下文、契约和分回合说明，续写是「继续写第 k 场」）排在最后：卡有七千多字时排在最后，
-// 评测里弱模型按卡写、丢了技能规则（漏台词、自造情绪弧 id）。
-func dramaShotsTurnExtra(shots *dramaShotsMeta, genre drama.SceneGenre, prior []dramaRunTurn) string {
-	var card *drama.SceneGenreCard
-	for i := range shots.Cards {
-		if shots.Cards[i].Genre == genre.Genre {
-			card = &shots.Cards[i]
-			break
-		}
-	}
-	prompts := make([]string, 0, len(prior))
-	for _, t := range prior {
-		prompts = append(prompts, t.Prompt)
-	}
-	return joinTruthyStrings(shots.Palettes[genre.Scene], shots.Casts[genre.Scene], drama.SceneGenrePromptSection(genre, card, drama.SceneGenreCardGiven(prompts, genre.Genre)))
-}
-
-// withSceneGenres 是带上戏类的轮次表（进度里显示）。
-func withSceneGenres(scenes []drama.ShotsScene, genres []drama.SceneGenre) []drama.ShotsScene {
-	if len(genres) == 0 {
-		return scenes
-	}
-	out := make([]drama.ShotsScene, len(scenes))
-	for i, sc := range scenes {
-		g := sceneGenreOf(genres, sc.ID)
-		sc.Genre, sc.GenreReason = g.Genre, g.Reason
-		out[i] = sc
 	}
 	return out
 }
@@ -202,7 +202,7 @@ func (s *Service) unitScenePalettes(userID string, project *model.Project, unitI
 	return out, nil
 }
 
-// segmentPaletteVersions 是一段要绑的色卡版本：装段按场装，一段一场（Segment.Scene 是镜头的 spec.scene）。
+// segmentPaletteVersions 是一段要绑的色卡版本：一段只属于一场（按小节装段时一节一段，同场各节绑同一张）。
 func segmentPaletteVersions(seg drama.Segment, palettes map[string]string) []string {
 	if v := palettes[strings.ToUpper(strings.TrimSpace(seg.Scene))]; v != "" {
 		return []string{v}

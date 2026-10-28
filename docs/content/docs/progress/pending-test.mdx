@@ -13,8 +13,8 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - 色卡约束：提示词加【主基调色卡】（用于角色、道具）、【本集场次色卡】（每场场编号与色值，用于场景）和【用色要求】；外观写色名加 HEX；R-ASSET-009（HEX 不在对应色卡）提醒。
 - 子卡：契约 `assets.extract@1` 加可选 `variants`（没升 @2）；子卡是独立角色资产「名·变体」，迁移 70 加 `assets.parent_asset_id` / `variant_label`；设定继承主卡（`appearance` 等照抄，`clothing` 写这套服装 / 状态，`consistencyPrompt` 写明同一人）；同主卡同变体名只补场；R-ASSET-010（子卡写得不全）。资产页角色卡下折叠子卡，新增 / 改 / 删 / 出图（`POST /drama/assets/:id/variants`、`PATCH|DELETE /drama/variants/:id`）；资产页分页只列主卡。
 - 出图参考图：角色、子卡、道具带主基调色卡图；场景带本场色卡图 + 主基调色卡图；子卡另带主卡三视图（最前），主卡没出完时子卡等着；名额（模板 `maxReferenceImages`）不够色卡先让出、色值写进提示词；模型拒收就降级（去色卡 → 不带图）。
-- 场景回填：提取写库时按地点把场景资产绑到这一集的各场（`bible_json.scene_assets`），场次表返回 `environments`；装段时这一场没绑场景的镜头补上。
-- 镜头绑子卡：装段时这一场有子卡的角色换成子卡（`refs_hint` 改成「名·变体」，圣经里子卡是主卡人物的变体）；生成分段每轮带【本场角色子卡】。子卡换版本只让引用它的镜头过期。
+- 场景回填：提取写库时按地点把场景资产绑到这一集的各场（`bible_json.scene_assets`），场次表返回 `environments`；装段时这一场的镜头场景换成回填的场景。
+- 镜头绑子卡：装段时这一场有子卡的角色换成子卡（`refs_hint` 改成「名·变体」，圣经里子卡是主卡人物的变体）；按小节生成每一节带本节所在场的【本场角色子卡】。子卡换版本只让引用它的镜头过期。
 - 角色加版本（换定妆、改设定）时 payload 的 `metadata`（出图状态、子卡的场）原样带到新版本（之前资产页改设定会丢出图状态）。
 - 验证后修正（verify-pr47）：只改子卡变体名 / 种类 / 场原地改，三视图和镜头产物不动（之前设定文字里带变体名，被当成外观改了）；主卡移出项目时子卡一起移出、任一子卡被镜头引用就整批拒绝（409 列出镜头），素材库删除主卡时子卡一起删（之前留成看不见的孤儿）；子卡没图而主卡有图时镜头退回绑主卡；删被引用的子卡改成 409；提取写 `scene_assets` 改成事务里按当前连戏表合并、条件写回。
 - 技能 `yz-assets-extract` 只改「柚子流程接入说明」（主基调色卡、场次色卡、子卡），正文没动；包版本 1.1.0。已有部署的流程技能包不会被内置种子覆盖，要在后台上传新版本才生效（契约和提示词本身已带新要求）。
@@ -27,12 +27,53 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [ ] M8D-2 线上真图片模型：子卡三视图的脸和主卡是否一致；色卡图作参考是否被画进画面。
 - [ ] M8D-3 资产页子卡的新增 / 改 / 删 / 出图在浏览器里走一遍（明暗主题、折叠、场次多选）。
 - [ ] M8D-4 剧本优化接着跑的场次色卡 → 接着提取资产：这条链路不带出图模板（剧本优化对话框没有图片模型），要到资产页「继续出图」。
-- [ ] M8D-5 卡 F（按小节生成）合并后：【本场角色子卡】要挪到小节提示词，`blocking.who` 写「名·变体」时要能认到子卡（见交接笔记）。
+- [x] M8D-5 卡 F（按小节生成）合并后：【本场角色子卡】接进每一节的本轮指令（只带本节所在场的子卡，【本节人物与资产】的角色写子卡名）；模型把人物写成「名·变体」或写主卡名都绑到这一场的子卡，子卡没图退回主卡；这一场回填了场景时行里的场景换成它（`TestChapterShotsBindsSceneVariant`，七床 Seedance 2.0 文戏 15 按节生成）。
 
 ### 需要拍板（不是验收项）
 
 - 自动接续提取是串行的，某一集提取失败或取消后后面的集不再接，要手动点；要不要失败后跳过继续？
 - 角色、道具的 HEX 只认主基调色卡（场次色卡里给新道具加的新增色会被 R-ASSET-009 提醒），是否放宽到本集场次色卡。
+
+## MiniMax-H3 锁首帧段在工作台按首尾帧生成视频
+
+改了什么：
+
+- H3 锁首帧段（`mode=lock_first_frame`）的编译清单编号是 `first_frame` / `last_frame`。工作台现在把它们当首帧 / 尾帧提交：图片带 `role=first_frame` / `last_frame`，任务按图生视频（`videoEditOperation=image_to_video`）提交，上游收到的 `content[].role` 就是 `first_frame` / `last_frame`，不再当参考图发。MiniMax 协议插件在首尾帧模式下把 `ratio` 写成 `adaptive`，比例跟首帧图走。之前这类段报「工作台暂不支持视频参考」，生成不了。
+- 即梦锁首帧段的编号仍是 `@图片1`（role first_frame），照旧按参考图提交，行为不变。
+- 提交前拦下并给准确提示：首帧 / 尾帧在项目里找不到（「编译清单里的素材没有绑定到这一段：首帧（…）」）；首尾帧混了参考图或参考音频（H3 两条通道互斥）；当前视频模型的能力画像里没有图生视频（「当前视频模型不能按首尾帧生成这一段：不支持图生视频」）；`@视频N` 写明是参考视频、工作台暂不支持；其他不认识的编号写明编号本身。
+
+已验证（本机）：
+
+- [x] 前端 `workflow-shot-references.test.ts`（H3 首帧 + 尾帧带 role、即梦 `@图片1` 不带 role、首帧找不到、首尾帧混参考图、`@视频N`、未知编号）；`internal/app` `TestMiniMaxVideoBodyKeepsWorkbenchFrameRoles`（工作台的首尾帧经官方 MiniMax 插件进 `content[].role`、`ratio=adaptive`，只有尾帧时插件拒绝）。
+- [x] 本机联调（浏览器 + 假上游，H3 项目）：只给首帧的段走方舟协议的 H3 假模型，上游 `content` 是 1 张 `role=first_frame` 的图；首帧 + 尾帧的段走 MiniMax 协议（`POST /v2/video_generation`）的 H3 假模型，上游收到 `first_frame`、`last_frame` 两张图、`ratio=adaptive`。两段的任务 `operation=image_to_video`，都跑完成功。首帧填不存在的 ID、视频模型去掉图生视频这两种情况都在提交前拦下，没有建任务。
+- [ ] M8H3F-1 线上 MiniMax-H3 真模型：锁首帧段（只首帧、首帧 + 尾帧各一段）生成视频，第一帧 / 最后一帧与给的图一致。
+
+## M8 卡 F：按小节生成（默认文戏，文戏 15 / 文戏 30 两套技能）
+
+生成分段的单位从「场」改成「小节」：每场先由代码按戏类规则切成小节（一节 = 一次生成 = 一段视频），一轮写一节，模型按技能原生格式写，代码转换器转成统一镜头表，检查后一节装一段。接口见 `backend/http-api.mdx`「场次表」「短剧流程步骤」，表见 `backend/backend-database.mdx`（迁移 69 加 `drama_shotlists.sections_json`；戏类绑定写在 `drama_step_bindings.step` 的「`chapter.shots#<戏类>`」，不改表）。
+
+- 戏类：不自动判，按项目视频模型单段上限（叠上需求文档单段秒数和渠道段长）选——≤15 秒文戏 15（技能 `yz-shots-wenxi15`，7.3.json 切片），更长文戏 30（`yz-shots-wenxi30`，即梦分镜切片）；武戏（`chapter.shots#wuxi`）在后台流程技能页占位，卡 E 用。开跑前的戏类判定调用和四张戏类卡注入已删；`yz-chapter-shots` 不再用于生成，`chapter.shots` 那一格只给技能包评测重放旧包。
+- 技能包：两个包都是 SKILL.md + 4 张必读卡，原文按卡 0 切片（7.3 按顶层键整段、即梦按行），用「原文」标记夹住，测试逐字对回资产库源文件；SKILL.md 末尾加「柚子流程接入说明」（只写本节、原生格式、项目风格优先于技能画风、7.3 的 BGM 照写但编译去掉、即梦跳过自带的「粘贴提示词」段、资产原名）。注入 39.5k / 36.0k 字，步骤预算 4 万字、4 张卡。生成脚本 `yoozee-skills/tools/slice_section_skills.py`。
+- 切小节：台词按字速、动作按动作动词数估时，不在接话中间切；文戏 15 每节 10～15 秒、最多两句台词（三句极短句也行），文戏 30 每节 ≤30 秒。场次表接口每场带 `sections`，章节页场次条显示「N 节」，悬停看每节估时和行范围。
+- 生成：一轮一节，第一轮带技能、项目记忆（风格锚、主基调色卡、角色外观、资产）和小节表，每节带本节剧本原文、本节台词表、本节人物与资产、本节输出要求，本场第一节带本场色卡；从第 N 节继续、重试、续租照旧。侧栏按「场 → 小节」分组，写的过程中显示技能原文最后几行，一节写完显示转出的镜头。
+- 转换：台词对本节台词表落 line_id（一句拆两镜合回第一镜），片段级站位 / 灯光 / 音效下沉到每镜，室内补光源锚点，配乐字样不进镜头字段，风格 / 核心情绪等标签进 `spec.extras`，运镜加 whip。每节原样输出存进镜头表记录（分镜卡按戏类版式显示用，卡 G）。
+- 装段：一节一段，节内不再按时长切；一节超过模型单段上限报 R-SEG-001 并提示拆节。段记 `section` / `genre`，分镜制作段卡显示小节编号和戏类标签。R-SHOT-006/022/024/026 按戏类放宽成 warn。文戏 15 编译去掉配乐分句，文戏 30 从统一镜头表编译。
+- 戏类显示与运行一致：步骤用法（弹窗「戏类 / 本步使用」）、场次表（场次条节数）和生成分段都带同一个视频渠道段长（查询参数 `maxSeconds` / `minSeconds`，与 run 的 `rule` 同口径），后端用同一个函数选戏类、切小节。之前 Seedance 2.5 项目、渠道上限 15 秒时弹窗写文戏 30、场次条 3 节，实际跑文戏 15、9 节。
+- 「重新生成问题小节」：`onlySections` 可用（`onlyScenes` 等于重写这几场的全部小节），只对问题小节调模型，其余小节原样输出进对话历史、镜头行原样保留；按场生成的旧镜头表不能只重写几节。
+
+已验证（本机自动化）：
+
+- [x] `internal/drama`：`TestPlanSectionsQichuang`（七床第一集文戏 15 切 9 节、文戏 30 切 3 节，全部台词都在某一节、节不重叠）、`TestSectionCutNotMidExchange`、`TestPlanSectionsWenxi30Even`；`TestConvertWenxi15Card0Example` / `TestConvertWenxi15TaggedLine` / `TestConvertWenxi30Card0Example`（卡 0 文档抄的原样样例）、`TestConvertWenxi15QichuangLines` / `TestConvertWenxi30QichuangLines`（七床样例：台词每句一镜、画外持续合回、室内光源、BGM 剥掉、粘贴提示词不串进镜头）、`TestSectionMovesWhip`；`TestPackOneSegmentPerSection`、`TestPackSectionOverLimit`（不切碎、R-SEG-001 提示拆节）、`TestCheckShotsGenreRelaxed`、`TestCompileWenxi15WithoutMusic`；`TestSectionSkillPackages` / `TestSectionSkillExcerptsVerbatim`（包与种子一致、过静态校验、4 卡全注入不截断、原文逐字一致）；`TestStepTable`（戏类步骤预算、默认技能、按模型上限选戏类）。
+- [x] `internal/app`：`TestSectionShotsRunThroughWorkerWenxi30`（Seedance 2.5 七床第一集：文戏 30、3 节 3 段，每段 ≤30 秒带 section / genre；第 2 节 503 失败后「从第 2 节继续」只调 2 次；原样输出存进镜头表、任务结果 text 换成镜头行、文本流有节标记和 rows 行；提示词只带第 1 节台词、没有戏类卡和 JSON 契约）、`TestSectionShotsWenxi15Project`（Seedance 2.0：文戏 15、每节 ≤15 秒且台词 ≤3 句、一节一轮一段，原样输出留 BGM、编译稿没有）、`TestOnlySectionsRerunsProblemSection`（漏台词草稿问题挂在 E01S02-P1；onlyScenes 展开成两节；onlySections 只调 1 次、带第 1 节对话，其余两节镜头不变；旧镜头表拒绝）、`TestSectionShotsCarryScenePalette`（本场色卡只在本场第一节、段绑本场色卡）、`TestDramaScenesSectionsAndGenreBindingRows`（场次表带戏类与小节、15 秒模型换文戏 15；绑定矩阵三列戏类、武戏预留；按戏类那一格取绑定）；旧拼法的黄金提示词（`TestChapterShotsPromptQichuang`、`TestFlowPackageUploadChangesAssembledPrompt`）改走评测用的整章组装路径，仍逐字一致。
+- [x] `internal/app` `TestSectionGenreSameAcrossUsageScenesAndRun`（同一个 Seedance 2.5 项目：不带渠道段长 / 渠道 30 秒时三处都是文戏 30、3 节，渠道 15 秒时三处都是文戏 15、9 节，场次条小节 id 与任务小节 id 逐个相同）；`internal/handler` `TestDramaRuleQuery`；前端 `drama-api.test.ts` 查询带 `maxSeconds` / `minSeconds`。
+- [x] 前端：`chapter-shot-stream.test.ts`（节标记、原文预览、rows 行、按场分组、结果还原按 spec.section）；`bun run build`、`typecheck`、`lint` 通过。
+- [x] M8F-1 本机联调（独立数据目录 + 假上游按两套技能的原生格式吐小节，七床第 1 集）：Seedance 2.5 项目场次条「场次 2 · 文戏 30（一节 ≤30 秒）」、两场 1 节 / 2 节，弹窗「戏类：文戏 30」「本步使用：yoozee · 分镜（文戏 30，即梦小节分镜）」，侧栏按「场 → 小节」流式（写的节显示即梦原文最后几行，写完显示转出的镜头），3 次调用 → 19 镜、0 error、3 段各 24 秒、后两段带一致性桥；Seedance 2.0 项目文戏 15、9 节 9 段各 12 秒、0 error，原样输出里有 BGM、段的编译稿没有。漏一句台词时侧栏「重新生成问题小节（E01S02-P1）」→ 弹窗「只重写这 1 节」→ 假上游只收到 1 次调用（带第 1 节对话）→ 0 error、3 段。分镜制作段卡显示「E01S01-P1 · 文戏 30」；暗色主题下侧栏可读。
+- [ ] M8F-2 部署后用真模型跑七床第 1 集：文戏 30 每节约 9～10k 字、按 30 tok/s 约 5 分钟一节，看每轮是否在分镜超时内；7.3 是否老实只写一个片段、4 或 6 镜（写成两个片段时转换器照收，但一节可能超 15 秒、装段报 R-SEG-001）。
+- [ ] M8F-3 部署后：后台「流程技能」页看到文戏 15 / 文戏 30 / 武戏三列，武戏列不可选；给某档案的文戏 30 列改绑后，30 秒项目的生成分段弹窗「本步使用」跟着变。
+- [ ] M8F-4 部署后：真模型输出的转换统计（`sections[i].stats`）里对不上台词、没写到台词、室内缺光源的条数；检查 error 多出来的规则。
+- [ ] M8F-5 「重新生成问题小节」用真模型跑，看重写的节和前后节的站位、道具、结束站位 / 继承点接不接得上。
+
+已知边界：技能包上传后的真跑评测还没有按小节的评测集（戏类步骤 `evalSet` 为空，上传新版本不能自动评测）；切节用的是估时，模型实写的时长可能和估时差几秒（文戏 15 少于 10 秒的节由技能按 7.3 口径写够）；接话连着说的对白在文戏 15 下可能凑成 3 句以上的一节（不在接话中间拆，只记提醒：场次表 `sections[i].warnings`、任务摘要 `notes`、镜头表 `sections[i].warnings`，不算检查 error；本节输出要求里写明句数，让技能按自身规则写到 10～15 秒）；即梦粘贴提示词、小节头里的剧情功能 / 视听策略只进原样输出，段的即梦小节头仍由装段从镜头推导。
 
 ## M8 卡 B 收口：MiniMax-H3 参考图编号、场次规则提示、暗色勾选框
 
@@ -196,12 +237,12 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - 先装段：`POST .../drama/shotlist/repack` 带 `acceptIssues: true`，有 error 也装段，镜头表记成「已接受、带 N 个问题」；镜头时长不是正数、一场整段超单段上限时仍拒绝并说明。之后重装段沿用。
 - 问题挂到镜头：台词没落镜（R-SHOT-001）挂在本场前一句台词所在的那镜，给「补进这个镜头」；落在两镜的两镜都挂，给「只保留在这个镜头」；其他规则挂在规则指向的镜头上，只显示文字。段卡片标红角标「N 个问题」，镜头列表、章节信息行（顶部章节定位）和总览「带问题的段 N」一起显示。
 - 分镜卡编辑：有镜头表、已装段的段，铅笔打开的是分镜卡（动作、构图、台词从台词表选或改写原文、景别、时长、机位朝向 / 高度、运镜、情绪弧只能从情绪弧索引选、站位、灯光），保存走 `PUT .../drama/segments` 带 `shots`：后端写回镜头表、按当前编译档案重编这一镜的段内文字、整章重检，返回 `check`；保存失败照 M7.2 收口的做法保留编辑、红条给「重试」「放弃改动」。旧镜头 / 没有镜头表的段仍是原来的「画面、台词、时长」编辑。
-- 只重跑问题场：`POST .../drama/steps/chapter.shots/run` 带 `onlyScenes`，一个任务里只对这几场调模型，其余场的镜头行取镜头表原有的、照原来的轮次放进对话历史；收尾整章合并再检查、装段。`onlySections` 给卡 F 留着，现在拒绝。
+- 只重跑问题场：`POST .../drama/steps/chapter.shots/run` 带 `onlyScenes`，一个任务里只对这几场调模型，其余场的镜头行取镜头表原有的、照原来的轮次放进对话历史；收尾整章合并再检查、装段。卡 F 起生成分段按小节写，侧栏改成「重新生成问题小节」（`onlySections`），`onlyScenes` 等于重写这几场的全部小节，见上面卡 F。
 
 自动化覆盖：
 
 - [x] `internal/drama`：`TestShotIssuesAnchorsLineCoverage`（没落镜挂前一句台词那镜 / 本场第一镜，落两镜挂两镜，只取 error）；黄金对照 `compareCheck` 忽略新加的 `lineId`。
-- [x] `internal/app`：`TestAcceptIssuesThenEditShotsClearsMarks`（草稿拒绝分镜卡编辑；带问题装段后段、进度、镜头表都标问题；自造情绪弧、版本对不上拒绝；补台词少一个 error，只保留一处清零，之后不带 acceptIssues 重装也过检查）、`TestAcceptIssuesRejectsUnpackableShots`（时长为负拒绝、草稿不变）、`TestOnlyScenesRerunsProblemScenes`（不在正文的场、按小节拒绝；只调一次模型、带第 1 场对话；第 1、3 场 `kept`；文本流只有第 2 场的标记且带 `only`）。
+- [x] `internal/app`：`TestAcceptIssuesThenEditShotsClearsMarks`（草稿拒绝分镜卡编辑；带问题装段后段、进度、镜头表都标问题；自造情绪弧、版本对不上拒绝；补台词少一个 error，只保留一处清零，之后不带 acceptIssues 重装也过检查）、`TestAcceptIssuesRejectsUnpackableShots`（时长为负拒绝、草稿不变）；只重跑问题场的用例卡 F 起换成按小节的 `TestOnlySectionsRerunsProblemSection`。
 - [x] 前端：`shot-issues.test.ts`（挑问题场、按镜头取问题、补进 / 只保留的改动）、`segment-edit.test.ts`（分镜卡编辑时长没改不动段、改了重排；快捷修复）、`chapter-shot-stream.test.ts`（回合标记 `only`）。
 - [x] 本机联调（独立数据目录 + 假上游，第 1 场 E01S01-07 漏写「七床的人呢？」、第 2 场「你怎么在这？」写进 E01S02-05 和 06）：侧栏「2 个问题」→「先装段，到分镜制作改」装成 6 段、2 段标问题并跳到分镜制作；S01 第 4 镜「台词 E01S01L02 没有落在任何镜头」点「补进这个镜头」→ 提示「本章还有 1 个问题」、S01 角标消失、台词编进这一镜；S03 打开 E01S02-06 的分镜卡去掉那句、改动作、选一条索引里的情绪弧 → 「本章镜头表检查没有问题了」，章节信息行和镜头列表的标记都消失；页面里拦掉段保存请求时编辑框保留、红条「重试」后写进（镜头表第 5 版）。另一次重新造出同样的草稿，假上游改回正常后点「重新生成问题场（E01S01、E01S02）」：假上游只收到两次续写调用（第 1 场、第 2 场，第 2 场带第 1 场的对话），第 3 场 `kept`，收尾 0 error 写入 6 段。暗色主题下分镜卡的红框和问题文字可读。
 - [ ] 部署后：用真模型（如 deepseek-v4.1-flash）跑出带 R-SHOT-001 的草稿，走一遍「先装段 → 补进这个镜头 / 只保留在这个镜头 → 清零」，看问题挂的那一镜是不是用户会去补的那一镜（挂在前一句台词所在镜头的规则是否合适）。

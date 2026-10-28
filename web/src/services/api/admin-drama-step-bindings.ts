@@ -12,7 +12,8 @@ export type DramaStepBindingCell = {
     updatedAt?: string;
 };
 
-export type DramaStepDescriptor = { id: string; label: string; contract: string; defaultSkill: string };
+/** 绑定矩阵的一列：genre 是生成分段的戏类列（chapter.shots#<戏类>），reserved 是只占了位置还不会被调用的戏类（武戏），note 是这一列的说明。 */
+export type DramaStepDescriptor = { id: string; label: string; contract: string; defaultSkill: string; genre?: string; reserved?: boolean; note?: string };
 export type DramaStepSkillOption = { id: string; name: string; version: string; source: string };
 
 /** 后台「流程技能」：风格档案 × 步骤 → 技能。 */

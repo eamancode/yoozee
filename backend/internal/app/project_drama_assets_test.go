@@ -47,7 +47,7 @@ func queueAssetsExtractTask(t *testing.T, svc *Service, db *gorm.DB, project mod
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := svc.planDramaStep("user-1", current, unitID, drama.StepAssetsExtract)
+	plan, err := svc.planDramaStep("user-1", current, unitID, drama.StepAssetsExtract, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

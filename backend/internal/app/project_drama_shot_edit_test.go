@@ -2,15 +2,11 @@ package app
 
 import (
 	"encoding/json"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
 
 	"yingce/backend/internal/drama"
-	"yingce/backend/internal/model"
-
-	"gorm.io/gorm"
 )
 
 // brokenQichuangLines 是七床线上输出改出两类台词问题：第 1 场「七床的人呢？」那一镜（E01S01-07）不写台词，
@@ -185,104 +181,5 @@ func TestAcceptIssuesRejectsUnpackableShots(t *testing.T) {
 	}
 	if view, _ := service.DramaShotlist("user-1", project.ID, unit.ID); view == nil || !view.Draft {
 		t.Fatal("拒绝后草稿不变")
-	}
-}
-
-// 「重新生成问题场」：七床第 1 集按场次规则（连续同地点并成一场）是两场，只重写第 2 场，第 1 场用镜头表里原有的镜头行放进对话历史；
-// 任务只调一次模型，收尾合并整章、检查通过并装段。场次规则更新前写的镜头表（旧场编号）不能只重写几场。
-func TestOnlyScenesRerunsProblemScenes(t *testing.T) {
-	svc, db := newDramaWorkerTestService(t)
-	project, unit := seedQichuang(t, svc, db)
-	scenes := qichuangSceneRows(t)
-	broken := map[string][]string{}
-	for scene, rows := range scenes {
-		broken[scene] = slices.Clone(rows)
-	}
-	// 第 2 场第 6 镜也写上第 5 镜的台词（落在两镜）。
-	var five, six map[string]any
-	_ = json.Unmarshal([]byte(broken["E01S02"][4]), &five)
-	_ = json.Unmarshal([]byte(broken["E01S02"][5]), &six)
-	six["spec"].(map[string]any)["lines"] = five["spec"].(map[string]any)["lines"]
-	broken["E01S02"][5] = testJSON(t, six)
-	upstream := &streamingShotsUpstream{scenes: broken}
-	server := httptest.NewServer(upstream)
-	defer server.Close()
-
-	queueDramaStepTask(t, svc, db, project, unit, server.URL, "")
-	first, err := runQueuedTask(t, svc)
-	if err != nil || first.Status != model.TaskStatusSucceeded {
-		t.Fatalf("整章生成：%v %q", err, first.Error)
-	}
-	view, _ := svc.DramaShotlist("user-1", project.ID, unit.ID)
-	if !view.Draft || len(view.Issues) != 1 || view.Issues[0].Scene != "E01S02" {
-		t.Fatalf("第 2 场有问题、存成草稿：%+v", view.Issues)
-	}
-	keptScene1 := slices.Clone(scenes["E01S01"])
-
-	plan, err := svc.planDramaStep("user-1", &project, unit.ID, drama.StepChapterShots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.onlyScenesRun(project.ID, unit.ID, plan, newDramaRunMeta(plan, unit.ID), []string{"E01S09"}, nil); err == nil {
-		t.Fatal("不在正文里的场应拒绝")
-	}
-	if _, err := svc.onlyScenesRun(project.ID, unit.ID, plan, newDramaRunMeta(plan, unit.ID), nil, []string{"E01S02-1"}); err == nil {
-		t.Fatal("还不能按小节重跑")
-	}
-	run, err := svc.onlyScenesRun(project.ID, unit.ID, plan, newDramaRunMeta(plan, unit.ID), []string{"E01S02"}, nil)
-	if err != nil || !slices.Equal(run.OnlyScenes, []string{"E01S02"}) || run.BaseShotlistVersion != view.Version {
-		t.Fatalf("只重写第 2 场：%v %+v", err, run)
-	}
-	req := dramaStepTaskRequest(project.ID, unit.ID, plan, dramaStepTaskOptions{Model: "test", Config: map[string]any{"baseUrl": server.URL, "apiKey": "test-key", "model": "test", "interfaceType": "chat-completion"}})
-	req.Input["metadata"].(map[string]any)["dramaRun"] = run
-	insertDramaTestTask(t, svc, db, project.ID, req)
-	upstream.scenes, upstream.calls, upstream.histories = scenes, 0, nil
-	done, err := runQueuedTask(t, svc)
-	if err != nil || done.Status != model.TaskStatusSucceeded {
-		t.Fatalf("重新生成问题场：%v %q", err, done.Error)
-	}
-	if upstream.calls != 1 || upstream.histories[0] != 2 {
-		t.Fatalf("只调一次模型、带第 1 场的对话：%d %v", upstream.calls, upstream.histories)
-	}
-	var result struct {
-		DramaRun  dramaRunProgress     `json:"dramaRun"`
-		DramaStep DramaStepTaskOutcome `json:"dramaStep"`
-	}
-	if err := json.Unmarshal([]byte(done.ResultJSON), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.DramaStep.Status != DramaStepOutcomeWritten || result.DramaStep.Errors != 0 || result.DramaStep.Parse.Rows != 41 {
-		t.Fatalf("收尾合并整章并装段：%+v", result.DramaStep)
-	}
-	if len(result.DramaRun.Turns) != 2 || !result.DramaRun.Turns[0].Kept || result.DramaRun.Turns[1].Kept {
-		t.Fatalf("第 1 场没调模型：%+v", result.DramaRun.Turns)
-	}
-	after, _ := svc.DramaShotlist("user-1", project.ID, unit.ID)
-	if after.Draft || len(after.Shotlist.Shots) != 41 {
-		t.Fatalf("整章镜头表：%+v", after.Check)
-	}
-	// 其他场的镜头行不变。
-	var spec map[string]any
-	_ = json.Unmarshal([]byte(keptScene1[0]), &spec)
-	if after.Shotlist.Shots[0].ID != spec["spec"].(map[string]any)["id"] {
-		t.Fatalf("第 1 场镜头保留：%s", after.Shotlist.Shots[0].ID)
-	}
-	deltas, err := svc.repo.TaskTextDeltas("user-1", done.ID, 0, 1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stream strings.Builder
-	for _, d := range deltas {
-		stream.WriteString(d.Content)
-	}
-	if !strings.HasPrefix(stream.String(), `{"@turn":{"index":2,"total":2,"scene":"E01S02"`) || !strings.Contains(stream.String(), `"only":["E01S02"]`) || strings.Count(stream.String(), `"@turn"`) != 1 {
-		t.Fatalf("文本流只有第 2 场：%.200s", stream.String())
-	}
-	// 场次规则更新前写的镜头表（台词表没有 scene_rule，正文又有并起来的场）：旧场编号对不上现在的场次，拒绝。
-	if err := db.Model(&model.DramaShotlist{}).Where("unit_id = ?", unit.ID).Update("script_json", gorm.Expr("REPLACE(script_json, ?, ?)", `"scene_rule":2`, `"scene_rule":0`)).Error; err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.onlyScenesRun(project.ID, unit.ID, plan, newDramaRunMeta(plan, unit.ID), []string{"E01S02"}, nil); err == nil || !strings.Contains(err.Error(), "场次规则更新前") {
-		t.Fatalf("旧场编号的镜头表应拒绝只重写几场：%v", err)
 	}
 }

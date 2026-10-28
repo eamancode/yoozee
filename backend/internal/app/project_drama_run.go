@@ -53,6 +53,9 @@ type dramaRunMeta struct {
 	// 照原来的轮次放进对话历史（不调模型），收尾按整章合并、检查、装段。为空时每一场都写。见 project_drama_run_only.go。
 	OnlyScenes          []string `json:"onlyScenes,omitempty"`
 	BaseShotlistVersion int      `json:"baseShotlistVersion,omitempty"`
+	// OnlySections 是按小节生成时的「重新生成问题小节」：只重写这几节（OnlyScenes 给了场时展开成这几场的全部小节）；
+	// 其余各节的原样输出放进对话历史，镜头行用镜头表里已有的。
+	OnlySections []string `json:"onlySections,omitempty"`
 }
 
 // dramaRunTurn 是写完的一轮（一场或一集）。Prompt / Text 是续写和「从第 N 场继续」的对话历史，任务成功后从结果里去掉。
@@ -60,8 +63,9 @@ type dramaRunTurn struct {
 	Index   int    `json:"index"`
 	Scene   string `json:"scene,omitempty"`
 	Heading string `json:"heading,omitempty"`
-	// Genre 是生成分段这一场的戏类（这一轮带的是哪种戏类卡）。
-	Genre string `json:"genre,omitempty"`
+	// Section / Genre 是按小节生成时这一轮写的小节和戏类（wenxi15 / wenxi30）。
+	Section string `json:"section,omitempty"`
+	Genre   string `json:"genre,omitempty"`
 	// Rows 是这一轮写了几条：生成分段是镜头行数，剧本优化是集数（1）。
 	Rows     int            `json:"rows"`
 	Attempts int            `json:"attempts"`
@@ -70,8 +74,10 @@ type dramaRunTurn struct {
 	Usage    map[string]any `json:"usage,omitempty"`
 	// TaskID 是写出这一轮的任务（从上一次任务接过来的轮次指向原任务）。
 	TaskID string `json:"taskId"`
-	// Kept 表示这一轮没调模型：「重新生成问题场」时不重写的场，Text 是镜头表里原有的镜头行。
-	Kept bool `json:"kept,omitempty"`
+	// Kept 表示这一轮没调模型：「重新生成问题场」时不重写的场，Text 是镜头表里原有的镜头行；按小节生成时 Text 是这一节存下的
+	// 原样输出（进对话历史），KeptRows 是镜头表里这一节原有的镜头行（一行一个 JSON，收尾直接用，保留分镜卡上的手改）。
+	Kept     bool   `json:"kept,omitempty"`
+	KeptRows string `json:"keptRows,omitempty"`
 }
 
 // dramaRunProgress 是任务 result.dramaRun：运行进度。前端按 Completed / Total 显示「从第 N 场继续」。
@@ -81,10 +87,8 @@ type dramaRunProgress struct {
 	Completed int                `json:"completed"`
 	Scenes    []drama.ShotsScene `json:"scenes,omitempty"`
 	Turns     []dramaRunTurn     `json:"turns"`
-	// Genres 是生成分段第一轮之前判出的各场戏类（判定失败的场按文戏，fallback=true）；GenreUsage 是判定那一次调用的用量。
-	// 「从第 N 场继续」沿用上一次的判定，不再判。
-	Genres     []drama.SceneGenre `json:"genres,omitempty"`
-	GenreUsage map[string]any     `json:"genreUsage,omitempty"`
+	// Genre 是按小节生成时这次运行的戏类。
+	Genre string `json:"genre,omitempty"`
 }
 
 // dramaTurnMarker 是写进文本流的回合标记行：前端见到它就把这一场之前收到的半截输出清掉（重试时同一场会重写）。
@@ -94,11 +98,11 @@ type dramaTurnMarker struct {
 	Scene   string `json:"scene,omitempty"`
 	Heading string `json:"heading,omitempty"`
 	Attempt int    `json:"attempt"`
-	// Genre / GenreReason 是生成分段这一场的戏类；Genres 只在第一轮的标记里带，是全部场的判定（侧栏一开始就能标出每场戏类）。
-	Genre       string             `json:"genre,omitempty"`
-	GenreReason string             `json:"genreReason,omitempty"`
-	Genres      []drama.SceneGenre `json:"genres,omitempty"`
-	// Only 是「重新生成问题场」要重写的场（只有这几场有回合标记和输出）。
+	// Section / Genre / Est 是按小节生成时这一轮的小节、戏类名（文戏 15）和估时秒数；侧栏按「场 → 小节」分组。
+	Section string  `json:"section,omitempty"`
+	Genre   string  `json:"genre,omitempty"`
+	Est     float64 `json:"est,omitempty"`
+	// Only 是「重新生成问题场 / 小节」要重写的场或小节（只有这几轮有回合标记和输出）。
 	Only []string `json:"only,omitempty"`
 }
 
@@ -202,7 +206,7 @@ func (s *Service) resumeDramaRun(userID string, projectID string, unitID string,
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("正文的%s次改过了（或场次规则已更新：连续同地点的场次头并成一场），不能从中间继续，请重新%s", unit, label))
 	}
 	return dramaRunMeta{RunID: run.RunID, Step: run.Step, UnitID: unitID, Scenes: run.Scenes, Sources: run.Sources, Turns: run.Turns, ResumeFrom: progress.Completed + 1, ResumeTaskID: previous.ID,
-		OnlyScenes: run.OnlyScenes, BaseShotlistVersion: run.BaseShotlistVersion}, nil
+		OnlyScenes: run.OnlyScenes, OnlySections: run.OnlySections, BaseShotlistVersion: run.BaseShotlistVersion}, nil
 }
 
 func sameShotsScenes(a []drama.ShotsScene, b []drama.ShotsScene) bool {
@@ -211,39 +215,39 @@ func sameShotsScenes(a []drama.ShotsScene, b []drama.ShotsScene) bool {
 	}
 	for i := range a {
 		x, y := a[i], b[i]
-		if x.ID != y.ID || x.Heading != y.Heading || x.Opening != y.Opening || x.Genre != y.Genre || x.GenreReason != y.GenreReason || !slices.Equal(x.SourceHeadings, y.SourceHeadings) {
+		if x.ID != y.ID || x.Heading != y.Heading || x.Opening != y.Opening || x.Section != y.Section || x.Genre != y.Genre || x.Est != y.Est || !slices.Equal(x.SourceHeadings, y.SourceHeadings) {
 			return false
 		}
 	}
 	return true
 }
 
-// dramaRunStartTurns 是这次执行前已经写完的轮次和已判出的戏类：同一任务上次执行存下的（换路由重跑、租约被别的 worker 接管）优先，
-// 否则取「从第 N 场继续」所指任务的前 N-1 轮和它的戏类判定。
-func (s *Service) dramaRunStartTurns(task model.Task, run dramaRunMeta) ([]dramaRunTurn, []drama.SceneGenre, error) {
+// dramaRunStartTurns 是这次执行前已经写完的轮次：同一任务上次执行存下的（换路由重跑、租约被别的 worker 接管）优先，
+// 否则取「从第 N 场 / 节继续」所指任务的前 N-1 轮。
+func (s *Service) dramaRunStartTurns(task model.Task, run dramaRunMeta) ([]dramaRunTurn, error) {
 	if latest, err := s.repo.Task(task.ID); err == nil {
-		if progress := taskDramaRunProgress(latest.ResultJSON); progress != nil && progress.RunID == run.RunID && (len(progress.Turns) > 0 || len(progress.Genres) > 0) {
-			return progress.Turns, progress.Genres, nil
+		if progress := taskDramaRunProgress(latest.ResultJSON); progress != nil && progress.RunID == run.RunID && len(progress.Turns) > 0 {
+			return progress.Turns, nil
 		}
 	}
 	if run.ResumeTaskID == "" || run.ResumeFrom <= 1 {
-		return nil, nil, nil
+		return nil, nil
 	}
 	previous, err := s.repo.TaskForUser(task.UserID, run.ResumeTaskID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("读不到要继续的任务：%w", err)
+		return nil, fmt.Errorf("读不到要继续的任务：%w", err)
 	}
 	progress := taskDramaRunProgress(previous.ResultJSON)
 	if progress == nil || progress.RunID != run.RunID || len(progress.Turns) < run.ResumeFrom-1 {
-		return nil, nil, errors.New("要继续的任务没有存下已写完的轮次，请重新生成")
+		return nil, errors.New("要继续的任务没有存下已写完的轮次，请重新生成")
 	}
 	turns := progress.Turns[:run.ResumeFrom-1]
 	for _, t := range turns {
 		if strings.TrimSpace(t.Prompt) == "" || strings.TrimSpace(t.Text) == "" {
-			return nil, nil, errors.New("要继续的任务缺少已写完各轮的对话，请重新生成")
+			return nil, errors.New("要继续的任务缺少已写完各轮的对话，请重新生成")
 		}
 	}
-	return turns, progress.Genres, nil
+	return turns, nil
 }
 
 // runDramaRun 按轮循环调模型（input 是第一轮的输入：提示词是服务端组装的整章 / 整批提示词）。返回的结果 text 是各轮输出按顺序拼接，
@@ -258,29 +262,23 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		return nil, err
 	}
 	turnTimeout := storyboardTurnTimeout(policy.Task)
-	turns, genres, err := s.dramaRunStartTurns(task, run)
+	turns, err := s.dramaRunStartTurns(task, run)
 	if err != nil {
 		return nil, err
 	}
 	total := max(1, run.Turns)
 	plan := dramaTurnPlan(run.Step)
-	progress := dramaRunProgress{RunID: run.RunID, Total: total, Completed: len(turns), Scenes: run.Scenes, Turns: turns, Genres: genres}
-	// 生成分段：第一轮之前判一次戏类（续跑沿用已判的），判完先存进进度，换 worker 重跑时不再判。
+	progress := dramaRunProgress{RunID: run.RunID, Total: total, Completed: len(turns), Scenes: run.Scenes, Turns: turns}
+	// 按小节生成：一轮一节，每一节的本轮指令建任务时已经组好；当轮按戏类的转换器校验，转出的镜头行另写一行进文本流给侧栏显示。
 	shots := taskDramaShots(task.InputJSON)
-	if shots != nil && len(progress.Genres) == 0 {
-		if progress.Genres, progress.GenreUsage, err = s.classifySceneGenres(ctx, task, input, shots, turnTimeout); err != nil {
-			return nil, err
+	genreLabel := ""
+	if shots != nil {
+		g, ok := drama.ShotGenreByID(shots.Genre)
+		if !ok || len(shots.Turns) != len(shots.Sections) || len(shots.Sections) != total {
+			return nil, errors.New("按小节生成的任务参数不完整，请重新生成")
 		}
-		progress.Scenes = withSceneGenres(run.Scenes, progress.Genres)
-		encoded, err := json.Marshal(map[string]any{"mode": "text", "dramaRun": progress})
-		if err != nil {
-			return nil, err
-		}
-		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, "已判出各场戏类", 35, string(encoded)); err != nil {
-			return nil, fmt.Errorf("保存戏类判定失败：%w", err)
-		}
+		plan, progress.Genre, genreLabel = dramaTurnPlan(g.Step), g.ID, g.Label
 	}
-	progress.Scenes = withSceneGenres(run.Scenes, progress.Genres)
 	stream := newDramaRunStream(s, task, input.OnTextDelta)
 	defer stream.close()
 	turnInput := input
@@ -289,7 +287,7 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 	for _, t := range turns {
 		written += t.Rows
 	}
-	kept, err := s.dramaRunKeptScenes(task, run, len(turns))
+	kept, err := s.dramaRunKeptSections(task, run, len(turns))
 	if err != nil {
 		return nil, err
 	}
@@ -299,41 +297,51 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 			return nil, context.Canceled
 		}
 		prompt := input.Prompt
-		if k == 1 && len(run.Scenes) > 1 {
+		switch {
+		case shots != nil && k == 1:
+			prompt = joinTruthyStrings(input.Prompt, shots.Turns[0])
+		case shots != nil:
+			prompt = shots.Turns[k-1]
+		case k == 1 && len(run.Scenes) > 1:
 			prompt += "\n\n" + plan.Intro(run.Scenes)
-		} else if k > 1 {
+		case k > 1:
 			prompt = plan.Next(run.Scenes, k, written)
 		}
 		turnInput.Prompt = prompt
 		turnInput.TextHistory = dramaRunHistory(input.TextHistory, progress.Turns)
 		marker := dramaTurnMarker{Index: k, Total: total}
+		key := ""
 		if k <= len(run.Scenes) {
-			marker.Scene, marker.Heading = run.Scenes[k-1].ID, run.Scenes[k-1].Heading
-		}
-		genre := drama.SceneGenre{}
-		if shots != nil {
-			genre = sceneGenreOf(progress.Genres, dramaShotsTurnScene(run, shots, k))
-			marker.Genre, marker.GenreReason = genre.Genre, genre.Reason
-			if k == len(turns)+1 {
-				marker.Genres = progress.Genres
+			sc := run.Scenes[k-1]
+			marker.Scene, marker.Heading, key = sc.ID, sc.Heading, sc.ID
+			if sc.Section != "" {
+				marker.Section, marker.Genre, marker.Est, key = sc.Section, genreLabel, sc.Est, sc.Section
 			}
-			turnInput.Prompt = joinTruthyStrings(dramaShotsTurnExtra(shots, genre, progress.Turns), prompt)
 		}
 		check := drama.TurnContext{Index: k, Sources: run.Sources, Prior: dramaRunPriorText(progress.Turns)}
 		if k <= len(run.Scenes) {
 			check.Turn = run.Scenes[k-1]
 		}
 		var turn dramaRunTurn
-		if rows, ok := kept[marker.Scene]; ok {
-			// 不重写的场：原有镜头行照这一轮的提示词放进对话历史，后面重写的场照样接着它往下写。
-			turn = dramaRunTurn{Index: k, Scene: marker.Scene, Heading: marker.Heading, Rows: rows.count, Prompt: turnInput.Prompt, Text: rows.text, Kept: true}
+		if rows, ok := kept[key]; ok {
+			// 不重写的场 / 节：原有内容照这一轮的提示词放进对话历史，后面重写的照样接着它往下写。
+			turn = dramaRunTurn{Index: k, Scene: marker.Scene, Heading: marker.Heading, Rows: rows.count, Prompt: turnInput.Prompt, Text: rows.text, Kept: true, KeptRows: rows.rows}
 		} else {
 			marker.Only = run.OnlyScenes
+			if shots != nil {
+				marker.Only = run.OnlySections
+			}
 			if turn, err = s.runDramaTurn(ctx, task, turnInput, marker, stream, turnTimeout, plan, check); err != nil {
 				return nil, dramaRunTurnError(plan.Unit, marker, progress.Completed, turnTimeout, err)
 			}
+			if shots != nil {
+				stream.sectionRows(shots, progress.Turns, k, turn.Text)
+			}
 		}
-		turn.TaskID, turn.Genre = task.ID, genre.Genre
+		turn.TaskID, turn.Section = task.ID, marker.Section
+		if shots != nil {
+			turn.Genre = shots.Genre
+		}
 		progress.Turns = append(progress.Turns, turn)
 		progress.Completed = k
 		written += turn.Rows
@@ -343,13 +351,17 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		}
 		stage := fmt.Sprintf("已写完第 %d/%d %s", k, total, plan.Unit)
 		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, stage, 35+60*k/total, string(encoded)); err != nil {
-			return nil, fmt.Errorf("保存第 %d 场进度失败：%w", k, err)
+			return nil, fmt.Errorf("保存第 %d %s进度失败：%w", k, plan.Unit, err)
 		}
 	}
 	texts := make([]string, 0, len(progress.Turns))
 	for i := range progress.Turns {
 		texts = append(texts, strings.TrimSpace(progress.Turns[i].Text))
-		progress.Turns[i].Prompt, progress.Turns[i].Text = "", ""
+		progress.Turns[i].Prompt = ""
+		// 按小节生成的原样输出留到收尾：逐节转换、存进镜头表记录后再从任务结果里去掉。
+		if shots == nil {
+			progress.Turns[i].Text = ""
+		}
 	}
 	return map[string]any{"mode": "text", "text": strings.Join(texts, "\n") + "\n", "dramaRun": progress}, nil
 }
@@ -513,6 +525,30 @@ func (d *dramaRunStream) finishTurn(text string) {
 	if d.lastByte != '\n' {
 		d.write("\n")
 	}
+}
+
+// sectionRows 在一节写完后往文本流里写一行转出的镜头行（{"rows": [...]}，侧栏按镜头显示）：镜头 id 接着本场前面各节往下编，
+// 与收尾写库的编号一致；资产名、锚点要到收尾才对，这里只为显示。
+func (d *dramaRunStream) sectionRows(shots *dramaShotsMeta, prior []dramaRunTurn, k int, text string) {
+	sec := shots.Sections[k-1]
+	offset := 0
+	for _, t := range prior {
+		if t.Scene == sec.Scene {
+			offset += t.Rows
+		}
+	}
+	conv, err := drama.ConvertSection(shots.Genre, text, drama.SectionContext{Section: sec, ShotOffset: offset})
+	if err != nil {
+		return
+	}
+	encoded, err := json.Marshal(map[string]any{"rows": conv.Rows})
+	if err != nil {
+		return
+	}
+	if d.lastByte != 0 && d.lastByte != '\n' {
+		d.write("\n")
+	}
+	d.write(string(encoded) + "\n")
 }
 
 func (d *dramaRunStream) close() {

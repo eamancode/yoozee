@@ -34,7 +34,12 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		usage, err := svc.DramaStepUsage(user.ID, c.Param("id"), c.Param("step"))
+		rule, err := dramaRuleQuery(c)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		usage, err := svc.DramaStepUsage(user.ID, c.Param("id"), c.Param("step"), rule)
 		if err != nil {
 			failService(c, err)
 			return

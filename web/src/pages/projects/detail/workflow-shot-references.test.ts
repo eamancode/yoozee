@@ -115,3 +115,45 @@ test("编译清单按方言编号换参考图：MiniMax-H3 的 <Picture N> 与�
     ]);
     assert.deepEqual(unbound.missing, ["<Picture 1>（pv-1）", "<Audio 1>（lv-1）"]);
 });
+
+test("MiniMax-H3 锁首帧段的 first_frame / last_frame 作首尾帧提交，即梦锁首帧的 @图片1 仍是参考图", () => {
+    const lastAsset = { ...locationAsset, id: "loc-2", title: "电梯口·尾", storageKey: "resource:res-last", primaryVersionId: "lv-2" } as ProjectAsset;
+    const h3 = referenceMediaForCompiledFiles(compiledDetail([locationAsset, lastAsset]), "shot-1", [
+        { file: "lv-1", tag: "first_frame", role: "first_frame" },
+        { file: "lv-2", tag: "last_frame", role: "last_frame" },
+    ]);
+    assert.deepEqual([h3.missing, h3.unsupported, h3.frames], [[], [], true]);
+    assert.deepEqual(
+        h3.images.map((image) => [image.storageKey, image.role]),
+        [
+            ["resource:res-loc", "first_frame"],
+            ["resource:res-last", "last_frame"],
+        ],
+    );
+
+    const seedance = referenceMediaForCompiledFiles(compiledDetail([locationAsset]), "shot-1", [{ file: "lv-1", tag: "@图片1", role: "first_frame" }]);
+    assert.equal(seedance.frames, false);
+    assert.deepEqual(
+        seedance.images.map((image) => [image.storageKey, image.role]),
+        [["resource:res-loc", undefined]],
+    );
+});
+
+test("首尾帧找不到、混了参考素材、参考视频和不认识的编号都给出准确提示", () => {
+    const unbound = referenceMediaForCompiledFiles(compiledDetail([locationAsset]), "shot-1", [{ file: "gone", tag: "first_frame", role: "first_frame" }]);
+    assert.deepEqual(unbound.missing, ["首帧（gone）"]);
+    assert.equal(unbound.frames, false);
+
+    const mixed = referenceMediaForCompiledFiles(compiledDetail([locationAsset, paletteAsset]), "shot-1", [
+        { file: "lv-1", tag: "first_frame", role: "first_frame" },
+        { file: "pv-1", tag: "<Picture 1>", role: "palette" },
+    ]);
+    assert.deepEqual(mixed.unsupported, ["首尾帧不能和参考图、参考音频一起提交，请去掉这一段的参考或改用锁人物模式"]);
+
+    const other = referenceMediaForCompiledFiles(compiledDetail([locationAsset]), "shot-1", [
+        { file: "lv-1", tag: "@视频1", role: "motion" },
+        { file: "lv-1", tag: "<Mask 1>", role: "mask" },
+    ]);
+    assert.deepEqual(other.missing, []);
+    assert.deepEqual(other.unsupported, ["@视频1 是参考视频，工作台暂不支持提交参考视频", "工作台不认识编译清单里的编号 <Mask 1>（lv-1）"]);
+});

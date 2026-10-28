@@ -244,10 +244,18 @@ function stringValue(value: unknown) {
 // 编译清单的编号按模型方言写：即梦是 @图片N / @音频N，MiniMax-H3 是 <Picture N> / <Audio N>（提示词原样发给模型，编号不能改写）。
 const COMPILED_IMAGE_TAG = /^(?:@图片\d+|<Picture \d+>)$/;
 const COMPILED_AUDIO_TAG = /^(?:@音频\d+|<Audio \d+>)$/;
+const COMPILED_VIDEO_TAG = /^@视频\d+$/;
+// MiniMax-H3 锁首帧段的编号就是输入通道名：首尾帧走图生视频通道（content 里 role=first_frame / last_frame），
+// 和参考通道（reference_*）互斥，不能当参考图发。即梦锁首帧段的编号是 @图片1（role first_frame），仍按参考图提交。
+const COMPILED_FRAME_TAG: Record<string, { role: "first_frame" | "last_frame"; label: string }> = {
+    first_frame: { role: "first_frame", label: "首帧" },
+    last_frame: { role: "last_frame", label: "尾帧" },
+};
 
 /**
- * 把方言编译结果里的素材清单（@图片N / <Picture N>、@音频N / <Audio N>）换成生成任务的参考媒体，顺序与编号一致。
- * 契约里 file 是柚子资产 ID 或资产版本 ID；找不到的素材返回在 missing 里，由调用方拦下。
+ * 把方言编译结果里的素材清单换成生成任务的媒体，顺序与编号一致：@图片N / <Picture N> 是参考图，@音频N / <Audio N> 是参考音频，
+ * first_frame / last_frame 是首尾帧（图片带 role，frames=true，调用方按图生视频提交）。
+ * 契约里 file 是柚子资产 ID 或资产版本 ID；找不到的素材返回在 missing 里，工作台提交不了的写在 unsupported 里，都由调用方拦下。
  */
 export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: string, files: Array<{ file: string; tag: string; role: string }>) {
     const references = (detail.shotReferences || []).filter((reference) => reference.shotId === shotId && reference.status === "linked");
@@ -259,9 +267,18 @@ export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: st
     const images: ReferenceImage[] = [];
     const audios: ReferenceAudio[] = [];
     const missing: string[] = [];
+    const unsupported: string[] = [];
+    let frames = 0;
     for (const item of files) {
         const found = findAsset(item.file);
-        if (COMPILED_IMAGE_TAG.test(item.tag)) {
+        const frame = COMPILED_FRAME_TAG[item.tag];
+        if (frame) {
+            const image = found ? projectAssetReferenceImage(found.asset, found.reference) : undefined;
+            if (image) {
+                images.push({ ...image, role: frame.role });
+                frames += 1;
+            } else missing.push(`${frame.label}（${item.file}）`);
+        } else if (COMPILED_IMAGE_TAG.test(item.tag)) {
             const image = found ? projectAssetReferenceImage(found.asset, found.reference) : undefined;
             if (image) images.push(image);
             else missing.push(`${item.tag}（${item.file}）`);
@@ -269,9 +286,13 @@ export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: st
             const sampleResourceId = stringValue(found?.asset.character?.voice?.profile.sampleResourceId);
             if (found && sampleResourceId) audios.push({ id: `project-character-voice:${found.asset.id}`, name: `${found.asset.title}-声音样本`, type: "audio/*", url: resourceFileUrl(sampleResourceId), storageKey: resourceStorageKey(sampleResourceId) });
             else missing.push(`${item.tag}（${item.file}）`);
+        } else if (COMPILED_VIDEO_TAG.test(item.tag)) {
+            unsupported.push(`${item.tag} 是参考视频，工作台暂不支持提交参考视频`);
         } else {
-            missing.push(`${item.tag}（${item.file}，工作台暂不支持视频参考）`);
+            unsupported.push(`工作台不认识编译清单里的编号 ${item.tag}（${item.file}）`);
         }
     }
-    return { images, audios, missing };
+    // 首尾帧和参考素材是两条互斥的输入通道（frames_exclusive_with_refs），同一个请求只能选一条。
+    if (frames && (frames < images.length || audios.length)) unsupported.push("首尾帧不能和参考图、参考音频一起提交，请去掉这一段的参考或改用锁人物模式");
+    return { images, audios, frames: frames > 0, missing, unsupported };
 }

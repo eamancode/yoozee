@@ -95,7 +95,7 @@ func (s *Service) planScenePalette(project *model.Project, step drama.Step, req 
 	if err != nil {
 		return nil, err
 	}
-	usage, skill, err := s.dramaStepSkill(project, step)
+	usage, skill, err := s.dramaStepSkill(project, step, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +492,7 @@ func (s *Service) chainScenePaletteAfterAdapt(task model.Task, projectID string)
 		chained.Error = errStyleNotLocked
 		return chained
 	}
-	if _, _, err := s.dramaStepSkill(project, step); err != nil {
+	if _, _, err := s.dramaStepSkill(project, step, nil); err != nil {
 		return nil
 	}
 	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)

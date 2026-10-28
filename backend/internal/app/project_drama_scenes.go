@@ -30,6 +30,8 @@ type DramaScenesView struct {
 	FromChapters bool             `json:"fromChapters"`
 	Rule         int              `json:"rule"`
 	Scenes       []DramaSceneView `json:"scenes"`
+	// Genre 是生成分段按哪个戏类切小节（按项目视频模型单段上限选：文戏 15 / 文戏 30）；各场的 sections 按它切。
+	Genre *DramaStepGenre `json:"genre,omitempty"`
 	// Notice 是切场规则改变后，这个单元已有的数据还是旧场次编号、编号错位了；没有错位时为空。
 	Notice *DramaSceneRuleNotice `json:"notice,omitempty"`
 	// PaletteReady 是这个单元已有场次色卡（至少一场有能用的 kind=scene 色卡），可以提取资产（M8 卡 D）。
@@ -54,6 +56,8 @@ type DramaSceneView struct {
 	LineCount int    `json:"lineCount"`
 	// LegacyNos 是这一场在规则改变前（一个场次头一场）的场序。
 	LegacyNos []int `json:"legacyNos"`
+	// Sections 是这一场按戏类切出的小节（一节 = 一次生成 = 一段视频），与生成分段的轮次同一套（请求带上渠道段长 rule 时按同一口径选戏类、切节）。
+	Sections []DramaSectionView `json:"sections"`
 	// PaletteAssetID 是这一场能用的场次色卡；Environments 是提取资产时回填绑到这一场的场景资产（bible_json.scene_assets）。
 	PaletteAssetID string               `json:"paletteAssetId,omitempty"`
 	Environments   []DramaSceneAssetRef `json:"environments"`
@@ -63,6 +67,21 @@ type DramaSceneView struct {
 type DramaSceneAssetRef struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
+}
+
+// DramaSectionView 是场次表里的一个小节。
+type DramaSectionView struct {
+	// ID 是小节编号（单元内场编号加 -P 序号：E01S02-P1），镜头 spec.section、段 spec.section 用这套。
+	ID    string `json:"id"`
+	No    int    `json:"no"`
+	Genre string `json:"genre"`
+	// Lines 是覆盖的正文行范围（与场次的 lines 同一套）；LineIDs 是这一节的台词 id；Est 是估时秒数。
+	Lines    [2]int   `json:"lines"`
+	LineIDs  []string `json:"lineIds"`
+	Speakers []string `json:"speakers"`
+	Est      float64  `json:"est"`
+	// Warnings 是切节没能满足戏类口径的地方（一句台词就超上限、接话拆不开导致台词超额）。
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // DramaSceneRuleNotice 是切场规则改变后编号错位的已有数据。
@@ -87,7 +106,7 @@ func sceneUnits(units []model.ProjectUnit) ([]model.ProjectUnit, map[string]int,
 	return sorted, numbers, fromChapters
 }
 
-func dramaScenesView(unit model.ProjectUnit, episode int, fromChapters bool, scenes []drama.Scene) DramaScenesView {
+func dramaScenesView(unit model.ProjectUnit, episode int, fromChapters bool, scenes []drama.Scene, sections map[string][]drama.Section) DramaScenesView {
 	view := DramaScenesView{UnitID: unit.ID, Title: unit.Title, Episode: episode, FromChapters: fromChapters, Rule: drama.SceneRuleMerged, Scenes: make([]DramaSceneView, 0, len(scenes))}
 	for _, sc := range scenes {
 		id := sc.ID
@@ -102,9 +121,13 @@ func dramaScenesView(unit model.ProjectUnit, episode int, fromChapters bool, sce
 		if times == nil {
 			times = []string{}
 		}
+		parts := make([]DramaSectionView, 0, len(sections[sc.ID]))
+		for _, sec := range sections[sc.ID] {
+			parts = append(parts, DramaSectionView{ID: sec.ID, No: sec.No, Genre: sec.Genre, Lines: sec.Lines, LineIDs: sec.LineIDs, Speakers: sec.Speakers, Est: sec.Est, Warnings: sec.Warnings})
+		}
 		view.Scenes = append(view.Scenes, DramaSceneView{
 			ID: id, ShotScene: sc.ID, No: sc.No, Heading: sc.Heading, InOut: sc.InOut, Location: sc.Location, Times: times,
-			SourceHeadings: sources, Lines: sc.Lines, LineCount: sc.Lines[1] - sc.Lines[0] + 1, LegacyNos: sc.LegacyNos, Environments: []DramaSceneAssetRef{},
+			SourceHeadings: sources, Lines: sc.Lines, LineCount: sc.Lines[1] - sc.Lines[0] + 1, LegacyNos: sc.LegacyNos, Sections: parts, Environments: []DramaSceneAssetRef{},
 		})
 	}
 	return view
@@ -169,8 +192,9 @@ func sceneRuleNotice(unit model.ProjectUnit, episode int, scenes []drama.Scene, 
 	return notice
 }
 
-// DramaScenes 读一个单元的场次表（按正文实时切）。
-func (s *Service) DramaScenes(userID string, projectID string, unitID string) (*DramaScenesView, error) {
+// DramaScenes 读一个单元的场次表（按正文实时切）。rule 是视频渠道段长（与生成分段 run 请求的 rule 同口径），
+// 每场的小节按它选的戏类切，场次条的节数才与实际运行一致。
+func (s *Service) DramaScenes(userID string, projectID string, unitID string, rule *DramaShotlistRule) (*DramaScenesView, error) {
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -187,15 +211,15 @@ func (s *Service) DramaScenes(userID string, projectID string, unitID string) (*
 	if i < 0 {
 		return nil, NotFound("章节或剧集不存在")
 	}
-	views, err := s.dramaScenesViews(userID, project, units, []model.ProjectUnit{units[i]})
+	views, err := s.dramaScenesViews(userID, project, units, []model.ProjectUnit{units[i]}, rule)
 	if err != nil {
 		return nil, err
 	}
 	return &views[0], nil
 }
 
-// ProjectDramaScenes 读项目场次表里每个单元（全部剧集，没有剧集时全部原文章节）的场次表。
-func (s *Service) ProjectDramaScenes(userID string, projectID string) ([]DramaScenesView, error) {
+// ProjectDramaScenes 读项目场次表里每个单元（全部剧集，没有剧集时全部原文章节）的场次表；rule 同 DramaScenes。
+func (s *Service) ProjectDramaScenes(userID string, projectID string, rule *DramaShotlistRule) ([]DramaScenesView, error) {
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -214,10 +238,10 @@ func (s *Service) ProjectDramaScenes(userID string, projectID string) ([]DramaSc
 			picked = append(picked, u)
 		}
 	}
-	return s.dramaScenesViews(userID, project, units, picked)
+	return s.dramaScenesViews(userID, project, units, picked, rule)
 }
 
-func (s *Service) dramaScenesViews(userID string, project *model.Project, units []model.ProjectUnit, picked []model.ProjectUnit) ([]DramaScenesView, error) {
+func (s *Service) dramaScenesViews(userID string, project *model.Project, units []model.ProjectUnit, picked []model.ProjectUnit, rule *DramaShotlistRule) ([]DramaScenesView, error) {
 	_, numbers, fromChapters := sceneUnits(units)
 	table := styleSceneTable(units)
 	_, script := projectStyleBible(project.BibleJSON)
@@ -236,10 +260,18 @@ func (s *Service) dramaScenesViews(userID string, project *model.Project, units 
 		}
 	}
 	bound := projectSceneAssets(project.BibleJSON)
+	genre, m, err := projectShotGenre(project, rule)
+	if err != nil {
+		return nil, err
+	}
+	_, hi := genre.SectionLimits(m.Duration.Max)
+	genreView := &DramaStepGenre{ID: genre.ID, Label: genre.Label, MaxSeconds: hi, Model: m.Label}
 	views := make([]DramaScenesView, 0, len(picked))
 	for _, u := range picked {
-		scenes := drama.SplitScenes(chapterPlainText(u.SourceText), u.Title)
-		view := dramaScenesView(u, numbers[u.ID], fromChapters, scenes)
+		text := chapterPlainText(u.SourceText)
+		scenes := drama.SplitScenes(text, u.Title)
+		view := dramaScenesView(u, numbers[u.ID], fromChapters, scenes, drama.PlanSections(text, u.Title, genre, m.Duration.Max).ScenesOf())
+		view.Genre = genreView
 		ready := unitSceneColorScript(project.BibleJSON, units, u.ID)
 		for i := range view.Scenes {
 			sc := &view.Scenes[i]
