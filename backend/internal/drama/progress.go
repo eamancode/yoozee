@@ -133,10 +133,10 @@ type ProgressInput struct {
 	Evidence  []EvidenceState
 	// Episodes 是项目里的剧集单元（kind=episode，按顺序）：「剧本定了」看它们。
 	Episodes []EpisodeInput
-	// Palettes 是项目里的色卡资产（不含场次已不存在的）：「色卡齐了」看当前每一场是否都有出了图的色卡。
+	// Palettes 是项目里的场次色卡（kind=scene，不含场次已不存在的、对不上当前场次表的）：「色卡齐了」看当前每一场是否都有合成了图的色卡。
 	Palettes []PaletteInput
-	// StyleScenes 是当前的场次表（有剧集看剧集，没有看原文章节，一章当一集；切场与导演风格同一套）：
-	// 「风格定了」「色卡齐了」以它为准，色彩脚本缺场、多场都算没齐。StyleFromChapters 表示取自原文章节。
+	// StyleScenes 是当前的场次表（有剧集看剧集，没有看原文章节，一章当一集；切场与场次色卡同一套）：
+	// 「色卡齐了」以它为准，色卡缺场、多场都算没齐。StyleFromChapters 表示取自原文章节。
 	StyleScenes       []SceneRef
 	StyleFromChapters bool
 	// StyleRuleShifted 是切场规则改成「连续同地点并成一场」后，旧规则写的、编号已经错位的色彩脚本场数：「色卡齐了」的说明里提示场次规则已更新。
@@ -157,7 +157,7 @@ type SceneRef struct {
 	SceneNo int
 }
 
-// PaletteInput 是一张色卡资产：Code 是场编号（E01S02），Imaged 是已确认的主版本有图。
+// PaletteInput 是一张场次色卡：Code 是场编号（E01S02），Imaged 是已确认的主版本有合成图。
 type PaletteInput struct {
 	Code   string
 	Imaged bool
@@ -409,7 +409,7 @@ func Derive(in ProgressInput) Progress {
 		{"brief", "需求问透了", briefOK, briefDetail, "yz-brief"},
 		{"script", "剧本定了", scriptOK, scriptDetail, "yz-script-adapt"},
 		{"style", "风格定了", styleOK, styleDetail, "yz-style-lock"},
-		{"palette", "色卡齐了", paletteOK, paletteDetail, "yz-style-bible"},
+		{"palette", "色卡齐了", paletteOK, paletteDetail, "yz-scene-palette"},
 		{"refs", "参考齐了", refsOK, refsDetail, "yz-cast"},
 		{"review", "每段过审了", reviewedOK, fmt.Sprintf("%d/%d 段三项证据齐", c.Reviewed, c.Segments), "yz-shoot"},
 		{"gate", "成片过门禁了", gateOK, gateDetail, "yz-cut"},
@@ -427,17 +427,13 @@ func Derive(in ProgressInput) Progress {
 	return out
 }
 
-// styleBibleState 是「风格定了」（M8 起看锁定结果：风格锚非空、主基调色卡至少一个颜色）和「色卡齐了」（当前每一场都有色卡资产，
-// 且已确认的主版本有图；色彩脚本对不上当前场次表时不算齐）。
+// styleBibleState 是「风格定了」（M8 起看锁定结果：风格锚非空、主基调色卡至少一个颜色）和「色卡齐了」（M8 卡 B 起只看场次色卡：
+// 当前场次表的每一场都有场次色卡、合成图已绑上，且没有当前场次表里不存在的场次色卡）。
 func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRef, fromChapters bool, ruleShifted int) (bool, string, bool, string) {
 	var doc struct {
 		StyleAnchor   *StyleAnchor     `json:"style_anchor"`
 		MasterPalette *MasterPalette   `json:"master_palette"`
 		StyleLock     *StyleLockRecord `json:"style_lock"`
-		ColorScript   []struct {
-			Episode int `json:"episode"`
-			SceneNo int `json:"scene_no"`
-		} `json:"color_script"`
 	}
 	raw := strings.TrimSpace(bibleJSON)
 	if json.Unmarshal([]byte(raw), &doc) != nil {
@@ -447,7 +443,6 @@ func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRe
 		_ = json.Unmarshal(loose["style_anchor"], &doc.StyleAnchor)
 		_ = json.Unmarshal(loose["master_palette"], &doc.MasterPalette)
 		_ = json.Unmarshal(loose["style_lock"], &doc.StyleLock)
-		_ = json.Unmarshal(loose["color_script"], &doc.ColorScript)
 	}
 	anchorOK := !doc.StyleAnchor.Empty()
 	locked := anchorOK && !doc.MasterPalette.Empty()
@@ -472,63 +467,48 @@ func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRe
 		unit, units = "章", "原文章节"
 	}
 	label := func(r SceneRef) string { return fmt.Sprintf("第 %d %s第 %d 场", r.Episode, unit, r.SceneNo) }
-	scripted := map[string]bool{}
-	var extra []SceneRef
 	expected := map[string]bool{}
 	for _, r := range scenes {
 		expected[SceneCode(r.Episode, r.SceneNo)] = true
 	}
-	for _, e := range doc.ColorScript {
-		code := SceneCode(e.Episode, e.SceneNo)
-		if !expected[code] && !scripted[code] {
-			extra = append(extra, SceneRef{Episode: e.Episode, SceneNo: e.SceneNo})
-		}
-		scripted[code] = true
-	}
-	var missing []SceneRef
-	for _, r := range scenes {
-		if !scripted[SceneCode(r.Episode, r.SceneNo)] {
-			missing = append(missing, r)
-		}
-	}
-	aligned := len(missing) == 0 && len(extra) == 0
-	total := len(scenes)
-	scriptDetail := fmt.Sprintf("%d/%d 场有色彩脚本", total-len(missing), total)
-	if len(missing) > 0 {
-		scriptDetail += "，" + sceneList(missing, label) + "缺"
-	}
-	if len(extra) > 0 {
-		scriptDetail += "，" + sceneList(extra, label) + "已不在当前" + units + "里"
-	}
-	if ruleShifted > 0 {
-		scriptDetail += fmt.Sprintf("（场次规则已更新：同一%s里连续同地点的场次头并成一场，%d 场旧色彩脚本的场编号对不上）", unit, ruleShifted)
-	}
-
 	imaged := map[string]bool{}
 	has := map[string]bool{}
+	var extra []SceneRef
 	for _, p := range palettes {
+		if !expected[p.Code] && !has[p.Code] {
+			if episode, sceneNo, ok := ParseSceneCode(p.Code); ok {
+				extra = append(extra, SceneRef{Episode: episode, SceneNo: sceneNo})
+			}
+		}
 		has[p.Code] = true
 		imaged[p.Code] = imaged[p.Code] || p.Imaged
 	}
-	done, noAsset := 0, 0
+	var missing, unimaged []SceneRef
 	for _, r := range scenes {
 		code := SceneCode(r.Episode, r.SceneNo)
 		switch {
-		case !scripted[code]:
-		case imaged[code]:
-			done++
 		case !has[code]:
-			noAsset++
+			missing = append(missing, r)
+		case !imaged[code]:
+			unimaged = append(unimaged, r)
 		}
 	}
-	paletteDetail := fmt.Sprintf("%d/%d 场色卡已出图", done, total)
-	if noAsset > 0 {
-		paletteDetail += fmt.Sprintf("；%d 场还没有色卡资产", noAsset)
+	total := len(scenes)
+	done := total - len(missing) - len(unimaged)
+	paletteDetail := fmt.Sprintf("%d/%d 场有场次色卡", done, total)
+	if len(missing) > 0 {
+		paletteDetail += "，" + sceneList(missing, label) + "缺（章节页「生成场次色卡」）"
 	}
-	if !aligned {
-		paletteDetail += "；" + scriptDetail
+	if len(unimaged) > 0 {
+		paletteDetail += "，" + sceneList(unimaged, label) + "的色卡图没合成上（资产页「重新合成」）"
 	}
-	return locked, styleDetail, aligned && done == total, paletteDetail
+	if len(extra) > 0 {
+		paletteDetail += "，" + sceneList(extra, label) + "已不在当前" + units + "里"
+	}
+	if ruleShifted > 0 {
+		paletteDetail += fmt.Sprintf("（场次规则已更新：同一%s里连续同地点的场次头并成一场，%d 场旧色彩脚本的场编号对不上，重新生成场次色卡）", unit, ruleShifted)
+	}
+	return locked, styleDetail, len(missing) == 0 && len(unimaged) == 0 && len(extra) == 0, paletteDetail
 }
 
 // sceneList 把几场写成「第 2 集第 1 场、第 2 集第 2 场」，超过三场只写前三场加「等 N 场」。

@@ -507,3 +507,82 @@ func PasteVersion(r CompileResult) string {
 	}
 	return out + fmt.Sprintf("\n【时长】%d 秒", r.Duration)
 }
+
+// ScenePaletteRef 是一段要带的本场色卡（场次色卡，生成分段装段时以 role=style 绑到这一场的段）：File 是色卡资产版本（有合成图时；
+// 没有图时为空，只能写色值），Colors 是色板。
+type ScenePaletteRef struct {
+	File   string
+	Code   string
+	Colors []PaletteColor
+}
+
+// scenePaletteRole 是编译清单里本场色卡的用途。
+const scenePaletteRole = "palette"
+
+// WithScenePalette 把本场色卡加进编译结果：参考图名额（maxImages，没给时取模型的图片参考上限）还有空位、也不是首尾帧模式时，
+// 色卡图排在角色 / 场景 / 道具之后作最后一张参考图，提示词里加一句它是本场色卡；名额满了（色卡优先级最低，不挤掉别的参考图）
+// 或没有合成图时不带图，提示词里加一行本场色值（中文名 + HEX），并给一条 warn 说明。
+func WithScenePalette(r CompileResult, m Model, ref ScenePaletteRef, maxImages int) CompileResult {
+	if len(ref.Colors) == 0 && ref.File == "" {
+		return r
+	}
+	images, frames := 0, false
+	for _, f := range r.Files {
+		switch f.Role {
+		case "motion", "voice":
+		case "first_frame", "last_frame":
+			frames = true
+			images++
+		default:
+			images++
+		}
+	}
+	limit := maxImages
+	if limit <= 0 && m.Refs.Images != nil {
+		limit = *m.Refs.Images
+	}
+	room := ref.File != "" && !frames && images < limit
+	if m.Refs.Total != nil && len(r.Files) >= *m.Refs.Total {
+		room = false
+	}
+	r.Files = slices.Clone(r.Files)
+	r.Issues = slices.Clone(r.Issues)
+	var line string
+	if room {
+		tag := fmt.Sprintf("@图片%d", images+1)
+		line = fmt.Sprintf("%s 是本场色卡（%s）：画面用色和光色以它为准，不把色卡本身画进画面。", tag, ref.Code)
+		if m.Dialect() != "seedance" {
+			tag = fmt.Sprintf("<Picture %d>", images+1)
+			line = fmt.Sprintf("%s is the scene color palette card (%s): follow its colors for the frame and lighting; do not draw the card itself.", tag, ref.Code)
+		}
+		r.Files = append(r.Files, CompiledFile{File: ref.File, Tag: tag, Role: scenePaletteRole})
+	} else {
+		line = ScenePaletteColorsLine(ref.Colors)
+		if line == "" {
+			return r
+		}
+		why := fmt.Sprintf("参考图已有 %d 张、到了上限 %d 张", images, limit)
+		switch {
+		case ref.File == "":
+			why = "本场色卡还没有合成图"
+		case frames:
+			why = "首尾帧模式不带参考图"
+		}
+		r.Issues = append(r.Issues, Issue{"warn", fmt.Sprintf("%s 没带本场色卡图（%s），色值已写进提示词", r.Segment, why)})
+	}
+	r.Prompt = strings.TrimRight(r.Prompt, "\n") + "\n" + line
+	r.Chars = len([]rune(r.Prompt))
+	if limit := m.PromptMaxChars; m.PromptMaxCharsMeasured != nil || limit != nil {
+		if m.PromptMaxCharsMeasured != nil {
+			limit = m.PromptMaxCharsMeasured
+		}
+		if r.Chars > *limit && !slices.ContainsFunc(r.Issues, func(i Issue) bool { return i.Level == "error" && strings.Contains(i.Message, "提示词") }) {
+			r.Issues = append(r.Issues, Issue{"error", fmt.Sprintf("%s 加上本场色卡后提示词 %d 字符，超过 %s 的上限 %d：先压缩风格词和重复场景词，不删台词和关键动作", r.Segment, r.Chars, m.Label, *limit)})
+		}
+	}
+	r.Paste = r.Prompt
+	if m.Dialect() == "seedance" {
+		r.Paste = PasteVersion(r)
+	}
+	return r
+}

@@ -189,3 +189,53 @@ func TestBriefKeepsSegmentSeconds(t *testing.T) {
 		}
 	}
 }
+
+// 本场色卡排在角色 / 场景 / 道具之后：参考图 3 张、上限 4 张时带上色卡图（@图片4）；上限 3 张时不带图、色值写进提示词并给 warn；
+// 首尾帧模式和没有合成图时也只写色值。
+func TestWithScenePalette(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(skillsTestDir, "fixtures", "segment-dialogue.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seg, err := ParseSegment(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ := ModelByID("seedance-2.0")
+	base, err := Compile(seg, m, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := ScenePaletteRef{File: "palette-version", Code: "E01S02", Colors: []PaletteColor{{NameZh: "日光灯白", Hex: "#E8ECEF"}, {NameZh: "护士蓝", Hex: "#5B7FA3"}}}
+	with := WithScenePalette(base, m, ref, 4)
+	last := with.Files[len(with.Files)-1]
+	if len(with.Files) != len(base.Files)+1 || last.Tag != "@图片4" || last.File != "palette-version" || last.Role != "palette" {
+		t.Fatalf("色卡图应排在最后、编号 @图片4：%+v", with.Files)
+	}
+	if !strings.Contains(with.Prompt, "@图片4 是本场色卡（E01S02）") || strings.Contains(with.Prompt, "本场色值") || !strings.Contains(with.Paste, "@图片4 ← palette-version（palette）") {
+		t.Fatalf("带图时提示词写明色卡：%s", with.Prompt)
+	}
+	if len(base.Files) != 4 || base.Files[3].Tag != "@音频1" {
+		t.Fatalf("不应改到原结果：%+v", base.Files)
+	}
+	full := WithScenePalette(base, m, ref, 3)
+	if len(full.Files) != len(base.Files) || !strings.HasSuffix(full.Prompt, "本场色值：日光灯白 #E8ECEF、护士蓝 #5B7FA3。") {
+		t.Fatalf("名额满了不带图、写色值：%+v\n%s", full.Files, full.Prompt)
+	}
+	if n := len(full.Issues); n == 0 || full.Issues[n-1].Level != "warn" || !strings.Contains(full.Issues[n-1].Message, "上限 3 张") {
+		t.Fatalf("名额满了给 warn：%+v", full.Issues)
+	}
+	// 没给上限时取模型的图片参考上限（seedance-2.0 是 9 张）。
+	if def := WithScenePalette(base, m, ref, 0); def.Files[len(def.Files)-1].Role != "palette" {
+		t.Fatalf("模型上限 9 张时应带图：%+v", def.Files)
+	}
+	noImage := WithScenePalette(base, m, ScenePaletteRef{Code: "E01S02", Colors: ref.Colors}, 9)
+	if len(noImage.Files) != len(base.Files) || !strings.Contains(noImage.Prompt, "本场色值") || !strings.Contains(noImage.Issues[len(noImage.Issues)-1].Message, "还没有合成图") {
+		t.Fatalf("没有合成图只写色值：%+v", noImage.Issues)
+	}
+	h3, _ := ModelByID("minimax-h3")
+	h3Base, _ := Compile(seg, h3, nil, nil)
+	if got := WithScenePalette(h3Base, h3, ref, 9); got.Files[len(got.Files)-1].Tag != "<Picture 4>" || !strings.Contains(got.Prompt, "<Picture 4> is the scene color palette card") {
+		t.Fatalf("H3 用 <Picture N>：%+v", got.Files)
+	}
+}

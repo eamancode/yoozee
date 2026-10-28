@@ -9,7 +9,7 @@ import (
 )
 
 // 场次切分（M8）：全系统只有 SplitScenes 一个切场入口——台词表（ScriptFromText）、生成分段的逐场续写（ChapterShotsScenes）、
-// 戏类判定（ChapterShotsGenreScenes）、导演风格的场次表（StyleBibleScenes）和场次表接口都从这里取场。
+// 戏类判定（ChapterShotsGenreScenes）、场次色卡的场次表（ScenePaletteScenes）和场次表接口都从这里取场。
 //
 // 规则：
 //   - 场次头：「## 」开头的行，或以「第N场」「场 N」「INT.」「EXT.」「内·」「外·」「【场景N】」开头的行（【场景1】地点｜内｜夜
@@ -20,7 +20,7 @@ import (
 //   - 第一个场次头之前有正文时，这段正文单独算一场「未命名场」（与原来的台词表一致，不并进第一场）。
 //   - 整章没有场次头时整章算一场，场次头用标题。
 //
-// 场编号：单元内是 E01S01、E01S02…（与镜头 spec.scene、台词 id 同一套）；导演风格、色卡用的项目级场编号把 E 后换成集号，场序相同。
+// 场编号：单元内是 E01S01、E01S02…（与镜头 spec.scene、台词 id 同一套）；场次色卡用的项目级场编号把 E 后换成集号，场序相同。
 // 规则改变前（SceneRuleLegacy，一个场次头一场）写下的数据，靠 Scene.LegacyNos 对到新场次。
 
 // SceneRuleMerged 是当前的切场规则（连续同地点合并）；写进色彩脚本条目、色卡 metadata 和台词表，0 表示规则改变前写的数据。
@@ -309,7 +309,7 @@ func SceneSourceLabel(sc Scene) string {
 	return fmt.Sprintf("正文里连续 %d 个同地点场次头（%s）并成一场", len(sc.Sources), strings.Join(texts, "、"))
 }
 
-// SceneRenumberEpisode 是一集（导演风格的集号）按现在的规则切出的场次：RenumberColorScript 用。
+// SceneRenumberEpisode 是一集（场次色卡的集号）按现在的规则切出的场次：RenumberColorScript 用。
 type SceneRenumberEpisode struct {
 	UnitID string
 	Scenes []Scene

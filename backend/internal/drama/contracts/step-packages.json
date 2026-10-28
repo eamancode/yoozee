@@ -29,8 +29,8 @@
       ]
     },
     {
-      "id": "style.bible",
-      "contract": "style.bible@1",
+      "id": "scene.palette",
+      "contract": "scene.palette@1",
       "skillBudgetChars": 32000,
       "skillLinkedFiles": 3,
       "evalSet": [

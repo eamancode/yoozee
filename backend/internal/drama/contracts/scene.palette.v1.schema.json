@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scene.palette@1",
+  "title": "场次色卡（逐场色彩脚本）",
+  "description": "场次色卡这一步的模型输出：以项目锁定的全局风格锚和主基调色卡为参考，每场一行 JSON 写这一场的色彩脚本（场编号、承接哪一场、承接色、本场新增色，每色带分组），一轮写一集，便于边流边解析、按集续写。不写风格锚（风格锚只由 style.lock 产出）。收尾时写进 bible_json.color_script，每场一张场次色卡资产（palette，kind=scene），色卡图由代码按色值合成（色块 + HEX + 中英文色名），HEX 只从这里取。契约文字由 drama.Contract.Text 按本文件生成。",
+  "type": "object",
+  "required": [
+    "color_script"
+  ],
+  "x-contract": {
+    "heading": "【受保护输出契约】",
+    "layout": "lines",
+    "items": "color_script",
+    "unit": "场",
+    "format": "每场单独一行写这一场的色彩脚本（一个 JSON 对象），按场编号顺序；每个 JSON 对象写在同一行里，不要换行；不写风格锚、不写集的标题行；不要 Markdown 代码块、表格、分析过程或任何解释文字。",
+    "rowsIntro": "每场一行，字段如下（scene 照抄【剧集场次】的场编号）：",
+    "requirement": "这一集的每一场都要写一行，不合并、不跳场。",
+    "rules": [
+      "每个颜色写成 {\"name_zh\": \"中文色名\", \"name_en\": \"English Color Name\", \"hex\": \"#RRGGBB\", \"usage\": \"用途\", \"group\": \"分组\"}：hex 是 # 加 6 位十六进制；name_en 是两三个英文单词的色名；usage 写这个颜色用在哪个角色、道具、环境或光源上；group 写它归主基调色卡的哪一组：protagonist（主角组）、supporting（配角组）、props（道具组）、environment（环境组），都不是写 other。",
+      "每场至少 3 个颜色（shared_colors 与 new_colors 合计），一般 5 到 10 个，最多 32 个；每个颜色都要有明确的叙事或资产用途，不凑数。角色、道具的颜色与【主基调色卡】同名时 HEX 照抄。",
+      "inherits_from 写承接哪一场的色卡，用场编号，如 \"E01S02\"（第 1 集第 2 场）；只能是前面已经写过的场，或【已有场次色卡】里的场；不承接写空字符串 \"\"。",
+      "承接时 shared_colors 是承接色：从承接场的颜色里挑，name_zh、name_en、hex 与承接场一模一样，不得改动；new_colors 是本场新增色。不承接时 shared_colors 写这一场的场景基础色，new_colors 写本场关键色。",
+      "purpose 写这张色卡服务的场景功能、主要主体、背景或环境、是否承接上一场、是否给后面的角色 / 场景 / 道具提供色彩锚点；references 是一个字符串，写 2 到 4 个视觉影视参考（角色或主体、场景环境、材质、整体色彩 / 摄影 / 调色），多个之间用「；」分隔，不写成数组；按剧本写，不照抄示例。"
+    ]
+  },
+  "properties": {
+    "color_script": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "scene",
+          "inherits_from",
+          "shared_colors",
+          "new_colors"
+        ],
+        "properties": {
+          "scene": {
+            "type": "string",
+            "description": "场编号，如 E01S02"
+          },
+          "inherits_from": {
+            "type": "string",
+            "description": "承接哪一场的色卡，场编号如 E01S01；不承接写空字符串"
+          },
+          "shared_colors": {
+            "type": "array",
+            "description": "承接色（承接时与承接场一致）或场景基础色",
+            "items": {"$ref": "#/$defs/color"}
+          },
+          "new_colors": {
+            "type": "array",
+            "description": "本场新增色",
+            "items": {"$ref": "#/$defs/color"}
+          },
+          "purpose": {
+            "type": "string",
+            "description": "色卡用途：场景功能、主体、环境、承接关系、是否给后续资产做锚点"
+          },
+          "references": {
+            "description": "视觉影视参考预案，2 到 4 个，写成一个字符串，多个用「；」分隔",
+            "oneOf": [
+              {"type": "string"},
+              {"type": "array", "items": {"type": "string"}, "description": "解析容错：字符串数组按「；」拼成一个字符串存进 bible"}
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "color": {
+      "type": "object",
+      "required": [
+        "name_zh",
+        "name_en",
+        "hex",
+        "usage",
+        "group"
+      ],
+      "properties": {
+        "name_zh": {"type": "string"},
+        "name_en": {"type": "string"},
+        "hex": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+        "usage": {"type": "string"},
+        "group": {"type": "string", "enum": ["protagonist", "supporting", "props", "environment", "other"]}
+      }
+    }
+  }
+}

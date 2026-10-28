@@ -1,6 +1,8 @@
 package drama
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"slices"
 	"strings"
 	"testing"
@@ -94,7 +96,7 @@ func TestBuildStyleLockPrompt(t *testing.T) {
 	}
 }
 
-// 本地仓库的 yz-style-lock 包要能过校验、和内置种子逐字一致；正文与 yz-style-bible 的「六A、视觉风格锁定系统」同一段原文。
+// 本地仓库的 yz-style-lock 包要能过校验、和内置种子逐字一致；正文是《一线导演剧本创作 Skill》「六A、视觉风格锁定系统」原文。
 func TestStyleLockPackageMatchesBuiltinSeed(t *testing.T) {
 	local := readPackageDir(t, "../../../yoozee-skills/packages/yz-style-lock")
 	seed := readPackageDir(t, "../../builtin/yz-style-lock")
@@ -121,8 +123,9 @@ func TestStyleLockPackageMatchesBuiltinSeed(t *testing.T) {
 		}
 		return body[start:end]
 	}
-	bible := readPackageDir(t, "../../builtin/yz-style-bible")
-	if section(string(local["SKILL.md"])) != section(string(bible["SKILL.md"])) {
-		t.Fatal("yz-style-lock 的风格锁定正文应与 yz-style-bible 一字不差")
+	// 原文钉住：与 M7.2 yz-style-bible（M8 卡 B 删了，色彩部分移进 yz-scene-palette）的「六A」一字不差，改正文这里会失败。
+	sum := sha256.Sum256([]byte(section(string(local["SKILL.md"]))))
+	if hex.EncodeToString(sum[:]) != "117d50df10aeafcd01a6fbc90e7033e3a86c8be6bc6d7e6ae9967d27bd743f2c" {
+		t.Fatal("yz-style-lock 的风格锁定正文应与原文一字不差")
 	}
 }
