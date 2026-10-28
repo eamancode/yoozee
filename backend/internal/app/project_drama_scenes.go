@@ -54,7 +54,7 @@ type DramaSceneView struct {
 	LineCount int    `json:"lineCount"`
 	// LegacyNos 是这一场在规则改变前（一个场次头一场）的场序。
 	LegacyNos []int `json:"legacyNos"`
-	// Sections 是这一场按戏类切出的小节（一节 = 一次生成 = 一段视频），与生成分段的轮次同一套（不含渠道段长规则的收紧）。
+	// Sections 是这一场按戏类切出的小节（一节 = 一次生成 = 一段视频），与生成分段的轮次同一套（请求带上渠道段长 rule 时按同一口径选戏类、切节）。
 	Sections []DramaSectionView `json:"sections"`
 }
 
@@ -181,8 +181,9 @@ func sceneRuleNotice(unit model.ProjectUnit, episode int, scenes []drama.Scene, 
 	return notice
 }
 
-// DramaScenes 读一个单元的场次表（按正文实时切）。
-func (s *Service) DramaScenes(userID string, projectID string, unitID string) (*DramaScenesView, error) {
+// DramaScenes 读一个单元的场次表（按正文实时切）。rule 是视频渠道段长（与生成分段 run 请求的 rule 同口径），
+// 每场的小节按它选的戏类切，场次条的节数才与实际运行一致。
+func (s *Service) DramaScenes(userID string, projectID string, unitID string, rule *DramaShotlistRule) (*DramaScenesView, error) {
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -199,15 +200,15 @@ func (s *Service) DramaScenes(userID string, projectID string, unitID string) (*
 	if i < 0 {
 		return nil, NotFound("章节或剧集不存在")
 	}
-	views, err := s.dramaScenesViews(userID, project, units, []model.ProjectUnit{units[i]})
+	views, err := s.dramaScenesViews(userID, project, units, []model.ProjectUnit{units[i]}, rule)
 	if err != nil {
 		return nil, err
 	}
 	return &views[0], nil
 }
 
-// ProjectDramaScenes 读项目场次表里每个单元（全部剧集，没有剧集时全部原文章节）的场次表。
-func (s *Service) ProjectDramaScenes(userID string, projectID string) ([]DramaScenesView, error) {
+// ProjectDramaScenes 读项目场次表里每个单元（全部剧集，没有剧集时全部原文章节）的场次表；rule 同 DramaScenes。
+func (s *Service) ProjectDramaScenes(userID string, projectID string, rule *DramaShotlistRule) ([]DramaScenesView, error) {
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -226,10 +227,10 @@ func (s *Service) ProjectDramaScenes(userID string, projectID string) ([]DramaSc
 			picked = append(picked, u)
 		}
 	}
-	return s.dramaScenesViews(userID, project, units, picked)
+	return s.dramaScenesViews(userID, project, units, picked, rule)
 }
 
-func (s *Service) dramaScenesViews(userID string, project *model.Project, units []model.ProjectUnit, picked []model.ProjectUnit) ([]DramaScenesView, error) {
+func (s *Service) dramaScenesViews(userID string, project *model.Project, units []model.ProjectUnit, picked []model.ProjectUnit, rule *DramaShotlistRule) ([]DramaScenesView, error) {
 	_, numbers, fromChapters := sceneUnits(units)
 	table := styleSceneTable(units)
 	_, script := projectStyleBible(project.BibleJSON)
@@ -237,7 +238,7 @@ func (s *Service) dramaScenesViews(userID string, project *model.Project, units 
 	if err != nil {
 		return nil, err
 	}
-	genre, m, err := projectShotGenre(project, nil)
+	genre, m, err := projectShotGenre(project, rule)
 	if err != nil {
 		return nil, err
 	}

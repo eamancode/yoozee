@@ -176,7 +176,7 @@ func TestSectionShotsRunThroughWorkerWenxi30(t *testing.T) {
 	server := httptest.NewServer(upstream)
 	defer server.Close()
 
-	usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots)
+	usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots, nil)
 	if err != nil || usage.Genre == nil || usage.Genre.ID != drama.ShotGenreWenxi30 || usage.Skill.ID != "yz-shots-wenxi30" || usage.BindingStep != "chapter.shots#wenxi30" || usage.Contract != "section.wenxi30@1" {
 		t.Fatalf("30 秒模型用文戏 30：%v %+v", err, usage)
 	}
@@ -426,7 +426,7 @@ func TestSectionShotsCarryScenePalette(t *testing.T) {
 func TestDramaScenesSectionsAndGenreBindingRows(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, unit := seedQichuang(t, svc, db)
-	view, err := svc.DramaScenes("user-1", project.ID, unit.ID)
+	view, err := svc.DramaScenes("user-1", project.ID, unit.ID, nil)
 	if err != nil || view.Genre == nil || view.Genre.ID != drama.ShotGenreWenxi30 || view.Genre.MaxSeconds != 30 {
 		t.Fatalf("场次表带戏类：%v %+v", err, view)
 	}
@@ -443,7 +443,7 @@ func TestDramaScenesSectionsAndGenreBindingRows(t *testing.T) {
 		t.Fatalf("七床第一集文戏 30 切三节：%d", total)
 	}
 	project = qichuangOnModel(t, svc, db, project, "seedance-2.0")
-	if view, _ := svc.DramaScenes("user-1", project.ID, unit.ID); view.Genre.ID != drama.ShotGenreWenxi15 || view.Genre.MaxSeconds != 15 {
+	if view, _ := svc.DramaScenes("user-1", project.ID, unit.ID, nil); view.Genre.ID != drama.ShotGenreWenxi15 || view.Genre.MaxSeconds != 15 {
 		t.Fatalf("15 秒模型的场次表按文戏 15 切：%+v", view.Genre)
 	}
 	matrix, err := svc.AdminDramaStepBindings(&model.User{ID: "admin", Role: "admin"})
@@ -463,12 +463,66 @@ func TestDramaScenesSectionsAndGenreBindingRows(t *testing.T) {
 		t.Fatalf("三行戏类绑定：%v", genres)
 	}
 	project = qichuangOnModel(t, svc, db, project, "seedance-2.5")
-	before, _ := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots)
+	before, _ := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots, nil)
 	if _, err := svc.UpdateDramaStepBindings(&model.User{ID: "admin", Role: "admin"}, DramaStepBindingsRequest{Bindings: []DramaStepBindingCell{{StyleProfile: before.Profile.ID, Step: "chapter.shots#wenxi30", SkillID: "yz-shots-wenxi15"}}}); err != nil {
 		t.Fatalf("戏类行能绑技能：%v", err)
 	}
-	if usage, _ := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots); usage.Skill.ID != "yz-shots-wenxi15" || !usage.Bound {
+	if usage, _ := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots, nil); usage.Skill.ID != "yz-shots-wenxi15" || !usage.Bound {
 		t.Fatalf("按戏类行的绑定取技能：%+v", usage)
+	}
+}
+
+// 同一个 Seedance 2.5 项目在不同视频渠道段长下：步骤用法（弹窗「戏类 / 本步使用」）、场次表（场次条节数）和生成分段任务
+// 用同一个 rule 选戏类、切小节，三处一致。渠道只能 15 秒时三处都是文戏 15、9 节；30 秒或不带 rule 时都是文戏 30、3 节。
+func TestSectionGenreSameAcrossUsageScenesAndRun(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, unit := seedQichuang(t, svc, db)
+	for _, tc := range []struct {
+		name     string
+		rule     *DramaShotlistRule
+		genre    string
+		skill    string
+		sections int
+	}{
+		{"不带渠道段长", nil, drama.ShotGenreWenxi30, "yz-shots-wenxi30", 3},
+		{"渠道上限 15 秒", &DramaShotlistRule{MaxSeconds: 15, MinSeconds: 4}, drama.ShotGenreWenxi15, "yz-shots-wenxi15", 9},
+		{"渠道上限 30 秒", &DramaShotlistRule{MaxSeconds: 30, MinSeconds: 4}, drama.ShotGenreWenxi30, "yz-shots-wenxi30", 3},
+	} {
+		usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots, tc.rule)
+		if err != nil || usage.Genre == nil || usage.Genre.ID != tc.genre || usage.Skill.ID != tc.skill {
+			t.Fatalf("%s：步骤用法 %v %+v", tc.name, err, usage)
+		}
+		view, err := svc.DramaScenes("user-1", project.ID, unit.ID, tc.rule)
+		if err != nil || view.Genre == nil || view.Genre.ID != tc.genre || view.Genre.MaxSeconds != usage.Genre.MaxSeconds {
+			t.Fatalf("%s：场次表戏类 %v %+v", tc.name, err, view)
+		}
+		var scenesIDs []string
+		for _, sc := range view.Scenes {
+			for _, sec := range sc.Sections {
+				scenesIDs = append(scenesIDs, sec.ID)
+			}
+		}
+		units, err := svc.ProjectDramaScenes("user-1", project.ID, tc.rule)
+		if err != nil || len(units) != 1 || units[0].Genre.ID != tc.genre {
+			t.Fatalf("%s：项目场次表戏类 %v", tc.name, err)
+		}
+		plan, err := svc.planDramaStep("user-1", &project, unit.ID, drama.StepChapterShots, tc.rule)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := dramaStepTaskRequest(project.ID, unit.ID, plan, dramaStepTaskOptions{Model: "test", Config: map[string]any{"model": "test"}, Rule: tc.rule})
+		encoded, _ := json.Marshal(req.Input)
+		shots := taskDramaShots(string(encoded))
+		if shots == nil || shots.Genre != tc.genre || len(shots.Sections) != tc.sections {
+			t.Fatalf("%s：生成分段任务 %+v", tc.name, shots)
+		}
+		var runIDs []string
+		for _, sec := range shots.Sections {
+			runIDs = append(runIDs, sec.ID)
+		}
+		if !slices.Equal(scenesIDs, runIDs) {
+			t.Fatalf("%s：场次条的小节与生成分段的小节不一致：%v / %v", tc.name, scenesIDs, runIDs)
+		}
 	}
 }
 

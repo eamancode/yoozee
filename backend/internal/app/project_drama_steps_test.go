@@ -357,15 +357,15 @@ func TestDramaStepBindingsResolveAndAdminWrite(t *testing.T) {
 		t.Fatalf("五个档案；风格锁定、剧本优化、场次色卡、资产设计、生成分段（整章旧版）和三行戏类（文戏 15、文戏 30、预留的武戏）：%+v", matrix.Steps)
 	}
 	// 资产设计没配绑定时五个档案都用默认技能 yz-assets-extract（内置种子首次安装就是流程技能包）。
-	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepAssetsExtract); err != nil || usage.Skill.ID != "yz-assets-extract" || usage.Bound || usage.Contract != drama.ContractAssetsExtract {
+	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepAssetsExtract, nil); err != nil || usage.Skill.ID != "yz-assets-extract" || usage.Bound || usage.Contract != drama.ContractAssetsExtract {
 		t.Fatalf("资产设计默认技能：%v %+v", err, usage)
 	}
 	// 场次色卡没配绑定时五个档案都用默认技能 yz-scene-palette（线上库由迁移 68 写成绑定），技能上下文里带色板设计卡。
-	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepScenePalette); err != nil || usage.Skill.ID != "yz-scene-palette" || usage.Bound || usage.Contract != drama.ContractScenePalette {
+	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepScenePalette, nil); err != nil || usage.Skill.ID != "yz-scene-palette" || usage.Bound || usage.Contract != drama.ContractScenePalette {
 		t.Fatalf("场次色卡默认技能：%v %+v", err, usage)
 	}
 	// 剧本优化没配绑定时五个档案都用默认技能 yz-script-adapt（内置种子首次安装就是流程技能包）。
-	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepScriptAdapt); err != nil || usage.Skill.ID != "yz-script-adapt" || usage.Bound || usage.Contract != drama.ContractScriptAdapt {
+	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepScriptAdapt, nil); err != nil || usage.Skill.ID != "yz-script-adapt" || usage.Bound || usage.Contract != drama.ContractScriptAdapt {
 		t.Fatalf("剧本优化默认技能：%v %+v", err, usage)
 	}
 	for _, bad := range []DramaStepBindingCell{
@@ -382,7 +382,7 @@ func TestDramaStepBindingsResolveAndAdminWrite(t *testing.T) {
 	if _, err := svc.UpdateDramaStepBindings(admin, DramaStepBindingsRequest{Bindings: []DramaStepBindingCell{{StyleProfile: "live-realism", Step: wenxi30, SkillID: "yz-direct"}}}); err != nil {
 		t.Fatal(err)
 	}
-	usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots)
+	usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func TestDramaStepBindingsResolveAndAdminWrite(t *testing.T) {
 	if _, err := svc.UpdateProject("user-1", project.ID, UpdateProjectRequest{StyleProfile: ptr("anime-3d")}); err != nil {
 		t.Fatal(err)
 	}
-	if usage, _ = svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots); usage.Skill.ID != "yz-shots-wenxi30" || usage.Bound || usage.Profile.ID != "anime-3d" {
+	if usage, _ = svc.DramaStepUsage("user-1", project.ID, drama.StepChapterShots, nil); usage.Skill.ID != "yz-shots-wenxi30" || usage.Bound || usage.Profile.ID != "anime-3d" {
 		t.Fatalf("换档案后按新档案查绑定（没配用默认）：%+v", usage)
 	}
 	if _, err := svc.UpdateProject("user-1", project.ID, UpdateProjectRequest{StyleProfile: ptr("not-a-profile")}); err == nil {

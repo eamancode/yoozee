@@ -135,8 +135,9 @@ func dramaStep(stepID string) (drama.Step, error) {
 	return step, nil
 }
 
-// DramaStepUsage 返回项目跑这一步用的风格档案和技能版本。
-func (s *Service) DramaStepUsage(userID string, projectID string, stepID string) (DramaStepUsage, error) {
+// DramaStepUsage 返回项目跑这一步用的风格档案和技能版本。rule 是视频渠道段长（与 run 请求的 rule 同口径）：
+// 生成分段按它选戏类，弹窗显示的戏类和技能才与实际运行一致；其他步骤不看它。
+func (s *Service) DramaStepUsage(userID string, projectID string, stepID string, rule *DramaShotlistRule) (DramaStepUsage, error) {
 	step, err := dramaStep(stepID)
 	if err != nil {
 		return DramaStepUsage{}, err
@@ -145,7 +146,7 @@ func (s *Service) DramaStepUsage(userID string, projectID string, stepID string)
 	if err != nil {
 		return DramaStepUsage{}, err
 	}
-	usage, _, err := s.dramaStepSkill(project, step, nil)
+	usage, _, err := s.dramaStepSkill(project, step, rule)
 	return usage, err
 }
 

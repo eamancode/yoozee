@@ -203,6 +203,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     // 段长还要能被所选视频渠道提交（如只能 15/30 秒、最少 5 秒）：渠道取分镜制作页默认会用的那个视频模型。
     const segmentVideoModel = projectVideoModel(effectiveConfig, detail.project.defaultVideoModel, dramaModels.data, dramaModel);
     const segmentRule = useMemo(() => segmentDurationRule(segmentMaxSeconds, segmentVideoModel ? modelCapabilityConfigFor(effectiveConfig, segmentVideoModel).video?.duration : undefined, segmentLimitLabel), [effectiveConfig, segmentLimitLabel, segmentMaxSeconds, segmentVideoModel]);
+    // 生成分段、装段、步骤用法（弹窗的戏类）和场次表（场次条节数）都带这一个 rule：后端按它选戏类、切小节，四处一致。
+    const dramaRule = useMemo(() => ({ maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }), [segmentRule.maxSeconds, segmentRule.minSeconds]);
     // 本章工作区只带本章镜头已引用的资产；生成分镜和装段要看项目里全部已确认的资产，否则新章节的段带不上参考。
     const projectAssetsKey = ["project", detail.project.id, "assets", "chapter-storyboard"] as const;
     const loadProjectAssets = async () => (await listProjectAssets(detail.project.id)).assets;
@@ -220,8 +222,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const projectStyleMissing = !parseStyleProfile(detail.project.styleProfileJson)?.prompt.trim();
     // 生成分段用哪个技能由项目风格档案绑定（后台「流程技能」），对话框只显示，不让选。
     const storyboardStepQuery = useQuery({
-        queryKey: ["project", detail.project.id, "drama-step", "chapter.shots", detail.project.styleProfile || ""],
-        queryFn: ({ signal }) => getDramaStepUsage(detail.project.id, "chapter.shots", signal).then((result) => result.usage),
+        queryKey: ["project", detail.project.id, "drama-step", "chapter.shots", detail.project.styleProfile || "", dramaRule.maxSeconds, dramaRule.minSeconds],
+        queryFn: ({ signal }) => getDramaStepUsage(detail.project.id, "chapter.shots", signal, dramaRule).then((result) => result.usage),
         enabled: storyboardOpen,
     });
     const storyboardStep = storyboardStepQuery.data;
@@ -235,8 +237,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const shotlist = shotlistQuery.data;
     // 场次表按已保存的正文实时切：正文保存时间变了重新读；规则改变后旧数据编号错位时带 notice（正文上方和生成分段侧栏提示）。
     const scenesQuery = useQuery({
-        queryKey: [...dramaScenesKey(detail.project.id, selectedUnitId), selectedUnit?.updatedAt || ""],
-        queryFn: ({ signal }) => getDramaScenes(detail.project.id, selectedUnitId, signal),
+        queryKey: [...dramaScenesKey(detail.project.id, selectedUnitId), selectedUnit?.updatedAt || "", dramaRule.maxSeconds, dramaRule.minSeconds],
+        queryFn: ({ signal }) => getDramaScenes(detail.project.id, selectedUnitId, signal, dramaRule),
         enabled: Boolean(selectedUnitId),
     });
     const chapterStoryboardTasks = useMemo(() => (chapterTasksQuery.data || []).filter((task) => {
@@ -491,7 +493,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         return { ...current, [unitId]: { taskId: taskId || previous?.taskId || "", text: text ?? (sameTask ? previous.text : "") } };
     });
     const repackMutation = useMutation({
-        mutationFn: ({ unitId, accept }: { unitId: string; before: number; draft: boolean; accept?: boolean }) => repackDramaShotlist(detail.project.id, unitId, { rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, ...(accept ? { acceptIssues: true } : {}) }),
+        mutationFn: ({ unitId, accept }: { unitId: string; before: number; draft: boolean; accept?: boolean }) => repackDramaShotlist(detail.project.id, unitId, { rule: dramaRule, ...(accept ? { acceptIssues: true } : {}) }),
         onSuccess: async (result, { unitId, before, accept }) => {
             await refreshStoryboardResult(unitId);
             const scenes = new Set(result.segments.map((segment) => segment.spec.scene)).size;
@@ -533,7 +535,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         setRunPanelOpen(true);
         message.info(options.resumeTaskId ? "从中断的那一节接着写，可继续编辑或切换章节" : options.onlySections?.length ? `只重写 ${options.onlySections.join("、")}，其余小节的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
         try {
-            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: { maxSeconds: segmentRule.maxSeconds, minSeconds: segmentRule.minSeconds }, resumeTaskId: options.resumeTaskId, onlySections: options.onlySections }, {
+            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: dramaRule, resumeTaskId: options.resumeTaskId, onlySections: options.onlySections }, {
                 onTaskUpdate: (task) => {
                     followedStoryboardTasksRef.current.add(task.id);
                     updateChapterOperation(unit.id, "storyboard", task);

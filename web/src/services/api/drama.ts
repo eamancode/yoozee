@@ -396,7 +396,7 @@ export function shotlistCheckFailure(error: unknown): DramaCheckReport | undefin
  * 镜头表是检查没过的草稿时仍要过检查：还有 error 就抛 ApiError（reason=shotlist_check_failed，details.check 是检查结果），草稿不变。
  * acceptIssues 是「先装段，到分镜制作改」：带着 error 装段，问题挂到段和镜头上；会让装段做不成的问题（镜头时长不是正数、整场超单段上限）仍拒绝。
  */
-export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: { maxSeconds: number; minSeconds: number }; acceptIssues?: boolean } = {}) {
+export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: DramaSegmentRule; acceptIssues?: boolean } = {}) {
     return http.post<DramaShotlistWriteResult>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist/repack`, input);
 }
 
@@ -508,8 +508,17 @@ export type DramaStepUsage = {
     bindingStep?: string;
 };
 
-export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?: AbortSignal) {
-    return http.get<{ usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}`, { signal });
+/** 视频渠道实际能提交的段长（只收紧）：生成分段按它选戏类、切小节、装段。 */
+export type DramaSegmentRule = { maxSeconds: number; minSeconds: number };
+
+/** 步骤用法、场次表带上与生成分段同一个 rule，弹窗的戏类和场次条的节数才与实际运行一致。 */
+function dramaRuleParams(rule?: DramaSegmentRule) {
+    return rule ? { maxSeconds: rule.maxSeconds, minSeconds: rule.minSeconds } : undefined;
+}
+
+/** 这一步用的风格档案和技能；生成分段要带上运行时同一个 rule（见 dramaRuleParams）。 */
+export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?: AbortSignal, rule?: DramaSegmentRule) {
+    return http.get<{ usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}`, { params: dramaRuleParams(rule), signal });
 }
 
 /**
@@ -522,7 +531,7 @@ export function runDramaStep(
     projectId: string,
     unitId: string,
     step: "chapter.shots" | "assets.extract",
-    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: { maxSeconds: number; minSeconds: number }; resumeTaskId?: string; onlyScenes?: string[]; onlySections?: string[]; imageTask?: DramaImageTaskTemplate },
+    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule; resumeTaskId?: string; onlyScenes?: string[]; onlySections?: string[]; imageTask?: DramaImageTaskTemplate },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
 }
@@ -656,14 +665,14 @@ export function dramaScenesKey(projectId: string, unitId?: string) {
     return unitId ? (["project", projectId, "drama-scenes", unitId] as const) : (["project", projectId, "drama-scenes"] as const);
 }
 
-/** 一个单元的场次表（按正文实时切）。 */
-export function getDramaScenes(projectId: string, unitId: string, signal?: AbortSignal) {
-    return http.get<DramaScenes>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/scenes`, { signal });
+/** 一个单元的场次表（按正文实时切）；每场的小节按 rule 选的戏类切，与生成分段同口径。 */
+export function getDramaScenes(projectId: string, unitId: string, signal?: AbortSignal, rule?: DramaSegmentRule) {
+    return http.get<DramaScenes>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/scenes`, { params: dramaRuleParams(rule), signal });
 }
 
 /** 项目场次表里每个单元（全部剧集，没有剧集时全部原文章节）的场次表。 */
-export function getProjectDramaScenes(projectId: string, signal?: AbortSignal) {
-    return http.get<{ units: DramaScenes[] }>(`/projects/${encodeURIComponent(projectId)}/drama/scenes`, { signal });
+export function getProjectDramaScenes(projectId: string, signal?: AbortSignal, rule?: DramaSegmentRule) {
+    return http.get<{ units: DramaScenes[] }>(`/projects/${encodeURIComponent(projectId)}/drama/scenes`, { params: dramaRuleParams(rule), signal });
 }
 
 /** 剧本优化收尾的摘要（任务 result.dramaStep）：写出的各集、替换或改写了哪些已有剧集、检查提醒。 */
