@@ -47,7 +47,7 @@ type ReplaceProjectUnitShotsRequest struct {
 type ReplaceProjectUnitShotInput struct {
 	CreateProjectShotRequest
 	AssetVersionIDs []string `json:"assetVersionIds"`
-	// StyleVersionIDs 是以 role=style 绑到这一段的资产版本（生成分段装段时绑本场色卡）；不占 6 个参考的名额，也不进视频参考图。
+	// StyleVersionIDs 是以 role=style 绑到这一段的资产版本（生成分段装段时绑本场场次色卡）；不占 6 个参考的名额，视频编译时作为最后一张参考图（名额满了只把色值写进提示词）。
 	StyleVersionIDs []string `json:"styleVersionIds,omitempty"`
 }
 
@@ -496,7 +496,7 @@ func addAssetCandidateIdentityKeys(known map[string]struct{}, category model.Ass
 	}
 }
 
-// shotAssetRoleStyle 是风格类引用（本场色卡）：进产物输入指纹，换版本时让产物过期；不作视频参考图。
+// shotAssetRoleStyle 是风格类引用（本场场次色卡）：进产物输入指纹，换版本时让产物过期；视频编译时排在参考图最后（CompileProjectShot）。
 const shotAssetRoleStyle = "style"
 
 func validShotAssetRole(role string) bool {

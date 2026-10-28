@@ -21,17 +21,15 @@ import (
 	"yingce/backend/internal/model"
 )
 
-// DramaProjectStepRunRequest 是「对这个项目跑一步」（风格锁定、剧本优化、导演风格）：选哪些单元，剧本优化另有怎么改、写几集，
+// DramaProjectStepRunRequest 是「对这个项目跑一步」（风格锁定、剧本优化、场次色卡）：选哪些单元，剧本优化另有怎么改、写几集，
 // 风格锁定另有项目类型、风格文字和参考图，加文本模型选择；提示词由服务端组装。
 type DramaProjectStepRunRequest struct {
 	Model          string         `json:"model"`
 	LogicalModelID string         `json:"logicalModelId"`
 	Config         map[string]any `json:"config"`
 	// SourceUnitIDs 是来源单元：adapt 是原文章节（默认全部还没被剧集引用的），rhythm 是已有剧集（默认全部）；
-	// 导演风格是要定风格的剧集（默认全部；项目还没有剧集时是原文章节）。
+	// 场次色卡是要做色卡的剧集（默认全部；项目还没有剧集时是原文章节）。
 	SourceUnitIDs []string `json:"sourceUnitIds,omitempty"`
-	// PaletteImages 是色卡出图的图片任务模板（导演风格收尾给每场色卡出图用；为空时只建色卡不出图）。
-	PaletteImages *DramaImageTaskTemplate `json:"paletteImages,omitempty"`
 	// ProjectType / StyleText / ReferenceImages 是风格锁定的输入：项目类型（live-action …，不给时取项目锁定记录里的）、
 	// 用户写的风格文字、参考图（本人已就绪的图片资源 ID，最多 6 张）。
 	ProjectType     string   `json:"projectType,omitempty"`
@@ -50,6 +48,8 @@ type DramaProjectStepRunRequest struct {
 	ResumeTaskID string `json:"resumeTaskId,omitempty"`
 	TraceID      string `json:"-"`
 	RequestID    string `json:"-"`
+	// chainedFrom 是服务端自动接着建任务时的上一步任务（metadata.chainedFrom）。
+	chainedFrom string
 }
 
 // dramaAdaptMeta 是任务 metadata.dramaAdapt：收尾按它写剧集。
@@ -116,11 +116,13 @@ type DramaScriptAdaptOutcome struct {
 	Warnings  int                   `json:"warnings"`
 	// Items 是检查提醒（最多 50 条）。
 	Items []drama.CheckItem `json:"items,omitempty"`
+	// Chained 是写完剧集后自动接着建的场次色卡任务。
+	Chained *DramaChainedTask `json:"chained,omitempty"`
 }
 
 const dramaAdaptOutcomeItems = 50
 
-// RunDramaProjectStep 对整个项目跑一步（风格锁定、剧本优化、导演风格）：服务端组装提示词并创建文本任务。
+// RunDramaProjectStep 对整个项目跑一步（风格锁定、剧本优化、场次色卡）：服务端组装提示词并创建文本任务。
 func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID string, req DramaProjectStepRunRequest) (DramaStepRunResult, error) {
 	step, err := dramaStep(stepID)
 	if err != nil {
@@ -133,19 +135,16 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}
-	if req.PaletteImages != nil && !req.PaletteImages.usable() {
-		return DramaStepRunResult{}, BadAuthRequest("色卡出图要先选图片模型")
-	}
 	var plan *dramaStepPlan
 	switch step.ID {
 	case drama.StepStyleLock:
 		plan, err = s.planStyleLock(userID, project, step, req)
 	case drama.StepScriptAdapt:
 		plan, err = s.planScriptAdapt(project, step, req)
-	case drama.StepStyleBible:
-		plan, err = s.planStyleBible(project, step, req)
+	case drama.StepScenePalette:
+		plan, err = s.planScenePalette(project, step, req)
 		if plan != nil {
-			plan.style.Images = req.PaletteImages != nil
+			plan.palette.ChainedFrom = req.chainedFrom
 		}
 	default:
 		err = BadAuthRequest(fmt.Sprintf("步骤 %s 还不能在服务端运行", step.ID))
@@ -162,9 +161,8 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 	taskReq := dramaStepTaskRequest(project.ID, "", plan, dramaStepTaskOptions{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config, TraceID: req.TraceID, RequestID: req.RequestID})
 	metadata := taskReq.Input["metadata"].(map[string]any)
 	metadata["dramaRun"] = run
-	// 模板带着图片渠道的密钥：放在 input 顶层（建任务时加密，任务结束后从正文去掉），不进 metadata。
-	if req.PaletteImages != nil {
-		taskReq.Input["paletteImageTask"] = req.PaletteImages
+	if req.chainedFrom != "" {
+		metadata["chainedFrom"] = req.chainedFrom
 	}
 	task, err := s.CreateTask(userID, taskReq)
 	var modelErr *ModelError

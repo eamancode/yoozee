@@ -1,8 +1,9 @@
-// 导演风格（style.bible，M7.2 第 4 阶段）：项目级步骤（M8 起剧本优化跑完不再自动接着跑，章节页入口换成风格锁定；卡 B 改成场次色卡）；服务端按项目记忆
-// （需求、画风、风格档案、全部剧集的场次表、已有风格锚）组装提示词、建一个任务，worker 在任务里一轮写一集（逐轮续写机制与剧本优化共用
-// project_drama_run.go），收尾时解析、检查，把全局风格锚和逐场色彩脚本合并写进 bible_json（其余字段原样保留），每场建一张色卡资产
-// （分类 palette，直接已确认，重跑同一场加版本），带了图片任务模板时接着给色卡排出图任务（project_drama_palette.go）。
-// 项目还没有剧集时按原文章节定风格（一章当一集）。
+// 场次色卡（scene.palette，M8 卡 B，由 M7.2 导演风格 style.bible 改来）：项目级步骤。剧本优化写完剧集后服务端自动接着建任务
+// （metadata.chainedFrom），也可以在章节页点「生成场次色卡」。项目要先锁定风格（风格锚 + 主基调色卡，style.lock 写的）：服务端按
+// 锁定的风格锚、主基调色卡、风格档案、全部剧集的场次表和这次不重写的已有色彩脚本组装提示词，建一个任务，worker 在任务里一轮写一集
+// （逐轮续写机制与剧本优化共用 project_drama_run.go）。收尾时解析、检查，只把逐场色彩脚本合并写进 bible_json.color_script
+// （风格锚、主基调色卡和其余字段原样保留），每场建 / 加版本一张场次色卡资产（project_drama_palette.go），再由代码合成色卡图绑上，
+// 不调图片模型。项目还没有剧集时按原文章节做（一章当一集）。
 
 package app
 
@@ -10,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -22,61 +22,49 @@ import (
 	"yingce/backend/internal/model"
 )
 
-// DramaImageTaskTemplate 是给色卡出图用的图片任务模板：前端按项目默认图片模型组好的任务（模型选择、input.config 等，16:9），
-// 服务端每张色卡换上自己的提示词和 metadata 后建任务。它放在任务 input 的顶层 paletteImageTask，任务结束后随密钥一起从任务正文去掉。
-type DramaImageTaskTemplate struct {
-	Model          string         `json:"model"`
-	LogicalModelID string         `json:"logicalModelId,omitempty"`
-	Provider       string         `json:"provider,omitempty"`
-	Input          map[string]any `json:"input"`
-}
-
-func (t *DramaImageTaskTemplate) usable() bool {
-	return t != nil && (strings.TrimSpace(t.Model) != "" || strings.TrimSpace(t.LogicalModelID) != "")
-}
-
-// dramaStyleMeta 是任务 metadata.dramaStyle：这次定风格的各集与场次（收尾检查用），有没有色卡出图。
-type dramaStyleMeta struct {
-	Episodes     []dramaStyleEpisodeMeta `json:"episodes"`
-	FromChapters bool                    `json:"fromChapters,omitempty"`
-	Images       bool                    `json:"images"`
+// dramaScenePaletteMeta 是任务 metadata.dramaScenePalette：这次写色卡的各集与场次（收尾检查用），是不是剧本优化接着建的。
+type dramaScenePaletteMeta struct {
+	Episodes     []dramaScenePaletteEpisodeMeta `json:"episodes"`
+	FromChapters bool                           `json:"fromChapters,omitempty"`
 	// ExcerptChars 是每场摘录的字数（总字数超预算时缩短，记下来便于排查）。
-	ExcerptChars int `json:"excerptChars"`
+	ExcerptChars int    `json:"excerptChars"`
+	ChainedFrom  string `json:"chainedFrom,omitempty"`
 }
 
-type dramaStyleEpisodeMeta struct {
+type dramaScenePaletteEpisodeMeta struct {
 	No     int      `json:"no"`
 	UnitID string   `json:"unitId"`
 	Title  string   `json:"title"`
 	Scenes []string `json:"scenes"`
 }
 
-func (m *dramaStyleMeta) episodes() []drama.StyleBibleEpisode {
-	out := make([]drama.StyleBibleEpisode, 0, len(m.Episodes))
+func (m *dramaScenePaletteMeta) episodes() []drama.ScenePaletteEpisode {
+	out := make([]drama.ScenePaletteEpisode, 0, len(m.Episodes))
 	for _, ep := range m.Episodes {
-		scenes := make([]drama.StyleBibleScene, 0, len(ep.Scenes))
+		scenes := make([]drama.ScenePaletteScene, 0, len(ep.Scenes))
 		for i, h := range ep.Scenes {
-			scenes = append(scenes, drama.StyleBibleScene{No: i + 1, Heading: h})
+			scenes = append(scenes, drama.ScenePaletteScene{No: i + 1, Heading: h})
 		}
-		out = append(out, drama.StyleBibleEpisode{No: ep.No, UnitID: ep.UnitID, Title: ep.Title, Scenes: scenes})
+		out = append(out, drama.ScenePaletteEpisode{No: ep.No, UnitID: ep.UnitID, Title: ep.Title, Scenes: scenes})
 	}
 	return out
 }
 
-// DramaStyleBibleOutcome 是导演风格收尾写进任务结果 result.dramaStep 的摘要。
-type DramaStyleBibleOutcome struct {
-	Step     string                     `json:"step"`
-	Status   string                     `json:"status"`
-	Episodes int                        `json:"episodes"`
-	Scenes   int                        `json:"scenes"`
-	Parse    drama.StyleBibleParseStats `json:"parse"`
-	Errors   int                        `json:"errors"`
-	Warnings int                        `json:"warnings"`
-	Items    []drama.CheckItem          `json:"items,omitempty"`
-	// Palettes 是写出的色卡：Created 新建，Versioned 已有色卡加了版本。
+// DramaScenePaletteOutcome 是场次色卡收尾写进任务结果 result.dramaStep 的摘要。
+type DramaScenePaletteOutcome struct {
+	Step     string                       `json:"step"`
+	Status   string                       `json:"status"`
+	Episodes int                          `json:"episodes"`
+	Scenes   int                          `json:"scenes"`
+	Parse    drama.ScenePaletteParseStats `json:"parse"`
+	Errors   int                          `json:"errors"`
+	Warnings int                          `json:"warnings"`
+	Items    []drama.CheckItem            `json:"items,omitempty"`
+	// Palettes 是写出的色卡：Created 新建，Versioned 已有色卡加了版本，Retired 标成场次已不存在。
 	Palettes DramaPaletteWriteSummary `json:"palettes"`
-	// Images 是色卡出图：排上的、等空位的（同时任务数有上限，前面的出完图自动接着排）、没排上的。
-	Images DramaImageQueueResult `json:"images"`
+	// Rendered 是合成并绑上图的色卡张数；ImageFailures 是没合成上图的（资产页「重新合成」可以补）。
+	Rendered      int                   `json:"rendered"`
+	ImageFailures []DramaPaletteFailure `json:"imageFailures,omitempty"`
 }
 
 // DramaPaletteWriteSummary 里 Retired 是标成场次已不存在的旧色卡（这次运行范围内、色彩脚本里不再有的场）。
@@ -86,8 +74,14 @@ type DramaPaletteWriteSummary struct {
 	Retired   int `json:"retired"`
 }
 
-// planStyleBible 选剧集（没有剧集时取原文章节）、切场、读已有风格锚和色彩脚本，组装提示词。
-func (s *Service) planStyleBible(project *model.Project, step drama.Step, req DramaProjectStepRunRequest) (*dramaStepPlan, error) {
+// errStyleNotLocked 是项目还没锁定风格时生成场次色卡的提示。
+const errStyleNotLocked = "项目还没有锁定风格：场次色卡以锁定的风格锚和主基调色卡为参考，先在章节页「分析项目风格」锁定风格，或建项目时选风格库"
+
+// planScenePalette 要求项目已锁定风格，选剧集（没有剧集时取原文章节）、切场、读已有色彩脚本，组装提示词。
+func (s *Service) planScenePalette(project *model.Project, step drama.Step, req DramaProjectStepRunRequest) (*dramaStepPlan, error) {
+	if _, _, _, locked := projectLockedStyle(project.BibleJSON); !locked {
+		return nil, BadAuthRequest(errStyleNotLocked)
+	}
 	units, err := s.repo.ProjectUnits(project.ID)
 	if err != nil {
 		return nil, err
@@ -101,10 +95,62 @@ func (s *Service) planStyleBible(project *model.Project, step drama.Step, req Dr
 	if err != nil {
 		return nil, err
 	}
-	return styleBiblePlan(project, selected, numbers, fromChapters, styleSceneTable(units), usage, skill)
+	return scenePalettePlan(project, selected, numbers, fromChapters, styleSceneTable(units), usage, skill)
 }
 
-// styleBibleUnits 是这次定风格的单元：全部剧集（按项目顺序，集号是在剧集里的序号）；项目还没有剧集时取原文章节。
+// scenePalettePlan 把选好的单元、项目锁定的风格和技能版本组装成提示词与运行参数（不读库，评测直接拿评测集的单元喂进来，table 为 nil）。
+func scenePalettePlan(project *model.Project, units []model.ProjectUnit, numbers map[string]int, fromChapters bool, table map[string]styleSceneSlot, usage DramaStepUsage, skill drama.StepSkill) (*dramaStepPlan, error) {
+	if len(units) > drama.ScenePaletteMaxEpisodes {
+		return nil, BadAuthRequest(fmt.Sprintf("一次最多给 %d 集做场次色卡，请分几次跑", drama.ScenePaletteMaxEpisodes))
+	}
+	texts := make([]string, len(units))
+	total := 0
+	for i, u := range units {
+		texts[i] = chapterPlainText(u.SourceText)
+		total += len(drama.ScenePaletteScenes(texts[i], u.Title, drama.ScenePaletteSceneExcerptChars))
+	}
+	limit := drama.ScenePaletteExcerptLimit(total)
+	episodes := make([]drama.ScenePaletteEpisode, 0, len(units))
+	meta := &dramaScenePaletteMeta{FromChapters: fromChapters, ExcerptChars: limit}
+	records := make([]map[string]any, 0, len(units))
+	runEpisodes := map[int]bool{}
+	for i, u := range units {
+		scenes := drama.ScenePaletteScenes(texts[i], u.Title, limit)
+		if len(scenes) == 0 {
+			return nil, BadAuthRequest(fmt.Sprintf("「%s」没有正文", u.Title))
+		}
+		no := numbers[u.ID]
+		episodes = append(episodes, drama.ScenePaletteEpisode{No: no, UnitID: u.ID, Title: u.Title, Scenes: scenes})
+		headings := make([]string, 0, len(scenes))
+		for _, sc := range scenes {
+			headings = append(headings, sc.Heading)
+		}
+		meta.Episodes = append(meta.Episodes, dramaScenePaletteEpisodeMeta{No: no, UnitID: u.ID, Title: u.Title, Scenes: headings})
+		records = append(records, map[string]any{"unitId": u.ID, "title": u.Title, "kind": string(u.Kind), "episode": no})
+		runEpisodes[no] = true
+	}
+	anchor, master, _, _ := projectLockedStyle(project.BibleJSON)
+	_, script := projectStyleBible(project.BibleJSON)
+	in := drama.ScenePaletteInput{
+		Episodes: episodes, FromChapters: fromChapters,
+		Anchor: anchor, Master: master, Existing: keptColorScript(script, runEpisodes, table), Skill: skill,
+	}
+	if p, err := drama.BuiltinProfile(projectDramaContext(project).profileID()); err == nil {
+		in.Profile = drama.StyleBibleProfile{Label: p.Label, StyleBlock: p.StyleBlock.Zh, LightPolicy: p.LightPolicy}
+	}
+	prompt, err := drama.BuildScenePalettePrompt(in)
+	if err != nil {
+		return nil, err
+	}
+	return &dramaStepPlan{
+		usage: usage, prompt: prompt, skill: skill,
+		scenes:  drama.ScenePaletteTurns(episodes),
+		record:  map[string]any{"requirements": "以锁定的风格锚和主基调色卡为参考，逐场写色彩脚本，每场一行，供场次色卡、资产和视频使用。", "dramaSources": records},
+		palette: meta,
+	}, nil
+}
+
+// styleBibleUnits 是这次写场次色卡的单元（也是项目场次表的单元）：全部剧集（按项目顺序，集号是在剧集里的序号）；项目还没有剧集时取原文章节。
 // 点名的要属于这一类。
 func styleBibleUnits(units []model.ProjectUnit, requested []string) ([]model.ProjectUnit, map[string]int, bool, error) {
 	pick := func(kind model.ProjectUnitKind) []model.ProjectUnit {
@@ -150,7 +196,7 @@ func styleBibleUnits(units []model.ProjectUnit, requested []string) ([]model.Pro
 	return out, numbers, fromChapters, nil
 }
 
-// styleBibleSceneRefs 是项目当前的场次表（总览「风格定了」「色卡齐了」的基准）：选单元、编集号、切场都与导演风格同一套
+// styleBibleSceneRefs 是项目当前的场次表（总览「风格定了」「色卡齐了」的基准）：选单元、编集号、切场都与场次色卡同一套
 // （全部剧集，没有剧集时取原文章节，一章当一集）。项目里没有剧集也没有章节时返回空。
 func styleBibleSceneRefs(units []model.ProjectUnit) ([]drama.SceneRef, bool) {
 	sorted := slices.Clone(units)
@@ -161,7 +207,7 @@ func styleBibleSceneRefs(units []model.ProjectUnit) ([]drama.SceneRef, bool) {
 	}
 	var out []drama.SceneRef
 	for _, u := range all {
-		for _, sc := range drama.StyleBibleScenes(chapterPlainText(u.SourceText), u.Title, drama.StyleBibleMinExcerptChars) {
+		for _, sc := range drama.ScenePaletteScenes(chapterPlainText(u.SourceText), u.Title, drama.ScenePaletteMinExcerptChars) {
 			out = append(out, drama.SceneRef{Episode: numbers[u.ID], SceneNo: sc.No})
 		}
 	}
@@ -176,7 +222,7 @@ type styleSceneSlot struct {
 	LegacyShifted bool
 }
 
-// styleSceneTable 是项目当前的场次表，按场编号（选单元、编集号、切场与导演风格同一套）。项目里没有剧集也没有章节时返回空表。
+// styleSceneTable 是项目当前的场次表，按场编号（选单元、编集号、切场与场次色卡同一套）。项目里没有剧集也没有章节时返回空表。
 func styleSceneTable(units []model.ProjectUnit) map[string]styleSceneSlot {
 	sorted := slices.Clone(units)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Position < sorted[j].Position })
@@ -210,58 +256,19 @@ func colorScriptCurrent(e drama.ColorScriptEntry, table map[string]styleSceneSlo
 	return e.Scene == "" || strings.Join(strings.Fields(e.Scene), "") == strings.Join(strings.Fields(slot.Heading), "")
 }
 
-// styleBiblePlan 把选好的单元、项目记忆和技能版本组装成提示词与运行参数（不读库，评测直接拿评测集的单元喂进来，table 为 nil）。
-func styleBiblePlan(project *model.Project, units []model.ProjectUnit, numbers map[string]int, fromChapters bool, table map[string]styleSceneSlot, usage DramaStepUsage, skill drama.StepSkill) (*dramaStepPlan, error) {
-	if len(units) > drama.StyleBibleMaxEpisodes {
-		return nil, BadAuthRequest(fmt.Sprintf("一次最多给 %d 集定风格，请分几次跑", drama.StyleBibleMaxEpisodes))
-	}
-	texts := make([]string, len(units))
-	total := 0
-	for i, u := range units {
-		texts[i] = chapterPlainText(u.SourceText)
-		total += len(drama.StyleBibleScenes(texts[i], u.Title, drama.StyleBibleSceneExcerptChars))
-	}
-	limit := drama.StyleBibleExcerptLimit(total)
-	episodes := make([]drama.StyleBibleEpisode, 0, len(units))
-	meta := &dramaStyleMeta{FromChapters: fromChapters, ExcerptChars: limit}
-	records := make([]map[string]any, 0, len(units))
-	runEpisodes := map[int]bool{}
-	for i, u := range units {
-		scenes := drama.StyleBibleScenes(texts[i], u.Title, limit)
-		if len(scenes) == 0 {
-			return nil, BadAuthRequest(fmt.Sprintf("「%s」没有正文", u.Title))
+// scenePaletteRunEntries 是这次要写的场：这次运行的各集里、场次表上有的场（同一场写了两次取第一次），场次头、单元和切场规则
+// 由服务端按建任务时的场次表填（模型只写场编号）。runScenes 是场编号 → 场次头，runUnits 是集号 → 单元。
+func scenePaletteRunEntries(script []drama.ColorScriptEntry, runEpisodes map[int]bool, runScenes map[string]string, runUnits map[int]string) []drama.ColorScriptEntry {
+	var out []drama.ColorScriptEntry
+	for _, e := range styleBibleRunEntries(script, runEpisodes) {
+		heading, ok := runScenes[e.Code()]
+		if !ok {
+			continue
 		}
-		no := numbers[u.ID]
-		episodes = append(episodes, drama.StyleBibleEpisode{No: no, UnitID: u.ID, Title: u.Title, Scenes: scenes})
-		headings := make([]string, 0, len(scenes))
-		for _, sc := range scenes {
-			headings = append(headings, sc.Heading)
-		}
-		meta.Episodes = append(meta.Episodes, dramaStyleEpisodeMeta{No: no, UnitID: u.ID, Title: u.Title, Scenes: headings})
-		records = append(records, map[string]any{"unitId": u.ID, "title": u.Title, "kind": string(u.Kind), "episode": no})
-		runEpisodes[no] = true
+		e.Scene, e.UnitID, e.SceneRule = heading, runUnits[e.Episode], drama.SceneRuleMerged
+		out = append(out, e)
 	}
-	anchor, script := projectStyleBible(project.BibleJSON)
-	existing := keptColorScript(script, runEpisodes, table)
-	style := projectStyleSnapshot(project)
-	in := drama.StyleBibleInput{
-		Episodes: episodes, FromChapters: fromChapters, BriefJSON: project.BriefJSON,
-		Style:  drama.StepStyle{Title: style.Title, Prompt: style.Prompt, Selection: style.Selection},
-		Anchor: anchor, Existing: existing, Skill: skill,
-	}
-	if p, err := drama.BuiltinProfile(projectDramaContext(project).profileID()); err == nil {
-		in.Profile = drama.StyleBibleProfile{Label: p.Label, StyleBlock: p.StyleBlock.Zh, LightPolicy: p.LightPolicy}
-	}
-	prompt, err := drama.BuildStyleBiblePrompt(in)
-	if err != nil {
-		return nil, err
-	}
-	return &dramaStepPlan{
-		usage: usage, prompt: prompt, skill: skill,
-		scenes: drama.StyleBibleTurns(episodes),
-		record: map[string]any{"requirements": "输出全局风格锚和逐场色彩脚本，每场一行，供色卡、资产和分镜使用。", "dramaSources": records},
-		style:  meta,
-	}, nil
+	return out
 }
 
 // keptColorScript 是这次不重写、合并时保留的已有色彩脚本：不在这次运行的集里，且还对得上当前场次表（colorScriptCurrent：
@@ -274,32 +281,6 @@ func keptColorScript(script []drama.ColorScriptEntry, runEpisodes map[int]bool, 
 		}
 	}
 	return out
-}
-
-// currentColorScriptBible 是给总览终态用的 bible_json：场编号还在当前场次表里、却对不上这一场（原文章节版留在剧集同编号上的
-// 条目）的色彩脚本去掉，不算这一场已经定了风格；场编号已经不在的留着，终态照旧写「已不在当前剧集里」。读不出时原样返回。
-func currentColorScriptBible(bibleJSON string, table map[string]styleSceneSlot) string {
-	doc := map[string]any{}
-	if json.Unmarshal([]byte(bibleJSON), &doc) != nil {
-		return bibleJSON
-	}
-	list, ok := doc["color_script"].([]any)
-	if !ok {
-		return bibleJSON
-	}
-	kept := make([]any, 0, len(list))
-	for _, item := range list {
-		entry, ok := decodeInto[drama.ColorScriptEntry](item)
-		if _, inTable := table[entry.Code()]; !ok || !inTable || colorScriptCurrent(entry, table) {
-			kept = append(kept, item)
-		}
-	}
-	doc["color_script"] = kept
-	encoded, err := json.Marshal(doc)
-	if err != nil {
-		return bibleJSON
-	}
-	return string(encoded)
 }
 
 // projectStyleBible 读 bible_json 里的风格锚和色彩脚本（读不出的字段当作没有）。
@@ -322,61 +303,50 @@ func projectStyleBible(bibleJSON string) (*drama.StyleAnchor, []drama.ColorScrip
 
 // ---------------------------------------------------------------- 收尾
 
-// taskDramaStyle 从任务输入读 metadata.dramaStyle。
-func taskDramaStyle(inputJSON string) *dramaStyleMeta {
+// taskDramaScenePalette 从任务输入读 metadata.dramaScenePalette。
+func taskDramaScenePalette(inputJSON string) *dramaScenePaletteMeta {
 	var input struct {
 		Metadata struct {
-			DramaStyle *dramaStyleMeta `json:"dramaStyle"`
+			DramaScenePalette *dramaScenePaletteMeta `json:"dramaScenePalette"`
 		} `json:"metadata"`
 	}
 	if json.Unmarshal([]byte(inputJSON), &input) != nil {
 		return nil
 	}
-	return input.Metadata.DramaStyle
+	return input.Metadata.DramaScenePalette
 }
 
-// taskPaletteImageTemplate 从（解密后的）任务输入读顶层 paletteImageTask。
-func taskPaletteImageTemplate(inputJSON string) *DramaImageTaskTemplate {
-	var input struct {
-		Template *DramaImageTaskTemplate `json:"paletteImageTask"`
-	}
-	if json.Unmarshal([]byte(inputJSON), &input) != nil || !input.Template.usable() {
-		return nil
-	}
-	return input.Template
-}
-
-// applyStyleBibleTask 是导演风格的 Apply：模型输出 → 风格锚与色彩脚本 → 检查 → 合并写进 bible_json 并建 / 加版本色卡（同一事务）
-// → 带了图片任务模板时排色卡出图。检查有 error 时不写库、任务失败（bible 和色卡都不动）；出图排不上不影响已写的结果。
-func (s *Service) applyStyleBibleTask(task model.Task, meta *dramaStepTaskMeta, result map[string]interface{}) (DramaStyleBibleOutcome, error) {
-	style := taskDramaStyle(task.InputJSON)
-	var input struct {
-		Metadata struct {
-			ProjectID string `json:"domainProjectId"`
-		} `json:"metadata"`
-	}
-	_ = json.Unmarshal([]byte(task.InputJSON), &input)
-	projectID := firstNonEmpty(strings.TrimSpace(input.Metadata.ProjectID), strings.TrimSpace(task.ProjectID))
-	if style == nil || projectID == "" || len(style.Episodes) == 0 {
-		return DramaStyleBibleOutcome{}, errors.New("导演风格任务缺少项目或运行参数")
+// applyScenePaletteTask 是场次色卡的 Apply：模型输出 → 色彩脚本 → 检查 → 合并写进 bible_json.color_script 并建 / 加版本场次色卡
+// （同一事务）→ 每张写了版本的色卡由代码合成图绑上。检查有 error 时不写库、任务失败（bible 和色卡都不动）；合成图没绑上的记在结果里，
+// 不影响已写的色彩脚本（资产页「重新合成」可以补）。风格锚和主基调色卡只读不写。
+func (s *Service) applyScenePaletteTask(task model.Task, meta *dramaStepTaskMeta, result map[string]interface{}) (DramaScenePaletteOutcome, error) {
+	run := taskDramaScenePalette(task.InputJSON)
+	projectID := taskProjectID(task)
+	if run == nil || projectID == "" || len(run.Episodes) == 0 {
+		return DramaScenePaletteOutcome{}, errors.New("场次色卡任务缺少项目或运行参数")
 	}
 	project, err := s.activeProjectForUser(task.UserID, projectID)
 	if err != nil {
-		return DramaStyleBibleOutcome{}, err
+		return DramaScenePaletteOutcome{}, err
 	}
 	units, err := s.repo.ProjectUnits(project.ID)
 	if err != nil {
-		return DramaStyleBibleOutcome{}, err
+		return DramaScenePaletteOutcome{}, err
 	}
 	text, _ := result["text"].(string)
-	out, stats := drama.StyleBibleFromText(text, 0)
-	runEpisodes, runUnits := map[int]bool{}, map[int]string{}
-	for _, ep := range style.Episodes {
+	out, stats := drama.ScenePaletteFromText(text, 0)
+	runEpisodes, runUnits, runScenes := map[int]bool{}, map[int]string{}, map[string]string{}
+	for _, ep := range run.Episodes {
 		runEpisodes[ep.No], runUnits[ep.No] = true, ep.UnitID
+		for i, heading := range ep.Scenes {
+			runScenes[drama.SceneCode(ep.No, i+1)] = heading
+		}
 	}
+	table := styleSceneTable(units)
 	_, current := projectStyleBible(project.BibleJSON)
-	existing := keptColorScript(current, runEpisodes, styleSceneTable(units))
-	report := drama.CheckStyleBible(out, drama.StyleBibleCheckContext{Episodes: style.episodes(), Existing: existing})
+	existing := keptColorScript(current, runEpisodes, table)
+	_, master, _, _ := projectLockedStyle(project.BibleJSON)
+	report := drama.CheckScenePalette(out, drama.ScenePaletteCheckContext{Episodes: run.episodes(), Existing: existing, Master: master})
 	if report.Errors > 0 {
 		for _, item := range report.Items {
 			if item.Level == "error" {
@@ -384,25 +354,20 @@ func (s *Service) applyStyleBibleTask(task model.Task, meta *dramaStepTaskMeta, 
 				if item.ShotID != "" {
 					where = item.ShotID + " "
 				}
-				return DramaStyleBibleOutcome{}, fmt.Errorf("导演风格检查有 %d 个问题，没有写入：%s%s", report.Errors, where, item.Message)
+				return DramaScenePaletteOutcome{}, fmt.Errorf("场次色卡检查有 %d 个问题，没有写入：%s%s", report.Errors, where, item.Message)
 			}
 		}
 	}
-	entries := styleBibleRunEntries(out.Script, runEpisodes)
-	for i := range entries {
-		entries[i].UnitID, entries[i].SceneRule = runUnits[entries[i].Episode], drama.SceneRuleMerged
+	entries := scenePaletteRunEntries(out.Script, runEpisodes, runScenes, runUnits)
+	if len(entries) == 0 {
+		return DramaScenePaletteOutcome{}, errors.New("场次色卡没有一场对得上这次的场次表，没有写入")
 	}
 	// 别的集里切场规则改变前写的、编号错位的条目原样留着（不当承接用），色卡也不标。
-	keptAll := append(slices.Clone(existing), legacyShiftedKept(current, runEpisodes, units, styleSceneTable(units))...)
+	keptAll := append(slices.Clone(existing), legacyShiftedKept(current, runEpisodes, units, table)...)
 	sortColorScript(keptAll)
-	merged, err := mergeStyleBibleDocument(project.BibleJSON, out.Anchor, keptAll, entries)
+	merged, err := mergeColorScriptDocument(project.BibleJSON, keptAll, entries)
 	if err != nil {
-		return DramaStyleBibleOutcome{}, err
-	}
-	decrypted, decryptErr := s.decryptTaskInputJSON(task.InputJSON)
-	template := (*DramaImageTaskTemplate)(nil)
-	if style.Images && decryptErr == nil {
-		template = taskPaletteImageTemplate(decrypted)
+		return DramaScenePaletteOutcome{}, err
 	}
 	// 合并后色彩脚本里不再有的场（这次重写的集里没写到的，和 keptColorScript 去掉的），色卡标成场次已不存在。
 	kept := map[string]bool{}
@@ -410,30 +375,37 @@ func (s *Service) applyStyleBibleTask(task model.Task, meta *dramaStepTaskMeta, 
 		kept[e.Code()] = true
 	}
 	retire := func(m paletteMeta) bool { return !kept[m.Code] }
-	writes, summary, err := s.dramaPaletteWrites(task.UserID, project, entries, template != nil, retire)
+	writes, summary, err := s.dramaPaletteWrites(task.UserID, project, entries, retire)
 	if err != nil {
-		return DramaStyleBibleOutcome{}, err
+		return DramaScenePaletteOutcome{}, err
 	}
-	if err := s.repo.ApplyDramaStyleBible(task.UserID, project.ID, merged, writes, time.Now()); err != nil {
+	if err := s.repo.ApplyDramaScenePalettes(task.UserID, project.ID, merged, writes, time.Now()); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return DramaStyleBibleOutcome{}, errors.New("项目或色卡在写入前被删除，没有写入")
+			return DramaScenePaletteOutcome{}, errors.New("项目或色卡在写入前被删除，没有写入")
 		}
-		return DramaStyleBibleOutcome{}, err
+		return DramaScenePaletteOutcome{}, err
 	}
-	outcome := DramaStyleBibleOutcome{Step: meta.Step, Status: DramaStepOutcomeWritten, Episodes: len(style.Episodes), Scenes: len(entries), Parse: stats, Errors: report.Errors, Warnings: report.Warnings, Palettes: summary, Images: DramaImageQueueResult{Queued: []string{}, Waiting: []string{}, Failed: []string{}}}
+	outcome := DramaScenePaletteOutcome{Step: meta.Step, Status: DramaStepOutcomeWritten, Episodes: len(run.Episodes), Scenes: len(entries), Parse: stats, Errors: report.Errors, Warnings: report.Warnings, Palettes: summary}
 	for _, item := range report.Items {
 		if len(outcome.Items) < dramaAdaptOutcomeItems {
 			outcome.Items = append(outcome.Items, item)
 		}
 	}
-	if style.Images && template == nil {
-		_ = s.log(task.UserID, task.ID, "warn", "色卡出图没有排上", "任务里读不出图片任务模板")
+	byCode := map[string]drama.ColorScriptEntry{}
+	for _, e := range entries {
+		byCode[e.Code()] = e
 	}
-	if template != nil {
-		if outcome.Images, err = s.queueDramaPaletteImages(task.UserID, project.ID, *template, task.ID, nil); err != nil {
-			_ = s.log(task.UserID, task.ID, "warn", "色卡出图没有排上", err.Error())
-			outcome.Images = DramaImageQueueResult{Queued: []string{}, Waiting: []string{}, Failed: []string{}}
+	for _, w := range writes {
+		if w.Version == nil {
+			continue
 		}
+		e := byCode[paletteCodeOf(w.Asset)]
+		if err := s.renderScenePaletteImage(task.UserID, project.ID, w.Asset.ID, w.Version.ID, e); err != nil {
+			outcome.ImageFailures = append(outcome.ImageFailures, DramaPaletteFailure{AssetID: w.Asset.ID, Code: e.Code(), Error: userFacingTaskError(err.Error())})
+			_ = s.log(task.UserID, task.ID, "warn", "场次色卡图没有合成上："+e.Code(), err.Error())
+			continue
+		}
+		outcome.Rendered++
 	}
 	return outcome, nil
 }
@@ -462,26 +434,15 @@ func sortColorScript(entries []drama.ColorScriptEntry) {
 	})
 }
 
-// mergeStyleBibleDocument 把风格锚和色彩脚本合并进 bible_json：风格锚按字段覆盖（这次没写的字段保留旧值），色彩脚本 = 这次没重写的各集 +
-// 这次写的各集；其余字段原样保留。合并结果走与 UpdateProjectBible 同一套形状校验。
-func mergeStyleBibleDocument(bibleJSON string, anchor *drama.StyleAnchor, existing []drama.ColorScriptEntry, entries []drama.ColorScriptEntry) (string, error) {
+// mergeColorScriptDocument 把色彩脚本合并进 bible_json：color_script = 这次没重写的各集 + 这次写的各集；风格锚、主基调色卡和
+// 其余字段原样保留。合并结果走与 UpdateProjectBible 同一套形状校验。
+func mergeColorScriptDocument(bibleJSON string, existing []drama.ColorScriptEntry, entries []drama.ColorScriptEntry) (string, error) {
 	doc := map[string]any{}
 	if raw := strings.TrimSpace(bibleJSON); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &doc); err != nil {
-			return "", fmt.Errorf("项目的连戏表不是合法 JSON，没有写入导演风格：%w", err)
+			return "", fmt.Errorf("项目的连戏表不是合法 JSON，没有写入场次色卡：%w", err)
 		}
 	}
-	merged := map[string]any{}
-	if old, ok := doc["style_anchor"].(map[string]any); ok {
-		maps.Copy(merged, old)
-	}
-	if anchor != nil {
-		encoded, _ := json.Marshal(anchor)
-		var fresh map[string]any
-		_ = json.Unmarshal(encoded, &fresh)
-		maps.Copy(merged, fresh)
-	}
-	doc["style_anchor"] = merged
 	script := append(slices.Clone(existing), entries...)
 	sortColorScript(script)
 	encodedScript, _ := json.Marshal(script)
@@ -496,4 +457,52 @@ func mergeStyleBibleDocument(bibleJSON string, anchor *drama.StyleAnchor, existi
 	}
 	encoded, err := json.Marshal(doc)
 	return string(encoded), err
+}
+
+// ---------------------------------------------------------------- 剧本优化跑完自动接着跑
+
+// DramaChainedTask 是收尾自动接着建的下一步任务（result.dramaStep.chained）；Error 是没建成的原因（不影响这一步已写的结果）。
+type DramaChainedTask struct {
+	Step   string `json:"step"`
+	TaskID string `json:"taskId,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// chainScenePaletteAfterAdapt 在剧本优化写完剧集后，用同一文本模型直接建场次色卡任务（metadata.chainedFrom = 剧本优化任务）。
+// 项目没锁定风格时不建，Error 写明要先锁定风格；项目的风格档案拿不到场次色卡的技能（没绑定、默认技能也不在）时不接。
+func (s *Service) chainScenePaletteAfterAdapt(task model.Task, projectID string) *DramaChainedTask {
+	step, ok := drama.StepByID(drama.StepScenePalette)
+	if !ok {
+		return nil
+	}
+	chained := &DramaChainedTask{Step: step.ID}
+	project, err := s.activeProjectForUser(task.UserID, projectID)
+	if err != nil {
+		chained.Error = err.Error()
+		return chained
+	}
+	if _, _, _, locked := projectLockedStyle(project.BibleJSON); !locked {
+		chained.Error = errStyleNotLocked
+		return chained
+	}
+	if _, _, err := s.dramaStepSkill(project, step); err != nil {
+		return nil
+	}
+	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)
+	if err != nil {
+		chained.Error = err.Error()
+		return chained
+	}
+	var input struct {
+		Config map[string]any `json:"config"`
+	}
+	_ = json.Unmarshal([]byte(decrypted), &input)
+	req := DramaProjectStepRunRequest{Model: task.Model, LogicalModelID: task.LogicalModelID, Config: input.Config, TraceID: task.TraceID, chainedFrom: task.ID}
+	result, err := s.RunDramaProjectStep(task.UserID, projectID, step.ID, req)
+	if err != nil {
+		chained.Error = userFacingTaskError(err.Error())
+		return chained
+	}
+	chained.TaskID = result.Task.ID
+	return chained
 }

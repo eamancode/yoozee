@@ -130,9 +130,9 @@ func TestTaskClientContextMarksScriptAdapt(t *testing.T) {
 	if context == nil || context.ChapterOperation != "script-adapt" || context.DomainProjectID != "project-1" || context.ChapterID != "" {
 		t.Fatalf("context = %+v", context)
 	}
-	style := taskClientContext(`{"metadata":{"source":"short-drama-style-bible","domainProjectId":"project-1"}}`)
-	if style == nil || style.ChapterOperation != "style-bible" || style.DomainProjectID != "project-1" {
-		t.Fatalf("导演风格 context = %+v", style)
+	palette := taskClientContext(`{"metadata":{"source":"short-drama-scene-palette","domainProjectId":"project-1"}}`)
+	if palette == nil || palette.ChapterOperation != "scene-palette" || palette.DomainProjectID != "project-1" {
+		t.Fatalf("场次色卡 context = %+v", palette)
 	}
 }
 
