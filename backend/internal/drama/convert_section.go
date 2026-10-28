@@ -542,3 +542,29 @@ func parseSectionNumber(s string) float64 {
 	v, _ := strconv.ParseFloat(strings.Trim(m, "."), 64)
 	return v
 }
+
+// SectionOutput 是按小节生成时一节的原样输出（drama_shotlists.sections_json 的一项）：分镜制作按戏类版式显示技能原本的卡片用，
+// 「重新生成问题小节」时不重写的节也拿它放进对话历史。
+type SectionOutput struct {
+	ID      string   `json:"id"`
+	Scene   string   `json:"scene"`
+	Heading string   `json:"heading"`
+	No      int      `json:"no"`
+	Genre   string   `json:"genre"`
+	Lines   [2]int   `json:"lines"`
+	LineIDs []string `json:"lineIds"`
+	Est     float64  `json:"est"`
+	// Raw 是模型这一节的原样输出（含 BGM 等不进镜头表的内容）；Fields 是读出的小节级原样字段；Stats 是转换统计。
+	Raw    string              `json:"raw"`
+	Fields []SectionField      `json:"fields,omitempty"`
+	Stats  SectionConvertStats `json:"stats"`
+	// Shots 是这一节转出的镜头（镜头表 id，写库时按转换后的镜头表填）；TaskID 是写出这一节的任务。
+	Shots  []string `json:"shots"`
+	TaskID string   `json:"taskId,omitempty"`
+}
+
+// NewSectionOutput 是一节的原样输出记录。
+func NewSectionOutput(sec Section, raw string, conv SectionShots) SectionOutput {
+	return SectionOutput{ID: sec.ID, Scene: sec.Scene, Heading: sec.Heading, No: sec.No, Genre: sec.Genre, Lines: sec.Lines, LineIDs: sec.LineIDs, Est: sec.Est,
+		Raw: raw, Fields: conv.Fields, Stats: conv.Stats, Shots: []string{}}
+}

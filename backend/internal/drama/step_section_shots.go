@@ -189,7 +189,7 @@ func sectionCastPrompt(sec Section, assets []StepAsset) string {
 		switch {
 		case a.CategoryLabel == "角色" && mentioned:
 			characters = append(characters, a.Title)
-		case a.CategoryLabel == "场景" && (mentioned || sectionPlaceMatches(sec.Heading, a.Title)):
+		case a.CategoryLabel == "场景" && (mentioned || SectionPlaceMatches(sec.Heading, a.Title)):
 			place := a.Title
 			if len(a.Anchors) > 0 {
 				place += "（锚点：" + strings.Join(a.Anchors[:min(len(a.Anchors), stepAssetAnchors)], "、") + "）"
@@ -229,8 +229,8 @@ func slicesHasPrefix(items []string, base string) bool {
 	return false
 }
 
-// sectionPlaceMatches 是场景资产对得上场次头的地点。
-func sectionPlaceMatches(heading, title string) bool {
+// SectionPlaceMatches 是场景资产对得上场次头的地点。
+func SectionPlaceMatches(heading, title string) bool {
 	loc := SceneLocationKey(ParseSceneHeading(heading).Location)
 	t := SceneLocationKey(title)
 	return loc != "" && t != "" && (strings.Contains(loc, t) || strings.Contains(t, loc))

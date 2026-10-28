@@ -977,6 +977,7 @@ func sectionParts(shots []*Shot, ests []float64) []sectionPart {
 func (r *CheckReport) CheckSectionDurations(shotlist Shotlist, script *Script, m Model, rules RuleLevels) {
 	lines := newScriptLines(script)
 	ests := map[string]float64{}
+	first := map[string]string{}
 	var order []string
 	for i := range shotlist.Shots {
 		sh := &shotlist.Shots[i]
@@ -985,13 +986,15 @@ func (r *CheckReport) CheckSectionDurations(shotlist Shotlist, script *Script, m
 		}
 		if _, ok := ests[sh.Section]; !ok {
 			order = append(order, sh.Section)
+			first[sh.Section] = sh.ID
 		}
 		ests[sh.Section] += EstSeconds(sh, lines)
 	}
 	limit := float64(m.Duration.Max)
 	for _, id := range order {
 		if limit > 0 && ests[id] > limit+1e-6 {
-			r.add(rules, "R-SEG-001", "", "error", fmt.Sprintf("小节 %s 镜头估时合计 %.1f 秒，超过 %s 一段上限 %d 秒：一节装一段、不在节内切。把这一节拆成两节重新生成，或并镜、改镜头估时", id, ests[id], m.Label, m.Duration.Max))
+			// 挂在这一节第一镜上：分镜制作和「重新生成问题小节」按镜头认出是哪一节。
+			r.add(rules, "R-SEG-001", first[id], "error", fmt.Sprintf("小节 %s 镜头估时合计 %.1f 秒，超过 %s 一段上限 %d 秒：一节装一段、不在节内切。把这一节拆成两节重新生成，或并镜、改镜头估时", id, ests[id], m.Label, m.Duration.Max))
 		}
 	}
 }

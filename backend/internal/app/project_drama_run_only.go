@@ -1,6 +1,7 @@
-// 生成分段的「重新生成问题场」（M8 卡 H）：镜头表检查有问题时只重写问题所在的几场。仍是一个运行一个任务、一轮一场：
-// 不重写的场不调模型，镜头表里它原有的镜头行照这一轮的提示词放进对话历史，重写的场照样「继续写第 k 场」接着写；
-// 收尾把各轮输出按场序拼成整章，和整章生成一样检查、装段（有 error 仍存草稿）。按小节生成以后改成按小节（onlySections）。
+// 生成分段的「重新生成问题小节」（M8 卡 H 起头，卡 F 改成按小节）：镜头表检查有问题时只重写问题所在的几节。仍是一个运行一个任务、
+// 一轮一节：不重写的节不调模型，这一节存下的原样输出照这一轮的提示词放进对话历史，镜头行用镜头表里已有的（保留分镜卡上的手改）；
+// 重写的节照样按本轮指令接着写。收尾把各节按顺序拼成整章，和整章生成一样检查、装段（有 error 仍存草稿）。
+// onlyScenes 给的是场：等于重写这几场的全部小节。
 
 package app
 
@@ -18,35 +19,47 @@ import (
 	"gorm.io/gorm"
 )
 
-// dramaKeptScene 是不重写的一场：镜头表里原有的镜头行（一行一个 JSON 对象）和行数。
+// dramaKeptScene 是不重写的一节：对话历史里放的原样输出（text）、镜头表里原有的镜头行（rows，一行一个 JSON）和行数。
 type dramaKeptScene struct {
 	text  string
+	rows  string
 	count int
 }
 
-// onlyScenesRun 校验「重新生成问题场」的参数，记下要重写的场和作底的镜头表版本。
-// 镜头表里一行都没有的场也要重写（没有可留的镜头）；镜头表里有认不出场的镜头时拒绝（留不住它们）。
-func (s *Service) onlyScenesRun(projectID string, unitID string, plan *dramaStepPlan, run dramaRunMeta, only []string, sections []string) (dramaRunMeta, error) {
-	if len(sections) > 0 {
-		return dramaRunMeta{}, BadAuthRequest("现在按场生成，还不能按小节重新生成；请用 onlyScenes 给场编号")
-	}
-	if plan.usage.Step != drama.StepChapterShots {
-		return dramaRunMeta{}, BadAuthRequest("只有生成分段能只重新生成几场")
+// onlyScenesRun 校验「重新生成问题小节」的参数（onlySections 是小节编号，onlyScenes 是场编号、展开成场里的全部小节），
+// 记下要重写的节和作底的镜头表版本。镜头表里一镜都没有的节也要重写；作底的镜头表要是按小节生成的（每节存了原样输出）。
+func (s *Service) onlyScenesRun(projectID string, unitID string, plan *dramaStepPlan, run dramaRunMeta, scenes []string, sections []string) (dramaRunMeta, error) {
+	if plan.usage.Step != drama.StepChapterShots || plan.shots == nil {
+		return dramaRunMeta{}, BadAuthRequest("只有生成分段能只重新生成几节")
 	}
 	if len(plan.scenes) < 2 {
-		return dramaRunMeta{}, BadAuthRequest("本章正文只有一场，直接重新生成整章")
+		return dramaRunMeta{}, BadAuthRequest("本章只有一节，直接重新生成整章")
 	}
-	ids := make([]string, 0, len(plan.scenes))
+	var ids, sceneIDs []string
 	for _, sc := range plan.scenes {
-		ids = append(ids, sc.ID)
+		ids = append(ids, sc.Section)
+		if !slices.Contains(sceneIDs, sc.ID) {
+			sceneIDs = append(sceneIDs, sc.ID)
+		}
 	}
 	want := map[string]bool{}
-	for _, raw := range only {
+	for _, raw := range sections {
 		id := strings.TrimSpace(raw)
 		if !slices.Contains(ids, id) {
-			return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("场 %s 不在本章正文的场次里（%s）", drama.EchoSegmentID(id), strings.Join(ids, "、")))
+			return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("小节 %s 不在本章现在切出的小节里（%s）", drama.EchoSegmentID(id), strings.Join(ids, "、")))
 		}
 		want[id] = true
+	}
+	for _, raw := range scenes {
+		id := strings.TrimSpace(raw)
+		if !slices.Contains(sceneIDs, id) {
+			return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("场 %s 不在本章正文的场次里（%s）", drama.EchoSegmentID(id), strings.Join(sceneIDs, "、")))
+		}
+		for _, sc := range plan.scenes {
+			if sc.ID == id {
+				want[sc.Section] = true
+			}
+		}
 	}
 	record, err := s.repo.DramaShotlistForUnit(projectID, unitID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -55,76 +68,90 @@ func (s *Service) onlyScenesRun(projectID string, unitID string, plan *dramaStep
 	if err != nil {
 		return dramaRunMeta{}, err
 	}
-	// 切场规则改成「连续同地点并成一场」之前写的镜头表：镜头还是旧场编号，和现在的场次（plan.scenes）对不上，留不住。
-	if storedScriptLegacy(record.ScriptJSON) {
-		unit, err := s.repo.ProjectUnit(projectID, unitID)
-		if err != nil {
-			return dramaRunMeta{}, err
-		}
-		if drama.ScenesRenumbered(drama.SplitScenes(chapterPlainText(unit.SourceText), unit.Title)) {
-			return dramaRunMeta{}, BadAuthRequest("这一章的镜头表是场次规则更新前写的，场编号和现在的场次对不上，不能只重写几场；请整章重新生成")
-		}
-	}
-	scenes, err := keptShotlistScenes(record)
+	kept, err := keptShotlistSections(record, plan.shots)
 	if err != nil {
 		return dramaRunMeta{}, err
 	}
-	for scene := range scenes {
-		if !slices.Contains(ids, scene) {
-			return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("镜头表里有镜头的场 %s 对不上现在正文的场次（正文改过？），请整章重新生成", scene))
-		}
-	}
 	for _, id := range ids {
-		if _, ok := scenes[id]; !ok {
+		if _, ok := kept[id]; !ok {
 			want[id] = true
 		}
 	}
-	run.OnlyScenes = run.OnlyScenes[:0]
+	run.OnlySections = run.OnlySections[:0]
+	run.OnlyScenes = nil
 	for _, id := range ids {
 		if want[id] {
-			run.OnlyScenes = append(run.OnlyScenes, id)
+			run.OnlySections = append(run.OnlySections, id)
 		}
 	}
 	run.BaseShotlistVersion = record.Version
 	return run, nil
 }
 
-// keptShotlistScenes 把镜头表记录里的分镜行原文按镜头的场分好（分镜行与镜头表的镜头一一对应）。
-func keptShotlistScenes(record *model.DramaShotlist) (map[string]dramaKeptScene, error) {
+// keptShotlistSections 把镜头表记录里的分镜行按镜头的小节分好，配上每节存下的原样输出。镜头表不是按小节生成的、
+// 小节和现在切出的对不上（正文、模型或戏类改过）时拒绝。
+func keptShotlistSections(record *model.DramaShotlist, shots *dramaShotsMeta) (map[string]dramaKeptScene, error) {
 	var shotlist drama.Shotlist
 	var rows []json.RawMessage
 	if err := json.Unmarshal([]byte(record.ShotlistJSON), &shotlist); err != nil {
 		return nil, fmt.Errorf("镜头表数据损坏: %w", err)
 	}
+	var outputs []drama.SectionOutput
+	if strings.TrimSpace(record.SectionsJSON) == "" || json.Unmarshal([]byte(record.SectionsJSON), &outputs) != nil || len(outputs) == 0 {
+		return nil, BadAuthRequest("这一章的镜头表不是按小节生成的（场次规则或生成方式更新前写的），不能只重写几节；请整章重新生成")
+	}
 	if strings.TrimSpace(record.RowsJSON) == "" || json.Unmarshal([]byte(record.RowsJSON), &rows) != nil || len(rows) != len(shotlist.Shots) {
-		return nil, BadAuthRequest("这一章的镜头表没有对得上的分镜行原文，不能只重写几场；请整章重新生成")
+		return nil, BadAuthRequest("这一章的镜头表没有对得上的分镜行原文，不能只重写几节；请整章重新生成")
+	}
+	current := map[string]drama.Section{}
+	for _, sec := range shots.Sections {
+		current[sec.ID] = sec
 	}
 	out := map[string]dramaKeptScene{}
+	for _, o := range outputs {
+		sec, ok := current[o.ID]
+		if !ok || o.Genre != shots.Genre || o.Lines != sec.Lines || !slices.Equal(o.LineIDs, sec.LineIDs) {
+			return nil, BadAuthRequest(fmt.Sprintf("镜头表里的小节 %s 和现在切出的小节对不上（正文、视频模型或戏类改过？），请整章重新生成", o.ID))
+		}
+		out[o.ID] = dramaKeptScene{text: o.Raw}
+	}
 	for i, sh := range shotlist.Shots {
+		kept, ok := out[sh.Section]
+		if !ok {
+			return nil, BadAuthRequest(fmt.Sprintf("镜头 %s 不属于任何存下的小节，不能只重写几节；请整章重新生成", sh.ID))
+		}
 		var line bytes.Buffer
 		if err := json.Compact(&line, rows[i]); err != nil {
 			return nil, fmt.Errorf("分镜行原文损坏: %w", err)
 		}
-		kept := out[sh.Scene]
-		kept.text += line.String() + "\n"
+		kept.rows += line.String() + "\n"
 		kept.count++
-		out[sh.Scene] = kept
+		out[sh.Section] = kept
+	}
+	for id, kept := range out {
+		if kept.count == 0 {
+			delete(out, id)
+		}
 	}
 	return out, nil
 }
 
-// dramaRunKeptScenes 是这次运行里不重写、还没放进对话历史的场（场编号 → 原有镜头行）。作底的镜头表在任务建好后又改过
-// （重新装段、分镜卡编辑、别的生成写了库）时拒绝，免得拿新内容和旧问题拼在一起。
-func (s *Service) dramaRunKeptScenes(task model.Task, run dramaRunMeta, done int) (map[string]dramaKeptScene, error) {
-	if len(run.OnlyScenes) == 0 {
+// dramaRunKeptSections 是这次运行里不重写、还没放进对话历史的节（小节编号 → 原样输出与原有镜头行）。作底的镜头表在任务建好后
+// 又改过（重新装段、分镜卡编辑、别的生成写了库）时拒绝，免得拿新内容和旧问题拼在一起。
+func (s *Service) dramaRunKeptSections(task model.Task, run dramaRunMeta, done int) (map[string]dramaKeptScene, error) {
+	if len(run.OnlySections) == 0 {
 		return nil, nil
 	}
 	pending := false
 	for k := done + 1; k <= len(run.Scenes); k++ {
-		pending = pending || !slices.Contains(run.OnlyScenes, run.Scenes[k-1].ID)
+		pending = pending || !slices.Contains(run.OnlySections, run.Scenes[k-1].Section)
 	}
 	if !pending {
 		return nil, nil
+	}
+	shots := taskDramaShots(task.InputJSON)
+	if shots == nil {
+		return nil, errors.New("按小节重写的任务缺少小节表，请重新点「重新生成问题小节」")
 	}
 	target, err := taskDramaStepTarget(task)
 	if err != nil {
@@ -132,17 +159,17 @@ func (s *Service) dramaRunKeptScenes(task model.Task, run dramaRunMeta, done int
 	}
 	record, err := s.repo.DramaShotlistForUnit(target.ProjectID, target.UnitID)
 	if err != nil {
-		return nil, fmt.Errorf("读不到本章镜头表，不能只重写几场：%w", err)
+		return nil, fmt.Errorf("读不到本章镜头表，不能只重写几节：%w", err)
 	}
 	if record.Version != run.BaseShotlistVersion {
-		return nil, fmt.Errorf("本章镜头表在任务建好后又改过（第 %d 版 → 第 %d 版），请重新点「重新生成问题场」", run.BaseShotlistVersion, record.Version)
+		return nil, fmt.Errorf("本章镜头表在任务建好后又改过（第 %d 版 → 第 %d 版），请重新点「重新生成问题小节」", run.BaseShotlistVersion, record.Version)
 	}
-	scenes, err := keptShotlistScenes(record)
+	kept, err := keptShotlistSections(record, shots)
 	if err != nil {
 		return nil, err
 	}
-	for _, id := range run.OnlyScenes {
-		delete(scenes, id)
+	for _, id := range run.OnlySections {
+		delete(kept, id)
 	}
-	return scenes, nil
+	return kept, nil
 }

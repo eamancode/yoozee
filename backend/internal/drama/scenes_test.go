@@ -116,8 +116,8 @@ func TestSceneConsumersShareSplit(t *testing.T) {
 	if style := ScenePaletteScenes(text, "七床", 300); len(style) != 2 || style[1].No != 2 || style[1].Heading != "内·电梯口·夜" || !strings.Contains(style[1].Excerpt, "周岸：小满") {
 		t.Fatalf("导演风格 2 场：%+v", style)
 	}
-	if genre := ChapterShotsGenreScenes(text, "七床"); len(genre) != 2 || genre[1].ID != "E01S02" {
-		t.Fatalf("戏类判定 2 场：%+v", genre)
+	if plan := PlanSections(text, "七床", mustShotGenre(ShotGenreWenxi30), 30); len(plan.Sections) == 0 || plan.Sections[len(plan.Sections)-1].Scene != "E01S02" {
+		t.Fatalf("小节按 2 场切：%+v", plan.Sections)
 	}
 	if script := ScriptFromText(text, "七床"); len(script.Scenes) != 2 {
 		t.Fatalf("台词表 2 场：%d", len(script.Scenes))
@@ -201,4 +201,9 @@ func TestSplitScenesRequiresSameInOut(t *testing.T) {
 	if got := sceneIDs(SplitScenes("第1场 医院门口\n（等。）\n第2场 医院门口 夜\n（还在等。）", "t")); len(got) != 1 {
 		t.Fatalf("都没写内外、地点相同合并：%v", got)
 	}
+}
+
+func mustShotGenre(id string) ShotGenre {
+	g, _ := ShotGenreByID(id)
+	return g
 }
