@@ -15,7 +15,7 @@ type ChapterSceneListProps = {
     dirty: boolean;
 };
 
-/** 章节页正文上方的场次表（同一集里连续同地点的场次头并成一场）：编号、地点、时间、行数，点一场滚到它的场次头。 */
+/** 章节页正文上方的场次表（同一集里连续同地点的场次头并成一场）：编号、地点、时间、行数、按戏类切出的小节数，点一场滚到它的场次头。 */
 export function ChapterSceneList({ scenes: data, editor, dirty }: ChapterSceneListProps) {
     const reducedMotion = useReducedMotion();
     // 没有场次头的原文（小说正文整章一场）不显示。
@@ -48,6 +48,7 @@ export function ChapterSceneList({ scenes: data, editor, dirty }: ChapterSceneLi
             <div className="flex items-center gap-2">
                 <span className="shrink-0 text-[var(--fs-tiny)] font-medium text-foreground/45">
                     场次 {data.scenes.length}
+                    {data.genre ? ` · ${data.genre.label}（一节 ≤${data.genre.maxSeconds} 秒）` : ""}
                     {dirty ? "（按已保存的正文）" : ""}
                 </span>
                 <ol className="thin-scrollbar flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5" aria-label="场次表">
@@ -63,6 +64,7 @@ export function ChapterSceneList({ scenes: data, editor, dirty }: ChapterSceneLi
                                     <span className="font-mono tabular-nums text-foreground/45">{scene.id}</span>
                                     <span className="max-w-[12rem] truncate">{sceneLabel(scene)}</span>
                                     <span className="tabular-nums text-foreground/38">{scene.lineCount} 行</span>
+                                    {scene.sections?.length ? <span className={`tabular-nums ${scene.sections.some((section) => section.warnings?.length) ? "text-[var(--status-warning)]" : "text-foreground/38"}`}>{scene.sections.length} 节</span> : null}
                                 </button>
                             </Tooltip>
                         </li>
@@ -77,5 +79,8 @@ function sceneTooltip(scene: DramaScene) {
     const lines = [`${scene.heading}（第 ${scene.lines[0]}–${scene.lines[1]} 行）`];
     if (scene.sourceHeadings.length > 1) lines.push(`正文里连续 ${scene.sourceHeadings.length} 个同地点场次头并成这一场`);
     if (scene.shotScene !== scene.id) lines.push(`镜头表里写作 ${scene.shotScene}`);
+    for (const section of scene.sections || []) {
+        lines.push(`${section.id} 约 ${Math.round(section.est)} 秒（第 ${section.lines[0]}–${section.lines[1]} 行，${section.lineIds.length} 句台词）${section.warnings?.length ? `：${section.warnings.join("；")}` : ""}`);
+    }
     return lines.join("；");
 }

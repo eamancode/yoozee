@@ -1,7 +1,8 @@
 /**
- * 生成分段的流式镜头视图：服务端在一个任务里逐场续写，模型一镜一行（chapter.shots@3），各场输出和回合标记
- * （{"@turn": {index, total, scene, heading, attempt}}）都追加在同一个任务的 text-events 里。这里只解析已经写完的行，
- * 按场分组；同一场重试时会再出一行标记，见到就把这一场之前收到的半截输出清掉。只用于显示，写库在服务端。
+ * 生成分段的流式镜头视图：服务端在一个任务里逐轮续写，各轮输出和回合标记（{"@turn": {index, total, scene, heading, attempt, section?, genre?}}）
+ * 都追加在同一个任务的 text-events 里。按小节生成（M8）时一轮一节，模型写的是技能原生格式（7.3 的 Markdown 片段、即梦的导演分镜字段），
+ * 不是 JSON：写的过程中只显示这一节最近的原文，这一节写完后服务端补一行转出的镜头（{"rows": [...]}）。旧的整章生成一镜一行（chapter.shots@3）。
+ * 这里只解析已经写完的行；同一轮重试时会再出一行标记，见到就把这一轮之前收到的半截输出清掉。只用于显示，写库在服务端。
  */
 
 export type StreamShot = {
@@ -12,35 +13,40 @@ export type StreamShot = {
     dialogue: string;
 };
 
+/** 一轮：按小节生成时是一节（section 是小节编号），旧的整章生成是一场。 */
 export type StreamScene = {
     index: number;
     scene: string;
     heading: string;
     attempt: number;
-    /** 这一场判出的戏类（武戏 / 文戏 / 悬疑戏 / 单人情绪戏；判定失败按文戏），来自回合标记。 */
+    /** 小节编号（E01S02-P1）、戏类名（文戏 15 / 文戏 30）、估时秒数；旧的整章生成没有。 */
+    section?: string;
     genre?: string;
-    genreReason?: string;
+    est?: number;
+    /** 这一节还没转出镜头时收到的原文（只留最后几行，写的过程中显示）。 */
+    raw: string;
     shots: StreamShot[];
 };
 
-/** 一场的戏类判定（第一轮的回合标记带全部场的，结果里是 dramaRun.genres）。 */
-export type StreamGenre = { scene: string; genre: string; reason?: string; fallback?: boolean };
-
 export type ShotStreamState = {
-    /** 一共几场（来自回合标记；还没收到时为 0）。 */
+    /** 一共几轮（来自回合标记；还没收到时为 0）。 */
     total: number;
     scenes: StreamScene[];
-    /** 正在写的场（最后一个标记的场序号）。 */
+    /** 正在写的轮（最后一个标记的序号）。 */
     current: number;
     shotCount: number;
-    /** 各场戏类（第一轮之前判出，没有时为空）。 */
-    genres: StreamGenre[];
-    /** 「重新生成问题场」时要重写的场（回合标记带的；只有这几场有输出）。 */
+    /** 「重新生成问题场 / 小节」时要重写的场或小节（回合标记带的；只有这几轮有输出）。 */
     only?: string[];
 };
 
+/** 一场下的各节（侧栏按「场 → 小节」分组）。 */
+export type StreamSceneGroup = { scene: string; heading: string; sections: StreamScene[] };
+
 /** 回合标记行的键（与后端 drama.ShotLinesMarkerKey 一致）。 */
 export const SHOT_TURN_MARKER = "@turn";
+
+/** 原文预览留几行。 */
+const RAW_PREVIEW_LINES = 6;
 
 function textOf(value: unknown): string {
     if (typeof value === "string") return value.trim();
@@ -53,32 +59,43 @@ function record(value: unknown): Record<string, unknown> | undefined {
     return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
+function appendRaw(raw: string, line: string) {
+    const lines = raw ? raw.split("\n") : [];
+    lines.push(line);
+    return lines.slice(-RAW_PREVIEW_LINES).join("\n");
+}
+
 /** 解析文本流里已经写完（以换行结尾）的行；最后一行没写完的不算。 */
 export function parseShotStream(text: string): ShotStreamState {
-    const state: ShotStreamState = { total: 0, scenes: [], current: 0, shotCount: 0, genres: [] };
+    const state: ShotStreamState = { total: 0, scenes: [], current: 0, shotCount: 0 };
     const complete = text.slice(0, text.lastIndexOf("\n") + 1);
     let scene: StreamScene | undefined;
     let markers = false;
     for (const raw of complete.split("\n")) {
         const line = raw.trim().replace(/,$/, "");
-        if (!line.startsWith("{")) continue;
+        if (!line) continue;
         let parsed: Record<string, unknown> | undefined;
-        try {
-            parsed = record(JSON.parse(line));
-        } catch {
+        if (line.startsWith("{")) {
+            try {
+                parsed = record(JSON.parse(line));
+            } catch {
+                parsed = undefined;
+            }
+        }
+        if (!parsed) {
+            // 技能原生格式的原文（不是镜头行）：记进这一节的预览；代码块围栏不算。
+            if (scene && !line.startsWith("```")) scene.raw = appendRaw(scene.raw, line);
             continue;
         }
-        if (!parsed) continue;
         const marker = record(parsed[SHOT_TURN_MARKER]);
         if (marker) {
             markers = true;
             const index = Number(marker.index) || state.scenes.length + 1;
             state.total = Number(marker.total) || state.total;
             state.current = index;
-            const next: StreamScene = { index, scene: textOf(marker.scene), heading: textOf(marker.heading), attempt: Number(marker.attempt) || 1, shots: [] };
-            const genre = textOf(marker.genre);
-            if (genre) Object.assign(next, { genre, genreReason: textOf(marker.genreReason) || undefined });
-            if (Array.isArray(marker.genres)) state.genres = streamGenres(marker.genres);
+            const next: StreamScene = { index, scene: textOf(marker.scene), heading: textOf(marker.heading), attempt: Number(marker.attempt) || 1, raw: "", shots: [] };
+            const section = textOf(marker.section);
+            if (section) Object.assign(next, { section, genre: textOf(marker.genre) || undefined, est: Number(marker.est) || undefined });
             if (Array.isArray(marker.only)) state.only = marker.only.map(textOf).filter(Boolean);
             const existing = state.scenes.findIndex((item) => item.index === index);
             if (existing >= 0) state.scenes[existing] = next;
@@ -90,9 +107,10 @@ export function parseShotStream(text: string): ShotStreamState {
         for (const row of rows) {
             const spec = record(row.spec);
             const sceneId = textOf(spec?.scene);
-            // 没有回合标记（结果正文、模型没按场续写）时按镜头的 spec.scene 分场。
-            if (!scene || (!markers && sceneId && scene.scene !== sceneId)) {
-                scene = { index: state.scenes.length + 1, scene: sceneId, heading: "", attempt: 1, shots: [] };
+            const sectionId = textOf(spec?.section);
+            // 没有回合标记（结果正文、模型没按场续写）时按镜头的 spec.section / spec.scene 分组。
+            if (!scene || (!markers && ((sectionId && scene.section !== sectionId) || (!sectionId && sceneId && scene.scene !== sceneId)))) {
+                scene = { index: state.scenes.length + 1, scene: sceneId, heading: "", attempt: 1, raw: "", shots: [], ...(sectionId ? { section: sectionId } : {}) };
                 state.scenes.push(scene);
                 state.current = scene.index;
             }
@@ -109,16 +127,30 @@ export function parseShotStream(text: string): ShotStreamState {
     return state;
 }
 
-function streamGenres(value: unknown[]): StreamGenre[] {
-    return value.map(record).flatMap((item) => (item && textOf(item.genre) ? [{ scene: textOf(item.scene), genre: textOf(item.genre), reason: textOf(item.reason) || undefined, fallback: item.fallback === true || undefined }] : []));
+/** 把各轮按场分组（同一场的几节排在一起，按出现顺序）。 */
+export function streamSceneGroups(state: ShotStreamState): StreamSceneGroup[] {
+    const groups: StreamSceneGroup[] = [];
+    for (const turn of state.scenes) {
+        const last = groups[groups.length - 1];
+        if (last && last.scene === turn.scene) {
+            last.sections.push(turn);
+            if (!last.heading) last.heading = turn.heading;
+        } else {
+            groups.push({ scene: turn.scene, heading: turn.heading, sections: [turn] });
+        }
+    }
+    return groups;
 }
 
-type ResultTurn = { index?: number; scene?: string; heading?: string; genre?: string; text?: string };
-type ResultRun = { total?: number; scenes?: Array<{ scene: string; heading: string; genre?: string; genreReason?: string }>; turns?: ResultTurn[]; genres?: unknown[] };
+type ResultTurn = { index?: number; scene?: string; heading?: string; section?: string; text?: string };
+type ResultScene = { scene: string; heading: string; section?: string; est?: number };
+type ResultRun = { total?: number; genre?: string; scenes?: ResultScene[]; turns?: ResultTurn[] };
+
+const genreLabels: Record<string, string> = { wenxi15: "文戏 15", wenxi30: "文戏 30", wuxi: "武戏" };
 
 /**
- * 已经结束的任务从结果还原镜头视图（不再订阅文本流）：没写完的任务结果里每场带着输出原文；
- * 成功的任务只留各场拼好的 text，按镜头 spec.scene 分场，场标题取 dramaRun.scenes。
+ * 已经结束的任务从结果还原镜头视图（不再订阅文本流）：没写完的任务结果里每一轮带着输出原文（按小节生成时是技能原生格式，
+ * 只能显示原文）；成功的任务只留转出的镜头行（text），按镜头 spec.section / spec.scene 分组，标题取 dramaRun.scenes。
  */
 export function shotStreamFromResult(resultJson?: string): ShotStreamState {
     let result: { text?: unknown; dramaRun?: ResultRun } = {};
@@ -129,38 +161,42 @@ export function shotStreamFromResult(resultJson?: string): ShotStreamState {
     }
     const run = result.dramaRun || {};
     const total = Number(run.total) || 0;
-    const genres = Array.isArray(run.genres) ? streamGenres(run.genres) : [];
-    const genreOf = (scene = "") => genres.find((item) => item.scene === scene);
-    const marker = (index: number, scene = "", heading = "") => JSON.stringify({ [SHOT_TURN_MARKER]: { index, total, scene, heading, attempt: 1, genre: genreOf(scene)?.genre, genreReason: genreOf(scene)?.reason } });
-    const withGenres = (state: ShotStreamState): ShotStreamState => ({ ...state, genres });
+    const scenes = run.scenes || [];
+    const genre = run.genre ? genreLabels[run.genre] || run.genre : undefined;
+    const turnOf = (index: number, scene = "", heading = "", section = "") => {
+        const planned = scenes[index - 1];
+        return JSON.stringify({ [SHOT_TURN_MARKER]: { index, total, scene, heading, attempt: 1, ...(section ? { section, genre, est: planned?.est } : {}) } });
+    };
     const turns = (run.turns || []).filter((turn) => typeof turn.text === "string" && turn.text);
     if (turns.length) {
-        return withGenres(parseShotStream(turns.map((turn, i) => `${marker(turn.index || i + 1, turn.scene, turn.heading)}\n${String(turn.text).trim()}\n`).join("")));
+        return parseShotStream(turns.map((turn, i) => `${turnOf(turn.index || i + 1, turn.scene, turn.heading, turn.section || scenes[(turn.index || i + 1) - 1]?.section)}\n${String(turn.text).trim()}\n`).join(""));
     }
     const text = typeof result.text === "string" ? result.text : "";
-    const scenes = run.scenes || [];
     const lines: string[] = [];
-    let currentScene: string | undefined;
+    let current: string | undefined;
     for (const raw of text.split("\n")) {
         const line = raw.trim();
         if (!line.startsWith("{")) continue;
-        let scene = "";
+        let spec: Record<string, unknown> | undefined;
         try {
-            scene = textOf(record(record(JSON.parse(line))?.spec)?.scene);
+            spec = record(record(JSON.parse(line))?.spec);
         } catch {
             continue;
         }
-        if (scenes.length && scene !== currentScene) {
-            currentScene = scene;
-            const index = scenes.findIndex((item) => item.scene === scene);
-            lines.push(marker(index >= 0 ? index + 1 : lines.length + 1, scene, index >= 0 ? scenes[index].heading : ""));
+        const scene = textOf(spec?.scene);
+        const section = textOf(spec?.section);
+        const key = section || scene;
+        if (scenes.length && key !== current) {
+            current = key;
+            const index = scenes.findIndex((item) => (section ? item.section === section : item.scene === scene));
+            lines.push(turnOf(index >= 0 ? index + 1 : lines.length + 1, scene, index >= 0 ? scenes[index].heading : "", section));
         }
         lines.push(line);
     }
-    return withGenres(parseShotStream(lines.length ? lines.join("\n") + "\n" : ""));
+    return parseShotStream(lines.length ? lines.join("\n") + "\n" : "");
 }
 
-/** 上一次生成分段任务停下来的样子：写完 ≥1 场的可以从下一场续写（resume），一场都没写完或收尾失败的只能重新生成（failed）。 */
+/** 上一次生成分段任务停下来的样子：写完 ≥1 节（场）的可以从下一节续写（resume），一节都没写完或收尾失败的只能重新生成（failed）。 */
 export type StoryboardRunStop =
     | { kind: "resume"; taskId: string; from: number; total: number; error?: string }
     | { kind: "failed"; taskId: string; status: "failed" | "cancelled"; error?: string }
@@ -188,7 +224,8 @@ export function latestStoryboardWrite<T extends { status: string; createdAt: str
  * 侧栏摘要行。段数以本章现在的段为准：「重新装段」不产生新任务，任务结果里的段数在重装后就旧了。
  * 草稿后来重新装段成功（镜头表不再是草稿）也按已写入说。
  */
-export function storyboardOutcomeSummary(outcome: { status: "written" | "draft"; shots: number; scenes: number; errors: number }, current: { segmentCount: number; draft?: boolean }) {
-    if (outcome.status === "written" || current.draft === false) return `已写入 ${outcome.shots} 镜，按 ${outcome.scenes} 场装成 ${current.segmentCount} 段`;
+export function storyboardOutcomeSummary(outcome: { status: "written" | "draft"; shots: number; scenes: number; errors: number; sections?: number }, current: { segmentCount: number; draft?: boolean }) {
+    const unit = outcome.sections ? `${outcome.sections} 节` : `${outcome.scenes} 场`;
+    if (outcome.status === "written" || current.draft === false) return `已写入 ${outcome.shots} 镜，按 ${unit}装成 ${current.segmentCount} 段`;
     return `已写入 ${outcome.shots} 镜，检查有 ${outcome.errors} 个问题，还没装段`;
 }
