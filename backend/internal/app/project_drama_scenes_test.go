@@ -44,7 +44,8 @@ func TestDramaScenesLegacyDataNoticeAndRenumber(t *testing.T) {
 		t.Fatalf("第 2 场并了两个场次头：%+v", second)
 	}
 	notice := view.Notice
-	if notice == nil || notice.LegacyScenes != 3 || !slices.Equal(notice.ColorScript, []string{"E01S03"}) || !slices.Equal(notice.Palettes, []string{"E01S03"}) || !notice.Shotlist || !strings.Contains(notice.Message, "从 3 场变成 2 场") {
+	if notice == nil || notice.LegacyScenes != 3 || !slices.Equal(notice.ColorScript, []string{"E01S03"}) || !slices.Equal(notice.Palettes, []string{"E01S03"}) || !notice.Shotlist || !strings.Contains(notice.Message, "从 3 场变成 2 场") ||
+		!strings.Contains(notice.Message, "镜头表请重新生成分段；色彩脚本与色卡请到章节页点「生成场次色卡」重新生成") {
 		t.Fatalf("旧数据编号错位的提示：%+v", notice)
 	}
 	if units, err := svc.ProjectDramaScenes("user-1", project.ID); err != nil || len(units) != 1 || units[0].UnitID != unit.ID {

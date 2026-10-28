@@ -145,13 +145,13 @@ func sceneRuleNotice(unit model.ProjectUnit, episode int, scenes []drama.Scene, 
 	if len(stale) == 0 {
 		return nil
 	}
-	// 导演风格（style.bible）已没有章节页入口：色彩脚本、色卡只提示等场次色卡上线后重新生成。
+	// 色彩脚本和色卡都由场次色卡写：引导到章节页「生成场次色卡」重新生成。
 	var redo []string
 	if notice.Shotlist {
 		redo = append(redo, "镜头表请重新生成分段")
 	}
 	if len(notice.ColorScript) > 0 || len(notice.Palettes) > 0 {
-		redo = append(redo, "色彩脚本和色卡等场次色卡功能上线后重新生成")
+		redo = append(redo, "色彩脚本与色卡请到章节页点「生成场次色卡」重新生成")
 	}
 	notice.Message = fmt.Sprintf("场次规则已更新：同一集里连续同地点、内外相同的场次头并成一场，这一集从 %d 场变成 %d 场。已有的%s还是旧场次编号，并场之后的编号对不上：%s。",
 		notice.LegacyScenes, len(scenes), strings.Join(stale, "、"), strings.Join(redo, "；"))

@@ -241,8 +241,12 @@ function stringValue(value: unknown) {
     return typeof value === "string" ? value.trim() : "";
 }
 
+// 编译清单的编号按模型方言写：即梦是 @图片N / @音频N，MiniMax-H3 是 <Picture N> / <Audio N>（提示词原样发给模型，编号不能改写）。
+const COMPILED_IMAGE_TAG = /^(?:@图片\d+|<Picture \d+>)$/;
+const COMPILED_AUDIO_TAG = /^(?:@音频\d+|<Audio \d+>)$/;
+
 /**
- * 把方言编译结果里的素材清单（@图片N / @音频N）换成生成任务的参考媒体，顺序与编号一致。
+ * 把方言编译结果里的素材清单（@图片N / <Picture N>、@音频N / <Audio N>）换成生成任务的参考媒体，顺序与编号一致。
  * 契约里 file 是柚子资产 ID 或资产版本 ID；找不到的素材返回在 missing 里，由调用方拦下。
  */
 export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: string, files: Array<{ file: string; tag: string; role: string }>) {
@@ -257,11 +261,11 @@ export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: st
     const missing: string[] = [];
     for (const item of files) {
         const found = findAsset(item.file);
-        if (item.tag.startsWith("@图片")) {
+        if (COMPILED_IMAGE_TAG.test(item.tag)) {
             const image = found ? projectAssetReferenceImage(found.asset, found.reference) : undefined;
             if (image) images.push(image);
             else missing.push(`${item.tag}（${item.file}）`);
-        } else if (item.tag.startsWith("@音频")) {
+        } else if (COMPILED_AUDIO_TAG.test(item.tag)) {
             const sampleResourceId = stringValue(found?.asset.character?.voice?.profile.sampleResourceId);
             if (found && sampleResourceId) audios.push({ id: `project-character-voice:${found.asset.id}`, name: `${found.asset.title}-声音样本`, type: "audio/*", url: resourceFileUrl(sampleResourceId), storageKey: resourceStorageKey(sampleResourceId) });
             else missing.push(`${item.tag}（${item.file}）`);

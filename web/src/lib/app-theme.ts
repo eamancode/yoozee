@@ -260,6 +260,8 @@ export function getAntThemeConfig(dark: boolean, skinID: unknown = "classic"): T
                 colorPrimary: color.checkBg,
                 colorPrimaryActive: color.checkActiveBg,
                 colorPrimaryHover: color.checkHoverBg,
+                // 对勾是 ::after 的边框，AntD 取 colorWhite；深色下 checkBg 近白，要换成 checkFg 才看得见。
+                colorWhite: color.checkFg,
                 controlOutline: color.controlFocus,
             },
             Radio: {

@@ -5,6 +5,22 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## M8 卡 B 收口：MiniMax-H3 参考图编号、场次规则提示、暗色勾选框
+
+改了什么：
+
+- 工作台生成视频时，编译清单按模型方言认参考编号：即梦 `@图片N` / `@音频N`，MiniMax-H3 `<Picture N>` / `<Audio N>`（H3 的参考生成通道按 `<Picture N>` 认参考图，编译结果不改写）。之前 H3 项目带资产参考图或只绑色卡的段都会报「编译清单里的素材没有绑定到这一段」。
+- 场次规则提示（`GET .../drama/scenes` 的 `notice.message`）末尾改成：镜头表请重新生成分段；色彩脚本与色卡请到章节页点「生成场次色卡」重新生成。不再写「等场次色卡功能上线后」。
+- 勾选框的对勾颜色走主题 `checkFg`（`app-theme.ts` 的 Checkbox 组件 token），暗色下已勾选是浅底深勾，不再是白底白勾。全站 AntD 勾选框都跟着变。
+
+已验证（本机）：
+
+- [x] `internal/drama` `TestWithScenePalette`（H3 只有色卡 / 资产 + 色卡 / 只有资产，编号从 `<Picture 1>` 连续、提示词里都有）；`internal/app` `TestDramaScenesLegacyDataNoticeAndRenumber`（提示文案）；前端 `workflow-shot-references.test.ts`（H3 三种 + 即梦，未绑定的 `<Picture N>` / `<Audio N>` 仍报缺）。
+- [x] 本机联调（浏览器 + 假上游，项目生成模型 MiniMax-H3、视频模型 H3 族）：资产 + 色卡段上游收到 `<Picture 1..4>` 与 4 张参考图（第 4 张 1920×1080 色卡）；取消两个资产引用后只剩色卡的段收到 `<Picture 1>` 与 1 张色卡；取消色卡引用的段收到 `<Picture 1..2>` 与 2 张资产图。三段都提交成功。
+- [x] 「生成场次色卡」对话框明暗主题各看一次：暗色已勾选为浅底（#F5F5F5）深勾（#131313）。
+- [ ] M8BC-1 线上 MiniMax-H3 项目真模型：带色卡的段生成视频，画面用色跟色卡、色卡本身不进画面。
+- [ ] M8BC-2 暗色下其他用到 AntD 勾选框的页面（任务中心批量选择、资产选择等）看一眼对勾可见。
+
 ## M8 卡 B：场次色卡（代码合成，参考锁定风格 + 主基调色卡）
 
 改了什么（接口见 `backend/http-api.mdx`，表见 `backend/backend-database.mdx`）：
