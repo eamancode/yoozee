@@ -440,6 +440,10 @@ func (s *Service) taskBillingOrder(userID string, task *model.Task, input map[st
 	if !enabled {
 		return nil, nil
 	}
+	if metadata, _ := input["metadata"].(map[string]any); dramaRunCallsNoUpstream(metadataDramaRun(metadata)) {
+		// 逐轮续写的各轮都已在上一次任务里写完、这次只重新收尾：一次上游都不调，不预授权、不建计费单。
+		return nil, nil
+	}
 	if task.LogicalModelID != "" {
 		return s.newLogicalModelBillingOrder(userID, task, input)
 	}

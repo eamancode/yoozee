@@ -78,6 +78,12 @@ func TestSectionShotsLargeChapterFinalizesAndRefinalizes(t *testing.T) {
 	if run := taskDramaRun(retry.InputJSON); run == nil || run.ResumeFrom != 101 || run.ResumeTaskID != failed.ID {
 		t.Fatalf("各节都写完了：从第 101 节接着＝只收尾：%+v", run)
 	}
+	// 重新写入不建计费单（见 TestRefinalizeRunIsNotBilled）：去掉测试辅助函数挂上的单，worker 照常跑完、余额不动。
+	if err := db.Model(&model.Task{}).Where("id = ?", retry.ID).Update("billing_order_id", "").Error; err != nil {
+		t.Fatal(err)
+	}
+	var wallet model.CreditAccount
+	db.First(&wallet, "user_id = ?", "user-1")
 	start := time.Now()
 	done, err := runQueuedTask(t, svc)
 	if err != nil || done.Status != model.TaskStatusSucceeded {
@@ -86,6 +92,11 @@ func TestSectionShotsLargeChapterFinalizesAndRefinalizes(t *testing.T) {
 	t.Logf("300 镜收尾（转换、检查、装 100 段、写库）用时 %s", time.Since(start))
 	if upstream.calls != 100 {
 		t.Fatalf("重新收尾不再调模型：%d 次调用", upstream.calls)
+	}
+	var after model.CreditAccount
+	db.First(&after, "user_id = ?", "user-1")
+	if after.AvailableMicrocredits != wallet.AvailableMicrocredits || after.ReservedMicrocredits != wallet.ReservedMicrocredits {
+		t.Fatalf("没有计费单的重新写入不动余额：%+v → %+v", wallet, after)
 	}
 	var result struct {
 		DramaStep DramaStepTaskOutcome `json:"dramaStep"`
@@ -174,5 +185,79 @@ func TestChapterShotsOverCapBeforeRun(t *testing.T) {
 	}
 	if err := chapterShotsOverCap(nil); err != nil {
 		t.Fatal("不是按小节生成不拦")
+	}
+}
+
+// 「用已写好的 N 节重新写入」一次上游都不调：不建计费单、不预授权，余额和流水都不动；
+// 没写完的「从第 N 节继续」要接着调模型，照常预授权。
+func TestRefinalizeRunIsNotBilled(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, unit := seedLongQichuang(t, svc, db, 2, 4)
+	for _, row := range []any{
+		&model.ModelChannel{ID: "ch-text", Scope: "system", Enabled: true, Name: "text", BaseURL: "https://upstream.example.com/v1", APIFormat: "openai"},
+		&model.ChannelModel{ID: "cm-text", ChannelID: "ch-text", ModelKey: "fake-shots", Capability: "text", Protocol: "chat-completion", CapabilityConfigJSON: mustEncodeModelCapabilityConfig(t, DefaultModelCapabilityConfigForModel("chat-completion", "fake-shots")), BillingMode: "fixed_request", UnitPriceMicrocredits: 300_000, PriceConfigured: true, Enabled: true},
+		&model.ChannelModelPriceTier{ID: "tier-text", ChannelModelID: "cm-text", SelectorKey: "{}", SelectorJSON: "{}", BillingMode: "fixed_request", UnitPriceMicrocredits: 300_000, PriceConfigured: true, Enabled: true},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := svc.planDramaStep("user-1", &project, unit.ID, drama.StepChapterShots, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedRun := func(completed int) string {
+		run := newDramaRunMeta(plan, unit.ID)
+		turns := make([]dramaRunTurn, 0, completed)
+		for k := 1; k <= completed; k++ {
+			turns = append(turns, dramaRunTurn{Index: k, Prompt: "p", Text: "t"})
+		}
+		req := dramaStepTaskRequest(project.ID, unit.ID, plan, dramaStepTaskOptions{Model: "test"})
+		req.Input["metadata"].(map[string]any)["dramaRun"] = run
+		task := insertDramaTestTask(t, svc, db, project.ID, req)
+		result, _ := json.Marshal(map[string]any{"mode": "text", "dramaRun": dramaRunProgress{RunID: run.RunID, Total: run.Turns, Completed: completed, Turns: turns}})
+		if err := db.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{"status": model.TaskStatusFailed, "result_json": string(result)}).Error; err != nil {
+			t.Fatal(err)
+		}
+		return task.ID
+	}
+	account := func() model.CreditAccount {
+		var a model.CreditAccount
+		if err := db.First(&a, "user_id = ?", "user-1").Error; err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	ledger := func() int64 {
+		var n int64
+		db.Model(&model.CreditLedgerEntry{}).Where("user_id = ?", "user-1").Count(&n)
+		return n
+	}
+	runReq := func(resume string) DramaStepRunRequest {
+		return DramaStepRunRequest{Model: "fake-shots", Config: map[string]any{"channelId": "ch-text", "model": "fake-shots", "textModel": "fake-shots"}, ResumeTaskID: resume}
+	}
+	// 两次失败的前任务先建好（测试辅助函数会改写余额），再给账户充值、记下余额和流水。
+	allWritten, oneWritten := failedRun(len(plan.scenes)), failedRun(1)
+	if err := db.Model(&model.CreditAccount{}).Where("user_id = ?", "user-1").Updates(map[string]any{"available_microcredits": 10_000_000, "reserved_microcredits": 0}).Error; err != nil {
+		t.Fatal(err)
+	}
+	before, entries := account(), ledger()
+
+	refinalize, err := svc.RunDramaStep("user-1", project.ID, unit.ID, drama.StepChapterShots, runReq(allWritten))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := svc.repo.Task(refinalize.Task.ID)
+	if stored.BillingOrderID != "" || account() != before || ledger() != entries {
+		t.Fatalf("重新写入不建计费单、余额和流水不动：order=%q %+v → %+v，流水 %d → %d", stored.BillingOrderID, before, account(), entries, ledger())
+	}
+
+	resume, err := svc.RunDramaStep("user-1", project.ID, unit.ID, drama.StepChapterShots, runReq(oneWritten))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, _ = svc.repo.Task(resume.Task.ID)
+	if after := account(); stored.BillingOrderID == "" || after.ReservedMicrocredits <= before.ReservedMicrocredits {
+		t.Fatalf("从第 2 节继续照常预授权：order=%q %+v", stored.BillingOrderID, after)
 	}
 }

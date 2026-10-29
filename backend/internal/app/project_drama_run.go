@@ -123,6 +123,11 @@ func dramaTurnPlan(stepID string) drama.TurnPlan {
 	return step.Turns
 }
 
+// dramaRunCallsNoUpstream 表示这次运行一轮都不用写：从第 Turns+1 轮接着（上一次各轮都写完、只是收尾失败），只拿存下的输出重新收尾。
+func dramaRunCallsNoUpstream(run *dramaRunMeta) bool {
+	return run != nil && run.Turns > 0 && run.ResumeFrom > run.Turns
+}
+
 // taskDramaRun 从任务输入读 metadata.dramaRun；没有返回 nil。
 func taskDramaRun(inputJSON string) *dramaRunMeta {
 	if !strings.Contains(inputJSON, `"dramaRun"`) {
@@ -298,6 +303,10 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 	kept, err := s.dramaRunKeptSections(task, run, len(turns))
 	if err != nil {
 		return nil, err
+	}
+	if dramaRunCallsNoUpstream(&run) && len(turns) < total {
+		// 只收尾的任务没建计费单，绝不能在这里补调模型。
+		return nil, errors.New("上一次任务存下的各轮不完整，不能只重新收尾，请重新生成")
 	}
 	if len(turns) >= total {
 		// 各轮都在上一次任务里写完了（上一次收尾失败）：不调模型，直接拿存下的输出收尾。
