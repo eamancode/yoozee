@@ -9,7 +9,8 @@ import (
 	"strings"
 )
 
-// 小节输出转换器（M8 卡 F）：按小节生成时模型用技能原生格式写（文戏 15 是 7.3 的 Markdown 片段，文戏 30 是即梦的导演分镜字段），
+// 小节输出转换器（M8 卡 F / 卡 E）：按小节生成时模型用技能原生格式写（文戏 15 是 7.3 的 Markdown 片段，文戏 30 是即梦的导演分镜字段，
+// 武戏是 v7 的每镜标准格式），
 // 每个戏类一个转换器把一节的原样输出转成统一镜头表的分镜行（行字段 + spec，chapter.shots@3 的一镜），之后绑资产、检查、装段、编译照旧。
 // 共同规则（卡 0 文档 §6.3）：
 //   - 台词按原文对本节台词表落 line_id；一句被拆到相邻两镜时合回第一镜，不相邻的重复留给 R-SHOT-001 报；没写到的台词记进统计。
@@ -76,6 +77,8 @@ func ConvertSection(genre string, raw string, ctx SectionContext) (SectionShots,
 		out = convertWenxi15(raw, ctx)
 	case ShotGenreWenxi30:
 		out = convertWenxi30(raw, ctx)
+	case ShotGenreWuxi:
+		out = convertWuxi(raw, ctx)
 	default:
 		return SectionShots{}, fmt.Errorf("戏类 %s 还没有转换器", genre)
 	}

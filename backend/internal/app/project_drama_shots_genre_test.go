@@ -50,7 +50,7 @@ func writeQichuangPalettes(t *testing.T, svc *Service, projectID string, entries
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.repo.ApplyDramaScenePalettes("user-1", projectID, string(bible), writes, time.Now()); err != nil {
+	if err := svc.repo.ApplyDramaScenePalettes("user-1", projectID, func(string) (string, error) { return string(bible), nil }, writes, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 }

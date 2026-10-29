@@ -630,3 +630,129 @@ func (r *Repository) ShotAssetReferencesForShot(shotID string) ([]model.ShotAsse
 	err := r.db.Where("shot_id = ?", shotID).Order("created_at asc, id asc").Find(&references).Error
 	return references, err
 }
+
+// UnitShotWrite 是保留装段（ReplaceProjectUnitShotsKeeping）的一段：Existing 为 false 是新建（镜头、第 1 版、引用）；
+// 为 true 是沿用本章已有的镜头（同一 ID）：Revision 为 nil 表示内容没变，只改位置和标题，产物不动；否则加这个版本并换成当前版本，
+// 引用换成 References，依赖输入变了的产物（按 Decide 判定）过期。
+type UnitShotWrite struct {
+	Shot       model.Shot
+	Revision   *model.ShotRevision
+	References []model.ShotAssetReference
+	Existing   bool
+	Decide     ShotArtifactStaleDecider
+}
+
+// ReplaceProjectUnitShotsKeeping 是只重写几节后的整章装段：在一个事务里写本章镜头表，按 writes 沿用 / 新建段，删掉 deletes 里不再
+// 对应任何小节的旧段（连同产物、证据、版本、引用、候选和制作任务关联）。沿用的段 ID 不变，没变的段分镜图、预演、视频都留着。
+func (r *Repository) ReplaceProjectUnitShotsKeeping(projectID string, unitID string, writes []UnitShotWrite, deletes []string, shotlist *model.DramaShotlist, now time.Time) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if shotlist != nil {
+			if err := upsertDramaShotlist(tx, shotlist); err != nil {
+				return err
+			}
+		}
+		for _, id := range deletes {
+			if err := deleteShotTx(tx, projectID, unitID, id); err != nil {
+				return err
+			}
+		}
+		for _, w := range writes {
+			shot := w.Shot
+			switch {
+			case !w.Existing:
+				if err := tx.Create(&shot).Error; err != nil {
+					return err
+				}
+				if w.Revision != nil {
+					rev := *w.Revision
+					rev.Version = 1
+					if err := tx.Create(&rev).Error; err != nil {
+						return err
+					}
+				}
+				if len(w.References) > 0 {
+					if err := tx.Create(&w.References).Error; err != nil {
+						return err
+					}
+				}
+			case w.Revision == nil:
+				result := tx.Model(&model.Shot{}).Where("id = ? AND project_id = ? AND unit_id = ?", shot.ID, projectID, unitID).Updates(map[string]any{"title": shot.Title, "position": shot.Position, "updated_at": now})
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected != 1 {
+					return ErrProjectUnitShotsChanged
+				}
+			default:
+				var currentVersion int
+				if err := tx.Model(&model.ShotRevision{}).Where("shot_id = ?", shot.ID).Select("COALESCE(MAX(version), 0)").Scan(&currentVersion).Error; err != nil {
+					return err
+				}
+				rev := *w.Revision
+				rev.Version = currentVersion + 1
+				if err := tx.Create(&rev).Error; err != nil {
+					return err
+				}
+				result := tx.Model(&model.Shot{}).Where("id = ? AND project_id = ? AND unit_id = ?", shot.ID, projectID, unitID).Updates(map[string]any{
+					"current_revision_id": rev.ID, "title": shot.Title, "description": shot.Description, "duration_ms": shot.DurationMs,
+					"position": shot.Position, "status": shot.Status, "updated_at": now,
+				})
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected != 1 {
+					return ErrProjectUnitShotsChanged
+				}
+				if err := tx.Where("shot_id = ?", shot.ID).Delete(&model.ShotAssetReference{}).Error; err != nil {
+					return err
+				}
+				if len(w.References) > 0 {
+					if err := tx.Create(&w.References).Error; err != nil {
+						return err
+					}
+				}
+				var live []model.ShotArtifact
+				if err := tx.Where("shot_id = ? AND status NOT IN ?", shot.ID, []string{"failed", "stale"}).Find(&live).Error; err != nil {
+					return err
+				}
+				var staleIDs []string
+				if w.Decide == nil {
+					for _, a := range live {
+						staleIDs = append(staleIDs, a.ID)
+					}
+				} else {
+					staleIDs = w.Decide(live, w.References)
+				}
+				if len(staleIDs) > 0 {
+					if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND id IN ?", shot.ID, staleIDs).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": now}).Error; err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": now}).Error
+	})
+}
+
+// deleteShotTx 在事务里删掉一个段和它的全部关联（同 DeleteProjectShot，不重排位置：保留装段随后按新顺序写位置）。
+func deleteShotTx(tx *gorm.DB, projectID string, unitID string, shotID string) error {
+	for _, m := range []any{&model.ProductionTaskLink{}, &model.ShotArtifact{}, &model.ShotEvidence{}, &model.ProjectAssetCandidate{}} {
+		if err := tx.Where("project_id = ? AND shot_id = ?", projectID, shotID).Delete(m).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Where("shot_id = ?", shotID).Delete(&model.ShotRevision{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("shot_id = ?", shotID).Delete(&model.ShotAssetReference{}).Error; err != nil {
+		return err
+	}
+	result := tx.Where("id = ? AND project_id = ? AND unit_id = ?", shotID, projectID, unitID).Delete(&model.Shot{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrProjectUnitShotsChanged
+	}
+	return nil
+}

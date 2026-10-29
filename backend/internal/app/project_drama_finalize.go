@@ -31,9 +31,11 @@ type DramaStepTaskOutcome struct {
 	Version  int                  `json:"version"`
 	Notes    []string             `json:"notes,omitempty"`
 	Profile  string               `json:"profile,omitempty"`
-	// Genre / Sections 是按小节生成时的戏类和写了几节。
-	Genre    string `json:"genre,omitempty"`
-	Sections int    `json:"sections,omitempty"`
+	// Genre / Sections 是按小节生成时的默认戏类和写了几节；WuxiSections 是其中几节是武戏；Regenre 是这次是「改为武戏 / 改回文戏」。
+	Genre        string        `json:"genre,omitempty"`
+	Sections     int           `json:"sections,omitempty"`
+	WuxiSections int           `json:"wuxiSections,omitempty"`
+	Regenre      *dramaRegenre `json:"regenre,omitempty"`
 }
 
 const (
@@ -171,7 +173,12 @@ func (s *Service) applyChapterShotsTask(task model.Task, meta *dramaStepTaskMeta
 		}
 		raws = append(raws, encoded)
 	}
-	written, err := s.WriteDramaShotlist(task.UserID, target.ProjectID, target.UnitID, DramaShotlistWriteRequest{Rows: raws, Rule: meta.Rule, KeepDraft: true, Parse: &stats, Sections: sections})
+	// 只重写了几节（重新生成问题小节、改戏类）时装段沿用没变的节的段；整章生成照旧整章替换。
+	keep := false
+	if run := taskDramaRun(task.InputJSON); shots != nil && run != nil && (len(run.OnlySections) > 0 || shots.Regenre != nil) {
+		keep = true
+	}
+	written, err := s.WriteDramaShotlist(task.UserID, target.ProjectID, target.UnitID, DramaShotlistWriteRequest{Rows: raws, Rule: meta.Rule, KeepDraft: true, Parse: &stats, Sections: sections, KeepSegments: keep})
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
@@ -182,6 +189,14 @@ func (s *Service) applyChapterShotsTask(task model.Task, meta *dramaStepTaskMeta
 	}
 	if shots != nil {
 		outcome.Genre, outcome.Sections = shots.Genre, len(sections)
+		for _, sec := range sections {
+			if sec.Genre == drama.ShotGenreWuxi {
+				outcome.WuxiSections++
+			}
+		}
+		if shots.Regenre != nil {
+			outcome.Regenre = shots.Regenre
+		}
 		// 切节时的提醒（文戏 15 连着接话超过两句台词等）只是 warn：记进摘要说明，不拦写库和装段。
 		for _, sec := range sections {
 			for _, w := range sec.Warnings {
@@ -247,7 +262,7 @@ func sectionShotsRows(shots *dramaShotsMeta, result map[string]interface{}, asse
 	for i, turn := range progress.Turns {
 		sec := shots.Sections[i]
 		ctx := sectionConvertContext(sec, assets, offset[sec.Scene])
-		conv, err := drama.ConvertSection(shots.Genre, turn.Text, ctx)
+		conv, err := drama.ConvertSection(sec.Genre, turn.Text, ctx)
 		var part []map[string]any
 		switch {
 		case turn.Kept:

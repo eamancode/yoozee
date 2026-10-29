@@ -1,14 +1,19 @@
-// 生成分段按小节写（M8 卡 F）：建任务时按项目视频模型单段上限选戏类（文戏 15 / 文戏 30），按戏类把本单元切成小节（不调模型），
-// 小节表和每一节的本轮指令（本场第一节带本场色卡）存进 metadata.dramaShots；worker 一轮一节（project_drama_run.go），
-// 收尾逐节用戏类的转换器把技能原生输出转成分镜行（project_drama_finalize.go），原样输出按节存进 drama_shotlists.sections_json。
+// 生成分段按小节写（M8 卡 F / 卡 E）：建任务时按项目视频模型单段上限选默认戏类（文戏 15 / 文戏 30），用户改成武戏的剧本范围
+// （本章镜头表 sections_json 里存的各节戏类，GenreOverridesFrom）按武戏，把本单元切成小节（不调模型）；小节表、每个戏类那条对话的
+// 第一轮提示词和每一节的本轮指令（本场第一节带本场色卡）存进 metadata.dramaShots；worker 一轮一节、一个戏类一条对话
+// （project_drama_run.go），收尾逐节用这一节戏类的转换器把技能原生输出转成分镜行（project_drama_finalize.go），原样输出按节存进
+// drama_shotlists.sections_json（各节的戏类也就跟着存下）。
 // M7.2 第 6 阶段开跑前的戏类判定调用和四张戏类卡已经去掉；整章 JSON Lines 的旧拼法（yz-chapter-shots）只留给技能包评测。
 
 package app
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
+
+	"gorm.io/gorm"
 
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
@@ -16,12 +21,51 @@ import (
 
 // dramaShotsMeta 是任务 metadata.dramaShots。
 type dramaShotsMeta struct {
-	// Genre 是这次运行的戏类（wenxi15 / wenxi30）；ModelMax 是切节用的单段上限（秒）。
+	// Genre 是这次运行的默认戏类（wenxi15 / wenxi30，按模型上限选）；各节的戏类在 Sections[i].Genre。ModelMax 是切节用的单段上限（秒）。
 	Genre    string `json:"genre"`
 	ModelMax int    `json:"modelMax"`
 	// Sections 是切好的小节（一轮一节）；Turns 是每一节的本轮指令，第一节接在任务提示词后面。
 	Sections []drama.Section `json:"sections"`
 	Turns    []string        `json:"turns"`
+	// Lanes 是第 1 节所在戏类以外各戏类那条对话的第一轮提示词（戏类 → 提示词）：写到这个戏类的第一节时接在本轮指令前面。
+	Lanes map[string]string `json:"lanes,omitempty"`
+	// Overrides 是这次切节用的改戏类范围（GenreOverride）；Regenre 是「改为武戏 / 改回文戏」的这一次改动（其余运行为空）。
+	Overrides []drama.GenreOverride `json:"overrides,omitempty"`
+	Regenre   *dramaRegenre         `json:"regenre,omitempty"`
+}
+
+// dramaRegenre 是分镜制作里把一节改成武戏（或改回文戏）：Scene 是这一节所在的场，From 是用户点的那一节（改之前的编号）和它原来的戏类，
+// Genre 是改成的戏类，Sections 是按新戏类重切后要重写的节（新编号）。这一场里切法变了的旧节在收尾时换掉，不和新节混在一起。
+type dramaRegenre struct {
+	Scene     string   `json:"scene"`
+	From      string   `json:"from"`
+	FromGenre string   `json:"fromGenre"`
+	Genre     string   `json:"genre"`
+	Sections  []string `json:"sections"`
+}
+
+// genreOverridesOf 是本章镜头表存下的各节戏类里改成武戏的剧本范围（对不上当前正文的不算）；没有镜头表或不是按小节生成的返回 nil。
+func genreOverridesOf(record *model.DramaShotlist, unit *model.ProjectUnit) []drama.GenreOverride {
+	if record == nil || strings.TrimSpace(record.SectionsJSON) == "" {
+		return nil
+	}
+	var outputs []drama.SectionOutput
+	if json.Unmarshal([]byte(record.SectionsJSON), &outputs) != nil {
+		return nil
+	}
+	return drama.GenreOverridesFrom(outputs, chapterPlainText(unit.SourceText), unit.Title)
+}
+
+// unitGenreOverrides 读本章镜头表，取改成武戏的剧本范围（刷新、整章重跑、只重跑几节都按它切，武戏不被默认文戏冲掉）。
+func (s *Service) unitGenreOverrides(projectID string, unit *model.ProjectUnit) ([]drama.GenreOverride, error) {
+	record, err := s.repo.DramaShotlistForUnit(projectID, unit.ID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return genreOverridesOf(record, unit), nil
 }
 
 // taskDramaShots 从任务输入读 metadata.dramaShots；不是按小节生成的任务返回 nil。metadata 不含密钥，不用解密。
@@ -71,13 +115,14 @@ func projectMasterPalette(bibleJSON string) *drama.MasterPalette {
 	return doc.MasterPalette
 }
 
-// sectionShotsPlan 是按小节生成的一次运行：按戏类切小节、组装第一轮提示词和每一节的本轮指令（不读库，测试直接拿接口 JSON 喂进来）。
-func sectionShotsPlan(project *model.Project, unit *model.ProjectUnit, units []model.ProjectUnit, assets []ProjectAssetSummary, usage DramaStepUsage, skill drama.StepSkill, genre drama.ShotGenre, m drama.Model) (*dramaStepPlan, error) {
+// sectionShotsPlan 是按小节生成的一次运行：按默认戏类和改戏类范围切小节、组装每个戏类那条对话的第一轮提示词和每一节的本轮指令
+// （不读库，测试直接拿接口 JSON 喂进来）。skills 是各戏类绑定的技能（usage 是默认戏类那一格）。
+func sectionShotsPlan(project *model.Project, unit *model.ProjectUnit, units []model.ProjectUnit, assets []ProjectAssetSummary, usage DramaStepUsage, skills map[string]drama.StepSkill, genre drama.ShotGenre, m drama.Model, overrides []drama.GenreOverride) (*dramaStepPlan, error) {
 	style := projectStyleSnapshot(project)
 	anchor, _ := projectStyleBible(project.BibleJSON)
 	stepAssets, assetRecords := chapterShotsAssets(assets)
 	characters, characterRecords := chapterShotsCharacters(assets)
-	plan := drama.PlanSections(chapterPlainText(unit.SourceText), unit.Title, genre, m.Duration.Max)
+	plan := drama.PlanSections(chapterPlainText(unit.SourceText), unit.Title, genre, m.Duration.Max, overrides)
 	if len(plan.Sections) == 0 {
 		return nil, BadAuthRequest("当前章节没有可用于分镜的正文")
 	}
@@ -90,9 +135,8 @@ func sectionShotsPlan(project *model.Project, unit *model.ProjectUnit, units []m
 			Assets:         stepAssets,
 			EpisodeSeconds: briefEpisodeSeconds(project.BriefJSON),
 			Anchor:         anchor,
-			Skill:          skill,
 		},
-		Genre: genre, Plan: plan, ModelLabel: m.Label,
+		Skills: skills, Plan: plan, ModelLabel: m.Label, AspectRatio: strings.TrimSpace(project.AspectRatio),
 		MasterPalette: projectMasterPalette(project.BibleJSON),
 		Palettes:      unitScenePalettePrompts(project, units, unit.ID),
 		Casts:         sceneCastTitles(sceneCastOf(project.BibleJSON, units, unit.ID, assets)),
@@ -112,8 +156,26 @@ func sectionShotsPlan(project *model.Project, unit *model.ProjectUnit, units []m
 		"shotDurationSeconds": 0,
 		"shotCount":           0,
 	}
-	shots := &dramaShotsMeta{Genre: genre.ID, ModelMax: m.Duration.Max, Sections: plan.Sections, Turns: prompt.Turns}
-	return &dramaStepPlan{usage: usage, prompt: prompt.StepPrompt, skill: skill, scenes: turns, record: record, shots: shots}, nil
+	shots := &dramaShotsMeta{Genre: genre.ID, ModelMax: m.Duration.Max, Sections: plan.Sections, Turns: prompt.Turns, Overrides: overrides}
+	out := &dramaStepPlan{usage: usage, prompt: prompt.StepPrompt, skill: skills[genre.ID], scenes: turns, record: record, shots: shots}
+	// 第 1 节不是默认戏类（第一场开头就改成了武戏）时，任务提示词是那个戏类的对话；默认戏类没有节时只记出现的戏类的技能。
+	primary := plan.Sections[0].Genre
+	if _, ok := skills[genre.ID]; !ok || !slices.ContainsFunc(plan.Sections, func(s drama.Section) bool { return s.Genre == genre.ID }) {
+		out.skill = skills[primary]
+	}
+	for _, g := range plan.Genres() {
+		if lane, ok := prompt.Lanes[g.ID]; ok {
+			if shots.Lanes == nil {
+				shots.Lanes = map[string]string{}
+			}
+			shots.Lanes[g.ID] = lane.Text
+			out.prompt.Files = append(out.prompt.Files, lane.Files...)
+		}
+		if sk := skills[g.ID]; sk.ID != "" && sk.ID != out.skill.ID {
+			out.laneSkills = append(out.laneSkills, sk)
+		}
+	}
+	return out, nil
 }
 
 // sectionConvertContext 是收尾转换一节要的上下文：项目资产名（角色、场景、道具）、本场场景的锚点、是不是内景。

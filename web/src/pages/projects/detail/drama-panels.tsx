@@ -12,6 +12,7 @@ import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, dramaSh
 import { listProjectAssets, type ShotArtifact } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
 import { waitForGenerationTask } from "@/services/api/task-center";
+import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 
 import { dramaAuthLabel } from "../drama-model";
@@ -19,6 +20,8 @@ import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setCheckli
 import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
 import { editShotCard, editSubShot, failedSegmentEditHint, mergeWithNext, moveEdgeShot, segmentLacksReferences, shotFixEdit, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
 import { ShotCardEditor } from "./shot-card-editor";
+import { changeChapterSectionGenre } from "./project-chapter-ai";
+import { sectionGenreConfirm, sectionGenreSpan, sectionGenreTarget, type SectionGenreTarget } from "./section-genre";
 import { issueFixLabel, issueFixShots, scriptLineOptions, shotIssues } from "./shot-issues";
 import { StyleBibleEditor } from "./drama-style-bible-editor";
 import { EVIDENCE_LABELS, issueSegments, pendingReviewSegments, reviewGap } from "./drama-review-queue";
@@ -442,7 +445,7 @@ function EvidenceRow({ label, evidence, pending, detail, children }: { label: st
  * 时间轴上可以拆段、与相邻段合并、把首尾镜头移到相邻段、改镜头画面/台词/时长，保存走 PUT /drama/segments。
  * 编译只读、不花钱；估价沿用工作台底部按渠道报出的积分。段没有人物/场景参考时明确提示，并给「选择资产」入口。
  */
-export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJson, estimate, durationRule, takeCounts, busyShotIds, onEdited, onPickAssets }: {
+export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJson, estimate, durationRule, genreRule, takeCounts, busyShotIds, onEdited, onPickAssets }: {
     projectId: string;
     unitId: string;
     shotId: string;
@@ -451,6 +454,8 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     estimate?: string;
     /** 段长规则（项目生成模型 + 当前视频渠道）；拆合、改时长后按它取合法段长。没有时只能看。 */
     durationRule?: SegmentDurationRule;
+    /** 改戏类用的段长规则：和章节页生成分段同一个（项目默认视频模型的渠道段长），后端按它选默认戏类、切小节。没有时不能改戏类。 */
+    genreRule?: { maxSeconds: number; minSeconds: number };
     /** 各段已有的生成结果数：合段会删掉被并入的段和它的结果，要先确认。 */
     takeCounts?: Record<string, number>;
     /** 正在生成的段：不能拆合。 */
@@ -491,6 +496,8 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
         enabled: Boolean(unitId),
     });
     const vocabQuery = useQuery({ queryKey: ["drama", "shot-vocab"], queryFn: async ({ signal }) => (await getDramaShotVocab(signal)).vocab, staleTime: Infinity });
+    const effectiveConfig = useEffectiveConfig();
+    const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const shotlist = shotlistQuery.data && !shotlistQuery.data.draft ? shotlistQuery.data : undefined;
     const scriptLines = useMemo(() => scriptLineOptions(shotlist?.script), [shotlist?.script]);
     // 本段以工作台当前版本为准，相邻段取服务端分段列表。
@@ -515,6 +522,30 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
             await onEdited?.(edit.selectShotId);
         },
         onError: (error) => message.error(`段保存失败：${error instanceof Error ? error.message : "未知错误"}`),
+    });
+    // 改为武戏 / 改回文戏：服务端按新戏类重切这一节、建生成分段任务（只重写受影响的节），这里跟到写完再刷新本章的段。
+    const regenre = useMutation({
+        mutationFn: (input: { sectionId: string; genre: SectionGenreTarget; config: typeof effectiveConfig }) =>
+            changeChapterSectionGenre({ projectId, chapterId: unitId, sectionId: input.sectionId, genre: input.genre, config: input.config, rule: genreRule }),
+        onMutate: (input) => {
+            message.open({ key: "section-genre", type: "loading", duration: 0, content: input.genre === "wuxi" ? `正在按武戏重切、重写 ${input.sectionId}…` : `正在按文戏重切、重写 ${input.sectionId}…` });
+        },
+        onSuccess: async (done, input) => {
+            const outcome = done.outcome;
+            const label = dramaShotGenreLabel(done.genre);
+            if (outcome?.status === "draft") {
+                message.open({ key: "section-genre", type: "warning", duration: 10, content: `${input.sectionId} 已按${label}重写（${done.sections.join("、")}），但镜头表检查有 ${outcome.errors} 个问题，存成了草稿、还没装段：到章节页「生成分段」侧栏处理` });
+            } else {
+                message.open({ key: "section-genre", type: "success", content: `已把 ${input.sectionId} 改为${label}：重写 ${done.sections.join("、")}${outcome ? `，本章装成 ${outcome.segments} 段` : ""}` });
+            }
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: dramaSegmentsKey(projectId, unitId) }),
+                queryClient.invalidateQueries({ queryKey: dramaShotlistKey(projectId, unitId) }),
+                queryClient.invalidateQueries({ queryKey: dramaProgressKey(projectId) }),
+            ]);
+            await onEdited?.();
+        },
+        onError: (error) => message.open({ key: "section-genre", type: "error", duration: 8, content: `改戏类失败：${error instanceof Error ? error.message : "未知错误"}（原来的段没有改动）` }),
     });
     if (!spec) return null;
     const result = compileQuery.data?.result;
@@ -581,6 +612,35 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
         if (key === "split") apply((rule) => splitSegment(list, index, shotIndex, rule), (edit) => `已拆成 ${edit.segments.map((segment) => segment.id).join(" 和 ")}`);
         if (key === "prev" || key === "next") apply((rule) => moveEdgeShot(list, index, key, rule), () => `已把镜头移到 ${(key === "prev" ? previous : next)?.spec.id}`);
     };
+    const genreTarget = sectionGenreTarget(spec.genre);
+    /** 改戏类先确认：写明覆盖哪几段、按什么口径重切、产物会过期。 */
+    const askRegenre = () => {
+        const span = sectionGenreSpan(list, index);
+        if (!spec.section || !span.length || regenre.isPending) return;
+        const busy = span.find((view) => busyShotIds?.has(view.shotId));
+        if (busy) {
+            message.warning(`${busy.spec.id} 正在生成，等它结束再改戏类`);
+            return;
+        }
+        const textModel = effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
+        const config = { ...effectiveConfig, model: textModel, textModel };
+        if (!isAiConfigReady(config, textModel)) {
+            message.warning("先在设置里配好可用的文本模型，再改戏类");
+            return;
+        }
+        const confirm = sectionGenreConfirm(span, genreTarget, genreRule?.maxSeconds, takesOf);
+        modal.confirm({
+            title: confirm.title,
+            content: <div className="space-y-1.5 text-sm leading-6 text-foreground/62">{confirm.lines.map((line) => <p key={line}>{line}</p>)}</div>,
+            okText: confirm.okText,
+            okButtonProps: { danger: true },
+            cancelText: "取消",
+            centered: true,
+            onOk: () => {
+                void regenre.mutateAsync({ sectionId: spec.section || "", genre: genreTarget, config }).catch(() => undefined);
+            },
+        });
+    };
     const shotSeconds = subShotSeconds(spec);
     const lacksReferences = segmentLacksReferences(spec);
     // 带问题装段后挂在本段镜头上的检查 error（以服务端分段列表为准，改完重检后跟着变）。
@@ -598,6 +658,11 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
                 <span className="flex flex-wrap items-center gap-1">
                     {editable && previous ? <Button size="small" type="text" disabled={save.isPending} onClick={() => apply((rule) => mergeWithNext(list, index - 1, rule), mergedMessage, mergeConfirm(previous, list[index]))}>并入 {previous.spec.id}</Button> : null}
                     {editable && next ? <Button size="small" type="text" disabled={save.isPending} onClick={() => apply((rule) => mergeWithNext(list, index, rule), mergedMessage, mergeConfirm(list[index], next))}>合并 {next.spec.id}</Button> : null}
+                    {editable && spec.section && genreRule ? (
+                        <Button size="small" type="text" loading={regenre.isPending} disabled={save.isPending || regenre.isPending} title={genreTarget === "wuxi" ? "这一节按武戏口径重切、用武戏技能重写，覆盖文戏版" : "这一串武戏节按文戏口径重切、用文戏技能重写，覆盖武戏版"} onClick={askRegenre}>
+                            {genreTarget === "wuxi" ? "改为武戏" : "改回文戏"}
+                        </Button>
+                    ) : null}
                     <Button size="small" type="link" onClick={() => setOpen((value) => !value)}>{open ? "收起编译结果" : "生成前看提示词"}</Button>
                 </span>
             </div>

@@ -2,6 +2,7 @@ package drama
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -690,6 +691,49 @@ func shotText(sh *Shot, est float64, profile *Profile, vocab *Vocab, prevPhaseEn
 	return text
 }
 
+// wuxiShotText 是武戏节一镜的画面句（卡 0 文档 §5f，编译档案 wuxi 一组的模板）：值取武戏转换器存进 spec.extras 的标签，
+// 站位没写原文时退回 blocking；「无」「—」这类空值不写。
+func wuxiShotText(sh *Shot, cp *CompileProfile) string {
+	wp := cp.Wuxi
+	value := func(text string) string {
+		text = strings.TrimRight(strings.TrimSpace(text), "。；;，, ")
+		if nilWords[text] || text == "—" || text == "-" {
+			return ""
+		}
+		return text
+	}
+	part := func(tpl, key, text string) string {
+		if text = value(text); text == "" || strings.TrimSpace(tpl) == "" {
+			return ""
+		}
+		return fill(tpl, key, text)
+	}
+	ex := sh.Extras
+	station := ex["站位"]
+	if value(station) == "" {
+		station = positionsText(sh, cp)
+	}
+	tags := joinNonEmpty([]string{value(ex["力度"]), value(ex["受击"]), value(ex["战损"]), value(ex["闪帧"])}, "，")
+	action := ""
+	if a := value(sh.Action); a != "" {
+		action = fill(wp.Action, "action", a, "tags", part(wp.Tags, "tags", tags))
+	}
+	light := sh.light().Key
+	if light == "" {
+		light = sh.light().SourceAnchor
+	}
+	return strings.Join(slices.DeleteFunc([]string{
+		part(wp.Target, "target", ex["摄影机目标"]),
+		part(wp.Station, "station", station),
+		action,
+		part(wp.Face, "face", strings.Join(sh.Performance.beats(), "；")),
+		part(wp.Fx, "fx", ex["特效"]),
+		part(wp.Env, "env", ex["环境反馈"]),
+		part(wp.Light, "light", light),
+		part(wp.Next, "next", ex["下一镜连接"]),
+	}, func(x string) bool { return strings.TrimSpace(x) == "" }), "")
+}
+
 func soundText(sh *Shot, cp *CompileProfile) string {
 	s := strings.TrimSpace(sh.Sfx)
 	appendPart := func(part string) {
@@ -1292,6 +1336,10 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 			prevEnd = p.arcEnd[sh.EmotionArc.Continues]
 		}
 		s := SubShot{At: pyRound(at, 1), Size: sh.Size, Camera: cameraText(sh, cp), Text: shotText(sh, e, profile, p.in.Vocab, prevEnd, cp), ShotID: sh.ID}
+		if sh.Genre == ShotGenreWuxi {
+			// 武戏节按武戏段落结构写镜头（摄影机目标 → 站位 → 动作链与 P/R/L/F → 表情 → 特效 → 环境反馈 → 光影 → 连接），打斗标签随镜头带进段。
+			s.Text, s.Extras = wuxiShotText(sh, cp), maps.Clone(sh.Extras)
+		}
 		expr, terms, used := expressionText(sh, e, profile, p.in.Vocab, prevEnd, cp)
 		if len(used) > 0 {
 			p.arcEnd[sh.ID] = used[len(used)-1]

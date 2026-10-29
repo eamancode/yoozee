@@ -86,7 +86,7 @@ export type DramaSegment = {
     genre?: DramaShotGenreId;
 };
 
-/** 戏类：文戏 15（7.3 规则书）、文戏 30（即梦小节分镜）、武戏（预留，卡 E）。按项目视频模型单段上限选文戏 15 / 30。 */
+/** 戏类：文戏 15（7.3 规则书）、文戏 30（即梦小节分镜）、武戏（skill-complete-v7）。默认按项目视频模型单段上限选文戏 15 / 30；武戏由分镜制作里把小节改过去。 */
 export type DramaShotGenreId = "wenxi15" | "wenxi30" | "wuxi";
 
 const dramaShotGenreLabels: Record<string, string> = { wenxi15: "文戏 15", wenxi30: "文戏 30", wuxi: "武戏" };
@@ -537,6 +537,23 @@ export function runDramaStep(
 }
 
 /**
+ * 小节改戏类（分镜制作）：genre=wuxi 把这一节改成武戏，这一节的剧本范围按武戏口径重切（可能变成几节，每节不超过视频模型单段上限）并用武戏技能重写；
+ * genre=wenxi 把这一串相连的武戏节改回文戏（按模型上限选文戏 15 / 30）重切重写。服务端照生成分段建任务（只重写这一场里切法变了的节），
+ * 收尾检查、装段：其余节的段不动，被改的那一节原来的段换上新内容、分镜图 / 预演 / 视频标过期。返回的 task 照生成分段跟流。
+ */
+export function changeDramaSectionGenre(
+    projectId: string,
+    unitId: string,
+    sectionId: string,
+    input: { genre: "wuxi" | "wenxi"; model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule },
+) {
+    return http.post<{ task: GenerationTask; usage: DramaStepUsage } & Omit<DramaRegenre, "scene">>(
+        `/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/sections/${encodeURIComponent(sectionId)}/genre`,
+        input,
+    );
+}
+
+/**
  * 剧本优化（项目级步骤）：服务端按项目记忆把所选原文章节改编成短剧剧本（mode=adapt），或把已有剧集只调节奏（mode=rhythm）；
  * 一个任务里一轮写一集，收尾写成 kind=episode 的单元（结果摘要在任务 result.dramaStep）。sourceUnitIds 不给时 adapt 取全部
  * 还没改编的原文章节、rhythm 取全部剧集；targetEpisodes / episodeSeconds 二选一。会替换已有剧集或改写有镜头表的剧集时，
@@ -786,10 +803,15 @@ export type DramaStepOutcome = {
     version: number;
     notes?: string[];
     profile?: string;
-    /** 按小节生成时的戏类和写了几节。 */
+    /** 按小节生成时的默认戏类、写了几节、其中几节是武戏；regenre 是这次是「改为武戏 / 改回文戏」。 */
     genre?: DramaShotGenreId;
     sections?: number;
+    wuxiSections?: number;
+    regenre?: DramaRegenre;
 };
+
+/** 一次「改为武戏 / 改回文戏」：from 是点的那一节（改之前的编号）和它原来的戏类，sections 是按新戏类重切后要重写的节（新编号）。 */
+export type DramaRegenre = { scene: string; from: string; fromGenre: DramaShotGenreId; genre: DramaShotGenreId; sections: string[] };
 
 function taskResultRecord(task: Pick<GenerationTask, "resultJson">): Record<string, unknown> {
     try {

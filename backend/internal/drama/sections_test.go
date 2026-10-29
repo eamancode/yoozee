@@ -23,7 +23,7 @@ func TestPlanSectionsQichuang(t *testing.T) {
 		max   int
 	}{{ShotGenreWenxi15, 15}, {ShotGenreWenxi30, 30}} {
 		g, _ := ShotGenreByID(tc.genre)
-		plan := PlanSections(text, "第一集", g, tc.max)
+		plan := PlanSections(text, "第一集", g, tc.max, nil)
 		if len(plan.Sections) == 0 {
 			t.Fatalf("%s 没切出小节", tc.genre)
 		}
@@ -89,7 +89,7 @@ func TestPlanSectionsWenxi30Even(t *testing.T) {
 		lines = append(lines, "（她走到窗边，拉上窗帘，转身坐下。）")
 	}
 	g, _ := ShotGenreByID(ShotGenreWenxi30)
-	plan := PlanSections(strings.Join(lines, "\n"), "x", g, 30)
+	plan := PlanSections(strings.Join(lines, "\n"), "x", g, 30, nil)
 	if len(plan.Sections) != 3 {
 		t.Fatalf("应切成 3 节：%+v", plan.Sections)
 	}
@@ -104,7 +104,7 @@ func TestPlanSectionsWenxi30Even(t *testing.T) {
 func TestPlanSectionsWenxi15LongExchangeWarns(t *testing.T) {
 	text := "## 内·诊室·夜\n林小满：你是谁？\n周岸：你不认识我了？\n林小满：我该认识你吗？\n周岸：你真的忘了？"
 	g, _ := ShotGenreByID(ShotGenreWenxi15)
-	plan := PlanSections(text, "t", g, 15)
+	plan := PlanSections(text, "t", g, 15, nil)
 	if len(plan.Sections) != 1 || len(plan.Sections[0].LineIDs) != 4 {
 		t.Fatalf("问句接话不拆：%+v", plan.Sections)
 	}
@@ -112,7 +112,7 @@ func TestPlanSectionsWenxi15LongExchangeWarns(t *testing.T) {
 	if len(sec.Warnings) != 1 || !strings.Contains(sec.Warnings[0], "4 句台词") {
 		t.Fatalf("台词超额只记提醒：%v", sec.Warnings)
 	}
-	if rule := SectionTurnPrompt(plan, 1, "", nil, nil); !strings.Contains(rule, "本节有 4 句台词") || !strings.Contains(rule, "按技能规则写在 10～15 秒") {
+	if rule := SectionTurnPrompt(plan, 1, "", nil, nil, ""); !strings.Contains(rule, "本节有 4 句台词") || !strings.Contains(rule, "按技能规则写在 10～15 秒") {
 		t.Fatalf("本节输出要求：%s", rule)
 	}
 	if out := NewSectionOutput(sec, "", SectionShots{}); len(out.Warnings) != 1 {

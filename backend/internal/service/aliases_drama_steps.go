@@ -9,6 +9,8 @@ type (
 	DramaStepUsage           = app.DramaStepUsage
 	DramaStepRunRequest      = app.DramaStepRunRequest
 	DramaStepRunResult       = app.DramaStepRunResult
+	DramaSectionGenreRequest = app.DramaSectionGenreRequest
+	DramaSectionGenreResult  = app.DramaSectionGenreResult
 	DramaStepPrompt          = app.DramaStepPrompt
 	DramaStepBindingCell     = app.DramaStepBindingCell
 	DramaStepBindingMatrix   = app.DramaStepBindingMatrix

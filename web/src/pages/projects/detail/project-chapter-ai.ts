@@ -6,6 +6,7 @@ import {
     dramaStepOutcomeOf,
     dramaScenePaletteOutcomeOf,
     dramaStyleLockOutcomeOf,
+    changeDramaSectionGenre,
     runDramaProjectStep,
     runDramaStep,
     type DramaImageTaskTemplate,
@@ -74,6 +75,29 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
     options?.onTaskUpdate?.(task);
     const completed = await followDramaRunTask(task, options);
     return { task: completed, usage, outcome: dramaStepOutcomeOf(completed), progress: dramaRunProgressOf(completed) };
+}
+
+/**
+ * 小节改戏类（分镜制作里「改为武戏 / 改回文戏」）：服务端按新戏类重切这一节的剧本范围，照生成分段建任务（只重写这一场里切法变了的节），
+ * 收尾检查、装段。页面跟任务文本流，写完返回收尾摘要。
+ */
+export async function changeChapterSectionGenre(
+    input: { projectId: string; chapterId: string; sectionId: string; genre: "wuxi" | "wenxi"; config: AiConfig; rule?: { maxSeconds: number; minSeconds: number } },
+    options?: ChapterTaskOptions,
+) {
+    const model = input.config.textModel || input.config.model;
+    const config = { ...input.config, model };
+    const result = await changeDramaSectionGenre(input.projectId, input.chapterId, input.sectionId, {
+        genre: input.genre,
+        model,
+        ...(logicalModelIDForConfig(config) ? { logicalModelId: logicalModelIDForConfig(config) } : {}),
+        config: backendProviderConfig(config, "text") as Record<string, unknown>,
+        ...(input.rule ? { rule: input.rule } : {}),
+    });
+    announceCreatedGenerationTask(result.task);
+    options?.onTaskUpdate?.(result.task);
+    const completed = await followDramaRunTask(result.task, options);
+    return { task: completed, sections: result.sections, genre: result.genre, outcome: dramaStepOutcomeOf(completed) };
 }
 
 type AssetsExtractInput = {

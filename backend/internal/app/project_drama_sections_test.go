@@ -32,7 +32,7 @@ type sectionShotsUpstream struct {
 }
 
 var (
-	sectionTurnHead  = regexp.MustCompile(`【第 (\d+)/(\d+) 节：(E\d{2}S\d{2}-P\d+)】[^\n]*戏类：(文戏 15|文戏 30)`)
+	sectionTurnHead  = regexp.MustCompile(`【第 (\d+)/(\d+) 节：(E\d{2}S\d{2}-P\d+)】[^\n]*戏类：(文戏 15|文戏 30|武戏)`)
 	sectionTableLine = regexp.MustCompile(`(?m)^- (E\d{2}S\d{2}L\d+) ([^：\s]+)：(.+?)(（画外）)?$`)
 )
 
@@ -78,9 +78,12 @@ func (u *sectionShotsUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	var out string
-	if head[4] == "文戏 15" {
+	switch head[4] {
+	case "文戏 15":
 		out = fakeWenxi15Section(head[1], lines)
-	} else {
+	case "武戏":
+		out = fakeWuxiSection(last.Content, lines)
+	default:
 		out = fakeWenxi30Section(head[1], lines)
 	}
 	if u.rewrite != nil {
@@ -459,8 +462,8 @@ func TestDramaScenesSectionsAndGenreBindingRows(t *testing.T) {
 	for _, step := range matrix.Steps {
 		if step.Genre != "" {
 			genres = append(genres, step.ID)
-			if step.Genre == drama.ShotGenreWuxi && !step.Reserved {
-				t.Fatal("武戏行是预留的")
+			if step.Genre == drama.ShotGenreWuxi && (step.DefaultSkill != "yz-shots-wuxi" || step.ProfileSkills["live-realism"] != "yz-shots-wuxi-live" || step.ProfileSkills["duanju-shiga"] != "yz-shots-wuxi-live") {
+				t.Fatalf("武戏行：默认完整切片，仿真人档案默认精简切片：%+v", step)
 			}
 		}
 	}

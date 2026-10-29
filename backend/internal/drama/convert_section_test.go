@@ -29,7 +29,7 @@ func rowSpec(t *testing.T, row map[string]any) Shot {
 func qichuangSection(t *testing.T, genre string, id string) Section {
 	t.Helper()
 	g, _ := ShotGenreByID(genre)
-	plan := PlanSections(qichuangChapter(t), "第一集", g, int(g.MaxSeconds))
+	plan := PlanSections(qichuangChapter(t), "第一集", g, int(g.MaxSeconds), nil)
 	sec, ok := plan.Section(id)
 	if !ok {
 		t.Fatalf("没有小节 %s", id)
@@ -239,8 +239,11 @@ func TestConvertSectionNoShots(t *testing.T) {
 	if _, err := ConvertSection(ShotGenreWenxi15, "这一节我先解释一下思路……", SectionContext{}); err == nil {
 		t.Fatal("读不出镜头应报错")
 	}
-	if _, err := ConvertSection(ShotGenreWuxi, "镜 1｜t0-1s", SectionContext{}); err == nil {
-		t.Fatal("武戏还没有转换器")
+	if _, err := ConvertSection(ShotGenreWuxi, "【核心观看体验】先说一下思路……", SectionContext{}); err == nil {
+		t.Fatal("武戏读不出镜头应报错")
+	}
+	if _, err := ConvertSection("wenxi60", "镜 1｜t0-1s", SectionContext{}); err == nil {
+		t.Fatal("不认识的戏类应报错")
 	}
 }
 
