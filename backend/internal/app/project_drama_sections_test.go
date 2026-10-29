@@ -27,6 +27,8 @@ type sectionShotsUpstream struct {
 	sections  []string
 	drop      map[string]bool
 	fail      func(call int, section string) int
+	// rewrite 改写这一节的回复（模拟模型按提示把人物名写成子卡「名·变体」）。
+	rewrite func(section string, out string) string
 }
 
 var (
@@ -80,6 +82,9 @@ func (u *sectionShotsUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		out = fakeWenxi15Section(head[1], lines)
 	} else {
 		out = fakeWenxi30Section(head[1], lines)
+	}
+	if u.rewrite != nil {
+		out = u.rewrite(section, out)
 	}
 	(&streamingShotsUpstream{}).reply(w, body.Stream, strings.Split(out, "\n"))
 }

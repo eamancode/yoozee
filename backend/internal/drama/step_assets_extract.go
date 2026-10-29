@@ -11,8 +11,8 @@ import (
 )
 
 // assets.extract（资产设计，M7.2 第 5 阶段）：一集（或一章）剧本 → 角色、场景、道具，每个资产带中文外观和英文出图提示词。
-// 提示词 = 技能上下文（用户任务里是本单元的剧本正文）+ 项目已有资产名录 + 全局风格锚 + 本集色彩脚本 + 风格档案 + 项目画风
-// + 按 schema 生成的契约；一个任务里一轮写一场（场次切分与生成分段同一套，不到两场整单元一轮），一个资产一行 JSON，边流边解析。
+// 提示词 = 技能上下文（用户任务里是本单元的剧本正文）+ 项目已有资产名录 + 全局风格锚 + 主基调色卡（角色、道具用）+ 本集场次色卡
+// （场景用）+ 用色要求 + 风格档案 + 项目画风 + 按 schema 生成的契约（M8 卡 D 起要先有场次色卡才能提取，角色可带服装 / 状态子卡）；一个任务里一轮写一场（场次切分与生成分段同一套，不到两场整单元一轮），一个资产一行 JSON，边流边解析。
 // 收尾时按名字和别名与项目已有资产合并（已有的只补别名和缺的外观），其余建成已确认资产，再排出图任务。
 
 const (
@@ -22,6 +22,8 @@ const (
 	assetsColorChars      = 2400
 	assetsAppearanceChars = 600
 	assetsPromptChars     = 1200
+	// assetsVariantLabelChars 是子卡变体名最多几个字。
+	assetsVariantLabelChars = 24
 )
 
 // 资产设计的分类（与 model.AssetCategory 同名）。
@@ -52,6 +54,8 @@ type AssetsKnown struct {
 	Name       string
 	Aliases    []string
 	Incomplete bool
+	// Variants 是这个角色已有的子卡（变体名）。
+	Variants []string
 }
 
 // AssetsExtractInput 是组装资产设计提示词的全部输入。
@@ -64,7 +68,9 @@ type AssetsExtractInput struct {
 	SourceText string
 	Known      []AssetsKnown
 	Anchor     *StyleAnchor
-	// ColorScript 是本集的色彩脚本（没有剧集或还没定风格时为空）。
+	// Master 是项目锁定的主基调色卡（角色、道具按它取色）。
+	Master MasterPalette
+	// ColorScript 是本集各场的场次色卡（色彩脚本，场景按本场色卡取色；没有剧集或还没做场次色卡时为空）。
 	ColorScript []ColorScriptEntry
 	Profile     StyleBibleProfile
 	Style       StepStyle
@@ -100,7 +106,9 @@ func BuildAssetsExtractPrompt(in AssetsExtractInput) (StepPrompt, error) {
 		skillPrompt,
 		assetsKnownPrompt(in.Known),
 		assetsAnchorPrompt(in.Anchor),
+		assetsMasterPrompt(in.Master),
 		assetsColorScriptPrompt(in.ColorScript),
+		assetsColorRulePrompt(in),
 		assetsProfilePrompt(in.Profile),
 		stepStylePrompt(in.Style, "资产的外观和出图提示词按这个画风写，不要写成其他媒介。"),
 		contract.Text(contract.DefaultRequirement(), ContractTextOptions{SkillShaped: true}),
@@ -113,7 +121,7 @@ func assetsKnownPrompt(known []AssetsKnown) string {
 	if len(known) == 0 {
 		return ""
 	}
-	lines := []string{"【项目已有资产】下面这些资产已经建好：它们再出现时只写一行 category、name（照抄）和新见到的 aliases，不重复外观；标了「缺外观」的可以补写 appearance 和 prompt_en。"}
+	lines := []string{"【项目已有资产】下面这些资产已经建好：它们再出现时只写一行 category、name（照抄）和新见到的 aliases，不重复外观；标了「缺外观」的可以补写 appearance 和 prompt_en；角色已有的子卡再出现时 variants 里 label 照抄、只写这次的 scenes。"}
 	remaining := assetsKnownChars
 	for i, k := range known {
 		if i >= AssetsExtractMaxKnown {
@@ -123,6 +131,9 @@ func assetsKnownPrompt(known []AssetsKnown) string {
 		line := "- " + jsTrim(k.Name) + "（" + firstNonEmptyString(AssetCategoryName(k.Category), k.Category)
 		if len(k.Aliases) > 0 {
 			line += "；别名：" + strings.Join(k.Aliases, "、")
+		}
+		if len(k.Variants) > 0 {
+			line += "；子卡：" + strings.Join(k.Variants, "、")
 		}
 		if k.Incomplete {
 			line += "；缺外观"
@@ -166,12 +177,12 @@ func styleAnchorPrompt(anchor *StyleAnchor, head string, withCamera bool) string
 	return strings.Join(lines, "\n")
 }
 
-// assetsColorScriptPrompt 是【本集色彩脚本】段：每场的颜色（中文名、HEX、用途），palette_hint 引用这里的色名。没有时不写。
+// assetsColorScriptPrompt 是【本集场次色卡】段：每场的颜色（中文名、HEX、用途），用于这一场发生地的场景资产和这一场出现的道具。没有时不写。
 func assetsColorScriptPrompt(script []ColorScriptEntry) string {
 	if len(script) == 0 {
 		return ""
 	}
-	lines := []string{"【本集色彩脚本】导演风格给每一场定的颜色；角色服装、场景主色和道具配色尽量落在这些颜色上，palette_hint 写用到的色名："}
+	lines := []string{"【本集场次色卡】场次色卡给每一场定的颜色，用于这一场发生地的场景资产（场景用色从本场色卡与主基调色卡取），这一场出现的道具也可以取："}
 	remaining := assetsColorChars
 	for _, e := range script {
 		colors := make([]string, 0, len(e.SharedColors)+len(e.NewColors))
@@ -182,7 +193,7 @@ func assetsColorScriptPrompt(script []ColorScriptEntry) string {
 			}
 			colors = append(colors, item)
 		}
-		line := fmt.Sprintf("- 第 %d 场「%s」：%s", e.SceneNo, e.Scene, strings.Join(colors, "、"))
+		line := fmt.Sprintf("- 第 %d 场 %s「%s」：%s", e.SceneNo, e.Code(), e.Scene, strings.Join(colors, "、"))
 		if n := jsLen(line); n > remaining {
 			lines = append(lines, "- ……（其余略）")
 			break
@@ -217,14 +228,14 @@ func AssetsExtractTurnPlan(scenes []ShotsScene) string {
 	}
 	n := len(scenes)
 	return fmt.Sprintf("【分回合输出】本集按场次标题共 %d 场：%s。这个对话分 %d 个回合写完：本回合只写第 1 场里出现的资产；我说「继续」时再写下一场。"+
-		"每个回合仍按【受保护输出契约】一个资产一行；前面回合已经写过的资产不再重复外观，有新的叫法时只写一行 category、name 和新的 aliases；first_scene 写这一回合的场序。",
+		"每个回合仍按【受保护输出契约】一个资产一行；前面回合已经写过的资产不再重复外观，有新的叫法时只写一行 category、name 和新的 aliases，换了服装或状态时写一行 category、name 和 variants（只写新的一套）；first_scene 写这一回合的场序。",
 		n, strings.Join(parts, "；"), n)
 }
 
 // AssetsExtractTurnPrompt 是第 k 场（从 1 数，k ≥ 2）的续写指令。
 func AssetsExtractTurnPrompt(scenes []ShotsScene, k int) string {
 	s := scenes[k-1]
-	return fmt.Sprintf("继续写第 %d 场：%s里出现的资产，first_scene 写 %d。前面回合和【项目已有资产】里已有的资产只在有新叫法时写一行 category、name 和 aliases，不重复外观；这一场的发生地前面没写过就写一行场景。一个资产一行，不要重复前面已经写过的行。", k, shotsSceneLabel(s), k)
+	return fmt.Sprintf("继续写第 %d 场：%s里出现的资产，first_scene 写 %d。前面回合和【项目已有资产】里已有的资产只在有新叫法时写一行 category、name 和 aliases，不重复外观；角色在这一场换了服装或状态时写一行 category、name 和 variants（scenes 写 %d）；这一场的发生地前面没写过就写一行场景。一个资产一行，不要重复前面已经写过的行。", k, shotsSceneLabel(s), k, k)
 }
 
 // ---------------------------------------------------------------- 解析
@@ -240,6 +251,8 @@ type AssetsExtractRow struct {
 	PaletteHint string   `json:"palette_hint"`
 	// Anchors 只有场景写：人物能站、能走到的位置（生成分段的站位和镜头表检查 R-SHOT-012 用）。
 	Anchors []string `json:"anchors,omitempty"`
+	// Variants 只有角色写：换了服装或状态的各套形象（收尾建成子卡「名·变体」）。
+	Variants []AssetsVariant `json:"variants,omitempty"`
 	// Merge 是与项目已有资产或前面的行同名、同别名（检查时标上），收尾时合并，不新建。
 	Merge bool `json:"merge,omitempty"`
 }
@@ -309,6 +322,9 @@ func AssetsExtractFromText(text string) ([]AssetsExtractRow, AssetsExtractParseS
 		row.Aliases = assetsAliasList(obj["aliases"], row.Name)
 		if row.Category == AssetEnvironment {
 			row.Anchors = assetsAliasList(obj["anchors"], "")
+		}
+		if row.Category == AssetCharacter {
+			row.Variants = parseAssetsVariants(obj["variants"])
 		}
 		var first any
 		_ = json.Unmarshal(obj["first_scene"], &first)
@@ -400,13 +416,20 @@ const (
 	RuleAssetNoRows      = "R-ASSET-006"
 	RuleAssetFirstScene  = "R-ASSET-007"
 	RuleAssetPaletteName = "R-ASSET-008"
+	// RuleAssetPaletteHex 是外观里写的 HEX 不在对应色卡里（角色、道具查主基调色卡，场景查本场色卡和主基调色卡）。
+	RuleAssetPaletteHex = "R-ASSET-009"
+	// RuleAssetVariant 是子卡写得不全（没有变体名、没有外观、场序超出），这一项没建。
+	RuleAssetVariant = "R-ASSET-010"
 )
 
-// AssetsExtractCheckContext 是检查资产设计输出要用的输入：项目已有资产、本单元的场数（0 表示不查场序）和本集色彩脚本。
+// AssetsExtractCheckContext 是检查资产设计输出要用的输入：项目已有资产、本单元的场数（0 表示不查场序）、本集场次色卡、
+// 主基调色卡和本单元各场的地点（第 k 项是第 k 场，场景资产按它找出现在哪几场的色卡）。
 type AssetsExtractCheckContext struct {
-	Known       []AssetsKnown
-	Scenes      int
-	ColorScript []ColorScriptEntry
+	Known          []AssetsKnown
+	Scenes         int
+	ColorScript    []ColorScriptEntry
+	Master         MasterPalette
+	SceneLocations []string
 }
 
 // AssetsExtractResult 是检查后的资产：Rows 是要写的（合并行 Merge=true，同一资产写了几行已经并成一行），Skipped 是没写的行数，
@@ -420,7 +443,8 @@ type AssetsExtractResult struct {
 
 // CheckAssetsExtract 检查并整理解析出的资产：名字为空、分类不合法、新资产没写出图提示词的行不写（error，记成跳过）；
 // 与已有资产同名或同别名的标成合并（不报错）；同一资产写了几行的并成第一行（别名合并，空字段用后面的补，warn）；
-// 新资产没写外观、场序超出、palette_hint 的色名本集色彩脚本里没有是 warn。
+// 新资产没写外观、场序超出、palette_hint 的色名色卡里没有、外观里的 HEX 不在对应色卡里、子卡写得不全是 warn。
+// 角色名写成「林小满·淋湿」的行当成「林小满」的子卡。
 func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) AssetsExtractResult {
 	out := AssetsExtractResult{Rows: []AssetsExtractRow{}, SkippedBy: map[string]int{}, Report: CheckReport{Kind: StepAssetsExtract, Items: []CheckItem{}, Skipped: []CheckSkip{}}}
 	add := func(level, rule, name, message string) {
@@ -432,10 +456,19 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 		}
 	}
 	known := map[string]bool{}
+	// knownVariants 是已有角色（名字和别名的键）→ 它已有子卡的变体名键。
+	knownVariants := map[string]map[string]bool{}
 	for _, k := range ctx.Known {
+		labels := map[string]bool{}
+		for _, v := range k.Variants {
+			labels[AssetVariantKey(v)] = true
+		}
 		for _, name := range append([]string{k.Name}, k.Aliases...) {
 			if key := AssetNameKey(name); key != "" {
 				known[k.Category+":"+key] = true
+				if k.Category == AssetCharacter {
+					knownVariants[key] = labels
+				}
 			}
 		}
 	}
@@ -445,8 +478,15 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 			colorNames[AssetNameKey(c.NameZh)], colorNames[AssetNameKey(c.NameEn)] = true, true
 		}
 	}
+	for _, c := range ctx.Master.Colors() {
+		colorNames[AssetNameKey(c.NameZh)], colorNames[AssetNameKey(c.NameEn)] = true, true
+	}
+	delete(colorNames, "")
 	written := map[string]int{}
 	for _, r := range rows {
+		if converted, ok := variantFromTitledRow(r); ok {
+			r = converted
+		}
 		label := firstNonEmptyString(r.Name, "（无名）")
 		if r.Name == "" || AssetNameKey(r.Name) == "" {
 			add("error", RuleAssetNoName, label, "资产名为空，这一行没写")
@@ -489,7 +529,7 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 		if len(colorNames) > 0 {
 			for _, name := range assetsAliasSplit.Split(r.PaletteHint, -1) {
 				if key := AssetNameKey(name); key != "" && !colorNames[key] {
-					add("warn", RuleAssetPaletteName, label, fmt.Sprintf("palette_hint 里的「%s」本集色彩脚本里没有", jsTrim(name)))
+					add("warn", RuleAssetPaletteName, label, fmt.Sprintf("palette_hint 里的「%s」色卡里没有", jsTrim(name)))
 				}
 			}
 		}
@@ -501,11 +541,21 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 	if len(out.Rows) == 0 {
 		add("error", RuleAssetNoRows, "", "没有一行能用的资产")
 	}
-	// 合并进来的行可能把超出的场序又带回来：最后统一清掉。
+	// 合并进来的行可能把超出的场序又带回来：最后统一清掉；子卡和 HEX 在并完行之后查。
 	for i := range out.Rows {
 		if ctx.Scenes > 0 && out.Rows[i].FirstScene > ctx.Scenes {
 			out.Rows[i].FirstScene = 0
 		}
+		row := out.Rows[i]
+		checkAssetsVariants(&out.Rows[i], ctx.Scenes, func(label string) bool {
+			for _, key := range assetsRowKeys(row) {
+				if knownVariants[strings.TrimPrefix(key, AssetCharacter+":")][AssetVariantKey(label)] {
+					return true
+				}
+			}
+			return false
+		}, add)
+		checkAssetsHexes(out.Rows[i], ctx, add)
 	}
 	return out
 }
@@ -556,6 +606,7 @@ func mergeAssetsRow(prev *AssetsExtractRow, next AssetsExtractRow) {
 	if len(prev.Anchors) == 0 {
 		prev.Anchors = next.Anchors
 	}
+	prev.Variants = mergeAssetsVariants(prev.Variants, next.Variants)
 }
 
 // AssetsAppearance 是写进资产设定的外观描述（压成一行，600 字以内）。
@@ -568,15 +619,17 @@ func AssetsPromptEn(r AssetsExtractRow) string {
 	return jsTruncate(jsCompact(r.PromptEn), assetsPromptChars)
 }
 
-// AssetsPaletteColors 是 palette_hint 引用到的本集色彩脚本颜色（按色名或英文名对上的，去重，按提到的先后）。
-func AssetsPaletteColors(hint string, script []ColorScriptEntry) []PaletteColor {
+// AssetsPaletteColors 是 palette_hint 引用到的色卡颜色（本集场次色卡和主基调色卡里按色名或英文名对上的，去重，按提到的先后）。
+func AssetsPaletteColors(hint string, script []ColorScriptEntry, master MasterPalette) []PaletteColor {
 	byKey := map[string]PaletteColor{}
+	colors := master.Colors()
 	for _, e := range script {
-		for _, c := range e.Colors() {
-			for _, k := range []string{AssetNameKey(c.NameZh), AssetNameKey(c.NameEn)} {
-				if _, ok := byKey[k]; k != "" && !ok {
-					byKey[k] = c
-				}
+		colors = append(colors, e.Colors()...)
+	}
+	for _, c := range colors {
+		for _, k := range []string{AssetNameKey(c.NameZh), AssetNameKey(c.NameEn)} {
+			if _, ok := byKey[k]; k != "" && !ok {
+				byKey[k] = c
 			}
 		}
 	}

@@ -48,6 +48,10 @@ type DramaProjectStepRunRequest struct {
 	ResumeTaskID string `json:"resumeTaskId,omitempty"`
 	TraceID      string `json:"-"`
 	RequestID    string `json:"-"`
+	// ChainAssets 是场次色卡写完后要不要按集依次接着提取资产（不给时接，false 不接）；剧本优化给了会传给接着跑的场次色卡。
+	// AssetImageTask 是接着提取后给新资产出图的图片任务模板（前端按图片模型组好，和任务输入一起加密存）；不给时只提取不出图。
+	ChainAssets    *bool                   `json:"chainAssets,omitempty"`
+	AssetImageTask *DramaImageTaskTemplate `json:"assetImageTask,omitempty"`
 	// chainedFrom 是服务端自动接着建任务时的上一步任务（metadata.chainedFrom）。
 	chainedFrom string
 }
@@ -62,6 +66,11 @@ type dramaAdaptMeta struct {
 	Episodes   int            `json:"episodes"`
 	// ReplaceUnitIDs 是这次要替换掉的已有剧集（adapt）或原地改写的剧集（rhythm，与 SourceUnitIDs 相同）。
 	ReplaceUnitIDs []string `json:"replaceUnitIds,omitempty"`
+	// ChainAssets 是请求里给的「接着提取资产」开关（没给为空），传给写完剧集后接着跑的场次色卡。
+	ChainAssets *bool `json:"chainAssets,omitempty"`
+	// AssetImages 是剧本优化对话框的「出图」开关：开着时请求带了 assetImageTask（模板和任务输入一起加密存），
+	// 一路接着跑的场次色卡、各集提取资产写完自动给新资产出图。
+	AssetImages bool `json:"assetImages,omitempty"`
 }
 
 // DramaEpisodeImpact 是重跑会动到的一集：替换（adapt）或改写（rhythm）前在确认框里列出。
@@ -141,10 +150,15 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 		plan, err = s.planStyleLock(userID, project, step, req)
 	case drama.StepScriptAdapt:
 		plan, err = s.planScriptAdapt(project, step, req)
+		if plan != nil {
+			plan.adapt.ChainAssets = req.ChainAssets
+			plan.adapt.AssetImages = req.AssetImageTask.usable() && (req.ChainAssets == nil || *req.ChainAssets)
+		}
 	case drama.StepScenePalette:
 		plan, err = s.planScenePalette(project, step, req)
 		if plan != nil {
 			plan.palette.ChainedFrom = req.chainedFrom
+			plan.palette.ChainAssets = req.ChainAssets == nil || *req.ChainAssets
 		}
 	default:
 		err = BadAuthRequest(fmt.Sprintf("步骤 %s 还不能在服务端运行", step.ID))
@@ -163,6 +177,10 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 	metadata["dramaRun"] = run
 	if req.chainedFrom != "" {
 		metadata["chainedFrom"] = req.chainedFrom
+	}
+	// 接着提取资产的出图模板带着渠道配置，和其余任务输入一样加密存，任务结束随密钥一起去掉。
+	if (step.ID == drama.StepScriptAdapt || step.ID == drama.StepScenePalette) && req.AssetImageTask.usable() && (req.ChainAssets == nil || *req.ChainAssets) {
+		taskReq.Input["assetImageTask"] = req.AssetImageTask
 	}
 	task, err := s.CreateTask(userID, taskReq)
 	var modelErr *ModelError

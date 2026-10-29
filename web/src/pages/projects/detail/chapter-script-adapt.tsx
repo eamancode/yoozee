@@ -1,4 +1,4 @@
-import { App, Button, Checkbox, InputNumber, Modal, Radio } from "antd";
+import { App, Button, Checkbox, InputNumber, Modal, Radio, Switch } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScrollText } from "lucide-react";
@@ -23,8 +23,10 @@ import { queryGenerationTask, type GenerationTask } from "@/services/api/task-ce
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { storyboardRunStop } from "./chapter-shot-stream";
+import { assetImageTaskTemplate } from "./drama-image-task";
 import { briefEpisodeSeconds, dramaBriefKey, EPISODE_SECONDS_RANGE } from "./drama-brief";
 import { followDramaRunTask, isScriptAdaptTask, runScriptAdapt } from "./project-chapter-ai";
+import { turnaroundImageModel } from "./project-character-media";
 import { scriptAdaptDefaultMode } from "./script-adapt-mode";
 import { ScriptAdaptRunPanel } from "./script-adapt-run-panel";
 import { parseScriptAdaptStream, resumedScriptAdaptStream, scriptAdaptStreamFromResult, type ScriptAdaptResume } from "./script-adapt-stream";
@@ -43,14 +45,21 @@ type ScriptAdaptControlProps = {
     onChained?: (taskId: string) => void;
 };
 
-type Settings = { mode: DramaScriptAdaptMode; sourceIds: string[]; countBy: "episodes" | "seconds"; targetEpisodes: number; episodeSeconds: number; textModel: string };
+/** images / imageModel：一路接着跑的场次色卡 → 提取资产写完后给新资产出图（默认开）。 */
+type Settings = { mode: DramaScriptAdaptMode; sourceIds: string[]; countBy: "episodes" | "seconds"; targetEpisodes: number; episodeSeconds: number; textModel: string; images: boolean; imageModel: string };
 
 /** 「从第 N 集继续」要和上一次同一批来源、同一集数（服务端核对）：从上一次任务的 metadata.dramaAdapt 取。 */
 function previousAdaptRun(task?: GenerationTask) {
     try {
-        const adapt = (JSON.parse(task?.inputJson || "{}") as { metadata?: { dramaAdapt?: { mode?: string; sourceUnitIds?: string[]; episodes?: number; replaceUnitIds?: string[] } } }).metadata?.dramaAdapt;
+        const adapt = (JSON.parse(task?.inputJson || "{}") as { metadata?: { dramaAdapt?: { mode?: string; sourceUnitIds?: string[]; episodes?: number; replaceUnitIds?: string[]; assetImages?: boolean } } }).metadata?.dramaAdapt;
         if (!adapt?.sourceUnitIds?.length) return undefined;
-        return { mode: (adapt.mode === "rhythm" ? "rhythm" : "adapt") as DramaScriptAdaptMode, sourceUnitIds: adapt.sourceUnitIds, episodes: adapt.episodes || adapt.sourceUnitIds.length, replace: Boolean(adapt.replaceUnitIds?.length) };
+        return {
+            mode: (adapt.mode === "rhythm" ? "rhythm" : "adapt") as DramaScriptAdaptMode,
+            sourceUnitIds: adapt.sourceUnitIds,
+            episodes: adapt.episodes || adapt.sourceUnitIds.length,
+            replace: Boolean(adapt.replaceUnitIds?.length),
+            images: Boolean(adapt.assetImages),
+        };
     } catch {
         return undefined;
     }
@@ -69,6 +78,8 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
     const [open, setOpen] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
     const [starting, setStarting] = useState(false);
+    const [preparing, setPreparing] = useState(false);
+    const [precheckError, setPrecheckError] = useState("");
     const [stream, setStream] = useState<{ taskId: string; text: string }>({ taskId: "", text: "" });
     const followedRef = useRef(new Set<string>());
     // 续写时已写完的集和续写起点：侧栏一开始就显示「正在写第 N 集」，前面的集接在新输出前面。
@@ -77,7 +88,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
     const defaultMode = (adaptedChapterIds?: string[]) => scriptAdaptDefaultMode({ sourceType: detail.project.sourceType, chapterIds: chapters.map((unit) => unit.id), episodeCount: episodes.length, adaptedChapterIds });
     // 打开对话框时剧集清单还没读到：读到后按是否都改编过再定一次默认模式。
     const modePendingRef = useRef(false);
-    const [settings, setSettings] = useState<Settings>(() => ({ mode: defaultMode(), sourceIds: [], countBy: "episodes", targetEpisodes: 1, episodeSeconds: 90, textModel: "" }));
+    const [settings, setSettings] = useState<Settings>(() => ({ mode: defaultMode(), sourceIds: [], countBy: "episodes", targetEpisodes: 1, episodeSeconds: 90, textModel: "", images: true, imageModel: "" }));
     const briefQuery = useQuery({ queryKey: dramaBriefKey(projectId), queryFn: async () => (await getDramaBrief(projectId)).document, enabled: open });
     const usageQuery = useQuery({
         queryKey: ["project", projectId, "drama-step", "script.adapt", detail.project.styleProfile || ""],
@@ -103,7 +114,13 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
     // 打开对话框时按当前项目给默认值：没改编过的原文章节（全都改编过就不勾）、一章一集、每集时长取需求文档。
     const openDialog = () => {
         modePendingRef.current = !episodesQuery.data;
-        setSettings((current) => ({ ...current, mode: defaultMode(episodesQuery.data?.adaptedChapterIds), textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "" }));
+        setPrecheckError("");
+        setSettings((current) => ({
+            ...current,
+            mode: defaultMode(episodesQuery.data?.adaptedChapterIds),
+            textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
+            imageModel: current.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel),
+        }));
         setOpen(true);
     };
     useEffect(() => {
@@ -177,6 +194,23 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             return;
         }
         if (!sourceUnitIds.length) return message.warning(mode === "rhythm" ? "请选择要调节奏的剧集" : "请选择要改编的原文章节");
+        // 出图开着时出图模板在开跑前组好（续跑沿用上一次的开关）：组不出来时不建任务，原因留在对话框里（续跑时直接提示）。
+        let assetImageTask: Awaited<ReturnType<typeof assetImageTaskTemplate>> | undefined;
+        if (previous ? previous.images : settings.images) {
+            const imageModel = settings.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
+            const imageConfig = { ...effectiveConfig, model: imageModel };
+            const fail = (reason: string) => (options.resumeTaskId ? void message.error(`没有继续剧本优化：${reason}`) : setPrecheckError(reason));
+            if (!imageModel || !isAiConfigReady(imageConfig, imageModel)) return fail("资产出图用的图片模型还没配好：到设置里配置，或关掉「出图」。");
+            setPreparing(true);
+            try {
+                assetImageTask = await assetImageTaskTemplate(imageConfig, imageModel);
+            } catch (error) {
+                return fail(`资产出图模板准备失败：${error instanceof Error ? error.message.replace(/[。.]+$/, "") : "请检查图片模型配置"}。可以换个图片模型，或关掉「出图」。`);
+            } finally {
+                setPreparing(false);
+            }
+        }
+        setPrecheckError("");
         setOpen(false);
         setStarting(true);
         setStream({ taskId: "", text: "" });
@@ -194,6 +228,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                     ...(!previous && mode === "adapt" && settings.countBy === "seconds" ? { episodeSeconds: settings.episodeSeconds } : {}),
                     replace: options.replace || previous?.replace,
                     resumeTaskId: options.resumeTaskId,
+                    assetImageTask,
                 },
                 {
                     onTaskUpdate: (task) => {
@@ -266,7 +301,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                 width={580}
                 okText={settings.mode === "rhythm" ? "调节奏" : "改编成剧本"}
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage }}
+                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.images && !settings.imageModel), loading: preparing }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -352,6 +387,41 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                             onMissingConfig={() => navigateToSettings({ continueCreation: true })}
                         />
                     </label>
+                    <div className="grid gap-2 rounded-lg border border-border/70 px-3 py-2.5">
+                        <label className="flex items-center justify-between gap-3 text-xs">
+                            <span className="font-medium text-foreground/68">出图：接着提取资产后给新资产出图</span>
+                            <Switch
+                                size="small"
+                                checked={settings.images}
+                                onChange={(images) => {
+                                    setPrecheckError("");
+                                    setSettings((current) => ({ ...current, images }));
+                                }}
+                                aria-label="接着提取资产后给新资产出图"
+                            />
+                        </label>
+                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">写完剧集后自动接着生成场次色卡、按集提取资产；开着时每集提取完直接给新资产出图（角色三视图，场景、道具概念图），不用再到资产页点「继续出图」。</p>
+                        {settings.images ? (
+                            <ModelPicker
+                                config={effectiveConfig}
+                                capability="image"
+                                value={settings.imageModel}
+                                onChange={(imageModel) => {
+                                    setPrecheckError("");
+                                    setSettings((current) => ({ ...current, imageModel }));
+                                }}
+                                fullWidth
+                                placeholder="选择资产出图用的图片模型"
+                                showSelectedPrice
+                                onMissingConfig={() => navigateToSettings({ continueCreation: true })}
+                            />
+                        ) : null}
+                    </div>
+                    {precheckError ? (
+                        <Callout tone="error" title="还没开始：资产出图准备没通过">
+                            {precheckError}
+                        </Callout>
+                    ) : null}
                     {usageQuery.isError ? (
                         <Callout tone="error" title="读不到本步使用的技能">
                             {usageQuery.error instanceof Error ? usageQuery.error.message : "请稍后重试"}

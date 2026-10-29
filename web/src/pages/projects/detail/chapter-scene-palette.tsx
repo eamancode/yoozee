@@ -1,4 +1,4 @@
-import { App, Button, Checkbox, Modal, Tooltip } from "antd";
+import { App, Button, Checkbox, Modal, Switch, Tooltip } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Palette } from "lucide-react";
@@ -7,15 +7,18 @@ import { useNavigate } from "react-router";
 import { ModelPicker } from "@/components/model-picker";
 import { Callout } from "@/components/ui/product/callout";
 import { navigateToSettings } from "@/lib/settings-navigation";
-import { dramaRunProgressOf, dramaSceneCode, dramaScenePaletteOutcomeOf, getDramaStepUsage } from "@/services/api/drama";
+import { dramaRunProgressOf, dramaSceneCode, dramaScenePaletteOutcomeOf, getDramaStepUsage, type DramaScenePaletteOutcome } from "@/services/api/drama";
 import type { ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
+import { followChainedAssetsExtract } from "./chapter-assets-extract";
 import { storyboardRunStop } from "./chapter-shot-stream";
 import { projectLockedStyle } from "./chapter-style-lock";
+import { assetImageTaskTemplate } from "./drama-image-task";
 import { DramaRunPanel } from "./drama-run-panel";
 import { followDramaRunTask, isScenePaletteTask, runScenePalette } from "./project-chapter-ai";
+import { turnaroundImageModel } from "./project-character-media";
 import { parseScenePaletteStream, resumedScenePaletteStream, scenePaletteStreamFromResult, type ScenePaletteStreamState } from "./scene-palette-stream";
 
 type ScenePaletteControlProps = {
@@ -54,7 +57,8 @@ function takeChainedScenePalette(projectId: string) {
     }
 }
 
-type Settings = { sourceIds: string[]; textModel: string };
+/** chainAssets：写完后按集依次接着提取资产；chainImages / imageModel：提取后给新资产出图用的图片模型。 */
+type Settings = { sourceIds: string[]; textModel: string; chainAssets: boolean; chainImages: boolean; imageModel: string };
 
 /** 「从第 N 集继续」要和上一次同一批剧集（服务端核对轮次）：从上一次任务的 metadata.dramaScenePalette 取。 */
 function previousPaletteRun(task?: GenerationTask) {
@@ -137,7 +141,9 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
     const [stream, setStream] = useState<{ taskId: string; text: string }>({ taskId: "", text: "" });
     const [resumeView, setResumeView] = useState<{ from: number; total: number; previous: ScenePaletteStreamState }>();
     const followedRef = useRef(new Set<string>());
-    const [settings, setSettings] = useState<Settings>({ sourceIds: [], textModel: "" });
+    const [settings, setSettings] = useState<Settings>({ sourceIds: [], textModel: "", chainAssets: true, chainImages: true, imageModel: "" });
+    const [preparing, setPreparing] = useState(false);
+    const [precheckError, setPrecheckError] = useState("");
     const usageQuery = useQuery({
         queryKey: ["project", projectId, "drama-step", "scene.palette", detail.project.styleProfile || ""],
         queryFn: ({ signal }) => getDramaStepUsage(projectId, "scene.palette", signal).then((result) => result.usage),
@@ -160,11 +166,25 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
     const openDialog = () => {
         // 侧栏（AppDrawer）和对话框同一层级、后渲染的在上面：先收起侧栏，免得盖住对话框。
         setPanelOpen(false);
+        setPrecheckError("");
         setSettings((current) => ({
+            ...current,
             sourceIds: candidates.map((unit) => unit.id),
             textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
+            imageModel: current.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel),
         }));
         setOpen(true);
+    };
+
+    // 写完后服务端按集依次接着提取资产（第一集的任务在色卡结果的 chained 里）：交给「提取资产」按钮接上它的流。
+    const followChained = (outcome?: DramaScenePaletteOutcome) => {
+        const chained = outcome?.chained;
+        if (chained?.taskId) {
+            message.info(chained.remaining ? `接着提取资产：先提取第 1 集，后面还有 ${chained.remaining} 集依次接着提取` : "接着提取资产");
+            followChainedAssetsExtract(projectId, chained.taskId, chained.unitId);
+        } else if (chained?.error) {
+            message.warning(`没有接着提取资产：${chained.error}`);
+        }
     };
 
     const refresh = async () => {
@@ -181,6 +201,23 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
             return;
         }
         const sourceUnitIds = previous?.sourceUnitIds || (settings.sourceIds.length === candidates.length ? [] : settings.sourceIds);
+        // 接着提取资产要出图时，出图模板在开跑前组好：组不出来时不建任务，原因留在对话框里（续跑时直接提示）。
+        let assetImageTask: Awaited<ReturnType<typeof assetImageTaskTemplate>> | undefined;
+        if (settings.chainAssets && settings.chainImages) {
+            const imageModel = settings.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
+            const imageConfig = { ...effectiveConfig, model: imageModel };
+            const fail = (reason: string) => (options.resumeTaskId ? void message.error(`没有继续场次色卡：${reason}`) : setPrecheckError(reason));
+            if (!imageModel || !isAiConfigReady(imageConfig, imageModel)) return fail("资产出图用的图片模型还没配好：到设置里配置，或关掉「提取后出图」。");
+            setPreparing(true);
+            try {
+                assetImageTask = await assetImageTaskTemplate(imageConfig, imageModel);
+            } catch (error) {
+                return fail(`资产出图模板准备失败：${error instanceof Error ? error.message.replace(/[。.]+$/, "") : "请检查图片模型配置"}。可以换个图片模型，或关掉「提取后出图」。`);
+            } finally {
+                setPreparing(false);
+            }
+        }
+        setPrecheckError("");
         setOpen(false);
         setStarting(true);
         setStream({ taskId: "", text: "" });
@@ -188,7 +225,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
         setPanelOpen(true);
         try {
             const result = await runScenePalette(
-                { projectId, config, sourceUnitIds, resumeTaskId: options.resumeTaskId },
+                { projectId, config, sourceUnitIds, resumeTaskId: options.resumeTaskId, chainAssets: settings.chainAssets, assetImageTask },
                 {
                     onTaskUpdate: (task) => {
                         followedRef.current.add(task.id);
@@ -199,6 +236,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
             );
             await refresh();
             if (result.outcome) message.success(`已生成 ${result.outcome.scenes} 场场次色卡，技能：${result.usage.skill.name} ${result.usage.skill.version}`);
+            followChained(result.outcome);
         } catch (error) {
             await refresh();
             message.error(error instanceof Error ? `场次色卡失败：${error.message}` : "场次色卡失败");
@@ -213,7 +251,10 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
         setResumeView(undefined);
         setStream({ taskId: task.id, text: "" });
         void followDramaRunTask(task, { onStreamText: (text) => setStream({ taskId: task.id, text }) })
-            .then(() => refresh())
+            .then((completed) => {
+                followChained(dramaScenePaletteOutcomeOf(completed));
+                return refresh();
+            })
             .catch(() => void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] }));
     };
     useEffect(() => {
@@ -288,7 +329,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                 width={560}
                 okText="生成"
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage }}
+                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.chainAssets && settings.chainImages && !settings.imageModel), loading: preparing }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -331,6 +372,57 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                             onMissingConfig={() => navigateToSettings({ continueCreation: true })}
                         />
                     </label>
+                    <div className="grid gap-2 rounded-lg border border-border/70 px-3 py-2.5">
+                        <label className="flex items-center justify-between gap-3 text-xs">
+                            <span className="font-medium text-foreground/68">写完后按集依次提取资产（角色、场景、道具）</span>
+                            <Switch
+                                size="small"
+                                checked={settings.chainAssets}
+                                onChange={(chainAssets) => {
+                                    setPrecheckError("");
+                                    setSettings((current) => ({ ...current, chainAssets }));
+                                }}
+                                aria-label="写完后接着提取资产"
+                            />
+                        </label>
+                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">资产按色卡约束：角色用主基调色卡，道具用主基调色卡或所在场的本场色卡，场景用本场色卡和主基调色卡；角色换装或换状态时自动拆子卡。一集提完再提下一集。</p>
+                        {settings.chainAssets ? (
+                            <>
+                                <label className="flex items-center justify-between gap-3 text-xs">
+                                    <span className="font-medium text-foreground/68">提取后给新资产出图（带色卡图作参考）</span>
+                                    <Switch
+                                        size="small"
+                                        checked={settings.chainImages}
+                                        onChange={(chainImages) => {
+                                            setPrecheckError("");
+                                            setSettings((current) => ({ ...current, chainImages }));
+                                        }}
+                                        aria-label="提取后给新资产出图"
+                                    />
+                                </label>
+                                {settings.chainImages ? (
+                                    <ModelPicker
+                                        config={effectiveConfig}
+                                        capability="image"
+                                        value={settings.imageModel}
+                                        onChange={(imageModel) => {
+                                            setPrecheckError("");
+                                            setSettings((current) => ({ ...current, imageModel }));
+                                        }}
+                                        fullWidth
+                                        placeholder="选择资产出图用的图片模型"
+                                        showSelectedPrice
+                                        onMissingConfig={() => navigateToSettings({ continueCreation: true })}
+                                    />
+                                ) : null}
+                            </>
+                        ) : null}
+                    </div>
+                    {precheckError ? (
+                        <Callout tone="error" title="还没开始：资产出图准备没通过">
+                            {precheckError}
+                        </Callout>
+                    ) : null}
                     {usageQuery.isError ? (
                         <Callout tone="error" title="读不到本步使用的技能">
                             {usageQuery.error instanceof Error ? usageQuery.error.message : "请稍后重试"}
@@ -384,6 +476,11 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                         }
                     >
                         {failures.length ? `没合成上的：${failures.map((item) => `${item.code}（${item.error}）`).join("、")}。到资产页点「重新合成」补图。` : `${outcome.rendered} 张色卡图已由代码合成，生成分段时绑到这一场的镜头。`}
+                        {outcome.chained?.taskId
+                            ? `已接着提取资产${outcome.chained.remaining ? `（共 ${outcome.chained.remaining + 1} 集，一集提完再提下一集）` : ""}，进度在「资产进度」里。`
+                            : outcome.chained?.error
+                              ? `没有接着提取资产：${outcome.chained.error}`
+                              : ""}
                         {warnings.length ? (
                             <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto pl-0" aria-label="场次色卡检查提醒">
                                 {warnings.map((item, index) => (

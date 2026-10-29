@@ -56,6 +56,19 @@ func (s *Service) deleteUserAssetsWithResources(userID string, ids []string, pur
 		}
 		deleteReferencedResources = assetRecords[0].Status == model.AssetVersionStatusArchived
 	}
+	// 角色主卡带着它的子卡（M8 卡 D）一起删：子卡单独留着就成了没有主卡、资产页看不到的孤儿。普通删除时子卡的引用一并检查。
+	childIDs, err := s.repo.ChildAssetIDs(userID, assetIDs)
+	if err != nil {
+		return err
+	}
+	if len(childIDs) > 0 {
+		children, err := s.repo.AssetsForUserIDs(userID, childIDs)
+		if err != nil {
+			return err
+		}
+		assetIDs = append(assetIDs, childIDs...)
+		assetRecords = append(assetRecords, children...)
+	}
 	versions, representations, err := s.repo.AssetsResourceRecords(assetIDs)
 	if err != nil {
 		return err

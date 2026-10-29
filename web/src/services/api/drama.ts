@@ -546,9 +546,10 @@ export type DramaScriptAdaptMode = "adapt" | "rhythm";
 
 /**
  * 资产出图的图片任务模板：前端按项目默认图片模型组好的任务（模型选择、input.config 等），服务端每个资产换上自己的
- * 提示词和资产出图 metadata 后建任务。资产设计带上它才给新资产出图。
+ * 提示词和资产出图 metadata 后建任务。资产设计带上它才给新资产出图。maxReferenceImages 是这个图片模型最多带几张参考图
+ * （按模型能力配置；服务端给资产出图挂色卡图和主卡三视图时按它挑，名额不够色卡图先让出、色值写进提示词）。
  */
-export type DramaImageTaskTemplate = { model: string; logicalModelId?: string; provider?: string; input: Record<string, unknown> };
+export type DramaImageTaskTemplate = { model: string; logicalModelId?: string; provider?: string; input: Record<string, unknown>; maxReferenceImages?: number };
 
 /**
  * 项目级步骤：风格锁定（style.lock，建项目时按类型、风格文字、参考图和画风出风格锚和主基调色卡，收尾只出候选，lockOnFinish 时直接锁定）、
@@ -573,6 +574,9 @@ export function runDramaProjectStep(
         styleText?: string;
         referenceImages?: string[];
         lockOnFinish?: boolean;
+        /** 场次色卡（或剧本优化接着跑的场次色卡）写完后要不要按集依次接着提取资产（不给时接）；assetImageTask 给了时提取后给新资产出图。 */
+        chainAssets?: boolean;
+        assetImageTask?: DramaImageTaskTemplate;
     },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
@@ -638,6 +642,9 @@ export type DramaScene = {
     lineCount: number;
     /** 规则改变前（一个场次头一场）的场序。 */
     legacyNos: number[];
+    /** 这一场能用的场次色卡；environments 是提取资产时按地点回填绑到这一场的场景资产。 */
+    paletteAssetId?: string;
+    environments?: Array<{ id: string; title: string }>;
     /** 这一场按戏类切出的小节（一节 = 一次生成 = 一段视频）。 */
     sections?: DramaSceneSection[];
 };
@@ -657,6 +664,8 @@ export type DramaScenes = {
     rule: number;
     scenes: DramaScene[];
     notice?: DramaSceneRuleNotice;
+    /** 这个单元已有场次色卡（至少一场有能用的色卡）：提取资产要先有它（否则接口返回 reason=palette_required）。 */
+    paletteReady: boolean;
     /** 生成分段按哪个戏类切小节（项目视频模型单段上限 ≤15 秒文戏 15，更长文戏 30）。 */
     genre?: DramaStepGenre;
 };
@@ -705,7 +714,12 @@ export type DramaScenePaletteOutcome = {
     palettes: { created: number; versioned: number; retired?: number };
     rendered: number;
     imageFailures?: Array<{ assetId: string; code: string; error: string }>;
+    /** 写完后服务端按集依次接着起的提取资产（这里是第一集；remaining 是后面还排着的集数）；error 是没建成的原因。 */
+    chained?: DramaChainedAssets;
 };
+
+/** 自动接着起的一集提取资产。 */
+export type DramaChainedAssets = { step: "assets.extract"; taskId?: string; unitId?: string; remaining?: number; error?: string };
 
 /** 风格锁定收尾的结果（任务 result.dramaStep）：candidate 是候选（等用户点「锁定此风格」），locked 是建项目时只选了画风、收尾已直接锁定。 */
 export type DramaStyleLockOutcome = {
@@ -722,8 +736,8 @@ export type DramaStyleLockOutcome = {
     locked?: DramaStyleLockRecord;
 };
 
-/** 资产设计写出的一个资产：created 新建，updated 已有资产补了别名或外观，merged 已有、没有可补的。 */
-export type DramaAssetsOutcomeItem = { assetId: string; name: string; category: "character" | "environment" | "prop"; action: "created" | "updated" | "merged" };
+/** 资产设计写出的一个资产：created 新建，updated 已有资产补了别名或外观（子卡补了场），merged 已有、没有可补的；parentId 是子卡的主卡。 */
+export type DramaAssetsOutcomeItem = { assetId: string; name: string; category: "character" | "environment" | "prop"; action: "created" | "updated" | "merged"; parentId?: string };
 export type DramaAssetsCategoryCount = { created: number; merged: number; skipped: number };
 
 /** 资产设计收尾的摘要（任务 result.dramaStep）：新增 / 合并 / 跳过（按分类）、写出的资产、出图排上和等空位的资产。 */
@@ -741,6 +755,10 @@ export type DramaAssetsExtractOutcome = {
     items?: DramaCheckReport["items"];
     assets: DramaAssetsOutcomeItem[];
     images: DramaImageQueueResult;
+    /** variants 是新建的角色子卡数（也算在 created 里）；scenes 是回填了场景资产的场数；chained 是接着提取的下一集。 */
+    variants?: number;
+    scenes?: number;
+    chained?: DramaChainedAssets;
 };
 
 /** 逐轮续写的进度（任务 result.dramaRun）：completed / total 场（剧本优化是集）；任务失败时前面写完的仍在，可从第 completed + 1 场继续。 */

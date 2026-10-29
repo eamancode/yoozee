@@ -114,6 +114,10 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 		if err != nil {
 			return false, err
 		}
+		// 色卡写好之后按集依次接着提取资产（M8 卡 D）；没建成只记原因，已写的色卡不动。
+		if target := taskProjectID(task); target != "" {
+			outcome.Chained = s.chainAssetsAfterScenePalette(task, target)
+		}
 		result["dramaStep"] = outcome
 		return true, nil
 	case drama.StepAssetsExtract:
@@ -121,6 +125,11 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 		if err != nil {
 			return false, err
 		}
+		// 先接着建下一集的提取（占一个空位），再按剩下的空位给这一集的新资产排出图。
+		if target := taskProjectID(task); target != "" {
+			outcome.Chained = s.chainAfterAssetsExtract(task, target, taskDramaAssets(task.InputJSON))
+		}
+		s.queueAssetsExtractImages(task, &outcome)
 		result["dramaStep"] = outcome
 		return true, nil
 	default:

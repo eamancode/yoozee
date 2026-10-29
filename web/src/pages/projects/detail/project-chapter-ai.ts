@@ -123,6 +123,8 @@ type ScriptAdaptInput = {
     /** 已确认替换（或改写）对话框里列出的已有剧集。 */
     replace?: boolean;
     resumeTaskId?: string;
+    /** 对话框的「出图」开关开着时给：剧本优化 → 场次色卡 → 提取资产一路接着跑，提取完给新资产出图（模板随任务输入加密存）。 */
+    assetImageTask?: DramaImageTaskTemplate;
 };
 
 /**
@@ -142,6 +144,7 @@ export async function runScriptAdapt(input: ScriptAdaptInput, options?: ChapterT
         ...(input.episodeSeconds ? { episodeSeconds: input.episodeSeconds } : {}),
         ...(input.replace ? { replace: true } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
+        ...(input.assetImageTask ? { assetImageTask: input.assetImageTask } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);
@@ -209,6 +212,9 @@ type ScenePaletteInput = {
     /** 要做色卡的剧集（不给时全部；项目还没有剧集时是原文章节）。 */
     sourceUnitIds?: string[];
     resumeTaskId?: string;
+    /** 写完后按集依次接着提取资产（默认接）；assetImageTask 给了时提取后给新资产出图。 */
+    chainAssets?: boolean;
+    assetImageTask?: DramaImageTaskTemplate;
 };
 
 /**
@@ -224,6 +230,8 @@ export async function runScenePalette(input: ScenePaletteInput, options?: Chapte
         config: backendProviderConfig(config, "text") as Record<string, unknown>,
         ...(input.sourceUnitIds?.length ? { sourceUnitIds: input.sourceUnitIds } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
+        chainAssets: input.chainAssets !== false,
+        ...(input.chainAssets !== false && input.assetImageTask ? { assetImageTask: input.assetImageTask } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);
@@ -247,6 +255,12 @@ export function followDramaRunTask(task: GenerationTask, options?: ChapterTaskOp
         if (latest && (latest.status === "failed" || latest.status === "cancelled") && latest.error) throw new Error(latest.error);
         throw error;
     });
+}
+
+/** 任务是接着哪个任务建的（metadata.chainedFrom，服务端自动接续时写）；不是接着建的为空。 */
+export function chainedFromOf(task: GenerationTask) {
+    const from = generationTaskMetadata(task.inputJson).chainedFrom;
+    return typeof from === "string" ? from : "";
 }
 
 function generationTaskMetadata(inputJson?: string): Record<string, unknown> {

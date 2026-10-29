@@ -1,6 +1,6 @@
 import { compactApiParams, http } from "@/services/api/request";
 import { normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
-import type { DramaColorScriptEntry, DramaMasterPalette, DramaStyleAnchor } from "@/services/api/drama";
+import type { DramaColorScriptEntry, DramaImageQueueResult, DramaImageTaskTemplate, DramaMasterPalette, DramaStyleAnchor } from "@/services/api/drama";
 import type { GenerationTask } from "@/services/api/task-center";
 
 
@@ -86,7 +86,13 @@ export type ProjectAsset = {
     /** 资产设计建的角色、场景、道具：服务端出图的排队状态（别的资产没有）。 */
     image?: ProjectAssetImageQueue;
     source?: string;
+    /** 角色子卡（「主卡名·变体名」）：主卡、变体名、种类和用这套形象的场；variants 是资产页分页里挂在主卡下面的子卡。 */
+    variant?: ProjectAssetVariant;
+    variants?: ProjectAsset[];
 };
+
+/** look / promptEn 是这套服装或状态的描述、用户写的英文提示词（自动生成的提示词是空串），编辑时原样带回。 */
+export type ProjectAssetVariant = { parentId: string; parentTitle?: string; label: string; kind: "costume" | "state"; scenes: string[]; look: string; promptEn: string };
 
 /** 服务端出图的排队状态：none 还没排，waiting 等空位，queued 出图中，bound 已出图，stale 出图期间换了版本没绑上，failed 失败。 */
 export type DramaImageStatus = "none" | "waiting" | "queued" | "bound" | "stale" | "failed";
@@ -435,7 +441,33 @@ export function listProjectAssetCandidates(projectId: string, options: { page?: 
 }
 
 function normalizeProjectAsset(asset: ProjectAsset): ProjectAsset {
-    return { ...asset, category: normalizeAssetCategory(asset.category), usages: Array.isArray(asset.usages) ? asset.usages : [] };
+    return { ...asset, category: normalizeAssetCategory(asset.category), usages: Array.isArray(asset.usages) ? asset.usages : [], ...(asset.variants ? { variants: asset.variants.map(normalizeProjectAsset) } : {}) };
+}
+
+// 角色子卡（M8 卡 D）的接口：路径在 /drama 下，返回的是项目资产，放在这里和其余资产接口一起归一化。
+
+/** 角色子卡的种类：服装（护士服、西服）或状态（受伤、淋湿）。 */
+export type DramaAssetVariantKind = "costume" | "state";
+
+/**
+ * 新增 / 改子卡：label 是变体名，look 是这套服装或状态的描述，promptEn 可空（空时用主卡的三视图提示词接上变体说明），
+ * scenes 是用这套形象的场编号（E02S01）；imageTask 给了时建完（或外观改了后）接着出三视图（带主卡三视图作参考）。
+ */
+export type DramaAssetVariantInput = { label: string; kind: DramaAssetVariantKind; look: string; promptEn?: string; scenes?: string[]; imageTask?: DramaImageTaskTemplate };
+
+/** 资产页在主卡下新增子卡：设定按主卡继承（脸型体型不变，只换服装 / 状态）。 */
+export function createDramaAssetVariant(projectId: string, parentId: string, input: DramaAssetVariantInput) {
+    return http.post<{ asset: ProjectAsset; images: DramaImageQueueResult }>(`/projects/${encodeURIComponent(projectId)}/drama/assets/${encodeURIComponent(parentId)}/variants`, input).then((result) => ({ ...result, asset: normalizeProjectAsset(result.asset) }));
+}
+
+/** 改子卡：改名、改种类、改场原地改；外观或提示词改了加一个版本（旧三视图不搬，引用它的镜头产物过期）。 */
+export function updateDramaAssetVariant(projectId: string, variantId: string, input: DramaAssetVariantInput) {
+    return http.patch<{ asset: ProjectAsset; images: DramaImageQueueResult }>(`/projects/${encodeURIComponent(projectId)}/drama/variants/${encodeURIComponent(variantId)}`, input).then((result) => ({ ...result, asset: normalizeProjectAsset(result.asset) }));
+}
+
+/** 删子卡（移出项目）：被镜头引用时拒绝，错误信息里列出镜头。 */
+export function deleteDramaAssetVariant(projectId: string, variantId: string) {
+    return http.delete<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/drama/variants/${encodeURIComponent(variantId)}`);
 }
 
 function normalizeProjectAssetCandidate(candidate: ProjectAssetCandidate): ProjectAssetCandidate {

@@ -1,0 +1,373 @@
+// 场次上的资产（M8 卡 D）：资产设计写库后，按场次表把场景资产（category=environment）和每场的地点对上（名字或别名对上
+// drama.SplitScenes 的 Location），回填到 bible_json.scene_assets（场编号 → {unit_id, environments}）；场次表接口返回每场绑的
+// 场景资产。装段时（planDramaShotlistWith）这一场的镜头：没绑场景的补上本场的场景资产；绑了主卡、而这个角色在这一场有子卡的
+// （子卡的场含这一场）换成子卡，镜头里的人物名一起换成「名·变体」。按小节生成每一节的提示词里写明这一场用哪张子卡。
+
+package app
+
+import (
+	"encoding/json"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+
+	"yingce/backend/internal/drama"
+	"yingce/backend/internal/model"
+)
+
+// dramaSceneAssets 是 bible_json.scene_assets 的一场：所在单元和绑的场景资产。
+type dramaSceneAssets struct {
+	UnitID       string   `json:"unit_id"`
+	Environments []string `json:"environments"`
+}
+
+// projectSceneAssets 读 bible_json.scene_assets（读不出时当作没有）。
+func projectSceneAssets(bibleJSON string) map[string]dramaSceneAssets {
+	var doc struct {
+		SceneAssets map[string]dramaSceneAssets `json:"scene_assets"`
+	}
+	if raw := strings.TrimSpace(bibleJSON); raw != "" {
+		var loose map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(raw), &loose)
+		_ = json.Unmarshal(loose["scene_assets"], &doc.SceneAssets)
+	}
+	if doc.SceneAssets == nil {
+		return map[string]dramaSceneAssets{}
+	}
+	return doc.SceneAssets
+}
+
+// sceneEnvironmentCandidate 是能绑到场次的一个场景资产：名字、别名，和提取时记的第一次出现的场编号。
+type sceneEnvironmentCandidate struct {
+	ID         string
+	Title      string
+	Aliases    []string
+	FirstScene string
+}
+
+// unitSceneEnvironments 是这个单元每一场（项目场编号）绑的场景资产：地点对得上名字或别名的（完全相同的优先，其次互相包含），
+// 都对不上时取 first_scene 记的是这一场的。一场只绑一个。
+func unitSceneEnvironments(unit model.ProjectUnit, episode int, envs []sceneEnvironmentCandidate) map[string]dramaSceneAssets {
+	out := map[string]dramaSceneAssets{}
+	if episode <= 0 {
+		return out
+	}
+	for _, sc := range drama.SplitScenes(chapterPlainText(unit.SourceText), unit.Title) {
+		code := drama.SceneCode(episode, sc.No)
+		pick := ""
+		for _, e := range envs {
+			if drama.AssetNameKey(dramaLocationKey(e.Title)) == drama.AssetNameKey(sc.Location) && drama.AssetNameKey(sc.Location) != "" {
+				pick = e.ID
+				break
+			}
+		}
+		if pick == "" {
+			for _, e := range envs {
+				if drama.AssetMatchesLocation(e.Title, e.Aliases, sc.Location) {
+					pick = e.ID
+					break
+				}
+			}
+		}
+		if pick == "" {
+			for _, e := range envs {
+				if strings.EqualFold(e.FirstScene, code) {
+					pick = e.ID
+					break
+				}
+			}
+		}
+		if pick != "" {
+			out[code] = dramaSceneAssets{UnitID: unit.ID, Environments: []string{pick}}
+		}
+	}
+	return out
+}
+
+// mergeSceneAssetsDocument 把一个单元的场景绑定写进 bible_json.scene_assets：这个单元原来的条目换成这次的，别的单元的原样保留。
+func mergeSceneAssetsDocument(bibleJSON string, unitID string, episode int, bindings map[string]dramaSceneAssets) (string, error) {
+	doc := map[string]any{}
+	if raw := strings.TrimSpace(bibleJSON); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+			return "", fmt.Errorf("项目的连戏表不是合法 JSON，没有回填场景：%w", err)
+		}
+	}
+	current := projectSceneAssets(bibleJSON)
+	for code, entry := range current {
+		ep, _, _ := drama.ParseSceneCode(code)
+		if entry.UnitID == unitID || (entry.UnitID == "" && ep == episode) {
+			delete(current, code)
+		}
+	}
+	maps.Copy(current, bindings)
+	encoded, _ := json.Marshal(current)
+	var object map[string]any
+	_ = json.Unmarshal(encoded, &object)
+	doc["scene_assets"] = object
+	if err := validateDramaBibleDocument(doc); err != nil {
+		return "", err
+	}
+	out, err := json.Marshal(doc)
+	return string(out), err
+}
+
+// ---------------------------------------------------------------- 装段：按场绑场景、子卡
+
+// dramaSceneCast 是一个单元装段时按场换的资产：键是单元内场编号（E01S02，与镜头 spec.scene 同一套）。
+type dramaSceneCast struct {
+	// Variants 是这一场里主卡 ID → 子卡 ID。
+	Variants map[string]map[string]string
+	// Environments 是这一场绑的场景资产 ID（场景资产回填）。
+	Environments map[string][]string
+	// titles 是资产 ID → 标题（换人物名用），parents 是子卡 ID → 主卡 ID。
+	titles  map[string]string
+	parents map[string]string
+	// person 是角色卡 ID → 这个人的主卡 ID（主卡是它自己）：同一个人的主卡和各张子卡按它认成一个人。imaged 是有三视图的角色卡。
+	person map[string]string
+	imaged map[string]bool
+}
+
+func (c *dramaSceneCast) empty() bool {
+	return c == nil || (len(c.Variants) == 0 && len(c.Environments) == 0 && len(c.parents) == 0)
+}
+
+// finalCard 是这一场里这个人（主卡 parent）最终绑的卡：本场有子卡（有图，或主卡也没图）用子卡；否则主卡有图用主卡；
+// 都不行时留模型写的那张（written，别场或没图的子卡也一样按这条落）。
+func (c *dramaSceneCast) finalCard(scene, parent, written string) string {
+	if child := c.Variants[scene][parent]; child != "" {
+		return child
+	}
+	if c.imaged[parent] || written == "" {
+		return parent
+	}
+	return written
+}
+
+// personTitles 是主卡 parent 这个人所有卡的标题（主卡和子卡），人物名对上任一张都算这个人。
+func (c *dramaSceneCast) personTitles(parent string) []string {
+	var out []string
+	for id, p := range c.person {
+		if p == parent && c.titles[id] != "" {
+			out = append(out, c.titles[id])
+		}
+	}
+	return out
+}
+
+// sceneCastOf 组一个单元的按场资产：子卡按它记的场（项目场编号）落到本单元的场，场景按 bible_json.scene_assets。不读库。
+// 同一角色在同一场有几张子卡时取最具体的：用到的场最少的，再取状态（淋湿、受伤，通常叠在某套服装上）先于服装，再按标题。
+// 子卡还没有三视图、主卡有图时不换（装段由 finalCard 退回主卡）；主卡也没图时照样换（子卡的文字设定更贴这一场）。
+func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, assets []ProjectAssetSummary) *dramaSceneCast {
+	_, numbers, _ := sceneUnits(units)
+	episode := numbers[unitID]
+	cast := &dramaSceneCast{Variants: map[string]map[string]string{}, Environments: map[string][]string{}, titles: map[string]string{}, parents: map[string]string{}, person: map[string]string{}, imaged: map[string]bool{}}
+	imaged := cast.imaged
+	for _, a := range assets {
+		imaged[a.ID] = a.Character != nil && a.Character.VisualStatus == "ready"
+	}
+	live := map[string]bool{}
+	byID := map[string]ProjectAssetSummary{}
+	specific := func(a, b ProjectAssetSummary) bool {
+		if len(a.Variant.Scenes) != len(b.Variant.Scenes) {
+			return len(a.Variant.Scenes) < len(b.Variant.Scenes)
+		}
+		if (a.Variant.Kind == drama.AssetVariantState) != (b.Variant.Kind == drama.AssetVariantState) {
+			return a.Variant.Kind == drama.AssetVariantState
+		}
+		return a.Title < b.Title
+	}
+	for _, a := range assets {
+		if string(a.Status) == string(model.AssetVersionStatusArchived) || a.PrimaryVersionID == "" {
+			continue
+		}
+		live[a.ID] = true
+		cast.titles[a.ID] = a.Title
+		switch {
+		case a.Variant != nil && a.Variant.ParentID != "":
+			cast.person[a.ID] = a.Variant.ParentID
+		case dramaRefRole(a.Category) == "identity":
+			cast.person[a.ID] = a.ID
+		}
+		if a.Variant == nil || episode <= 0 {
+			continue
+		}
+		cast.parents[a.ID] = a.Variant.ParentID
+		byID[a.ID] = a
+		if !imaged[a.ID] && imaged[a.Variant.ParentID] {
+			continue
+		}
+		for _, code := range a.Variant.Scenes {
+			ep, no, ok := drama.ParseSceneCode(code)
+			if !ok || ep != episode {
+				continue
+			}
+			local := drama.SceneCode(1, no)
+			if cast.Variants[local] == nil {
+				cast.Variants[local] = map[string]string{}
+			}
+			if taken, ok := cast.Variants[local][a.Variant.ParentID]; !ok || specific(a, byID[taken]) {
+				cast.Variants[local][a.Variant.ParentID] = a.ID
+			}
+		}
+	}
+	if episode > 0 {
+		for code, entry := range projectSceneAssets(bibleJSON) {
+			ep, no, ok := drama.ParseSceneCode(code)
+			if !ok || ep != episode || (entry.UnitID != "" && entry.UnitID != unitID) {
+				continue
+			}
+			for _, id := range entry.Environments {
+				if live[id] {
+					cast.Environments[drama.SceneCode(1, no)] = append(cast.Environments[drama.SceneCode(1, no)], id)
+				}
+			}
+		}
+	}
+	return cast
+}
+
+// applySceneCast 按场换分镜行绑的资产（rows 与 shots 一一对应，原地改）：行里绑的每个人（主卡或任一张子卡）换成这一场最终绑的卡
+// （finalCard：本场子卡 → 有图的主卡 → 原卡），分镜行人物名、站位、焦点和 refs_hint 里这个人的名字一起换成那张卡的标题
+// （装段按名字判断一镜里有没有这个人，名字和绑的卡对不上会把人整个丢掉）；这一场回填了场景资产时行里的场景换成它。
+func applySceneCast(rows []shotlistRow, shots []drama.Shot, cast *dramaSceneCast) {
+	if cast.empty() {
+		return
+	}
+	for i := range rows {
+		if i >= len(shots) {
+			break
+		}
+		scene := strings.ToUpper(strings.TrimSpace(shots[i].Scene))
+		// final 是这一行里每个人（主卡 ID）最终绑的卡。
+		final := map[string]string{}
+		pick := func(id string) string {
+			parent, ok := cast.person[id]
+			if !ok {
+				return id
+			}
+			if _, done := final[parent]; !done {
+				final[parent] = cast.finalCard(scene, parent, id)
+			}
+			return final[parent]
+		}
+		for j := range rows[i].AssetBindings {
+			rows[i].AssetBindings[j].NodeID = pick(rows[i].AssetBindings[j].NodeID)
+		}
+		for j := range rows[i].Characters {
+			rows[i].Characters[j].CharacterAssetID = pick(rows[i].Characters[j].CharacterAssetID)
+		}
+		rows[i].AssetBindings = dedupeRowBindings(rows[i].AssetBindings)
+		renameShotPeople(&rows[i], &shots[i], cast, final)
+		// 这一场回填了场景资产：它就是这一场的场景（与装段「一场只认本场自己的场景」同一口径），行里别的场景换掉，没绑的补上。
+		if envs := cast.Environments[scene]; len(envs) > 0 {
+			kept := rows[i].AssetBindings[:0:0]
+			for _, b := range rows[i].AssetBindings {
+				if (b.Role == "environment" || b.Role == "scene") && !slices.Contains(envs, b.NodeID) {
+					continue
+				}
+				kept = append(kept, b)
+			}
+			for _, id := range envs {
+				if !slices.ContainsFunc(kept, func(b drama.RowAssetBinding) bool { return b.NodeID == id }) {
+					kept = append(kept, drama.RowAssetBinding{NodeID: id, Role: "environment", Priority: 1})
+				}
+			}
+			rows[i].AssetBindings = kept
+		}
+	}
+}
+
+// dedupeRowBindings 去掉同一资产的重复绑定（同一个人的主卡和子卡换成同一张后会重复），留第一条。
+func dedupeRowBindings(bindings []drama.RowAssetBinding) []drama.RowAssetBinding {
+	out := bindings[:0:0]
+	for _, b := range bindings {
+		if !slices.ContainsFunc(out, func(o drama.RowAssetBinding) bool { return o.NodeID == b.NodeID }) {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// renameShotPeople 把一行里每个人的名字换成最终绑的那张卡的标题：分镜行人物名、站位 who、焦点写主卡名或「主卡名·任意」都换；
+// refs_hint 只换正好是这个人某张卡标题的（「林小满·哭泣」这类状态提示留着），换完去重。分镜行人物按卡去重。
+func renameShotPeople(row *shotlistRow, shot *drama.Shot, cast *dramaSceneCast, final map[string]string) {
+	for parent, card := range final {
+		mainTitle, cardTitle := strings.TrimSpace(cast.titles[parent]), strings.TrimSpace(cast.titles[card])
+		if mainTitle == "" || cardTitle == "" {
+			continue
+		}
+		titles := cast.personTitles(parent)
+		isPerson := func(name string) bool {
+			name = strings.TrimSpace(name)
+			return name == mainTitle || strings.HasPrefix(name, mainTitle+"·") || slices.Contains(titles, name)
+		}
+		for j := range row.Characters {
+			if isPerson(row.Characters[j].CharacterName) {
+				row.Characters[j].CharacterName = cardTitle
+			}
+		}
+		for j := range shot.Blocking {
+			if isPerson(shot.Blocking[j].Who) {
+				shot.Blocking[j].Who = cardTitle
+			}
+		}
+		if isPerson(shot.Focus) {
+			shot.Focus = cardTitle
+		}
+		hints := shot.RefsHint[:0:0]
+		for _, hint := range shot.RefsHint {
+			if slices.Contains(titles, strings.TrimSpace(hint)) {
+				hint = cardTitle
+			}
+			if !slices.Contains(hints, hint) {
+				hints = append(hints, hint)
+			}
+		}
+		if shot.RefsHint != nil {
+			shot.RefsHint = hints
+		}
+	}
+	seen := map[string]bool{}
+	people := row.Characters[:0:0]
+	for _, c := range row.Characters {
+		key := c.CharacterAssetID
+		if key == "" {
+			key = "name:" + c.CharacterName
+		}
+		if !seen[key] {
+			seen[key] = true
+			people = append(people, c)
+		}
+	}
+	row.Characters = people
+}
+
+// sceneCastTitles 是按小节生成每一节带的本场子卡（单元内场编号 → 主卡名 → 子卡名「名·变体」），没图的子卡不在里面。
+func sceneCastTitles(cast *dramaSceneCast) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	if cast.empty() {
+		return out
+	}
+	for scene, swaps := range cast.Variants {
+		for parent, child := range swaps {
+			if cast.titles[parent] == "" || cast.titles[child] == "" {
+				continue
+			}
+			if out[scene] == nil {
+				out[scene] = map[string]string{}
+			}
+			out[scene][cast.titles[parent]] = cast.titles[child]
+		}
+	}
+	return out
+}
+
+// unitSceneCast 读项目单元，组这个单元装段时按场换的资产。
+func (s *Service) unitSceneCast(project *model.Project, unitID string, assets []ProjectAssetSummary) (*dramaSceneCast, error) {
+	units, err := s.repo.ProjectUnits(project.ID)
+	if err != nil {
+		return nil, err
+	}
+	return sceneCastOf(project.BibleJSON, units, unitID, assets), nil
+}

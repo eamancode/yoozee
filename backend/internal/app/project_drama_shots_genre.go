@@ -95,6 +95,7 @@ func sectionShotsPlan(project *model.Project, unit *model.ProjectUnit, units []m
 		Genre: genre, Plan: plan, ModelLabel: m.Label,
 		MasterPalette: projectMasterPalette(project.BibleJSON),
 		Palettes:      unitScenePalettePrompts(project, units, unit.ID),
+		Casts:         sceneCastTitles(sceneCastOf(project.BibleJSON, units, unit.ID, assets)),
 	})
 	if err != nil {
 		return nil, err

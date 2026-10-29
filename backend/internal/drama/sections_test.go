@@ -112,7 +112,7 @@ func TestPlanSectionsWenxi15LongExchangeWarns(t *testing.T) {
 	if len(sec.Warnings) != 1 || !strings.Contains(sec.Warnings[0], "4 句台词") {
 		t.Fatalf("台词超额只记提醒：%v", sec.Warnings)
 	}
-	if rule := SectionTurnPrompt(plan, 1, "", nil); !strings.Contains(rule, "本节有 4 句台词") || !strings.Contains(rule, "按技能规则写在 10～15 秒") {
+	if rule := SectionTurnPrompt(plan, 1, "", nil, nil); !strings.Contains(rule, "本节有 4 句台词") || !strings.Contains(rule, "按技能规则写在 10～15 秒") {
 		t.Fatalf("本节输出要求：%s", rule)
 	}
 	if out := NewSectionOutput(sec, "", SectionShots{}); len(out.Warnings) != 1 {

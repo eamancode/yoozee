@@ -24,6 +24,13 @@ func (r *Repository) Task(id string) (*model.Task, error) {
 	return &task, nil
 }
 
+// TaskChainedFromExists 是这个用户有没有任务是接着 taskID 建的（任务输入 metadata.chainedFrom = taskID）。
+func (r *Repository) TaskChainedFromExists(userID string, taskID string) (bool, error) {
+	var count int64
+	err := r.db.Model(&model.Task{}).Where("user_id = ? AND input_json LIKE ?", userID, `%"chainedFrom":"`+taskID+`"%`).Count(&count).Error
+	return count > 0, err
+}
+
 func (r *Repository) TaskForUser(userID string, id string) (*model.Task, error) {
 	var task model.Task
 	if err := r.db.First(&task, "id = ? AND user_id = ?", id, userID).Error; err != nil {

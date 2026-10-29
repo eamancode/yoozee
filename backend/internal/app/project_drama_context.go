@@ -25,6 +25,8 @@ type dramaProjectContext struct {
 	Brief    drama.Brief
 	// Episode 是这一章在项目里的集号（从 1 起），按集号读 brief.episodes[].target_seconds；0 表示不按集。
 	Episode int
+	// SceneCast 是装段时按场换的资产（本场的场景资产、角色子卡，M8 卡 D）；为空时不换。
+	SceneCast *dramaSceneCast
 }
 
 func (pc dramaProjectContext) profileID() string {

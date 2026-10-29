@@ -32,6 +32,8 @@ export const API_ERROR_REASON = {
     DramaEpisodesReplace: "drama_episodes_replace_required",
     /** 预演闸门生效时给镜头建视频任务，这一段还没有选中的黑白预演（action_board）。 */
     PrevizRequired: "previz_required",
+    /** 这一集（章）还没有场次色卡就提取资产：资产按色卡约束，要先在章节页「生成场次色卡」。 */
+    PaletteRequired: "palette_required",
 } as const;
 
 export type ApiErrorReason = (typeof API_ERROR_REASON)[keyof typeof API_ERROR_REASON];

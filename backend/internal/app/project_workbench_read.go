@@ -399,6 +399,9 @@ func (s *Service) ProjectAssetsPage(userID string, projectID string, page int, p
 	if err := group.Wait(); err != nil {
 		return ProjectAssetPage{}, err
 	}
+	if err := s.attachProjectAssetVariants(userID, projectID, summaries); err != nil {
+		return ProjectAssetPage{}, err
+	}
 	categoryRows, folderRows, err := s.repo.ProjectAssetFacets(projectID)
 	if err != nil {
 		return ProjectAssetPage{}, err

@@ -75,7 +75,7 @@ func newTaskTerminalCoordinator(s *Service) *taskTerminalCoordinator {
 		outputs:           s,
 		userFacingMessage: s.UserFacingErrorMessage,
 		logFailedAttempt:  s.ensureFailedProviderAttemptLogged,
-		afterFailed:       s.afterDramaImageTaskEnded,
+		afterFailed:       s.afterDramaTaskEnded,
 	}
 }
 

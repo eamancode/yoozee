@@ -19,6 +19,8 @@ type SectionShotsInput struct {
 	MasterPalette *MasterPalette
 	// Palettes 是各场的【本场色卡】段（单元内场编号 → 文字），本场第一节带上；没有的场不写。
 	Palettes map[string]string
+	// Casts 是各场换上的角色子卡（M8 卡 D，单元内场编号 → 主卡名 → 子卡名「名·变体」）；每一节只带本节所在场的。
+	Casts map[string]map[string]string
 }
 
 // SectionShotsPrompt 是组装好的按小节生成提示词：Prompt 是第一轮（不含第 1 节），Turns 是每一节的本轮指令（第一轮接在 Prompt 后面）。
@@ -73,7 +75,7 @@ func BuildSectionShotsPrompt(in SectionShotsInput) (SectionShotsPrompt, error) {
 		if sec.First {
 			palette = in.Palettes[sec.Scene]
 		}
-		out.Turns = append(out.Turns, SectionTurnPrompt(in.Plan, k+1, palette, in.Assets))
+		out.Turns = append(out.Turns, SectionTurnPrompt(in.Plan, k+1, palette, in.Assets, in.Casts[sec.Scene]))
 	}
 	return out, nil
 }
@@ -143,8 +145,8 @@ func sectionUnitWord(g ShotGenre) string {
 	return "「小节」"
 }
 
-// SectionTurnPrompt 是第 k 节（从 1 数）的本轮指令；palette 是本场色卡（本场第一节才给）。
-func SectionTurnPrompt(plan SectionPlan, k int, palette string, assets []StepAsset) string {
+// SectionTurnPrompt 是第 k 节（从 1 数）的本轮指令；palette 是本场色卡（本场第一节才给），cast 是本场换上的子卡（主卡名 → 子卡名）。
+func SectionTurnPrompt(plan SectionPlan, k int, palette string, assets []StepAsset, cast map[string]string) string {
 	sec := plan.Sections[k-1]
 	n := len(plan.Sections)
 	var parts []string
@@ -172,15 +174,16 @@ func SectionTurnPrompt(plan SectionPlan, k int, palette string, assets []StepAss
 	} else {
 		parts = append(parts, "【本节台词表】每句逐字照抄（不删、不改、不合并），每句只写在一个镜头里；不要写本节以外的台词：\n"+strings.Join(lines, "\n"))
 	}
-	if cast := sectionCastPrompt(sec, assets); cast != "" {
-		parts = append(parts, cast)
+	if text := sectionCastPrompt(sec, assets, cast); text != "" {
+		parts = append(parts, text)
 	}
 	parts = append(parts, sectionOutputRule(plan, k))
 	return strings.Join(parts, "\n\n")
 }
 
 // sectionCastPrompt 是【本节人物与资产】：本节说话的人和正文提到的角色（同名的子卡「名·变体」一起列出）、本场场景、提到的道具。
-func sectionCastPrompt(sec Section, assets []StepAsset) string {
+// cast 里的角色（这一场换上了子卡）写子卡名，并另起一行【本场角色子卡】写明主卡在这一场用哪张子卡。
+func sectionCastPrompt(sec Section, assets []StepAsset, cast map[string]string) string {
 	text := sec.Heading + "\n" + sec.Text()
 	var characters, places, props []string
 	for _, a := range assets {
@@ -204,6 +207,13 @@ func sectionCastPrompt(sec Section, assets []StepAsset) string {
 			characters = append(characters, s)
 		}
 	}
+	var swapped []string
+	for i, name := range characters {
+		if child := cast[name]; child != "" {
+			characters[i] = child
+			swapped = append(swapped, fmt.Sprintf("%s 用「%s」", name, child))
+		}
+	}
 	var lines []string
 	if len(characters) > 0 {
 		lines = append(lines, "角色："+strings.Join(characters, "、"))
@@ -217,7 +227,11 @@ func sectionCastPrompt(sec Section, assets []StepAsset) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return "【本节人物与资产】名字照写（同一人有几张子卡时按本节的服装 / 状态选一张，写「名·变体」原样）：\n" + strings.Join(lines, "\n")
+	out := "【本节人物与资产】名字照写（同一人有几张子卡时按本节的服装 / 状态选一张，写「名·变体」原样）：\n" + strings.Join(lines, "\n")
+	if len(swapped) > 0 {
+		out += "\n【本场角色子卡】这一场" + strings.Join(swapped, "；") + "：人物名（含站位）写子卡名「名·变体」原样，外貌按子卡的服装 / 状态写。"
+	}
+	return out
 }
 
 func slicesHasPrefix(items []string, base string) bool {

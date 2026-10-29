@@ -29,6 +29,8 @@ type dramaScenePaletteMeta struct {
 	// ExcerptChars 是每场摘录的字数（总字数超预算时缩短，记下来便于排查）。
 	ExcerptChars int    `json:"excerptChars"`
 	ChainedFrom  string `json:"chainedFrom,omitempty"`
+	// ChainAssets 是写完后按集依次接着提取资产（M8 卡 D，默认接）；接着提取时要不要出图看任务输入里有没有 assetImageTask。
+	ChainAssets bool `json:"chainAssets,omitempty"`
 }
 
 type dramaScenePaletteEpisodeMeta struct {
@@ -65,6 +67,8 @@ type DramaScenePaletteOutcome struct {
 	// Rendered 是合成并绑上图的色卡张数；ImageFailures 是没合成上图的（资产页「重新合成」可以补）。
 	Rendered      int                   `json:"rendered"`
 	ImageFailures []DramaPaletteFailure `json:"imageFailures,omitempty"`
+	// Chained 是写完后自动接着起的第一集提取资产（M8 卡 D）。
+	Chained *DramaChainedTask `json:"chained,omitempty"`
 }
 
 // DramaPaletteWriteSummary 里 Retired 是标成场次已不存在的旧色卡（这次运行范围内、色彩脚本里不再有的场）。
@@ -462,10 +466,13 @@ func mergeColorScriptDocument(bibleJSON string, existing []drama.ColorScriptEntr
 // ---------------------------------------------------------------- 剧本优化跑完自动接着跑
 
 // DramaChainedTask 是收尾自动接着建的下一步任务（result.dramaStep.chained）；Error 是没建成的原因（不影响这一步已写的结果）。
+// UnitID / Remaining 是接着提取资产时这一个任务提取的单元和后面还排着的集数。
 type DramaChainedTask struct {
-	Step   string `json:"step"`
-	TaskID string `json:"taskId,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Step      string `json:"step"`
+	TaskID    string `json:"taskId,omitempty"`
+	UnitID    string `json:"unitId,omitempty"`
+	Remaining int    `json:"remaining,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // chainScenePaletteAfterAdapt 在剧本优化写完剧集后，用同一文本模型直接建场次色卡任务（metadata.chainedFrom = 剧本优化任务）。
@@ -494,10 +501,18 @@ func (s *Service) chainScenePaletteAfterAdapt(task model.Task, projectID string)
 		return chained
 	}
 	var input struct {
-		Config map[string]any `json:"config"`
+		Config         map[string]any          `json:"config"`
+		AssetImageTask *DramaImageTaskTemplate `json:"assetImageTask"`
+		Metadata       struct {
+			DramaAdapt *dramaAdaptMeta `json:"dramaAdapt"`
+		} `json:"metadata"`
 	}
 	_ = json.Unmarshal([]byte(decrypted), &input)
-	req := DramaProjectStepRunRequest{Model: task.Model, LogicalModelID: task.LogicalModelID, Config: input.Config, TraceID: task.TraceID, chainedFrom: task.ID}
+	req := DramaProjectStepRunRequest{Model: task.Model, LogicalModelID: task.LogicalModelID, Config: input.Config, TraceID: task.TraceID, chainedFrom: task.ID, AssetImageTask: input.AssetImageTask}
+	// 剧本优化对话框关掉了「接着提取资产」时，接着跑的场次色卡也不接。
+	if adapt := input.Metadata.DramaAdapt; adapt != nil && adapt.ChainAssets != nil {
+		req.ChainAssets = adapt.ChainAssets
+	}
 	result, err := s.RunDramaProjectStep(task.UserID, projectID, step.ID, req)
 	if err != nil {
 		chained.Error = userFacingTaskError(err.Error())

@@ -171,6 +171,9 @@ func (s *Service) planDramaShotEdits(userID string, projectID string, req DramaS
 	}
 	pc := projectDramaContext(project)
 	pc.Episode = s.dramaChapterEpisode(projectID, unit)
+	if pc.SceneCast, err = s.unitSceneCast(project, unit.ID, assets); err != nil {
+		return dramaShotEditPlan{}, err
+	}
 	// 整章按改过的分镜行重转、重检、重装一遍（不落库）：检查要整章看台词覆盖，镜头的段内文字也要按前后镜（情绪弧承接）编。
 	plan, err := planDramaShotlistWith(parsedRows, script, assets, imaged, m, phrases, pc, true)
 	if err != nil {

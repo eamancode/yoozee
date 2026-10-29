@@ -48,6 +48,8 @@ const (
 	ReasonDramaEpisodesReplace = kernel.ReasonDramaEpisodesReplace
 	// ReasonPrevizRequired 见 kernel。
 	ReasonPrevizRequired = kernel.ReasonPrevizRequired
+	// ReasonPaletteRequired 见 kernel。
+	ReasonPaletteRequired = kernel.ReasonPaletteRequired
 )
 
 func ReasonForStatus(status int) ErrorReason {
