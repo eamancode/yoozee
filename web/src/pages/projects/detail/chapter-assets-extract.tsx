@@ -12,7 +12,7 @@ import { dramaAssetsExtractOutcomeOf, dramaRunProgressOf, getDramaStepUsage, typ
 import { ApiError } from "@/services/api/request";
 import { API_ERROR_REASON } from "@/services/api/error-codes";
 import type { DramaImageStatus, ProjectDetail, ProjectUnit } from "@/services/api/projects";
-import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { assetsExtractStreamFromResult, parseAssetsExtractStream, resumedAssetsExtractStream, type AssetsExtractStreamState, type AssetsStreamCategory } from "./assets-extract-stream";
@@ -20,7 +20,7 @@ import { storyboardRunStop } from "./chapter-shot-stream";
 import { assetImageTaskTemplate } from "./drama-image-task";
 import { dramaImageSummaryText, useDramaImageStatuses } from "./drama-image-summary";
 import { DramaRunPanel } from "./drama-run-panel";
-import { chapterTaskIdentity, followDramaRunTask, runAssetsExtract } from "./project-chapter-ai";
+import { chainedFromOf, chapterTaskIdentity, followDramaRunTask, runAssetsExtract } from "./project-chapter-ai";
 import { turnaroundImageModel } from "./project-character-media";
 
 type AssetsExtractControlProps = {
@@ -174,10 +174,14 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
     const selectedTask = useMemo(() => assetsTaskOf(selectedUnitId), [tasks, selectedUnitId]);
     const selectedRunning = starting === selectedUnitId || Boolean(selectedTask && (selectedTask.status === "queued" || selectedTask.status === "running"));
     const paletteMissing = paletteReady === false;
+    // 当前这一集上一次提取失败（自动接续时失败的那集会跳过、接着提下一集）：按钮写明，悬停看原因，点开对话框重新提取。
+    const selectedFailed = !selectedRunning && selectedTask?.status === "failed" ? selectedTask : undefined;
     const terminal = latestTask && latestTask.status !== "queued" && latestTask.status !== "running" ? latestTask : undefined;
     const detailQuery = useQuery({ queryKey: ["generation-task", terminal?.id, terminal?.status], queryFn: () => queryGenerationTask(terminal!.id), enabled: Boolean(terminal), staleTime: Infinity });
     const taskDetail = detailQuery.data;
     const outcome = taskDetail?.status === "succeeded" ? dramaAssetsExtractOutcomeOf(taskDetail) : undefined;
+    // 任务列表不带失败原因：侧栏没在跟别的集时，当前这一集的任务详情就是它。
+    const selectedFailedError = selectedFailed && (selectedFailed.error || (taskDetail?.id === selectedFailed.id ? taskDetail.error : ""));
     const stop = useMemo(() => (taskDetail ? storyboardRunStop(taskDetail, dramaRunProgressOf(taskDetail)) : undefined), [taskDetail]);
     const resume = stop?.kind === "resume" ? stop : undefined;
     const imageIds = imageAssetIds(outcome);
@@ -285,7 +289,24 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 followNext(dramaAssetsExtractOutcomeOf(completed));
                 return refresh();
             })
-            .catch(() => void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] }));
+            .catch((error: unknown) => {
+                void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] });
+                void followAfterFailure(task.id, id, error instanceof Error ? error.message : "");
+            });
+    };
+    // 自动接续的一串里这一集提取失败：服务端记下失败、接着建下一集的任务（metadata.chainedFrom 指向失败的这一集），侧栏接着跟它。
+    // 下一集的任务在失败落库之后才建，读不到时稍等再读一次。
+    const followAfterFailure = async (failedTaskId: string, failedUnitId: string, reason: string) => {
+        for (const wait of [0, 1500]) {
+            if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+            const next = (await listGenerationTasks(100, { projectId }).catch(() => [] as GenerationTask[])).find((item) => chainedFromOf(item) === failedTaskId && chapterTaskIdentity(item)?.kind === "assets");
+            if (!next) continue;
+            const failed = units.find((item) => item.id === failedUnitId);
+            const nextUnit = units.find((item) => item.id === taskUnitId(next));
+            message.warning(`${failed ? `「${failed.title}」` : "这一集"}提取资产失败${reason ? `（${reason.replace(/[。.]+$/, "")}）` : ""}，接着提取${nextUnit ? `「${nextUnit.title}」` : "下一集"}；失败的那集到它的${unitNoun}上点「重新提取资产」。`);
+            followChained(next.id, taskUnitId(next));
+            return;
+        }
     };
     const followChained = (taskId: string, chainedUnitId?: string) => {
         if (!taskId || followedRef.current.has(taskId)) return;
@@ -361,7 +382,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
 
     return (
         <>
-            <Tooltip title={disabledReason || (paletteMissing ? PALETTE_REQUIRED_HINT : undefined)}>
+            <Tooltip title={disabledReason || (paletteMissing ? PALETTE_REQUIRED_HINT : selectedFailed ? `上一次提取资产失败${selectedFailedError ? `：${selectedFailedError}` : ""}` : undefined)}>
                 <Button
                     size="small"
                     icon={<UsersRound className="size-3.5" />}
@@ -370,12 +391,12 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                     onClick={openDialog}
                     aria-label={paletteMissing ? `提取角色、场景与道具（${PALETTE_REQUIRED_HINT}）` : "提取角色、场景与道具"}
                 >
-                    {selectedRunning ? "提取资产中" : paletteMissing ? "提取资产（先生成场次色卡）" : selectedTask?.status === "succeeded" ? "提取资产（已提取）" : "提取资产"}
+                    {selectedRunning ? "提取资产中" : paletteMissing ? "提取资产（先生成场次色卡）" : selectedFailed ? "重新提取资产（上次失败）" : selectedTask?.status === "succeeded" ? "提取资产（已提取）" : "提取资产"}
                 </Button>
             </Tooltip>
             {running || latestTask ? (
                 <Button size="small" onClick={() => setPanelOpen(true)} aria-label="查看提取资产进度">
-                    {resume && !running ? `资产停在第 ${resume.from} 场` : "资产进度"}
+                    {resume && !running ? `资产停在第 ${resume.from} 场` : stop?.kind === "failed" && stop.status === "failed" && !running ? "提取失败：看原因" : "资产进度"}
                 </Button>
             ) : null}
             <Modal
@@ -456,7 +477,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                                         本步使用：<span className="font-medium text-foreground/85">{usage.skill.name}</span> {usage.skill.version}（{usage.profile.label}）
                                     </div>
                                     <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">
-                                        技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡（角色、道具用）和本集场次色卡（场景用）；角色换装或换状态时拆成子卡「名·变体」。出图带色卡图作参考，子卡另带主卡三视图。
+                                        技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡（角色、道具用）和本集场次色卡（场景用，道具也可取所在场的颜色）；角色换装或换状态时拆成子卡「名·变体」。出图带色卡图作参考，子卡另带主卡三视图。
                                     </div>
                                 </>
                             ) : (
@@ -483,6 +504,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                     openDialog();
                 }}
                 failedNote="项目资产没有改动。"
+                regenerateLabel="重新提取"
                 followKey={streamState.rowCount}
                 emptyText="每一场的角色、场景和道具会出现在这里"
                 listLabel="流式资产"

@@ -68,6 +68,9 @@ type dramaAdaptMeta struct {
 	ReplaceUnitIDs []string `json:"replaceUnitIds,omitempty"`
 	// ChainAssets 是请求里给的「接着提取资产」开关（没给为空），传给写完剧集后接着跑的场次色卡。
 	ChainAssets *bool `json:"chainAssets,omitempty"`
+	// AssetImages 是剧本优化对话框的「出图」开关：开着时请求带了 assetImageTask（模板和任务输入一起加密存），
+	// 一路接着跑的场次色卡、各集提取资产写完自动给新资产出图。
+	AssetImages bool `json:"assetImages,omitempty"`
 }
 
 // DramaEpisodeImpact 是重跑会动到的一集：替换（adapt）或改写（rhythm）前在确认框里列出。
@@ -149,6 +152,7 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 		plan, err = s.planScriptAdapt(project, step, req)
 		if plan != nil {
 			plan.adapt.ChainAssets = req.ChainAssets
+			plan.adapt.AssetImages = req.AssetImageTask.usable() && (req.ChainAssets == nil || *req.ChainAssets)
 		}
 	case drama.StepScenePalette:
 		plan, err = s.planScenePalette(project, step, req)

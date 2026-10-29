@@ -385,7 +385,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                                 aria-label="写完后接着提取资产"
                             />
                         </label>
-                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">资产按色卡约束：角色、道具用主基调色卡，场景用本场色卡和主基调色卡；角色换装或换状态时自动拆子卡。一集提完再提下一集。</p>
+                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">资产按色卡约束：角色用主基调色卡，道具用主基调色卡或所在场的本场色卡，场景用本场色卡和主基调色卡；角色换装或换状态时自动拆子卡。一集提完再提下一集。</p>
                         {settings.chainAssets ? (
                             <>
                                 <label className="flex items-center justify-between gap-3 text-xs">

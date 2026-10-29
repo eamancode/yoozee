@@ -205,6 +205,12 @@ func databaseBusyError(err error) bool {
 	return strings.Contains(text, "database is locked") || strings.Contains(text, "database table is locked") || strings.Contains(text, "sqlite_busy")
 }
 
+// afterDramaTaskEnded 是 worker 把任务写成失败或取消之后的短剧收尾：出图任务接着排下一张，自动接续的资产设计失败时接着提取下一集。
+func (s *Service) afterDramaTaskEnded(task model.Task) {
+	s.afterDramaImageTaskEnded(task)
+	s.afterDramaAssetsTaskEnded(task)
+}
+
 // afterDramaImageTaskEnded 在资产设计出图任务失败或取消落库之后跑（任务输入还带着加密的模板）：还记着「出图中、是这个任务」的资产
 // 记成失败（资产页「继续出图」可以重出，不自动重试），然后接着排「等空位」的，免得一张失败把后面的都卡住。这里的失败只记日志。
 // 色卡（M8 卡 B 起）由代码合成，不走出图任务。

@@ -32,6 +32,8 @@ type DramaRunPanelProps = {
     stop?: StoryboardRunStop;
     onResume: () => void;
     onRegenerate: () => void;
+    /** 失败时「重新生成」按钮的文字（资产设计写「重新提取」）。 */
+    regenerateLabel?: string;
     /** 失败提示后面补一句（如「本章现有的段不受影响。」）。 */
     failedNote?: string;
     /** 这一步自己的提示（写库结果、检查问题）。 */
@@ -52,7 +54,7 @@ function sentence(text: string) {
  * 逐轮续写的进度侧栏（生成分段、剧本优化共用）：按轮分组实时显示模型输出；任务中途失败时「从第 N 场 / 集继续」，
  * 第 1 轮就失败时显示原因、重新生成。写库结果和检查问题由各步骤作为 children 传进来。
  */
-export function DramaRunPanel({ open, onClose, title, running, status, unit, stepLabel, stop, onResume, onRegenerate, failedNote, children, groups, followKey, emptyText, listLabel }: DramaRunPanelProps) {
+export function DramaRunPanel({ open, onClose, title, running, status, unit, stepLabel, stop, onResume, onRegenerate, regenerateLabel = "重新生成", failedNote, children, groups, followKey, emptyText, listLabel }: DramaRunPanelProps) {
     const listRef = useRef<HTMLDivElement>(null);
     const followRef = useRef(true);
     useEffect(() => {
@@ -89,7 +91,7 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
                         title={failed.status === "cancelled" ? `上一次${stepLabel}已取消` : `上一次${stepLabel}失败`}
                         action={
                             <Button size="small" type="primary" onClick={onRegenerate}>
-                                重新生成
+                                {regenerateLabel}
                             </Button>
                         }
                     >

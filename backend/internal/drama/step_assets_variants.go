@@ -241,12 +241,20 @@ func locationCore(name string) string {
 	return jsTrim(name)
 }
 
-// assetsAllowedHexes 是这一行外观里可以写的 HEX：角色、道具是主基调色卡；场景是主基调色卡加它出现的各场的色卡
-// （场次头地点对得上它的场和 first_scene；一场都认不出时是本集全部场次色卡）。都没有色卡时返回 nil（不查）。
+// assetsAllowedHexes 是这一行外观里可以写的 HEX：角色是主基调色卡；道具是主基调色卡加本集全部场次色卡（道具跟着场走，
+// 颜色常取自所在场的色卡）；场景是主基调色卡加它出现的各场的色卡（场次头地点对得上它的场和 first_scene；一场都认不出时是
+// 本集全部场次色卡）。都没有色卡时返回 nil（不查）。
 func assetsAllowedHexes(r AssetsExtractRow, ctx AssetsExtractCheckContext) map[string]bool {
 	allowed := map[string]bool{}
 	for _, c := range ctx.Master.Colors() {
 		allowed[strings.ToUpper(c.Hex)] = true
+	}
+	if r.Category == AssetProp {
+		for _, e := range ctx.ColorScript {
+			for _, c := range e.Colors() {
+				allowed[strings.ToUpper(c.Hex)] = true
+			}
+		}
 	}
 	if r.Category == AssetEnvironment && len(ctx.ColorScript) > 0 {
 		scenes := map[int]bool{}
@@ -279,8 +287,11 @@ func checkAssetsHexes(r AssetsExtractRow, ctx AssetsExtractCheckContext, add fun
 		return
 	}
 	palette := "主基调色卡"
-	if r.Category == AssetEnvironment {
+	switch r.Category {
+	case AssetEnvironment:
 		palette = "本场色卡和主基调色卡"
+	case AssetProp:
+		palette = "主基调色卡和本集场次色卡"
 	}
 	check := func(label string, texts ...string) {
 		var stray []string
@@ -309,6 +320,6 @@ func assetsColorRulePrompt(in AssetsExtractInput) string {
 	if in.Master.Empty() && len(in.ColorScript) == 0 {
 		return ""
 	}
-	return "【用色要求】角色服装与道具用色从【主基调色卡】取；场景用色从本场色卡（【本集场次色卡】里这一场）与主基调色卡取。" +
+	return "【用色要求】角色服装用色从【主基调色卡】取；道具用色从【主基调色卡】或它所在场的本场色卡取；场景用色从本场色卡（【本集场次色卡】里这一场）与主基调色卡取。" +
 		"appearance、prompt_en（含子卡）写到颜色时写色名加 HEX（如「护士蓝 #5B7FA3」），HEX 照抄色卡，不写色卡以外的 HEX；palette_hint 写用到的色名。"
 }

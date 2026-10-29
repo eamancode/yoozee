@@ -177,12 +177,12 @@ func styleAnchorPrompt(anchor *StyleAnchor, head string, withCamera bool) string
 	return strings.Join(lines, "\n")
 }
 
-// assetsColorScriptPrompt 是【本集场次色卡】段：每场的颜色（中文名、HEX、用途），用于这一场发生地的场景资产。没有时不写。
+// assetsColorScriptPrompt 是【本集场次色卡】段：每场的颜色（中文名、HEX、用途），用于这一场发生地的场景资产和这一场出现的道具。没有时不写。
 func assetsColorScriptPrompt(script []ColorScriptEntry) string {
 	if len(script) == 0 {
 		return ""
 	}
-	lines := []string{"【本集场次色卡】场次色卡给每一场定的颜色，用于这一场发生地的场景资产（场景用色从本场色卡与主基调色卡取）："}
+	lines := []string{"【本集场次色卡】场次色卡给每一场定的颜色，用于这一场发生地的场景资产（场景用色从本场色卡与主基调色卡取），这一场出现的道具也可以取："}
 	remaining := assetsColorChars
 	for _, e := range script {
 		colors := make([]string, 0, len(e.SharedColors)+len(e.NewColors))

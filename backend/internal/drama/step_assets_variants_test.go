@@ -9,6 +9,8 @@ const (
 	variantsLin      = `{"category": "character", "name": "林小满", "aliases": [], "appearance": "二十五岁女护士，齐耳短发，护士蓝 #5B7FA3 护士服", "prompt_en": "turnaround sheet, nurse uniform #5B7FA3", "first_scene": 1, "palette_hint": "护士蓝", "variants": [{"label": "淋湿", "kind": "state", "scenes": [2], "appearance": "护士服湿透贴身，发梢滴水", "prompt_en": "same nurse, soaking wet uniform"}, {"label": "", "kind": "costume", "scenes": [1], "appearance": "x", "prompt_en": "y"}]}`
 	variantsLinAgain = `{"category": "character", "name": "林小满", "aliases": [], "appearance": "", "prompt_en": "", "first_scene": 2, "palette_hint": "", "variants": [{"label": "淋湿", "kind": "状态", "scenes": ["E01S03", 9], "appearance": "", "prompt_en": ""}, {"label": "西服", "scenes": "1、2", "appearance": "深灰西服 #123456", "prompt_en": "grey suit"}]}`
 	variantsTitled   = `{"category": "character", "name": "林小满·受伤", "aliases": [], "appearance": "额头缠纱布", "prompt_en": "bandaged forehead", "first_scene": 3, "palette_hint": ""}`
+	variantsChart    = `{"category": "prop", "name": "病历夹", "aliases": [], "appearance": "蓝灰病历夹 #3A5F7C，夹着日光灯白 #E8ECEF 的病历纸", "prompt_en": "a clipboard #3A5F7C", "first_scene": 2, "palette_hint": ""}`
+	variantsKnife    = `{"category": "prop", "name": "折叠刀", "aliases": [], "appearance": "金柄 #C9A227 折叠刀", "prompt_en": "a folding knife", "first_scene": 2, "palette_hint": ""}`
 	variantsHall     = `{"category": "environment", "name": "电梯口", "aliases": ["电梯间"], "appearance": "两部老电梯，电梯钢 #9AA3A8，墙面水泥灰 #6E6E6E，警示 #FF0000", "prompt_en": "empty elevator lobby", "first_scene": 2, "palette_hint": "电梯钢", "variants": [{"label": "夜", "appearance": "x"}]}`
 )
 
@@ -68,9 +70,9 @@ func TestCheckAssetsHexes(t *testing.T) {
 	master := MasterPalette{Groups: []MasterPaletteGroup{{Key: "protagonist", Name: "主角组", Colors: []PaletteColor{{NameZh: "护士蓝", NameEn: "Nurse Blue", Hex: "#5B7FA3"}}}, {Key: "environment", Name: "环境组", Colors: []PaletteColor{{NameZh: "水泥灰", Hex: "#6E6E6E"}}}}}
 	script := []ColorScriptEntry{
 		{Episode: 1, SceneNo: 1, NewColors: []PaletteColor{{NameZh: "日光灯白", Hex: "#E8ECEF"}}},
-		{Episode: 1, SceneNo: 2, NewColors: []PaletteColor{{NameZh: "电梯钢", Hex: "#9AA3A8"}}},
+		{Episode: 1, SceneNo: 2, NewColors: []PaletteColor{{NameZh: "电梯钢", Hex: "#9AA3A8"}, {NameZh: "病历蓝灰", Hex: "#3A5F7C"}}},
 	}
-	rows, _ := AssetsExtractFromText(strings.Join([]string{variantsLin, variantsLinAgain, variantsHall}, "\n"))
+	rows, _ := AssetsExtractFromText(strings.Join([]string{variantsLin, variantsLinAgain, variantsHall, variantsChart, variantsKnife}, "\n"))
 	got := CheckAssetsExtract(rows, AssetsExtractCheckContext{Scenes: 2, ColorScript: script, Master: master, SceneLocations: []string{"病房走廊", "电梯口"}})
 	var stray []string
 	for _, item := range got.Report.Items {
@@ -78,7 +80,9 @@ func TestCheckAssetsHexes(t *testing.T) {
 			stray = append(stray, item.ShotID+"："+item.Message)
 		}
 	}
-	if len(stray) != 2 || !strings.Contains(stray[0], "林小满·西服：外观里的 #123456 不在主基调色卡里") || !strings.Contains(stray[1], "电梯口：外观里的 #FF0000 不在本场色卡和主基调色卡里") {
+	// 道具认主基调色卡和本集任一场次色卡：病历夹用第 2 场、第 1 场色卡里的颜色不报，折叠刀的金色两边都没有才报。
+	if len(stray) != 3 || !strings.Contains(stray[0], "林小满·西服：外观里的 #123456 不在主基调色卡里") || !strings.Contains(stray[1], "电梯口：外观里的 #FF0000 不在本场色卡和主基调色卡里") ||
+		!strings.Contains(stray[2], "折叠刀：外观里的 #C9A227 不在主基调色卡和本集场次色卡里") {
 		t.Fatalf("HEX 检查：%v", stray)
 	}
 	if none := CheckAssetsExtract(rows, AssetsExtractCheckContext{Scenes: 2}); strings.Contains(strings.Join(func() []string {
@@ -104,7 +108,7 @@ func TestBuildAssetsExtractPromptWithPalettes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	order := []string{"- 林小满（角色；子卡：护士服、淋湿）", "【主基调色卡】", "用于角色和道具", "护士蓝 / Nurse Blue #5B7FA3", "【本集场次色卡】", "用于这一场发生地的场景资产", "E01S01「内·病房走廊·夜」", "【用色要求】角色服装与道具用色从【主基调色卡】取；场景用色从本场色卡", "【受保护输出契约】", "HEX 照抄色卡，不写色卡以外的 HEX。", "variants 只有角色写"}
+	order := []string{"- 林小满（角色；子卡：护士服、淋湿）", "【主基调色卡】", "用于角色和道具", "护士蓝 / Nurse Blue #5B7FA3", "【本集场次色卡】", "用于这一场发生地的场景资产", "E01S01「内·病房走廊·夜」", "【用色要求】角色服装用色从【主基调色卡】取；道具用色从【主基调色卡】或它所在场的本场色卡取；场景用色从本场色卡", "【受保护输出契约】", "HEX 照抄色卡，不写色卡以外的 HEX。", "variants 只有角色写"}
 	at := 0
 	for _, part := range order {
 		i := strings.Index(prompt.Text[at:], part)
