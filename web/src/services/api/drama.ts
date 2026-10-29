@@ -541,16 +541,8 @@ export function runDramaStep(
  * genre=wenxi 把这一串相连的武戏节改回文戏（按模型上限选文戏 15 / 30）重切重写。服务端照生成分段建任务（只重写这一场里切法变了的节），
  * 收尾检查、装段：其余节的段不动，被改的那一节原来的段换上新内容、分镜图 / 预演 / 视频标过期。返回的 task 照生成分段跟流。
  */
-export function changeDramaSectionGenre(
-    projectId: string,
-    unitId: string,
-    sectionId: string,
-    input: { genre: "wuxi" | "wenxi"; model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule },
-) {
-    return http.post<{ task: GenerationTask; usage: DramaStepUsage } & Omit<DramaRegenre, "scene">>(
-        `/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/sections/${encodeURIComponent(sectionId)}/genre`,
-        input,
-    );
+export function changeDramaSectionGenre(projectId: string, unitId: string, sectionId: string, input: { genre: "wuxi" | "wenxi"; model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule }) {
+    return http.post<{ task: GenerationTask; usage: DramaStepUsage } & Omit<DramaRegenre, "scene">>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/sections/${encodeURIComponent(sectionId)}/genre`, input);
 }
 
 /**
