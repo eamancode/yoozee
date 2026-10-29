@@ -112,15 +112,27 @@ func (r *Repository) UpdateAssetVariantLabel(userID string, assetID string, titl
 	return nil
 }
 
-// ProjectAssetShotReferenceTitles 是项目里引用这个资产（任一版本）的镜头标题，按标题排（删子卡前列出引用用）。
-func (r *Repository) ProjectAssetShotReferenceTitles(projectID string, assetID string) ([]string, error) {
-	var titles []string
-	err := r.db.Table("shot_asset_references").Distinct("shots.title").
-		Joins("JOIN shots ON shots.id = shot_asset_references.shot_id").
-		Joins("JOIN asset_versions ON asset_versions.id = shot_asset_references.asset_version_id").
-		Where("shots.project_id = ? AND asset_versions.asset_id = ?", projectID, assetID).
-		Order("shots.title").Pluck("shots.title", &titles).Error
-	return titles, err
+// AssetShotReference 是引用某个资产的一个镜头（段）：标题、所在单元、位置和当前版本的分段 JSON（列引用时按它写项目编号）。
+type AssetShotReference struct {
+	ShotID   string
+	Title    string
+	UnitID   string
+	Position int
+	SpecJSON string
+}
+
+// ProjectAssetShotReferences 是项目里引用这个资产（任一版本）的镜头，一个镜头一条，按单元、位置排（删子卡、移出主卡前列出引用用）。
+func (r *Repository) ProjectAssetShotReferences(projectID string, assetID string) ([]AssetShotReference, error) {
+	var rows []AssetShotReference
+	err := r.db.Table("shots").
+		Select("shots.id AS shot_id, shots.title, shots.unit_id, shots.position, shot_revisions.spec_json").
+		Joins("LEFT JOIN shot_revisions ON shot_revisions.id = shots.current_revision_id").
+		Where("shots.project_id = ? AND shots.id IN (?)", projectID,
+			r.db.Table("shot_asset_references").Select("shot_asset_references.shot_id").
+				Joins("JOIN asset_versions ON asset_versions.id = shot_asset_references.asset_version_id").
+				Where("asset_versions.asset_id = ?", assetID)).
+		Order("shots.unit_id, shots.position").Scan(&rows).Error
+	return rows, err
 }
 
 // CreateProjectAssetVariant 在一个事务里建一张角色子卡：资产、第 1 个版本、项目关联，项目 revision 加一。

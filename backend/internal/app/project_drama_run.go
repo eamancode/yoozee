@@ -104,6 +104,8 @@ type dramaTurnMarker struct {
 	Est     float64 `json:"est,omitempty"`
 	// Only 是「重新生成问题场 / 小节」要重写的场或小节（只有这几轮有回合标记和输出）。
 	Only []string `json:"only,omitempty"`
+	// Regenre 是这次是「改为武戏 / 改回文戏」：wuxi / wenxi；侧栏据此写「正在改为武戏」，不当成重写问题小节。
+	Regenre string `json:"regenre,omitempty"`
 }
 
 func newDramaRunMeta(plan *dramaStepPlan, unitID string) dramaRunMeta {
@@ -372,6 +374,12 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 			marker.Only = run.OnlyScenes
 			if shots != nil {
 				marker.Only = run.OnlySections
+				if shots.Regenre != nil {
+					marker.Regenre = "wenxi"
+					if shots.Regenre.Genre == drama.ShotGenreWuxi {
+						marker.Regenre = drama.ShotGenreWuxi
+					}
+				}
 			}
 			if turn, err = s.runDramaTurn(ctx, task, turnInput, marker, stream, turnTimeout, turnPlan, check); err != nil {
 				return nil, dramaRunTurnError(plan.Unit, marker, progress.Completed, turnTimeout, err)

@@ -95,6 +95,56 @@ type DramaSceneRuleNotice struct {
 	Message     string   `json:"message"`
 }
 
+// projectSceneCode 把单元内编号（镜头表、小节、段 spec.scene 用的 E01S02、E01S02-P1）换成项目编号（E 后是集号，和场次表、色卡一致）。
+// episode ≤ 1 或不是单元内编号时原样返回；只用于显示，存下的数据仍是单元内编号。
+func projectSceneCode(code string, episode int) string {
+	if episode <= 1 || !strings.HasPrefix(code, "E01S") {
+		return code
+	}
+	return fmt.Sprintf("E%02dS", episode) + strings.TrimPrefix(code, "E01S")
+}
+
+// assetShotReferenceLabels 把引用资产的镜头写成能看出是哪一集、哪一节的名字：按小节装的段写「E02S01-P1（S01）」，
+// 其余分段表的段写「E02S01 · S01」；不在项目场次表里的单元（已有剧集时的原文章节）和没有分段表的镜头写「单元标题 镜头标题」。
+// 按单元顺序、段位置排，同名去重。
+func assetShotReferenceLabels(refs []repository.AssetShotReference, units []model.ProjectUnit) []string {
+	sorted, numbers, _ := sceneUnits(units)
+	order := map[string]int{}
+	titles := map[string]string{}
+	for i, u := range sorted {
+		order[u.ID], titles[u.ID] = i, u.Title
+	}
+	refs = slices.Clone(refs)
+	slices.SortStableFunc(refs, func(a, b repository.AssetShotReference) int {
+		if order[a.UnitID] != order[b.UnitID] {
+			return order[a.UnitID] - order[b.UnitID]
+		}
+		return a.Position - b.Position
+	})
+	var out []string
+	for _, ref := range refs {
+		var spec struct {
+			ID      string `json:"id"`
+			Scene   string `json:"scene"`
+			Section string `json:"section"`
+		}
+		_ = json.Unmarshal([]byte(ref.SpecJSON), &spec)
+		label := strings.TrimSpace(titles[ref.UnitID] + " " + ref.Title)
+		if episode := numbers[ref.UnitID]; episode > 0 && spec.ID != "" {
+			switch {
+			case spec.Section != "":
+				label = fmt.Sprintf("%s（%s）", projectSceneCode(spec.Section, episode), spec.ID)
+			case spec.Scene != "":
+				label = projectSceneCode(spec.Scene, episode) + " · " + spec.ID
+			}
+		}
+		if !slices.Contains(out, label) {
+			out = append(out, label)
+		}
+	}
+	return out
+}
+
 // sceneUnits 是项目的单元（按位置排好）和导演风格的集号表。
 func sceneUnits(units []model.ProjectUnit) ([]model.ProjectUnit, map[string]int, bool) {
 	sorted := slices.Clone(units)

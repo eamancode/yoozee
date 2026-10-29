@@ -39,7 +39,7 @@ import {
     type ShotArtifact,
     type ShotRevisionInput,
 } from "@/services/api/projects";
-import { resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey } from "@/services/api/resources";
+import { resourceFileUrl, resourceStorageKey } from "@/services/api/resources";
 import { skillRuntime } from "@/services/skill-runtime";
 import { configuredModelMatchesCapability, modelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -58,9 +58,10 @@ import { shotTaskRunningLabel, shotVideoSeconds } from "./shot-generation";
 import { segmentDurationRule, segmentRefRole } from "./chapter-segments";
 import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { withSegmentRef } from "./segment-edit";
-import { unitsOfKind } from "./unit-numbering";
+import { unitEpisodeNumber, unitsOfKind } from "./unit-numbering";
+import type { SegmentAsset } from "./shot-card-layout";
 import { applyShotReferenceChange } from "./project-cache";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
+import { assetPreviewUrl, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
 import { compileProjectShot, getDramaBrief, writeDramaSegments, type DramaSegment } from "@/services/api/drama";
 import { dramaFamilyOf, findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useDramaProgress, useInvalidateDrama } from "./drama-panels";
@@ -117,6 +118,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const [assetPickerOpen, setAssetPickerOpen] = useState(false);
     const [editorDirty, setEditorDirty] = useState(false);
     const [submittingShotIds, setSubmittingShotIds] = useState<Set<string>>(() => new Set());
+    // 同一镜头连点「生成」时第二次点击读到的还是上一次渲染的状态，靠 ref 同步挡住，免得一次点击发两个任务。
+    const submittingRef = useRef<Set<string>>(new Set());
     const [taskClock, setTaskClock] = useState(() => Date.now());
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
@@ -204,15 +207,33 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const maxVideoReferenceImages = generationCapability === "video" ? activeProfile.video?.references.maxImages || 0 : 0;
     const videoProfile = generationCapability === "video" ? activeProfile.video : undefined;
     // 段卡拆合、改时长时按当前视频渠道的时长档位取段长，和下面提交前的时长校验同一份能力画像。
-    const segmentRule = useMemo(() => generationCapability === "video" && dramaModel ? segmentDurationRule(segmentMaxSeconds, videoProfile?.duration, segmentLimitLabel) : undefined, [dramaModel, generationCapability, segmentLimitLabel, segmentMaxSeconds, videoProfile?.duration]);
+    const videoSegmentRule = useMemo(() => generationCapability === "video" && dramaModel ? segmentDurationRule(segmentMaxSeconds, videoProfile?.duration, segmentLimitLabel) : undefined, [dramaModel, generationCapability, segmentLimitLabel, segmentMaxSeconds, videoProfile?.duration]);
     // 改戏类和章节页生成分段用同一个段长 rule（项目默认视频模型的渠道段长），不跟工作台当前选的视频模型走：后端按它选默认戏类、切小节，
-    // 和存下的镜头表对得上。
+    // 和存下的镜头表对得上。分镜图、预演阶段拆合、逐张改分镜卡也按它取段长（这两个阶段没有选中的视频渠道）。
     const projectSegmentVideoModel = dramaModel ? projectVideoModel(effectiveConfig, detail.project.defaultVideoModel, dramaModels.data, dramaModel) : "";
-    const genreRule = useMemo(() => {
-        if (!dramaModel) return undefined;
-        const rule = segmentDurationRule(segmentMaxSeconds, projectSegmentVideoModel ? modelCapabilityConfigFor(effectiveConfig, projectSegmentVideoModel).video?.duration : undefined, segmentLimitLabel);
-        return { maxSeconds: rule.maxSeconds, minSeconds: rule.minSeconds };
-    }, [dramaModel, effectiveConfig, projectSegmentVideoModel, segmentLimitLabel, segmentMaxSeconds]);
+    const projectSegmentRule = useMemo(() => (dramaModel ? segmentDurationRule(segmentMaxSeconds, projectSegmentVideoModel ? modelCapabilityConfigFor(effectiveConfig, projectSegmentVideoModel).video?.duration : undefined, segmentLimitLabel) : undefined), [dramaModel, effectiveConfig, projectSegmentVideoModel, segmentLimitLabel, segmentMaxSeconds]);
+    const genreRule = useMemo(() => (projectSegmentRule ? { maxSeconds: projectSegmentRule.maxSeconds, minSeconds: projectSegmentRule.minSeconds } : undefined), [projectSegmentRule]);
+    const segmentRule = videoSegmentRule || projectSegmentRule;
+    // 卡 G：段卡上的编号按项目编号显示（第 2 集写 E02S01），每张分镜卡下列这一段绑的角色子卡、道具、场景、本场色卡。
+    const unitEpisode = useMemo(() => unitEpisodeNumber(detail.units, unitId), [detail.units, unitId]);
+    // 卡下按每镜的 refs（资产版本 ID）列资产：这里把这一段的资产引用和段 refs 里的版本都对回资产。
+    const segmentAssets = useMemo<SegmentAsset[]>(() => {
+        const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
+        const byId = new Map<string, SegmentAsset>();
+        const add = (asset: ProjectAsset | undefined, versionId: string, style = false) => {
+            if (!asset || !versionId) return;
+            const kind: SegmentAsset["kind"] = style || asset.category === "palette" ? "palette" : asset.category === "character" ? "character" : asset.category === "prop" ? "prop" : asset.category === "environment" ? "scene" : "other";
+            const current = byId.get(asset.id) || { id: asset.id, title: asset.title, kind, versionIds: [], preview: assetPreviewUrl(asset), code: asset.palette?.code };
+            if (!current.versionIds.includes(versionId)) current.versionIds.push(versionId);
+            byId.set(asset.id, current);
+        };
+        for (const reference of detail.shotReferences || []) {
+            if (reference.shotId !== selectedShot?.id || reference.status !== "linked") continue;
+            add(reference.asset || assetByVersionId.get(reference.assetVersionId), reference.assetVersionId, reference.role === "style");
+        }
+        for (const ref of (parseSegmentSpec(segmentSpecJson) as DramaSegment | undefined)?.refs || []) add(assetByVersionId.get(ref.file), ref.file);
+        return Array.from(byId.values());
+    }, [detail.assets, detail.shotReferences, segmentSpecJson, selectedShot?.id]);
     const segmentTakeCounts = useMemo(() => {
         const counts: Record<string, number> = {};
         for (const artifact of detail.shotArtifacts || []) if (artifact.unitId === unitId) counts[artifact.shotId] = (counts[artifact.shotId] || 0) + 1;
@@ -302,7 +323,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
         const normalizedDurationSeconds = generationCapability === "video" && currentModel
             ? shotVideoSeconds({ specSeconds, shotSeconds: shotDurationSeconds, profile: modelCapabilityConfigFor(effectiveConfig, currentModel).video, segmentMaxSeconds })
             : specSeconds || shotDurationSeconds;
-        const videoPrompt = ensureShotAssetMentionPrompt(revision?.videoPrompt || "", shotAssetReferenceContext.mentionReferences);
+        // 分段表维护的段：视频提示词只是备注（生成时从分段表编译），不往里补资产 @ 引用——补了就和存下的不一样，一打开就显示「有未保存修改」。
+        const specShot = segmentShotCount(revision?.specJson || "") > 0;
+        const videoPrompt = specShot ? revision?.videoPrompt || "" : ensureShotAssetMentionPrompt(revision?.videoPrompt || "", shotAssetReferenceContext.mentionReferences);
         form.setFieldsValue({
             title: normalizeDefaultShotTitle(selectedShot?.title, Math.max(0, shotIndex)),
             plotDescription: revision?.plotDescription || selectedShot?.description || "",
@@ -401,12 +424,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
     });
 
     const generateArtifact = async () => {
-        if (!selectedShot || submittingShotIds.has(selectedShot.id)) return;
+        if (!selectedShot || submittingRef.current.has(selectedShot.id)) return;
         if (previzBlocked) {
             message.warning(PREVIZ_REQUIRED_HINT);
             return;
         }
         const submittingShot = selectedShot;
+        submittingRef.current.add(submittingShot.id);
         setSubmittingShotIds((current) => new Set(current).add(submittingShot.id));
         try {
             const values = await form.validateFields();
@@ -504,6 +528,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const fieldError = (error as { errorFields?: Array<{ errors?: string[] }> } | undefined)?.errorFields?.[0]?.errors?.[0];
             message.error(error instanceof Error ? error.message : fieldError ? `还不能生成：${fieldError}` : "生成任务提交失败");
         } finally {
+            submittingRef.current.delete(submittingShot.id);
             setSubmittingShotIds((current) => {
                 const next = new Set(current);
                 next.delete(submittingShot.id);
@@ -598,8 +623,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate(values)}>
                         <div className="workflow-shot-form-scroll thin-scrollbar">
                             <div className="workflow-form-section-heading"><span>分段脚本</span><small>一段 = 一次生成；先写清段里发生什么，再调整生成参数</small></div>
-                            {segmentSpecShots ? <p className="mb-3 rounded-md bg-surface-active px-3 py-2 text-[var(--fs-label)] leading-5 text-foreground/55">这一段由分段表维护（段内 {segmentSpecShots} 个镜头）。生成视频时提示词按 {dramaModel?.label || "项目生成模型"} 方言从分段表编译，下面的视频提示词只作备注；{activeStage === "video" ? "拆段、合并、移镜头和改台词在下面的段时间轴里做" : "拆段、合并、移镜头和改台词到「视频」阶段的段时间轴里做"}，也可以让短剧 Agent 改分段表。</p> : null}
-                            {segmentSpecShots && activeStage === "video" ? <DramaSegmentCard projectId={projectId} unitId={unitId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} durationRule={segmentRule} genreRule={genreRule} takeCounts={segmentTakeCounts} busyShotIds={busySegmentShotIds} onPickAssets={() => setAssetPickerOpen(true)} onEdited={async (selectShotId) => { if (selectShotId && selectShotId !== selectedShot.id) onSelectShot(selectShotId); await Promise.all([onRefresh(), invalidateDrama()]); }} /> : null}
+                            {segmentSpecShots ? <p className="mb-3 rounded-md bg-surface-active px-3 py-2 text-[var(--fs-label)] leading-5 text-foreground/55">这一段由分段表维护（段内 {segmentSpecShots} 个镜头）。生成视频时提示词按 {dramaModel?.label || "项目生成模型"} 方言从分段表编译，下面的视频提示词只作备注；分镜卡按这一节的戏类版式显示，拆段、合并、移镜头和逐张改分镜卡都在下面的分镜卡上做，也可以让短剧 Agent 改分段表。</p> : null}
+                            {segmentSpecShots ? <DramaSegmentCard projectId={projectId} unitId={unitId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={activeStage === "video" && creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} durationRule={segmentRule} genreRule={genreRule} takeCounts={segmentTakeCounts} busyShotIds={busySegmentShotIds} episode={unitEpisode} boundAssets={segmentAssets} onPickAssets={() => setAssetPickerOpen(true)} onEdited={async (selectShotId) => { if (selectShotId && selectShotId !== selectedShot.id) onSelectShot(selectShotId); await Promise.all([onRefresh(), invalidateDrama()]); }} /> : null}
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
                             <Form.Item name="videoPrompt" label={segmentSpecShots ? "视频提示词（备注）" : "视频提示词"} rules={segmentSpecShots ? undefined : [{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
                             <BoundAssets detail={detail} shotId={selectedShot.id} changing={changeAssetBinding.isPending} onPick={() => setAssetPickerOpen(true)} onUnlink={(reference) => changeAssetBinding.mutate({ reference })} />
@@ -932,11 +957,4 @@ async function downloadArtifact(artifact: ShotArtifact, shotTitle: string, onErr
     } catch (error) {
         onError(error instanceof Error ? `下载失败：${error.message}` : "下载失败");
     }
-}
-
-function assetPreviewUrl(asset: ProjectAsset) {
-    const representation = asset.character?.representations?.find((item) => item.role === "primary") || asset.character?.representations?.[0];
-    if (representation?.resourceId) return resourceFileUrl(representation.resourceId);
-    const resourceId = resourceIdFromStorageKey(asset.storageKey);
-    return resourceId && asset.mediaType === "image" ? resourceFileUrl(resourceId) : "";
 }

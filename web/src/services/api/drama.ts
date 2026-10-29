@@ -52,6 +52,10 @@ export type DramaSubShot = {
     anchors?: string;
     motion?: string;
     light_full?: string;
+    /** 武戏节镜头的打斗标签（力度、受击、战损、闪帧、特效、摄影机目标、站位、环境反馈、下一镜连接、核心观看体验）。 */
+    extras?: Record<string, string>;
+    /** 装段时这一镜实际用到的参考（段 refs 的 file，资产版本 ID）：子卡没图退回主卡、同人去重、名额截断之后的。旧段没有。 */
+    refs?: string[];
 };
 /** 契约 segment：一段 = 一次生成，段内多镜头。 */
 export type DramaSegment = {
@@ -292,6 +296,14 @@ export type DramaShot = {
     light?: DramaShotLight;
     lines?: DramaShotLine[];
     emotion_arc?: { id: string; phase_from?: number; phase_to?: number; continues?: string; intensity?: string; trigger?: string };
+    purpose?: string;
+    focus?: string;
+    performance?: { beats?: string[]; restraint?: string; subtext?: string };
+    sfx?: string;
+    vo?: string;
+    start_state?: string;
+    end_state?: string;
+    transition?: DramaTransition;
     /** 按小节生成时这一镜所在的小节、戏类，和技能原生输出里统一镜头表没有对应字段的标签（风格、核心情绪、场景锚点等）。 */
     section?: string;
     genre?: DramaShotGenreId;

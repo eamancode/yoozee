@@ -61,6 +61,8 @@ export type GenerationTask = {
     updatedAt: string;
     /** 逐轮续写的文本任务（生成分段、剧本优化等）：运行中也能取消，只丢正在写的一轮。 */
     dramaRun?: boolean;
+    /** 「用已写好的 N 节重新写入」的生成分段任务（服务端判定：只重新收尾、不调模型、不建计费单）：任务中心不给重试，回章节页重新写入。 */
+    refinalizeOnly?: boolean;
     billing?: {
         /** 建单时的预授权额。 */
         amountMicrocredits: number;

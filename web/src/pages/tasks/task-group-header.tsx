@@ -9,7 +9,10 @@ export type TaskGroup = { key: string; title: string; projectName: string; tasks
 export function TaskGroupHeader({ group, retrying = false, onRetryFailed }: { group: TaskGroup; retrying?: boolean; onRetryFailed: () => void }) {
     const succeeded = group.tasks.filter((task) => task.status === "succeeded").length;
     const active = group.tasks.filter((task) => task.status === "queued" || task.status === "running").length;
-    const failed = group.tasks.filter((task) => isTaskFailed(task) && task.errorCode !== CONTENT_MODERATION_ERROR_CODE && !isContentModerationError(task.error)).length;
+    const failedTasks = group.tasks.filter((task) => isTaskFailed(task) && task.errorCode !== CONTENT_MODERATION_ERROR_CODE && !isContentModerationError(task.error));
+    const failed = failedTasks.length;
+    // 「用已写好的 N 节重新写入」的任务不在这里重试（回章节页重新写入），只剩它们时不给「重试失败任务」。
+    const retryable = failedTasks.filter((task) => !task.refinalizeOnly).length;
     const title = group.projectName ? `${group.title} · ${group.projectName}` : group.title;
     return (
         <div className="task-group-head">
@@ -32,7 +35,7 @@ export function TaskGroupHeader({ group, retrying = false, onRetryFailed }: { gr
                     {!active && !failed && !succeeded ? "暂无进行中的任务" : null}
                 </span>
             </div>
-            {failed ? (
+            {retryable ? (
                 <button type="button" className="task-group-reset" disabled={retrying} onClick={onRetryFailed}>
                     <RotateCcw className={retrying ? "animate-spin" : undefined} />
                     {retrying ? "重试中..." : "重试失败任务"}

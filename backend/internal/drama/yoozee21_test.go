@@ -87,6 +87,18 @@ func asJSON(t *testing.T, v any) any {
 	return normalizeJSON(out)
 }
 
+// withoutShotRefs 去掉每镜的 refs（卡 G 加的、装段时这一镜用到的参考，Python 参考实现没有这个字段）再和样例比。
+func withoutShotRefs(t *testing.T, segs []Segment) any {
+	t.Helper()
+	out := asJSON(t, segs)
+	for _, seg := range out.([]any) {
+		for _, sh := range seg.(map[string]any)["shots"].([]any) {
+			delete(sh.(map[string]any), "refs")
+		}
+	}
+	return out
+}
+
 func diffJSON(t *testing.T, label string, got, want any) {
 	t.Helper()
 	g, w := asJSON(t, got), asJSON(t, want)
@@ -404,7 +416,7 @@ func TestOnlineOutputEndToEnd(t *testing.T) {
 				Problems []string `json:"problems"`
 			}
 			readJSONFile(t, filepath.Join(goldenDir, c.tag+"-pack-"+modelID+".json"), &want)
-			diffJSON(t, c.tag+" 装段 "+modelID, segs, want.Segments)
+			diffJSON(t, c.tag+" 装段 "+modelID, withoutShotRefs(t, segs), want.Segments)
 			if len(problems) != len(want.Problems) {
 				t.Fatalf("%s %s 装段问题不同：%v vs %v", c.tag, modelID, problems, want.Problems)
 			}
@@ -439,7 +451,25 @@ func TestPackMatchesPythonSample(t *testing.T) {
 	}
 	var want []any
 	readJSONFile(t, filepath.Join(sampleDir, "分段.json"), &want)
-	diffJSON(t, "样例项目 2.5 装段", segs, want)
+	diffJSON(t, "样例项目 2.5 装段", withoutShotRefs(t, segs), want)
+	// 每镜的 refs（Go 侧另加，Python 样例里没有）只能是段 refs 里的文件，有参考的段至少一镜写了。
+	for _, seg := range segs {
+		files, found := map[string]bool{}, false
+		for _, r := range seg.Refs {
+			files[r.File] = true
+		}
+		for _, sh := range seg.Shots {
+			for _, f := range sh.Refs {
+				if !files[f] {
+					t.Fatalf("段 %s 镜头 %s 的 refs %s 不在段 refs 里", seg.ID, sh.ShotID, f)
+				}
+				found = true
+			}
+		}
+		if len(seg.Refs) > 0 && !found {
+			t.Fatalf("段 %s 有参考但每镜都没写 refs", seg.ID)
+		}
+	}
 	m20, _ := ModelByID("seedance-2.0")
 	in.Model = m20
 	segs20, problems20 := Pack(in)

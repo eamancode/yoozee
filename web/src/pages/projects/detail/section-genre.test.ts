@@ -42,15 +42,41 @@ test("改为武戏只动这一节；改回文戏带上同一场相连的武戏�
 });
 
 test("确认框写明覆盖、重切口径和产物过期", () => {
-    const toWuxi = sectionGenreConfirm([list[1]], "wuxi", 30, () => 2);
+    const toWuxi = sectionGenreConfirm(list, [list[1]], "wuxi", 30, () => 2);
     assert.equal(toWuxi.title, "把 E01S02-P1 改为武戏？");
     assert.match(toWuxi.lines[0], /按武戏口径重新切成 1～N 个武戏小节（N 秒 N 镜，每节不超过 30 秒）/);
     assert.match(toWuxi.lines[0], /直接覆盖现在的文戏版/);
     assert.match(toWuxi.lines[1], /段 S02 会换成武戏内容，它的分镜图、动作预演和视频会标成过期/);
     assert.ok(toWuxi.lines.some((line) => line.includes("已有 2 个生成结果（分镜图、预演或视频）")));
-    const toWenxi = sectionGenreConfirm(sectionGenreSpan(list, 2), "wenxi", 15, () => 0);
+    const toWenxi = sectionGenreConfirm(list, sectionGenreSpan(list, 2), "wenxi", 15, () => 0);
     assert.equal(toWenxi.title, "把 E01S02-P2、E01S02-P3 改回文戏？");
     assert.match(toWenxi.lines[0], /一起改回文戏/);
     assert.ok(!toWenxi.lines.some((line) => line.includes("生成结果")));
     assert.equal(toWenxi.okText, "改回文戏并重写");
+});
+
+test("确认框按实际影响写同场其他段：可能因场景绑定变化而过期，不再说其余小节都不动", () => {
+    const takes: Record<string, number> = { "shot-S03": 1 };
+    const confirm = sectionGenreConfirm(list, [list[1]], "wuxi", 30, (id) => takes[id] || 0);
+    const sameScene = confirm.lines.find((line) => line.includes("同一场"));
+    assert.ok(sameScene, "同场有别的段时要列出来");
+    assert.match(sameScene, /同一场 E01S02 的 S03、S04 不重写，但可能因场景绑定变化而过期/);
+    assert.match(sameScene, /其中 S03 已有生成结果/);
+    assert.match(sameScene, /其他场的段和产物不动/);
+    assert.ok(!confirm.lines.some((line) => line.includes("其余小节的段和产物不动")));
+    const alone = sectionGenreConfirm(list, [list[0]], "wuxi", 30, () => 0);
+    assert.ok(alone.lines.includes("这一场没有别的段；其他场的段和产物不动。"));
+});
+
+test("确认框的小节、场按项目编号显示", () => {
+    const confirm = sectionGenreConfirm(
+        list,
+        [list[1]],
+        "wuxi",
+        30,
+        () => 0,
+        (text) => text.replace("E01S", "E02S"),
+    );
+    assert.equal(confirm.title, "把 E02S02-P1 改为武戏？");
+    assert.ok(confirm.lines.some((line) => line.includes("同一场 E02S02 的")));
 });

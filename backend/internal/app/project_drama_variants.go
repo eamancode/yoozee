@@ -468,16 +468,24 @@ func (s *Service) DeleteDramaAssetVariant(userID string, projectID string, varia
 }
 
 // variantShotReferencesConflict 是这几张角色卡（主卡和它的子卡，或单张子卡）还被这个项目的镜头引用时的 409：列出是哪张卡、哪些镜头。
+// 镜头按项目编号写（第 2 集的段写「E02S01-P1（S01）」，见 assetShotReferenceLabels），多集项目里能看出是哪一集的段。
 func (s *Service) variantShotReferencesConflict(projectID string, assets []model.Asset) error {
 	var parts []string
+	var units []model.ProjectUnit
 	for _, a := range assets {
-		titles, err := s.repo.ProjectAssetShotReferenceTitles(projectID, a.ID)
+		refs, err := s.repo.ProjectAssetShotReferences(projectID, a.ID)
 		if err != nil {
 			return err
 		}
-		if len(titles) == 0 {
+		if len(refs) == 0 {
 			continue
 		}
+		if units == nil {
+			if units, err = s.repo.ProjectUnits(projectID); err != nil {
+				return err
+			}
+		}
+		titles := assetShotReferenceLabels(refs, units)
 		shown := titles[:min(8, len(titles))]
 		more := ""
 		if len(titles) > len(shown) {

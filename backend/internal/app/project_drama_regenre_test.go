@@ -166,6 +166,10 @@ func TestSectionGenreChangeToWuxiAndBack(t *testing.T) {
 	if upstream.calls != 2 || !slices.Equal(upstream.sections, []string{"E01S02-P2", "E01S02-P3"}) {
 		t.Fatalf("只写两个武戏节：%d %v", upstream.calls, upstream.sections)
 	}
+	// 回合标记带上这次是改为武戏（侧栏写「正在改为武戏」，不当成重写问题小节）。
+	if stream := textStream(t, svc, task.ID); !strings.Contains(stream, `"regenre":"wuxi"`) {
+		t.Fatalf("改武戏的回合标记带 regenre：%.300s", stream)
+	}
 	if upstream.histories[0] != 0 || upstream.histories[1] != 2 {
 		t.Fatalf("武戏对话不带文戏节的历史、第二节接着武戏对话：%v", upstream.histories)
 	}
@@ -217,6 +221,10 @@ func TestSectionGenreChangeToWuxiAndBack(t *testing.T) {
 		if seg.Spec.Dur > 30 {
 			t.Fatalf("武戏段不超过 30 秒：%.0f", seg.Spec.Dur)
 		}
+		// 武戏段标题和文戏段一样带内容说明（取核心观看体验），不只剩段号。
+		if seg.Spec.Title == "" || !strings.HasPrefix(seg.Title, seg.Spec.ID+" ") {
+			t.Fatalf("武戏段标题带内容说明：%q / %q", seg.Spec.Title, seg.Title)
+		}
 	}
 	compiled, err := svc.CompileProjectShot("user-1", project.ID, after[2].ShotID, CompileProjectShotRequest{})
 	if err != nil {
@@ -261,7 +269,7 @@ func TestSectionGenreChangeToWuxiAndBack(t *testing.T) {
 	// 改回文戏：点哪一个武戏节都把这一串一起改回，得到原来的 1 节文戏 30，第二个武戏节的段删掉。
 	wuxiSegments, _ := svc.DramaSegments("user-1", project.ID, unit.ID)
 	upstream.calls, upstream.prompts, upstream.sections, upstream.histories = 0, nil, nil, nil
-	_, back := queueRegenreTask(t, svc, db, project, unit, server.URL, "E01S02-P3", "wenxi")
+	backTask, back := queueRegenreTask(t, svc, db, project, unit, server.URL, "E01S02-P3", "wenxi")
 	if back.Genre != drama.ShotGenreWenxi30 || !slices.Equal(back.Sections, []string{"E01S02-P2"}) {
 		t.Fatalf("改回文戏得 1 节文戏 30：%+v", back)
 	}
@@ -270,6 +278,9 @@ func TestSectionGenreChangeToWuxiAndBack(t *testing.T) {
 	}
 	if upstream.calls != 1 || strings.Contains(upstream.prompts[0], "yz-shots-wuxi") || upstream.histories[0] != 4 {
 		t.Fatalf("只写回 1 节、接着文戏对话：%d %v", upstream.calls, upstream.histories)
+	}
+	if stream := textStream(t, svc, backTask.ID); !strings.Contains(stream, `"regenre":"wenxi"`) {
+		t.Fatalf("改回文戏的回合标记带 regenre：%.300s", stream)
 	}
 	if got := sectionGenresOf(t, svc, project, unit); !slices.Equal(got, []string{"E01S01-P1/wenxi30/[2 11]", "E01S02-P1/wenxi30/[13 27]", "E01S02-P2/wenxi30/[28 42]"}) {
 		t.Fatalf("改回文戏后：%v", got)

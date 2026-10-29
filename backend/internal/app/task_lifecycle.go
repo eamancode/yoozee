@@ -51,6 +51,11 @@ func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.T
 	if task.Status != model.TaskStatusFailed && task.Status != model.TaskStatusCancelled {
 		return nil, errors.New("only failed or cancelled tasks can be retried")
 	}
+	// 只重新收尾的生成分段任务（运行参数是建任务时服务端写进输入的）不走通用重试：重试会按普通任务建单冻结，
+	// 再被直连渠道的防重发保护拦下，订单停在待核对。要再写入回章节页点「用已写好的 N 节重新写入」（不建单）。
+	if dramaRunCallsNoUpstream(taskDramaRun(task.InputJSON)) {
+		return nil, BadAuthRequest("这是「用已写好的各节重新写入」的任务，不在任务中心重试：回到章节页的「生成分段」侧栏点「重新写入」，不调模型、不扣费")
+	}
 	if task.ProviderCancelStatus == model.ProviderCancelStatusRequested {
 		return nil, BadAuthRequest("上游取消状态仍在确认中，请确认费用结果后再重试")
 	}

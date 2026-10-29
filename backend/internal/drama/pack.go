@@ -734,6 +734,34 @@ func wuxiShotText(sh *Shot, cp *CompileProfile) string {
 	}, func(x string) bool { return strings.TrimSpace(x) == "" }), "")
 }
 
+// shotRefFiles 是一镜查出的参考里最后留在段 refs 里的文件：同一个人段里只挂一张（dedupeIdentity 可能换成这个人的另一张图），
+// 按人对回段里留下的那张；被名额截掉的不算。按段 refs 的顺序、去重。
+func shotRefFiles(own []Ref, kept []Ref) []string {
+	var out []string
+	for _, k := range kept {
+		for _, r := range own {
+			if r.File == k.File || (r.Role == "identity" && k.Role == "identity" && refPerson(r) == refPerson(k)) {
+				if !slices.Contains(out, k.File) {
+					out = append(out, k.File)
+				}
+				break
+			}
+		}
+	}
+	return out
+}
+
+// segmentTitle 是段标题里段号后面的内容说明：取首镜的镜头目的（即梦每镜都写）；按小节生成的段首镜没写目的时，
+// 武戏取这一节的核心观看体验，文戏 15（7.3 不写镜头目的）取首镜的画面动作，不让段标题只剩段号。
+func segmentTitle(shots []*Shot) string {
+	first := shots[0]
+	title := strings.TrimSpace(first.Purpose)
+	if title == "" && first.Section != "" {
+		title = firstNonBlank(first.Extras["核心观看体验"], first.Action)
+	}
+	return runePrefix(title, 40)
+}
+
 func soundText(sh *Shot, cp *CompileProfile) string {
 	s := strings.TrimSpace(sh.Sfx)
 	appendPart := func(part string) {
@@ -1309,6 +1337,8 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 	at := 0.0
 	var segShots []SubShot
 	var refs []Ref
+	// shotRefs 是每一镜自己查出的参考（段的 refs 是它们的并集再去重、截断），装完后写回各镜的 Refs。
+	shotRefs := make([][]Ref, 0, len(shots))
 	var voices []Voice
 	var risk []string
 	for i, sh := range shots {
@@ -1370,6 +1400,7 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		}
 		segShots = append(segShots, s)
 		r, v := findRefs(sh, bible, scene, p.lines)
+		shotRefs = append(shotRefs, r)
 		refs = append(refs, r...)
 		voices = append(voices, v...)
 		at += e
@@ -1404,6 +1435,9 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 	if lim := m.Refs.Audios; lim != nil && len(voices) > *lim {
 		voices = voices[:*lim]
 	}
+	for i := range segShots {
+		segShots[i].Refs = shotRefFiles(shotRefs[i], refs)
+	}
 	last := shots[len(shots)-1]
 	// 结束状态末尾的标点去掉再接视线，模板负责收句（不出「。；」）。
 	rules := strings.TrimRight(strings.TrimSpace(last.EndState), "。；;，,！!？? ")
@@ -1433,7 +1467,7 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 	for _, sh := range shots {
 		shotIDs = append(shotIDs, sh.ID)
 	}
-	seg := Segment{ID: segID, Scene: sceneID, Title: runePrefix(shots[0].Purpose, 40), Dur: float64(dur), Mode: mode, Shots: segShots, ShotIDs: shotIDs, Profile: p.in.ProfileID}
+	seg := Segment{ID: segID, Scene: sceneID, Title: segmentTitle(shots), Dur: float64(dur), Mode: mode, Shots: segShots, ShotIDs: shotIDs, Profile: p.in.ProfileID}
 	seg.Jimeng = jimengBlock(scene, shots, p.in.Bible, segShots)
 	seg.Cast = castLines(shots, refs, p.in.Bible, p.in.FileExists, cp.Cast.LockMax)
 	seg.ScreenText = screenTextsFor(shots, scene)

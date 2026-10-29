@@ -3,9 +3,10 @@ import { Button } from "antd";
 import { Callout } from "@/components/ui/product/callout";
 import type { DramaSceneRuleNotice, DramaShotIssue, DramaShotlistView, DramaStepOutcome } from "@/services/api/drama";
 
-import { storyboardOutcomeSummary, streamSceneGroups, type ShotStreamState, type StoryboardRunStop, type StreamScene } from "./chapter-shot-stream";
+import { storyboardOutcomeSummary, storyboardRunningLabel, streamGroupMeta, streamSceneGroups, streamTurnCount, type ShotStreamState, type StoryboardRunStop, type StreamScene } from "./chapter-shot-stream";
 import { DramaRunPanel } from "./drama-run-panel";
 import { issueSections } from "./shot-issues";
+import { projectSceneCode } from "./unit-numbering";
 
 type ChapterStoryboardRunPanelProps = {
     open: boolean;
@@ -32,6 +33,8 @@ type ChapterStoryboardRunPanelProps = {
     onOpenProduction: () => void;
     /** 切场规则改变后，本章已有的镜头表 / 色彩脚本 / 色卡还是旧场次编号：提示重新生成。 */
     sceneNotice?: DramaSceneRuleNotice;
+    /** 本单元在项目场次表里的集号：场、小节、镜头号按它显示成项目编号（与场次条一致），0 / 1 原样。 */
+    episode?: number;
 };
 
 /**
@@ -61,11 +64,12 @@ export function ChapterStoryboardRunPanel({
     accepting,
     onOpenProduction,
     sceneNotice,
+    episode = 0,
 }: ChapterStoryboardRunPanelProps) {
+    const code = (text: string) => projectSceneCode(text, episode);
     const draftErrors: DramaShotIssue[] = shotlist?.draft ? shotlist.issues || shotlist.check.items.filter((item) => item.level === "error") : [];
     // 只有按小节生成、存了每节原样输出的镜头表能只重写几节；旧镜头表（按场生成、场次规则更新前写的）只能整章重新生成。
     const problemSections = shotlist?.draft && shotlist.sections?.length && !sceneNotice?.shotlist ? issueSections(shotlist.issues) : [];
-    const rewriting = stream.only?.length ? stream.only : undefined;
     const parse = shotlist?.check.parse;
     const failed = stop?.kind === "failed" ? stop : undefined;
     const repackable = Boolean(shotlist && !shotlist.draft);
@@ -78,17 +82,13 @@ export function ChapterStoryboardRunPanel({
         <>
             {running ? (
                 <>
-                    <span className="font-medium text-foreground/80">
-                        {rewriting
-                            ? `正在重写问题小节 ${turnName(stream.scenes[stream.scenes.length - 1]) || rewriting[0]}（${Math.max(1, rewriting.indexOf(turnName(stream.scenes[stream.scenes.length - 1])) + 1)}/${rewriting.length}）`
-                            : stream.total
-                              ? `正在写第 ${Math.max(1, stream.current)}/${stream.total} 节`
-                              : stream.shotCount
-                                ? "正在收尾"
-                                : "等待模型开始输出"}
-                    </span>
-                    <span>·</span>
-                    <span>已出 {stream.shotCount} 镜</span>
+                    <span className="font-medium text-foreground/80">{storyboardRunningLabel(stream, code)}</span>
+                    {stream.shotCount ? (
+                        <>
+                            <span>·</span>
+                            <span>已出 {stream.shotCount} 镜</span>
+                        </>
+                    ) : null}
                     {stage ? (
                         <>
                             <span>·</span>
@@ -130,13 +130,13 @@ export function ChapterStoryboardRunPanel({
             listLabel="流式镜头"
             groups={streamSceneGroups(stream).map((group) => ({
                 key: `${group.scene}-${group.sections[0]?.index}`,
-                title: group.scene ? `场 ${group.scene}` : `第 ${group.sections[0]?.index} 轮`,
+                title: group.scene ? `场 ${code(group.scene)}` : `第 ${group.sections[0]?.index} 轮`,
                 heading: group.heading,
-                meta: `${group.sections.some((turn) => turn.section) ? `${group.sections.length} 节 · ` : ""}${group.sections.reduce((sum, turn) => sum + turn.shots.length, 0)} 镜`,
+                meta: streamGroupMeta(group.sections),
                 body: (
                     <div className="space-y-2">
                         {group.sections.map((turn) => (
-                            <StreamSectionBlock key={turn.index} turn={turn} running={running && turn.index === stream.current} />
+                            <StreamSectionBlock key={turn.index} turn={turn} running={running && turn.index === stream.current} code={code} />
                         ))}
                     </div>
                 ),
@@ -167,16 +167,16 @@ export function ChapterStoryboardRunPanel({
                     <ul className="max-h-56 space-y-1 overflow-y-auto pl-0" aria-label="镜头表检查问题">
                         {draftErrors.map((item, index) => (
                             <li key={`${item.rule}-${item.shotId || "all"}-${index}`} className="list-none rounded-md bg-surface-active px-2.5 py-1.5">
-                                <span className="font-medium text-foreground/85">{item.fix === "add_line" ? item.section || item.scene : item.shotId || item.section || item.scene || "整章"}</span>
+                                <span className="font-medium text-foreground/85">{code((item.fix === "add_line" ? item.section || item.scene : item.shotId || item.section || item.scene) || "整章")}</span>
                                 <span className="ml-2 font-mono text-[var(--fs-micro)] text-foreground/50">{item.rule}</span>
-                                <div>{item.message}</div>
+                                <div>{code(item.message)}</div>
                             </li>
                         ))}
                     </ul>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                         {problemSections.length ? (
                             <Button size="small" disabled={accepting} onClick={() => onRegenerateSections(problemSections)}>
-                                重新生成问题小节（{problemSections.join("、")}）
+                                重新生成问题小节（{problemSections.map(code).join("、")}）
                             </Button>
                         ) : (
                             <Button size="small" disabled={accepting} onClick={onRegenerate}>
@@ -218,7 +218,7 @@ export function ChapterStoryboardRunPanel({
                     }
                 >
                     {outcome.warnings ? `镜头表检查有 ${outcome.warnings} 条提醒，可在分镜制作页按段查看。` : "镜头表检查没有问题。"}
-                    {outcome.notes?.length ? ` ${outcome.notes.join("；")}` : ""}
+                    {outcome.notes?.length ? ` ${outcome.notes.map(code).join("；")}` : ""}
                     {repackable ? " 之后改了项目单段时长、资产或编译档案，点「重新装段」按当前设置重装，不调模型。" : ""}
                 </Callout>
             ) : repackable ? (
@@ -230,23 +230,17 @@ export function ChapterStoryboardRunPanel({
     );
 }
 
-/** 一轮在状态行里的叫法：小节编号，旧的整章生成是场编号。 */
-function turnName(turn?: StreamScene) {
-    return turn?.section || turn?.scene || "";
-}
-
 /** 侧栏里的一节：写完转出镜头后按镜头列出，还在写时显示技能原文的最后几行。 */
-function StreamSectionBlock({ turn, running }: { turn: StreamScene; running: boolean }) {
+function StreamSectionBlock({ turn, running, code }: { turn: StreamScene; running: boolean; code: (text: string) => string }) {
+    const count = streamTurnCount(turn, running);
     return (
         <div>
             {turn.section ? (
                 <div className="mb-1 flex items-center gap-2 text-[var(--fs-micro)] text-foreground/55">
-                    <span className="font-mono font-medium text-foreground/75">{turn.section}</span>
+                    <span className="font-mono font-medium text-foreground/75">{code(turn.section)}</span>
                     {turn.genre ? <span>{turn.genre}</span> : null}
                     {turn.est ? <span className="tabular-nums">约 {Math.round(turn.est)} 秒</span> : null}
-                    <span className="ml-auto tabular-nums">
-                        {turn.shots.length} 镜{turn.attempt > 1 ? ` · 第 ${turn.attempt} 次` : ""}
-                    </span>
+                    <span className="ml-auto tabular-nums">{[count, turn.attempt > 1 ? `第 ${turn.attempt} 次` : ""].filter(Boolean).join(" · ")}</span>
                 </div>
             ) : null}
             {turn.shots.length ? (
@@ -256,7 +250,7 @@ function StreamSectionBlock({ turn, running }: { turn: StreamScene; running: boo
                             <div className="flex gap-2 text-[var(--fs-micro)] text-foreground/45">
                                 <span className="tabular-nums">#{shot.shotNumber}</span>
                                 {shot.size ? <span>{shot.size}</span> : null}
-                                {shot.id ? <span className="font-mono">{shot.id}</span> : null}
+                                {shot.id ? <span className="font-mono">{code(shot.id)}</span> : null}
                             </div>
                             <div className="line-clamp-2 text-foreground/80">{shot.plot || "（没写画面）"}</div>
                             {shot.dialogue ? <div className="line-clamp-2 text-foreground/55">{shot.dialogue}</div> : null}
@@ -264,7 +258,7 @@ function StreamSectionBlock({ turn, running }: { turn: StreamScene; running: boo
                     ))}
                 </ol>
             ) : turn.raw ? (
-                <pre className="max-h-32 overflow-hidden whitespace-pre-wrap rounded-md border border-dashed border-border/60 px-2.5 py-1.5 font-sans text-xs leading-5 text-foreground/55" aria-label={`${turn.section || turn.scene} 原文`}>
+                <pre className="max-h-32 overflow-hidden whitespace-pre-wrap rounded-md border border-dashed border-border/60 px-2.5 py-1.5 font-sans text-xs leading-5 text-foreground/55" aria-label={`${code(turn.section || turn.scene)} 原文`}>
                     {turn.raw}
                 </pre>
             ) : (
