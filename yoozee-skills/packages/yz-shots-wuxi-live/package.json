@@ -1,0 +1,17 @@
+{
+  "id": "yz-shots-wuxi-live",
+  "step": "chapter.shots#wuxi",
+  "contract": "section.wuxi@1",
+  "profiles": [
+    "duanju-shiga",
+    "live-realism"
+  ],
+  "version": "1.0.0",
+  "files": [
+    "SKILL.md",
+    "cards/01-导演层v6.3与v7.0.md",
+    "cards/02-短剧模式D与站位闪帧.md",
+    "cards/03-物理与打击感.md"
+  ],
+  "eval": []
+}

@@ -1,0 +1,19 @@
+{
+  "id": "yz-shots-wuxi",
+  "step": "chapter.shots#wuxi",
+  "contract": "section.wuxi@1",
+  "profiles": [
+    "action-epic",
+    "anime-3d",
+    "game-ip"
+  ],
+  "version": "1.0.0",
+  "files": [
+    "SKILL.md",
+    "cards/01-万能模板v5.md",
+    "cards/02-导演层v6.3与v7.0.md",
+    "cards/03-短剧模式D与站位闪帧.md",
+    "cards/04-画风与成品示例.md"
+  ],
+  "eval": []
+}
