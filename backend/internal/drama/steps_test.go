@@ -115,8 +115,18 @@ func TestStepTable(t *testing.T) {
 		if !ok || s.SkillBudgetChars != 40000 || s.SkillLinkedFiles != 4 || s.Turns.Count == nil || s.Scope != StepScopeUnit || s.Contract != g.Contract {
 			t.Fatalf("戏类步骤 %s：%+v", g.Step, s)
 		}
-		if want := map[string]string{ShotGenreWenxi15: "yz-shots-wenxi15", ShotGenreWenxi30: "yz-shots-wenxi30", ShotGenreWuxi: ""}[g.ID]; s.DefaultSkill != want {
+		if want := map[string]string{ShotGenreWenxi15: "yz-shots-wenxi15", ShotGenreWenxi30: "yz-shots-wenxi30", ShotGenreWuxi: "yz-shots-wuxi"}[g.ID]; s.DefaultSkill != want {
 			t.Fatalf("%s 默认技能 %q", g.Step, s.DefaultSkill)
+		}
+		// 武戏按风格档案分两个包：仿真人档案（真人剧、短剧视感）用去掉 CG / 仙法 / 魔物的精简切片，其余用完整切片。
+		for _, p := range BuiltinProfileIDs() {
+			want := s.DefaultSkill
+			if g.ID == ShotGenreWuxi && slicesContains(WuxiLiveProfiles, p) {
+				want = "yz-shots-wuxi-live"
+			}
+			if got := s.DefaultSkillFor(p); got != want {
+				t.Fatalf("%s 档案 %s 默认技能 %q，应为 %q", g.Step, p, got, want)
+			}
 		}
 	}
 	if g := DefaultShotGenre(15); g.ID != ShotGenreWenxi15 {

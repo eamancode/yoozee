@@ -205,6 +205,14 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const videoProfile = generationCapability === "video" ? activeProfile.video : undefined;
     // 段卡拆合、改时长时按当前视频渠道的时长档位取段长，和下面提交前的时长校验同一份能力画像。
     const segmentRule = useMemo(() => generationCapability === "video" && dramaModel ? segmentDurationRule(segmentMaxSeconds, videoProfile?.duration, segmentLimitLabel) : undefined, [dramaModel, generationCapability, segmentLimitLabel, segmentMaxSeconds, videoProfile?.duration]);
+    // 改戏类和章节页生成分段用同一个段长 rule（项目默认视频模型的渠道段长），不跟工作台当前选的视频模型走：后端按它选默认戏类、切小节，
+    // 和存下的镜头表对得上。
+    const projectSegmentVideoModel = dramaModel ? projectVideoModel(effectiveConfig, detail.project.defaultVideoModel, dramaModels.data, dramaModel) : "";
+    const genreRule = useMemo(() => {
+        if (!dramaModel) return undefined;
+        const rule = segmentDurationRule(segmentMaxSeconds, projectSegmentVideoModel ? modelCapabilityConfigFor(effectiveConfig, projectSegmentVideoModel).video?.duration : undefined, segmentLimitLabel);
+        return { maxSeconds: rule.maxSeconds, minSeconds: rule.minSeconds };
+    }, [dramaModel, effectiveConfig, projectSegmentVideoModel, segmentLimitLabel, segmentMaxSeconds]);
     const segmentTakeCounts = useMemo(() => {
         const counts: Record<string, number> = {};
         for (const artifact of detail.shotArtifacts || []) if (artifact.unitId === unitId) counts[artifact.shotId] = (counts[artifact.shotId] || 0) + 1;
@@ -591,7 +599,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         <div className="workflow-shot-form-scroll thin-scrollbar">
                             <div className="workflow-form-section-heading"><span>分段脚本</span><small>一段 = 一次生成；先写清段里发生什么，再调整生成参数</small></div>
                             {segmentSpecShots ? <p className="mb-3 rounded-md bg-surface-active px-3 py-2 text-[var(--fs-label)] leading-5 text-foreground/55">这一段由分段表维护（段内 {segmentSpecShots} 个镜头）。生成视频时提示词按 {dramaModel?.label || "项目生成模型"} 方言从分段表编译，下面的视频提示词只作备注；{activeStage === "video" ? "拆段、合并、移镜头和改台词在下面的段时间轴里做" : "拆段、合并、移镜头和改台词到「视频」阶段的段时间轴里做"}，也可以让短剧 Agent 改分段表。</p> : null}
-                            {segmentSpecShots && activeStage === "video" ? <DramaSegmentCard projectId={projectId} unitId={unitId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} durationRule={segmentRule} takeCounts={segmentTakeCounts} busyShotIds={busySegmentShotIds} onPickAssets={() => setAssetPickerOpen(true)} onEdited={async (selectShotId) => { if (selectShotId && selectShotId !== selectedShot.id) onSelectShot(selectShotId); await Promise.all([onRefresh(), invalidateDrama()]); }} /> : null}
+                            {segmentSpecShots && activeStage === "video" ? <DramaSegmentCard projectId={projectId} unitId={unitId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} durationRule={segmentRule} genreRule={genreRule} takeCounts={segmentTakeCounts} busyShotIds={busySegmentShotIds} onPickAssets={() => setAssetPickerOpen(true)} onEdited={async (selectShotId) => { if (selectShotId && selectShotId !== selectedShot.id) onSelectShot(selectShotId); await Promise.all([onRefresh(), invalidateDrama()]); }} /> : null}
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
                             <Form.Item name="videoPrompt" label={segmentSpecShots ? "视频提示词（备注）" : "视频提示词"} rules={segmentSpecShots ? undefined : [{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
                             <BoundAssets detail={detail} shotId={selectedShot.id} changing={changeAssetBinding.isPending} onPick={() => setAssetPickerOpen(true)} onUnlink={(reference) => changeAssetBinding.mutate({ reference })} />

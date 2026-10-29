@@ -202,6 +202,19 @@
     "delivery_note": " How each line is delivered (volume, pitch, emotion, pace, breath) comes only from the acting described in the scene, never from the audio references; do not reuse any words from them.",
     "sound_default": "quiet room tone"
   },
+  "wuxi": {
+    "target": "摄影机对准{target}。",
+    "station": "站位：{station}。",
+    "action": "{action}{tags}。",
+    "tags": "（{tags}）",
+    "face": "表情：{face}。",
+    "fx": "特效：{fx}。",
+    "env": "环境反馈：{env}。",
+    "light": "光影：{light}。",
+    "next": "接下一镜：{next}。",
+    "experience": "本节核心观看体验：{text}。",
+    "constraint": "打斗约束：动作先于特效，接触先于爆炸，受力方向与攻击方向一致；双方左右站位与距离保持连续，不无故互换；特效不遮挡人物轮廓与接触点；全片慢镜头最多一个；不出现文字、字幕和拟声字。"
+  },
   "risk": {
     "limb_distortion": "⚠️肢体结构正确：五指清晰、关节不畸形、身体不僵硬、不扭曲。",
     "model_clip": "⚠️武器、头发、身体不穿模，膝盖不穿透地面，身体不互相穿透。",

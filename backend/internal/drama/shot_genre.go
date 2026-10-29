@@ -4,7 +4,8 @@ import "strings"
 
 // 戏类（M8 卡 F）：生成分段按小节写，每个小节有一个戏类，戏类决定用哪一整套分镜技能、怎么切小节、怎么把技能原生输出转成统一镜头表。
 // 不做自动判断：每场默认文戏，按项目视频模型单段上限选文戏 15（≤15 秒，7.3.json）或文戏 30（>15 秒，即梦分镜）；
-// 武戏（skill-complete-v7）留给卡 E 在分镜制作里把某一节改过去，这里只占好位置（步骤行、绑定格）。
+// 武戏（skill-complete-v7，M8 卡 E）由用户在分镜制作里把某一节改过去：这一节的剧本范围按武戏口径重切重写（GenreOverride），
+// 改回文戏同样重切重写。一章可以同时有文戏节和武戏节，一个戏类一条对话（见 step_section_shots.go）。
 //
 // 戏类和技能的绑定沿用 drama_step_bindings（风格档案 × 步骤），步骤 ID 用「chapter.shots#<戏类>」后缀，不改表。
 
@@ -28,14 +29,12 @@ type ShotGenre struct {
 	// Step 是绑定表里这个戏类的步骤 ID；Contract 是这个戏类的输出契约（技能原生格式，平台只规定小节边界）。
 	Step     string `json:"step"`
 	Contract string `json:"contract"`
-	// Reserved 表示只占了位置、还不能生成（武戏，卡 E）。
-	Reserved bool `json:"reserved,omitempty"`
 }
 
 var shotGenres = []ShotGenre{
 	{ID: ShotGenreWenxi15, Label: "文戏 15", MaxSeconds: 15, MinSeconds: 10, TargetSeconds: 12.5, MaxLines: 2, ShortLinesChars: 15, Step: StepChapterShots + "#" + ShotGenreWenxi15, Contract: "section.wenxi15@1"},
 	{ID: ShotGenreWenxi30, Label: "文戏 30", MaxSeconds: 30, MinSeconds: 4, TargetSeconds: 25, Step: StepChapterShots + "#" + ShotGenreWenxi30, Contract: "section.wenxi30@1"},
-	{ID: ShotGenreWuxi, Label: "武戏", MaxSeconds: 30, MinSeconds: 4, TargetSeconds: 15, Step: StepChapterShots + "#" + ShotGenreWuxi, Contract: "section.wuxi@1", Reserved: true},
+	{ID: ShotGenreWuxi, Label: "武戏", MaxSeconds: 30, MinSeconds: 4, TargetSeconds: 15, Step: StepChapterShots + "#" + ShotGenreWuxi, Contract: "section.wuxi@1"},
 }
 
 // ShotGenres 是全部戏类（后台流程技能页按这个顺序列）。
@@ -69,6 +68,13 @@ func DefaultShotGenre(maxSeconds int) ShotGenre {
 	g, _ := ShotGenreByID(id)
 	return g
 }
+
+// IsWenxi 是文戏（文戏 15 / 文戏 30）：改回文戏、默认戏类都按模型上限在这两个里选。
+func (g ShotGenre) IsWenxi() bool { return g.ID == ShotGenreWenxi15 || g.ID == ShotGenreWenxi30 }
+
+// WuxiLiveProfiles 是武戏用精简切片（yz-shots-wuxi-live：去掉 CG 画质串、仙法、魔物、能量化伤痕）的风格档案：真人剧、短剧视感。
+// 其余档案用完整切片 yz-shots-wuxi。绑定表里配了的格以绑定为准。
+var WuxiLiveProfiles = []string{"duanju-shiga", "live-realism"}
 
 // SectionLimits 是这个戏类在给定模型单段上限下一节的时长范围 [lo, hi]。
 func (g ShotGenre) SectionLimits(modelMax int) (float64, float64) {

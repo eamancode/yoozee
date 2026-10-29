@@ -84,6 +84,32 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, result)
 	})
+	// 小节改戏类（M8 卡 E）：分镜制作里把一节改成武戏 / 改回文戏，按新戏类重切这一节的剧本范围并建生成分段任务（只重写受影响的节）。
+	r.POST("/projects/:id/units/:unitId/drama/sections/:sectionId/genre", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		policy, available := loadRuntimePolicy(c, svc)
+		if !available || !enforceRateLimit(c, "tasks:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req service.DramaSectionGenreRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("改戏类的请求格式无效"))
+			return
+		}
+		req.TraceID = TraceID(c)
+		req.RequestID = RequestID(c)
+		result, err := svc.ChangeDramaSectionGenre(user.ID, c.Param("id"), c.Param("unitId"), c.Param("sectionId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
 	// 项目级步骤（剧本优化）：来源单元、改编方式、集数由请求点名，一个运行一个任务。
 	r.POST("/projects/:id/drama/steps/:step/run", func(c *gin.Context) {
 		user, err := currentUser(c, svc)

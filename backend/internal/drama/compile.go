@@ -217,6 +217,9 @@ func compileSeedance(seg Segment, m Model, style, acting string, cp *CompileProf
 	if rules := seg.RulesText(); rules != "" {
 		head += rules
 	}
+	if exp := wuxiExperience(seg, cp); exp != "" {
+		head += exp
+	}
 	lines := []string{head}
 	anchor := -1
 	if m.ID == "seedance-2.5" && seg.Dur > 15 && len(seg.Shots) > 1 {
@@ -242,7 +245,12 @@ func compileSeedance(seg Segment, m Model, style, acting string, cp *CompileProf
 			}
 		}
 		if len(lead) > 0 {
-			text = strings.Join(lead, "，") + "。" + text
+			sep := "，"
+			if seg.Genre == ShotGenreWuxi {
+				// 武戏每镜先写「景别 / 焦段 / 运镜」。
+				sep = " / "
+			}
+			text = strings.Join(lead, sep) + "。" + text
 		}
 		if !hasSentenceEnd(text) {
 			text += "。"
@@ -283,6 +291,9 @@ func compileSeedance(seg Segment, m Model, style, acting string, cp *CompileProf
 	if seg.Jimeng != nil && seg.Jimeng.GroupVariation != "" {
 		lines = append(lines, fill(sp.GroupVariation, "text", seg.Jimeng.GroupVariation))
 	}
+	if seg.Genre == ShotGenreWuxi && strings.TrimSpace(cp.Wuxi.Constraint) != "" {
+		lines = append(lines, cp.Wuxi.Constraint)
+	}
 	identity, readable := sp.IdentityRefs, sp.TextRefs
 	if len(seg.ScreenText) > 0 {
 		readable = sp.TextRegistered
@@ -315,6 +326,9 @@ func compileH3(seg Segment, m Model, style, acting string, cp *CompileProfile) (
 	}
 	if rules := seg.RulesText(); rules != "" {
 		head += rules + " "
+	}
+	if exp := wuxiExperience(seg, cp); exp != "" {
+		head += exp + " "
 	}
 	var body strings.Builder
 	body.WriteString("integrated_multimodal_description:\n")
@@ -404,6 +418,9 @@ func compileH3(seg Segment, m Model, style, acting string, cp *CompileProfile) (
 	}
 	body.WriteString("\noverall_soundscape: " + sound + "\n\nnon_diegetic_music: N/A")
 	var warns []string
+	if seg.Genre == ShotGenreWuxi && strings.TrimSpace(cp.Wuxi.Constraint) != "" {
+		warns = append(warns, cp.Wuxi.Constraint)
+	}
 	for _, t := range riskTags(seg, cp) {
 		warns = append(warns, cp.Risk[t])
 	}
@@ -445,7 +462,7 @@ func CompileWith(seg Segment, m Model, style, acting *string, profile *Profile, 
 	if acting != nil {
 		a = *acting
 	}
-	if seg.Genre == ShotGenreWenxi15 {
+	if seg.Genre == ShotGenreWenxi15 || seg.Genre == ShotGenreWuxi {
 		seg = segmentWithoutMusic(seg)
 	}
 	issues := Issues(seg, m)
@@ -498,7 +515,20 @@ func CompileWith(seg Segment, m Model, style, acting *string, profile *Profile, 
 	return result, nil
 }
 
-// segmentWithoutMusic 去掉一段里写到配乐的分句（文戏 15 的 7.3 每个片段都写 BGM：原样输出和分镜卡保留，编译视频提示词时去掉，§5 第 1 条）。
+// wuxiExperience 是武戏节段头的「本节核心观看体验」一句（v7.0 4.01，武戏转换器存在第一镜 extras 里）；不是武戏节或没写时为空。
+func wuxiExperience(seg Segment, cp *CompileProfile) string {
+	if seg.Genre != ShotGenreWuxi || len(seg.Shots) == 0 || strings.TrimSpace(cp.Wuxi.Experience) == "" {
+		return ""
+	}
+	text := strings.TrimRight(strings.TrimSpace(seg.Shots[0].Extras["核心观看体验"]), "。")
+	if text == "" {
+		return ""
+	}
+	return fill(cp.Wuxi.Experience, "text", text)
+}
+
+// segmentWithoutMusic 去掉一段里写到配乐的分句（文戏 15 的 7.3 每个片段都写 BGM：原样输出和分镜卡保留，编译视频提示词时去掉，§5 第 1 条；
+// 武戏节同样不让配乐进编译稿）。
 // 转换器已经不把 BGM 写进镜头字段，这里兜住分镜卡手改、旧数据带进来的。
 func segmentWithoutMusic(seg Segment) Segment {
 	strip := func(text string) string {

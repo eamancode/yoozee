@@ -270,7 +270,12 @@ func (s *Service) dramaScenesViews(userID string, project *model.Project, units 
 	for _, u := range picked {
 		text := chapterPlainText(u.SourceText)
 		scenes := drama.SplitScenes(text, u.Title)
-		view := dramaScenesView(u, numbers[u.ID], fromChapters, scenes, drama.PlanSections(text, u.Title, genre, m.Duration.Max).ScenesOf())
+		// 小节按默认戏类切，改成武戏的剧本范围按武戏切（与生成分段同一套，场次条上的节数、戏类和运行一致）。
+		overrides, err := s.unitGenreOverrides(project.ID, &u)
+		if err != nil {
+			return nil, err
+		}
+		view := dramaScenesView(u, numbers[u.ID], fromChapters, scenes, drama.PlanSections(text, u.Title, genre, m.Duration.Max, overrides).ScenesOf())
 		view.Genre = genreView
 		ready := unitSceneColorScript(project.BibleJSON, units, u.ID)
 		for i := range view.Scenes {
@@ -360,18 +365,22 @@ func (s *Service) RenumberDramaScenes(userID string, projectID string, req Drama
 	if !req.Apply || (len(moves) == 0 && len(paletteWrites) == 0) {
 		return result, nil
 	}
-	doc := map[string]any{}
-	if raw := strings.TrimSpace(project.BibleJSON); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &doc); err != nil {
-			return result, fmt.Errorf("项目的连戏表不是合法 JSON，没有重排：%w", err)
+	// 只替换 color_script：在事务里拿当前的 bible_json 改，别的键（场景回填、风格锚、主色卡）按当前值保留。
+	patch := func(bibleJSON string) (string, error) {
+		doc := map[string]any{}
+		if raw := strings.TrimSpace(bibleJSON); raw != "" {
+			if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+				return "", fmt.Errorf("项目的连戏表不是合法 JSON，没有重排：%w", err)
+			}
 		}
+		doc["color_script"] = renumbered
+		encoded, err := json.Marshal(doc)
+		return string(encoded), err
 	}
-	doc["color_script"] = renumbered
-	encoded, err := json.Marshal(doc)
-	if err != nil {
+	if _, err := patch(project.BibleJSON); err != nil {
 		return result, err
 	}
-	if err := s.repo.ApplyDramaScenePalettes(userID, project.ID, string(encoded), paletteWrites, time.Now()); err != nil {
+	if err := s.repo.ApplyDramaScenePalettes(userID, project.ID, patch, paletteWrites, time.Now()); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return result, NotFound("项目或色卡在写入前被删除，没有重排")
 		}

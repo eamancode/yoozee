@@ -123,8 +123,10 @@ type dramaStepPlan struct {
 	palette *dramaScenePaletteMeta
 	// assets 是资产设计的运行参数（metadata.dramaAssets），收尾按它取本集色彩脚本、排资产出图。
 	assets *dramaAssetsMeta
-	// shots 是按小节生成的运行参数（metadata.dramaShots）：戏类、小节表和每一节的本轮指令。
-	shots *dramaShotsMeta
+	// shots 是按小节生成的运行参数（metadata.dramaShots）：戏类、小节表和每一节的本轮指令。laneSkills 是这次运行另外用到的戏类技能
+	// （一章里有武戏节时的武戏技能），记进任务 metadata.skillIds。
+	shots      *dramaShotsMeta
+	laneSkills []drama.StepSkill
 	// lock 是风格锁定的运行参数（metadata.dramaStyleLock）；referenceImages 是随任务发给模型的参考图（input.referenceImages）。
 	lock            *dramaStyleLockMeta
 	referenceImages []map[string]any
@@ -171,19 +173,10 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *
 		binding, genre = variant, &DramaStepGenre{ID: g.ID, Label: g.Label, MaxSeconds: hi, Model: m.Label}
 	}
 	profileID := projectDramaContext(project).profileID()
-	skillID, bound := binding.DefaultSkill, false
-	row, err := s.repo.DramaStepBinding(profileID, binding.ID)
-	switch {
-	case err == nil:
-		skillID, bound = row.SkillID, true
-	case !errors.Is(err, gorm.ErrRecordNotFound):
-		return DramaStepUsage{}, drama.StepSkill{}, err
-	}
-	pkg, err := s.skillDomain().StepSkillPackage(skillID)
+	skill, bound, err := s.dramaBoundSkill(profileID, binding)
 	if err != nil {
 		return DramaStepUsage{}, drama.StepSkill{}, err
 	}
-	skill := stepSkillOf(pkg)
 	usage := DramaStepUsage{
 		Step: step.ID, StepLabel: step.Label, Contract: binding.Contract, Bound: bound,
 		Profile: dramaProfileRef(profileID),
@@ -193,6 +186,49 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *
 		usage.Genre, usage.BindingStep = genre, binding.ID
 	}
 	return usage, skill, nil
+}
+
+// dramaBoundSkill 是风格档案在这一步（戏类步骤是「chapter.shots#<戏类>」那一格）绑定的技能当前版本；没配用步骤按档案的默认技能
+// （武戏：仿真人档案默认精简切片）。bound 表示绑定表里配了这一格。
+func (s *Service) dramaBoundSkill(profileID string, binding drama.Step) (drama.StepSkill, bool, error) {
+	skillID, bound := binding.DefaultSkillFor(profileID), false
+	row, err := s.repo.DramaStepBinding(profileID, binding.ID)
+	switch {
+	case err == nil:
+		skillID, bound = row.SkillID, true
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return drama.StepSkill{}, false, err
+	}
+	pkg, err := s.skillDomain().StepSkillPackage(skillID)
+	if err != nil {
+		return drama.StepSkill{}, false, err
+	}
+	return stepSkillOf(pkg), bound, nil
+}
+
+// dramaGenreSkills 是这次切节用到的各戏类的技能：默认戏类用 usage 那一格（已读过），改戏类范围里的戏类各查自己那一格。
+func (s *Service) dramaGenreSkills(project *model.Project, genre drama.ShotGenre, skill drama.StepSkill, overrides []drama.GenreOverride) (map[string]drama.StepSkill, error) {
+	skills := map[string]drama.StepSkill{genre.ID: skill}
+	profileID := projectDramaContext(project).profileID()
+	for _, o := range overrides {
+		if _, ok := skills[o.Genre]; ok {
+			continue
+		}
+		g, ok := drama.ShotGenreByID(o.Genre)
+		if !ok {
+			return nil, fmt.Errorf("不认识的戏类 %s", o.Genre)
+		}
+		step, ok := drama.StepByID(g.Step)
+		if !ok {
+			return nil, fmt.Errorf("步骤表缺少戏类 %s", g.Step)
+		}
+		sk, _, err := s.dramaBoundSkill(profileID, step)
+		if err != nil {
+			return nil, err
+		}
+		skills[g.ID] = sk
+	}
+	return skills, nil
 }
 
 func dramaProfileRef(id string) DramaProfileRef {
@@ -222,32 +258,15 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}
-	plan, err := s.planDramaStep(userID, project, unitID, stepID, req.Rule)
+	return s.runDramaStepFor(userID, project, unitID, stepID, req, nil, nil)
+}
+
+// runDramaStepFor 是 RunDramaStep 建任务的那一段；overrides / regenre 是「改为武戏 / 改回文戏」算好的新切法和这次改动
+// （project_drama_regenre.go）：按新切法组提示词，只重写 regenre.Sections（整章都要重写时整章跑）。
+func (s *Service) runDramaStepFor(userID string, project *model.Project, unitID string, stepID string, req DramaStepRunRequest, overrides *[]drama.GenreOverride, regenre *dramaRegenre) (DramaStepRunResult, error) {
+	plan, run, err := s.prepareDramaStepRun(userID, project, unitID, stepID, req, overrides, regenre)
 	if err != nil {
 		return DramaStepRunResult{}, err
-	}
-	if plan.assets != nil {
-		plan.assets.Images = req.ImageTask.usable()
-		plan.assets.Chain = req.chain
-	}
-	run := newDramaRunMeta(plan, unitID)
-	if resumeID := strings.TrimSpace(req.ResumeTaskID); resumeID != "" {
-		if len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 {
-			return DramaStepRunResult{}, BadAuthRequest("「从第 N 场继续」沿用上一次要重写的场，不用再给 onlyScenes")
-		}
-		if run, err = s.resumeDramaRun(userID, project.ID, unitID, plan, resumeID); err != nil {
-			return DramaStepRunResult{}, err
-		}
-	} else if len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 {
-		if run, err = s.onlyScenesRun(project.ID, unitID, plan, run, req.OnlyScenes, req.OnlySections); err != nil {
-			return DramaStepRunResult{}, err
-		}
-	}
-	// 要调模型的运行先按估时预拦镜头上限；只重新收尾的不调模型，按实际镜头数在收尾时判断。
-	if !dramaRunCallsNoUpstream(&run) {
-		if err := chapterShotsOverCap(plan.shots); err != nil {
-			return DramaStepRunResult{}, err
-		}
 	}
 	taskReq := dramaStepTaskRequest(project.ID, unitID, plan, dramaStepTaskOptions{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config, Rule: req.Rule, TraceID: req.TraceID, RequestID: req.RequestID})
 	taskReq.dramaRun = &run
@@ -263,6 +282,57 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 		return DramaStepRunResult{}, err
 	}
 	return DramaStepRunResult{Task: task, Usage: plan.usage}, nil
+}
+
+// prepareDramaStepRun 组装一次运行：提示词计划和 metadata.dramaRun（「从第 N 场继续」「只重写几节」、改戏类要重写的节都在这里定）。
+func (s *Service) prepareDramaStepRun(userID string, project *model.Project, unitID string, stepID string, req DramaStepRunRequest, overrides *[]drama.GenreOverride, regenre *dramaRegenre) (*dramaStepPlan, dramaRunMeta, error) {
+	// 「从第 N 节继续」「用已写好的 N 节重新写入」沿用上一次任务的切法：改戏类的任务没写进镜头表就失败时，镜头表里存的还是改之前的戏类，
+	// 按镜头表重切会和上一次的小节对不上；所以取上一次任务记下的改戏类范围和这次改动。
+	if resumeID := strings.TrimSpace(req.ResumeTaskID); resumeID != "" && overrides == nil && stepID == drama.StepChapterShots {
+		if previous, err := s.repo.TaskForUser(userID, resumeID); err == nil {
+			if prev := taskDramaShots(previous.InputJSON); prev != nil && (prev.Regenre != nil || len(prev.Overrides) > 0) {
+				ranges := append([]drama.GenreOverride{}, prev.Overrides...)
+				overrides, regenre = &ranges, prev.Regenre
+			}
+		}
+	}
+	plan, err := s.planDramaStepWith(userID, project, unitID, stepID, req.Rule, overrides)
+	if err != nil {
+		return nil, dramaRunMeta{}, err
+	}
+	if regenre != nil {
+		if plan.shots == nil {
+			return nil, dramaRunMeta{}, BadAuthRequest("只有生成分段能改戏类")
+		}
+		plan.shots.Regenre = regenre
+		if len(regenre.Sections) < len(plan.shots.Sections) && strings.TrimSpace(req.ResumeTaskID) == "" {
+			req.OnlySections = regenre.Sections
+		}
+	}
+	if plan.assets != nil {
+		plan.assets.Images = req.ImageTask.usable()
+		plan.assets.Chain = req.chain
+	}
+	run := newDramaRunMeta(plan, unitID)
+	if resumeID := strings.TrimSpace(req.ResumeTaskID); resumeID != "" {
+		if len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 {
+			return nil, dramaRunMeta{}, BadAuthRequest("「从第 N 场继续」沿用上一次要重写的场，不用再给 onlyScenes")
+		}
+		if run, err = s.resumeDramaRun(userID, project.ID, unitID, plan, resumeID); err != nil {
+			return nil, dramaRunMeta{}, err
+		}
+	} else if len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 {
+		if run, err = s.onlyScenesRun(project.ID, unitID, plan, run, req.OnlyScenes, req.OnlySections); err != nil {
+			return nil, dramaRunMeta{}, err
+		}
+	}
+	// 要调模型的运行先按估时预拦镜头上限（改戏类同样拦）；只重新收尾的不调模型，按实际镜头数在收尾时判断。
+	if !dramaRunCallsNoUpstream(&run) {
+		if err := chapterShotsOverCap(plan.shots); err != nil {
+			return nil, dramaRunMeta{}, err
+		}
+	}
+	return plan, run, nil
 }
 
 // dramaStepTaskOptions 是建步骤任务时请求带来的模型选择、段长规则和追踪标识。
@@ -282,13 +352,19 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	step, _ := drama.StepByID(plan.usage.Step)
 	skillFiles := make([]map[string]any, 0, len(plan.prompt.Files))
 	for _, f := range plan.prompt.Files {
-		skillFiles = append(skillFiles, map[string]any{"skillId": plan.skill.ID, "path": f.Path, "sha256": f.SHA256})
+		skillFiles = append(skillFiles, map[string]any{"skillId": skillOfFile(plan, f), "path": f.Path, "sha256": f.SHA256})
+	}
+	skillIDs := []string{plan.skill.ID}
+	skillVersions := []map[string]any{{"skillId": plan.skill.ID, "versionId": plan.skill.VersionID, "version": plan.skill.Version}}
+	for _, sk := range plan.laneSkills {
+		skillIDs = append(skillIDs, sk.ID)
+		skillVersions = append(skillVersions, map[string]any{"skillId": sk.ID, "versionId": sk.VersionID, "version": sk.Version})
 	}
 	metadata := map[string]any{
 		"domainProjectId": projectID,
 		"source":          step.TaskSource,
-		"skillIds":        []string{plan.skill.ID},
-		"skillVersions":   []map[string]any{{"skillId": plan.skill.ID, "versionId": plan.skill.VersionID, "version": plan.skill.Version}},
+		"skillIds":        skillIDs,
+		"skillVersions":   skillVersions,
 		"skillFiles":      skillFiles,
 		"dramaStep": map[string]any{
 			"step":         plan.usage.Step,
@@ -345,6 +421,18 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	}
 }
 
+// skillOfFile 是注入的技能文件属于哪个技能：一章有几个戏类时，后面那条对话的文件属于它自己的技能（按路径和内容哈希认）。
+func skillOfFile(plan *dramaStepPlan, f drama.StepSkillFileUse) string {
+	for _, sk := range plan.laneSkills {
+		for _, file := range sk.Files {
+			if file.Path == f.Path && file.SHA256 == f.SHA256 {
+				return sk.ID
+			}
+		}
+	}
+	return plan.skill.ID
+}
+
 // dramaStepTaskMeta 是任务 metadata.dramaStep（dramaStepTaskRequest 写入）。
 type dramaStepTaskMeta struct {
 	Step         string `json:"step"`
@@ -373,8 +461,13 @@ func taskDramaStep(inputJSON string) *dramaStepTaskMeta {
 }
 
 // planDramaStep 读章节、画风、资产、需求文档和绑定技能，组装提示词。按单元跑的是 chapter.shots 和 assets.extract（章节或剧集都行）。
-// 生成分段按小节写：rule 是渠道段长规则（只收紧单段上限，决定戏类和小节长度）。
+// 生成分段按小节写：rule 是渠道段长规则（只收紧单段上限，决定默认戏类和小节长度）；改成武戏的节按本章镜头表存下的各节戏类切。
 func (s *Service) planDramaStep(userID string, project *model.Project, unitID string, stepID string, rule *DramaShotlistRule) (*dramaStepPlan, error) {
+	return s.planDramaStepWith(userID, project, unitID, stepID, rule, nil)
+}
+
+// planDramaStepWith 同 planDramaStep；overrides 不为 nil 时生成分段按它切节（「改为武戏 / 改回文戏」算好的新范围），不读镜头表存下的。
+func (s *Service) planDramaStepWith(userID string, project *model.Project, unitID string, stepID string, rule *DramaShotlistRule, overrides *[]drama.GenreOverride) (*dramaStepPlan, error) {
 	step, err := dramaStep(stepID)
 	if err != nil {
 		return nil, err
@@ -422,7 +515,17 @@ func (s *Service) planDramaStep(userID string, project *model.Project, unitID st
 	if err != nil {
 		return nil, err
 	}
-	return sectionShotsPlan(project, unit, units, assets, usage, skill, genre, m)
+	var ranges []drama.GenreOverride
+	if overrides != nil {
+		ranges = *overrides
+	} else if ranges, err = s.unitGenreOverrides(project.ID, unit); err != nil {
+		return nil, err
+	}
+	skills, err := s.dramaGenreSkills(project, genre, skill, ranges)
+	if err != nil {
+		return nil, err
+	}
+	return sectionShotsPlan(project, unit, units, assets, usage, skills, genre, m, ranges)
 }
 
 func projectStyleSnapshot(project *model.Project) styleProfileDocument {
@@ -580,21 +683,21 @@ type DramaStepDescriptor struct {
 	Label        string `json:"label"`
 	Contract     string `json:"contract"`
 	DefaultSkill string `json:"defaultSkill"`
-	// Genre 是戏类步骤（chapter.shots#<戏类>）的戏类；Reserved 是只占了位置、还不能生成的戏类（武戏，卡 E）。
-	// Note 是这一行在后台页上的说明（整章旧版只用于评测、预留的戏类等）。
-	Genre    string `json:"genre,omitempty"`
-	Reserved bool   `json:"reserved,omitempty"`
-	Note     string `json:"note,omitempty"`
+	// Genre 是戏类步骤（chapter.shots#<戏类>）的戏类；ProfileSkills 是按风格档案另给的默认技能（武戏的仿真人档案）。
+	// Note 是这一行在后台页上的说明（整章旧版只用于评测、各戏类用在哪等）。
+	Genre         string            `json:"genre,omitempty"`
+	ProfileSkills map[string]string `json:"profileSkills,omitempty"`
+	Note          string            `json:"note,omitempty"`
 }
 
 // dramaStepDescriptor 是绑定矩阵里的一行。
 func dramaStepDescriptor(step drama.Step) DramaStepDescriptor {
 	d := DramaStepDescriptor{ID: step.ID, Label: step.Label, Contract: step.Contract, DefaultSkill: step.DefaultSkill}
 	if g, ok := drama.ShotGenreOfStep(step.ID); ok {
-		d.Genre, d.Reserved = g.ID, g.Reserved
+		d.Genre, d.ProfileSkills = g.ID, step.ProfileSkills
 		switch {
-		case g.Reserved:
-			d.Note = "预留：分镜制作里把小节改成武戏后用（卡 E），现在不会被调用"
+		case g.ID == drama.ShotGenreWuxi:
+			d.Note = "分镜制作里把小节改成武戏后用：这一节按武戏重切重写；真人剧、短剧视感档案默认用去掉 CG / 仙法 / 魔物的精简切片"
 		case g.ID == drama.ShotGenreWenxi15:
 			d.Note = "视频模型单段上限不超过 15 秒的项目用"
 		default:

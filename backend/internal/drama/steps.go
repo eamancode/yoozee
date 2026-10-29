@@ -121,9 +121,11 @@ type Step struct {
 	SkillBudgetChars int `json:"skillBudgetChars"`
 	// SkillLinkedFiles 是除 SKILL.md 外最多读几张卡。
 	SkillLinkedFiles int `json:"skillLinkedFiles"`
-	// DefaultSkill 是绑定表里没配时用的技能。
-	DefaultSkill string   `json:"defaultSkill"`
-	Gate         StepGate `json:"gate"`
+	// DefaultSkill 是绑定表里没配时用的技能；ProfileSkills 是按风格档案另给的默认技能（武戏：仿真人档案用精简切片），
+	// 绑定表里配了的格仍以绑定为准。
+	DefaultSkill  string            `json:"defaultSkill"`
+	ProfileSkills map[string]string `json:"profileSkills,omitempty"`
+	Gate          StepGate          `json:"gate"`
 	// EvalSet 是评测集，按风格档案配置：包覆盖的每个档案跑它的章节，再加包清单 eval 点名的章节。
 	EvalSet []StepEvalChapter `json:"evalSet"`
 	// EvalConcurrency 是这一步的评测全局同时在跑的任务数（所有正在进行的评测共用，不叠加），不超过 StepEvalMaxConcurrency。
@@ -325,8 +327,9 @@ var steps = []Step{
 	},
 }
 
-// 按小节生成（M8 卡 F）的戏类步骤：绑定表里「chapter.shots#<戏类>」一格绑一整套分镜技能。前端仍然只跑 chapter.shots，
-// 服务端按项目视频模型单段上限选戏类（DefaultShotGenre），按戏类取绑定的技能、切小节、一轮一节；收尾按戏类换转换器。
+// 按小节生成（M8 卡 F / 卡 E）的戏类步骤：绑定表里「chapter.shots#<戏类>」一格绑一整套分镜技能。前端仍然只跑 chapter.shots，
+// 服务端按项目视频模型单段上限选默认的文戏戏类（DefaultShotGenre），用户改成武戏的节按武戏；每个戏类取自己绑定的技能、
+// 一个戏类一条对话、一轮一节；收尾按每节的戏类换转换器。
 // 预算按包放宽到 4 万字符、4 张卡（§5 第 4 条）；评测集还没有按小节的章节，包上传后不能真跑评测（见 docs pending-test）。
 const (
 	SectionSkillBudgetChars = 40_000
@@ -334,7 +337,11 @@ const (
 )
 
 func init() {
-	defaults := map[string]string{ShotGenreWenxi15: "yz-shots-wenxi15", ShotGenreWenxi30: "yz-shots-wenxi30"}
+	defaults := map[string]string{ShotGenreWenxi15: "yz-shots-wenxi15", ShotGenreWenxi30: "yz-shots-wenxi30", ShotGenreWuxi: "yz-shots-wuxi"}
+	profileSkills := map[string]map[string]string{ShotGenreWuxi: {}}
+	for _, p := range WuxiLiveProfiles {
+		profileSkills[ShotGenreWuxi][p] = "yz-shots-wuxi-live"
+	}
 	base, _ := StepByID(StepChapterShots)
 	for _, g := range shotGenres {
 		steps = append(steps, Step{
@@ -348,13 +355,14 @@ func init() {
 				{Name: "episodeSeconds", Label: "【本集时长】", Source: "需求文档 brief_json.episode_seconds"},
 				{Name: "assets", Label: "【项目已确认资产】", Source: "同 chapter.shots"},
 				{Name: "sections", Label: "【分节生成说明】", Source: "代码按戏类切好的小节表（PlanSections：按台词与动作估时，不超过戏类与视频模型的单段上限，不在接话中间切）"},
-				{Name: "turn", Label: "【第 k 节】（每一轮）", Source: "本场第一节带【本场色卡】；本节剧本范围原文、本节台词表（台词 id + 说话人 + 原文）、本节人物与资产（含子卡名「名·变体」）、本节输出要求（技能原生格式、时长上限、片段 / 小节号）"},
+				{Name: "turn", Label: "【第 k 节】（每一轮）", Source: "本场第一节带【本场色卡】；本节剧本范围原文、本节台词表（台词 id + 说话人 + 原文）、本节人物与资产（含子卡名「名·变体」）、本节输出要求（技能原生格式、时长上限、片段 / 小节号）；武戏节另带【参数表（平台已填）】（N 秒 N 镜、模式 D、场地、A / B）和按 N/30 缩放的【本节节拍】；同场上一节是另一个戏类写的时带【上一节结尾】"},
 			},
 			Parser:           "每一轮 ConvertSection 按戏类读技能原生输出（读不出镜头按临时失败重试）；收尾逐节转成分镜行（台词对本节台词表落 line_id、片段级站位灯光音效下沉、室内补光源锚点、配乐字样剥掉），按名字绑资产后 RowsToShotlist 转镜头表；每节原样输出存进 drama_shotlists.sections_json",
 			Checks:           []string{"CheckShots（R-SHOT-*；R-SHOT-006/022/024/026 按戏类放宽成 warn）", "CheckSectionDurations（R-SEG-001：一节估时不超过模型单段上限）", "Pack 一节一段（R-SEG-008 每集时长）"},
 			SkillBudgetChars: SectionSkillBudgetChars,
 			SkillLinkedFiles: SectionSkillLinkedFiles,
 			DefaultSkill:     defaults[g.ID],
+			ProfileSkills:    profileSkills[g.ID],
 			Gate:             base.Gate,
 			EvalConcurrency:  1,
 			TaskSource:       base.TaskSource,
@@ -369,6 +377,14 @@ func init() {
 			},
 		})
 	}
+}
+
+// DefaultSkillFor 是这个风格档案在绑定表里没配时用的技能。
+func (s Step) DefaultSkillFor(profile string) string {
+	if id := s.ProfileSkills[profile]; id != "" {
+		return id
+	}
+	return s.DefaultSkill
 }
 
 // EvalChapter 查这一步评测集里的一章。

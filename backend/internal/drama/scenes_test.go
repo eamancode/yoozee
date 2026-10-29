@@ -116,7 +116,7 @@ func TestSceneConsumersShareSplit(t *testing.T) {
 	if style := ScenePaletteScenes(text, "七床", 300); len(style) != 2 || style[1].No != 2 || style[1].Heading != "内·电梯口·夜" || !strings.Contains(style[1].Excerpt, "周岸：小满") {
 		t.Fatalf("导演风格 2 场：%+v", style)
 	}
-	if plan := PlanSections(text, "七床", mustShotGenre(ShotGenreWenxi30), 30); len(plan.Sections) == 0 || plan.Sections[len(plan.Sections)-1].Scene != "E01S02" {
+	if plan := PlanSections(text, "七床", mustShotGenre(ShotGenreWenxi30), 30, nil); len(plan.Sections) == 0 || plan.Sections[len(plan.Sections)-1].Scene != "E01S02" {
 		t.Fatalf("小节按 2 场切：%+v", plan.Sections)
 	}
 	if script := ScriptFromText(text, "七床"); len(script.Scenes) != 2 {

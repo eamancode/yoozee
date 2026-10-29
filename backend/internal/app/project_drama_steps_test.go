@@ -353,8 +353,8 @@ func TestDramaStepBindingsResolveAndAdminWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(matrix.Profiles) != 5 || len(matrix.Steps) != 8 || matrix.Steps[0].DefaultSkill != "yz-style-lock" || matrix.Steps[1].DefaultSkill != "yz-script-adapt" || matrix.Steps[2].DefaultSkill != "yz-scene-palette" || matrix.Steps[3].DefaultSkill != "yz-assets-extract" || matrix.Steps[4].DefaultSkill != "yz-chapter-shots" ||
-		matrix.Steps[5].DefaultSkill != "yz-shots-wenxi15" || matrix.Steps[6].DefaultSkill != "yz-shots-wenxi30" || !matrix.Steps[7].Reserved {
-		t.Fatalf("五个档案；风格锁定、剧本优化、场次色卡、资产设计、生成分段（整章旧版）和三行戏类（文戏 15、文戏 30、预留的武戏）：%+v", matrix.Steps)
+		matrix.Steps[5].DefaultSkill != "yz-shots-wenxi15" || matrix.Steps[6].DefaultSkill != "yz-shots-wenxi30" || matrix.Steps[7].DefaultSkill != "yz-shots-wuxi" {
+		t.Fatalf("五个档案；风格锁定、剧本优化、场次色卡、资产设计、生成分段（整章旧版）和三行戏类（文戏 15、文戏 30、武戏）：%+v", matrix.Steps)
 	}
 	// 资产设计没配绑定时五个档案都用默认技能 yz-assets-extract（内置种子首次安装就是流程技能包）。
 	if usage, err := svc.DramaStepUsage("user-1", project.ID, drama.StepAssetsExtract, nil); err != nil || usage.Skill.ID != "yz-assets-extract" || usage.Bound || usage.Contract != drama.ContractAssetsExtract {

@@ -88,8 +88,9 @@ func (s *Service) onlyScenesRun(projectID string, unitID string, plan *dramaStep
 	return run, nil
 }
 
-// keptShotlistSections 把镜头表记录里的分镜行按镜头的小节分好，配上每节存下的原样输出。镜头表不是按小节生成的、
-// 小节和现在切出的对不上（正文、模型或戏类改过）时拒绝。
+// keptShotlistSections 把镜头表记录里的分镜行按镜头的小节分好，配上每节存下的原样输出（按现在切出的小节编号）。存下的节按场、
+// 正文行、台词和戏类对到现在切出的节：改了戏类以后同一场后面的节号会挪，镜头行跟着换到新编号。镜头表不是按小节生成的、
+// 小节和现在切出的对不上（正文、模型或戏类改过）时拒绝；只有这次改戏类的那一场例外：那一场里切法变了的旧节换掉，不放进对话历史。
 func keptShotlistSections(record *model.DramaShotlist, shots *dramaShotsMeta) (map[string]dramaKeptScene, error) {
 	var shotlist drama.Shotlist
 	var rows []json.RawMessage
@@ -103,20 +104,35 @@ func keptShotlistSections(record *model.DramaShotlist, shots *dramaShotsMeta) (m
 	if strings.TrimSpace(record.RowsJSON) == "" || json.Unmarshal([]byte(record.RowsJSON), &rows) != nil || len(rows) != len(shotlist.Shots) {
 		return nil, BadAuthRequest("这一章的镜头表没有对得上的分镜行原文，不能只重写几节；请整章重新生成")
 	}
-	current := map[string]drama.Section{}
-	for _, sec := range shots.Sections {
-		current[sec.ID] = sec
+	match := func(o drama.SectionOutput) (drama.Section, bool) {
+		for _, sec := range shots.Sections {
+			if sec.Scene == o.Scene && sec.Lines == o.Lines && sec.Genre == o.Genre && slices.Equal(nonNilIDs(o.LineIDs), nonNilIDs(sec.LineIDs)) {
+				return sec, true
+			}
+		}
+		return drama.Section{}, false
 	}
 	out := map[string]dramaKeptScene{}
+	current := map[string]string{}
+	replaced := map[string]bool{}
 	for _, o := range outputs {
-		sec, ok := current[o.ID]
-		if !ok || o.Genre != shots.Genre || o.Lines != sec.Lines || !slices.Equal(o.LineIDs, sec.LineIDs) {
+		sec, ok := match(o)
+		switch {
+		case ok:
+			out[sec.ID] = dramaKeptScene{text: o.Raw}
+			current[o.ID] = sec.ID
+		case shots.Regenre != nil && o.Scene == shots.Regenre.Scene:
+			replaced[o.ID] = true
+		default:
 			return nil, BadAuthRequest(fmt.Sprintf("镜头表里的小节 %s 和现在切出的小节对不上（正文、视频模型或戏类改过？），请整章重新生成", o.ID))
 		}
-		out[o.ID] = dramaKeptScene{text: o.Raw}
 	}
 	for i, sh := range shotlist.Shots {
-		kept, ok := out[sh.Section]
+		if replaced[sh.Section] {
+			continue
+		}
+		id, ok := current[sh.Section]
+		kept := out[id]
 		if !ok {
 			return nil, BadAuthRequest(fmt.Sprintf("镜头 %s 不属于任何存下的小节，不能只重写几节；请整章重新生成", sh.ID))
 		}
@@ -126,7 +142,7 @@ func keptShotlistSections(record *model.DramaShotlist, shots *dramaShotsMeta) (m
 		}
 		kept.rows += line.String() + "\n"
 		kept.count++
-		out[sh.Section] = kept
+		out[id] = kept
 	}
 	for id, kept := range out {
 		if kept.count == 0 {
@@ -134,6 +150,13 @@ func keptShotlistSections(record *model.DramaShotlist, shots *dramaShotsMeta) (m
 		}
 	}
 	return out, nil
+}
+
+func nonNilIDs(ids []string) []string {
+	if ids == nil {
+		return []string{}
+	}
+	return ids
 }
 
 // dramaRunKeptSections 是这次运行里不重写、还没放进对话历史的节（小节编号 → 原样输出与原有镜头行）。作底的镜头表在任务建好后

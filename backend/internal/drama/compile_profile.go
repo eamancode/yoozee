@@ -35,6 +35,7 @@ type CompileProfile struct {
 	Line       LinePhrases        `json:"line"`
 	Seedance   SeedancePhrases    `json:"seedance"`
 	H3         H3Phrases          `json:"h3"`
+	Wuxi       WuxiPhrases        `json:"wuxi"`
 	Risk       map[string]string  `json:"risk"`
 	meta       compileProfileMeta `json:"-"`
 }
@@ -218,6 +219,23 @@ type SeedancePhrases struct {
 	TextRefs        string `json:"text_refs"`
 	TextRegistered  string `json:"text_registered"`
 	Lang            string `json:"lang" vars:"lang" req:"lang"`
+}
+
+// WuxiPhrases 是武戏节（skill-complete-v7，M8 卡 E）编译视频提示词的武戏段落结构（卡 0 文档 §5f）：每镜按
+// 景别 / 焦段 / 运镜 → 摄影机目标 → 站位 → 动作链（力度，受击，战损，闪帧）→ 表情 → 特效 → 环境反馈 → 光影 → 下一镜连接 写，
+// 段头加本节核心观看体验，约束前加一行武戏约束。值取镜头 spec.extras 里武戏转换器存的标签；文戏节不用这一组。
+type WuxiPhrases struct {
+	Target     string `json:"target" vars:"target" req:"target" drop:"ok"`
+	Station    string `json:"station" vars:"station" req:"station" drop:"ok"`
+	Action     string `json:"action" vars:"action,tags" req:"action"`
+	Tags       string `json:"tags" vars:"tags" req:"tags" drop:"ok"`
+	Face       string `json:"face" vars:"face" req:"face" drop:"ok"`
+	Fx         string `json:"fx" vars:"fx" req:"fx" drop:"ok"`
+	Env        string `json:"env" vars:"env" req:"env" drop:"ok"`
+	Light      string `json:"light" vars:"light" req:"light" drop:"ok"`
+	Next       string `json:"next" vars:"next" req:"next" drop:"ok"`
+	Experience string `json:"experience" vars:"text" req:"text" drop:"ok"`
+	Constraint string `json:"constraint" drop:"ok"`
 }
 
 // H3Phrases 是 MiniMax-H3 方言的英文参考声明与首尾帧说明。{ref} 是代码编的参考编号（<Picture 1>）。

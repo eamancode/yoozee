@@ -56,6 +56,9 @@ type DramaShotlistWriteRequest struct {
 	Parse *drama.ShotLinesStats `json:"-"`
 	// LegacyScenes 是重装切场规则改变前写的镜头表：台词表按旧规则（一个场次头一场）切，镜头保持原场编号，色卡按旧场所在的新场找。
 	LegacyScenes bool `json:"-"`
+	// KeepSegments 是只重写了几节（「重新生成问题小节」、改戏类）：装段按小节沿用本章现有的段（没变的节分镜图、预演、视频都留着，
+	// 被改的节原来的段换上新内容、产物过期），不整章替换。见 replaceProjectUnitShotsKeeping。
+	KeepSegments bool `json:"-"`
 	// Sections 是按小节生成时每一节的原样输出（存进 sections_json）；为 nil 时（重新装段、带问题装段、手写镜头表）沿用上一版存下的，
 	// 新的镜头表已经不按小节（镜头没写 section）时清空。
 	Sections []drama.SectionOutput `json:"-"`
@@ -680,7 +683,15 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 		scriptJSON, _ := json.Marshal(script)
 		record.ScriptJSON = string(scriptJSON)
 	}
-	if _, err := s.replaceProjectUnitShots(userID, projectID, unitID, ReplaceProjectUnitShotsRequest{Shots: inputs, ExpectedShotIDs: req.ExpectedShotIDs}, record); err != nil {
+	if req.KeepSegments && len(sections) > 0 {
+		previous, err := s.previousShotlistSections(projectID, unitID)
+		if err != nil {
+			return DramaShotlistWriteResult{}, err
+		}
+		if err := s.replaceProjectUnitShotsKeeping(userID, projectID, unitID, inputs, segments, previous, sections, record); err != nil {
+			return DramaShotlistWriteResult{}, err
+		}
+	} else if _, err := s.replaceProjectUnitShots(userID, projectID, unitID, ReplaceProjectUnitShotsRequest{Shots: inputs, ExpectedShotIDs: req.ExpectedShotIDs}, record); err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
 	views, err := s.DramaSegments(userID, projectID, unitID)
@@ -784,6 +795,22 @@ func (s *Service) dramaShotlistSections(projectID string, unitID string, given [
 				out[i].Shots = append(out[i].Shots, sh.ID)
 			}
 		}
+	}
+	return out, nil
+}
+
+// previousShotlistSections 是本章镜头表上一版存下的各节（保留装段按它把新段对到现有的段）；没有时为空。
+func (s *Service) previousShotlistSections(projectID string, unitID string) ([]drama.SectionOutput, error) {
+	previous, err := s.repo.DramaShotlistForUnit(projectID, unitID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []drama.SectionOutput
+	if strings.TrimSpace(previous.SectionsJSON) != "" {
+		_ = json.Unmarshal([]byte(previous.SectionsJSON), &out)
 	}
 	return out, nil
 }

@@ -369,10 +369,11 @@ func (s *Service) applyScenePaletteTask(task model.Task, meta *dramaStepTaskMeta
 	// 别的集里切场规则改变前写的、编号错位的条目原样留着（不当承接用），色卡也不标。
 	keptAll := append(slices.Clone(existing), legacyShiftedKept(current, runEpisodes, units, table)...)
 	sortColorScript(keptAll)
-	merged, err := mergeColorScriptDocument(project.BibleJSON, keptAll, entries)
-	if err != nil {
+	// 先按读到的快照合并一次（形状不合规就不写）；真正写库时在事务里按当前的 bible_json 再合并，只替换 color_script。
+	if _, err := mergeColorScriptDocument(project.BibleJSON, keptAll, entries); err != nil {
 		return DramaScenePaletteOutcome{}, err
 	}
+	patch := func(bibleJSON string) (string, error) { return mergeColorScriptDocument(bibleJSON, keptAll, entries) }
 	// 合并后色彩脚本里不再有的场（这次重写的集里没写到的，和 keptColorScript 去掉的），色卡标成场次已不存在。
 	kept := map[string]bool{}
 	for _, e := range keptAll {
@@ -383,7 +384,7 @@ func (s *Service) applyScenePaletteTask(task model.Task, meta *dramaStepTaskMeta
 	if err != nil {
 		return DramaScenePaletteOutcome{}, err
 	}
-	if err := s.repo.ApplyDramaScenePalettes(task.UserID, project.ID, merged, writes, time.Now()); err != nil {
+	if err := s.repo.ApplyDramaScenePalettes(task.UserID, project.ID, patch, writes, time.Now()); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return DramaScenePaletteOutcome{}, errors.New("项目或色卡在写入前被删除，没有写入")
 		}

@@ -17,14 +17,16 @@ type DramaPaletteWrite struct {
 }
 
 // ApplyDramaScenePalettes 在一个事务里写场次色卡的结果：项目的 bible_json，每场一张色卡（新建或加版本），和标成场次已不存在的旧色卡。
-func (r *Repository) ApplyDramaScenePalettes(userID string, projectID string, bibleJSON string, palettes []DramaPaletteWrite, now time.Time) error {
+// patchBible 在事务里拿当前的 bible_json，只改自己负责的键（color_script），按读到的原值条件写回（与资产设计回填 scene_assets 同一套）：
+// 收尾期间别的写（提取资产回填场景、风格锁定）改过 bible_json 时重读再改，不拿收尾开始时的旧快照整块覆盖。
+func (r *Repository) ApplyDramaScenePalettes(userID string, projectID string, patchBible func(bibleJSON string) (string, error), palettes []DramaPaletteWrite, now time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&model.Project{}).Where("id = ? AND user_id = ?", projectID, userID).Updates(map[string]any{"bible_json": bibleJSON, "updated_at": now})
-		if result.Error != nil {
-			return result.Error
+		var project model.Project
+		if err := tx.Select("id").Where("id = ? AND user_id = ?", projectID, userID).First(&project).Error; err != nil {
+			return err
 		}
-		if result.RowsAffected != 1 {
-			return gorm.ErrRecordNotFound
+		if err := patchProjectBible(tx, projectID, patchBible); err != nil {
+			return err
 		}
 		for _, p := range palettes {
 			if p.Link != nil {
@@ -61,7 +63,7 @@ func (r *Repository) ApplyDramaScenePalettes(userID string, projectID string, bi
 				}
 			}
 		}
-		return tx.Model(&model.Project{}).Where("id = ?", projectID).Update("revision", gorm.Expr("revision + 1")).Error
+		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": now}).Error
 	})
 }
 
