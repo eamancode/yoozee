@@ -221,10 +221,7 @@ func RowsToShotlist(rows []StoryboardRow, script *Script, profile string) RowsRe
 			if l.LineID == "" {
 				continue
 			}
-			sc := l.LineID
-			if len(sc) > 6 {
-				sc = sc[:6]
-			}
+			sc := lineScene(l.LineID)
 			if counts[sc] == 0 {
 				order = append(order, sc)
 			}
@@ -278,4 +275,12 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// lineScene 是台词编号所在的场（E01S01L02 → E01S01；第 100 场以后是 E01S100L02 → E01S100）：去掉最后一个 L 及其后的句号。
+func lineScene(lineID string) string {
+	if i := strings.LastIndex(lineID, "L"); i > 0 {
+		return lineID[:i]
+	}
+	return lineID
 }

@@ -839,16 +839,23 @@ func shotlistRowsWithinCap(raws []json.RawMessage) error {
 		return BadAuthRequest("没有分镜行，镜头表没有写入")
 	}
 	if len(raws) > dramaChapterMaxShots {
-		return BadAuthRequest(fmt.Sprintf("本章 %d 个镜头超过一章 %d 个镜头的上限，镜头表没有写入：请在剧本里把这一章拆成两章（或两集）再生成分段", len(raws), dramaChapterMaxShots))
+		return shotlistTooLarge(fmt.Sprintf("本章 %d 个镜头超过一章 %d 个镜头的上限，镜头表没有写入：请在剧本里把这一章拆成两章（或两集）再生成分段", len(raws), dramaChapterMaxShots))
 	}
 	total := 0
 	for _, raw := range raws {
 		total += len(raw)
 	}
 	if total > dramaShotlistMaxBytes {
-		return BadAuthRequest(fmt.Sprintf("本章分镜行合计 %d MB，超过一次写入 %d MB 的上限，镜头表没有写入：请把这一章拆成两章再写", total>>20, dramaShotlistMaxBytes>>20))
+		return shotlistTooLarge(fmt.Sprintf("本章分镜行合计 %d MB，超过一次写入 %d MB 的上限，镜头表没有写入：请把这一章拆成两章再写", total>>20, dramaShotlistMaxBytes>>20))
 	}
 	return nil
+}
+
+// shotlistTooLarge 是超过整章上限的 400：reason 让前端知道「重新写入」也会再失败（生成分段任务的 errorCode 同它）。
+func shotlistTooLarge(message string) error {
+	err := NewAppError(http.StatusBadRequest, message)
+	err.Reason = ReasonShotlistTooLarge
+	return err
 }
 
 func parseShotlistRows(raws []json.RawMessage) ([]shotlistRow, error) {

@@ -113,7 +113,10 @@ const taskLogPayloadLimit = 4000
 type CreateTaskRequest struct {
 	creationPrepare *creationTaskPreparation
 	admission       *taskAdmission
-	workbenchKind   string
+	// dramaRun 是逐轮续写的运行参数（步骤、轮次、从第几轮接着写），只由服务端组装（RunDramaStep、剧本优化等项目级步骤、评测）：
+	// CreateTask 一律去掉客户端 input.metadata.dramaRun，再把这里的值写进去；这次运行一次上游都不调（只重新收尾）时不建计费单。
+	dramaRun      *dramaRunMeta
+	workbenchKind string
 	// callerHoldsStorageMu 只给已经持有 Service.storageMu 的内部调用设置。
 	// 文件容量检查不能再锁一次，否则审批改参数会自锁。
 	callerHoldsStorageMu bool

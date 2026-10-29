@@ -109,6 +109,9 @@ test("storyboardRunStop 生成分段各节都写完、收尾失败时给重新�
     assert.deepEqual(storyboardRunStop(failed, { total: 60, completed: 60 }, written, { refinalize: true }), { kind: "refinalize", taskId: "t5", total: 60, status: "failed", error: "本章 300 个镜头超过一章 200 个镜头的上限" });
     assert.equal(storyboardRunStop(failed, { total: 60, completed: 59 }, undefined, { refinalize: true })?.kind, "resume");
     assert.equal(storyboardRunStop(failed, { total: 60, completed: 60 })?.kind, "failed");
+    // 整章镜头超上限：重新写入必然再失败，不给，按普通失败（或重跑）说原因。任务详情的 diagnostic.code 与列表的 errorCode 都认。
+    assert.equal(storyboardRunStop({ ...failed, errorCode: "shotlist_too_large" }, { total: 60, completed: 60 }, undefined, { refinalize: true })?.kind, "failed");
+    assert.equal(storyboardRunStop({ ...failed, diagnostic: { code: "shotlist_too_large" } }, { total: 60, completed: 60 }, written, { refinalize: true })?.kind, "superseded");
 });
 
 test("storyboardRunStop 已有成功写入后取消或失败的重跑不给续写，说明当前结果来自哪次运行", () => {

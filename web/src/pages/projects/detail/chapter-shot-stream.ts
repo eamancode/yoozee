@@ -5,6 +5,8 @@
  * 这里只解析已经写完的行；同一轮重试时会再出一行标记，见到就把这一轮之前收到的半截输出清掉。只用于显示，写库在服务端。
  */
 
+import { API_ERROR_REASON } from "@/services/api/error-codes";
+
 export type StreamShot = {
     shotNumber: number;
     id: string;
@@ -209,16 +211,18 @@ export type StoryboardRunStop =
  * 只看失败或取消的任务；progress 是任务结果里的 dramaRun（整章一轮或还没开始逐场时没有）。
  * lastWrite 是比这个任务更早、成功写入的那次任务（同一章）：有它时停下的是重跑，不给「从第 N 场继续」。
  * options.refinalize 为 true（生成分段）时各节都写完的任务给「重新收尾」：整章输出都是这次运行的，重跑也照样收尾。
+ * 失败原因是整章镜头超上限（shotlist_too_large）时重新收尾必然再失败，不给，按普通失败说原因（提示拆章）。
  */
 export function storyboardRunStop(
-    task: { id: string; status: string; error?: string; createdAt?: string },
+    task: { id: string; status: string; error?: string; createdAt?: string; errorCode?: string; diagnostic?: { code?: string } },
     progress?: { total: number; completed: number },
     lastWrite?: { createdAt: string; completedAt?: string },
     options: { refinalize?: boolean } = {},
 ): StoryboardRunStop | undefined {
     if (task.status !== "failed" && task.status !== "cancelled") return undefined;
     const error = task.error?.trim() || undefined;
-    if (options.refinalize && progress && progress.total >= 1 && progress.completed >= progress.total) return { kind: "refinalize", taskId: task.id, total: progress.total, status: task.status, error };
+    const tooLarge = (task.errorCode || task.diagnostic?.code) === API_ERROR_REASON.ShotlistTooLarge;
+    if (options.refinalize && !tooLarge && progress && progress.total >= 1 && progress.completed >= progress.total) return { kind: "refinalize", taskId: task.id, total: progress.total, status: task.status, error };
     if (lastWrite && (!task.createdAt || Date.parse(lastWrite.createdAt) < Date.parse(task.createdAt))) return { kind: "superseded", taskId: task.id, status: task.status, error, resultAt: lastWrite.completedAt || lastWrite.createdAt };
     if (progress && progress.completed >= 1 && progress.completed < progress.total) return { kind: "resume", taskId: task.id, from: progress.completed + 1, total: progress.total, error };
     return { kind: "failed", taskId: task.id, status: task.status, error };

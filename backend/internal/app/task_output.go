@@ -118,7 +118,8 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 		errorCode = contentModerationErrorCode
 	} else if task.Status == model.TaskStatusFailed {
 		// 截断要让前端提示换长输出模型或按场生成，和普通上游失败区分开。
-		if diagnostic := taskExecutionDiagnostic(&task); diagnostic != nil && diagnostic.Code == string(ReasonTextOutputTruncated) {
+		// 镜头太多要拆章，「重新写入」也会再失败，前端据此不再给重新写入。
+		if diagnostic := taskExecutionDiagnostic(&task); diagnostic != nil && (diagnostic.Code == string(ReasonTextOutputTruncated) || diagnostic.Code == string(ReasonShotlistTooLarge)) {
 			errorCode = diagnostic.Code
 		}
 	}

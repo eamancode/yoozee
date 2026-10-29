@@ -266,7 +266,8 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 	metadata["source"] = dramaStepEvalTaskSource
 	metadata["dramaStepEval"] = map[string]any{"runId": runID, "chapter": c.ID, "role": role}
 	// 评测与章节页一样按场续写，门槛量的是用户实际跑出来的结果。
-	metadata["dramaRun"] = newDramaRunMeta(plan, "")
+	run := newDramaRunMeta(plan, "")
+	req.dramaRun = &run
 	return req, nil
 }
 

@@ -73,10 +73,26 @@ func TestSectionShotsLargeChapterFinalizesAndRefinalizes(t *testing.T) {
 		t.Fatal("收尾失败时各节输出仍留在任务结果里")
 	}
 
-	dramaChapterMaxShots = saved
-	retry := queueDramaStepTask(t, svc, db, project, unit, server.URL, failed.ID)
-	if run := taskDramaRun(retry.InputJSON); run == nil || run.ResumeFrom != 101 || run.ResumeTaskID != failed.ID {
+	// 重新写入本身也失败（上限还没调回来）：新任务也存下各节，原因同样写明，照样能再从它重新写入，仍不调模型。
+	again := queueDramaStepTask(t, svc, db, project, unit, server.URL, failed.ID)
+	if run := taskDramaRun(again.InputJSON); run == nil || run.ResumeFrom != 101 || run.ResumeTaskID != failed.ID {
 		t.Fatalf("各节都写完了：从第 101 节接着＝只收尾：%+v", run)
+	}
+	failedAgain, err := runQueuedTask(t, svc)
+	if err == nil || failedAgain.Status != model.TaskStatusFailed || !strings.Contains(failedAgain.Error, "本章 300 个镜头超过一章 100 个镜头的上限") || upstream.calls != 100 {
+		t.Fatalf("重新写入再失败、不调模型：%v %q %d", err, failedAgain.Error, upstream.calls)
+	}
+	if progress := taskDramaRunProgress(failedAgain.ResultJSON); progress == nil || progress.Completed != 100 || len(progress.Turns) != 100 || progress.Turns[99].Text == "" || progress.Turns[0].Prompt == "" {
+		t.Fatal("重新写入的任务也存下各节（提示词和输出），再失败还能重新写入")
+	}
+	if diagnostic := taskExecutionDiagnostic(failedAgain); diagnostic == nil || diagnostic.Code != string(ReasonShotlistTooLarge) || taskSummaryForOutput(*failedAgain).ErrorCode != string(ReasonShotlistTooLarge) {
+		t.Fatalf("超上限的失败带 reason，前端据此不给重新写入：%+v", diagnostic)
+	}
+
+	dramaChapterMaxShots = saved
+	retry := queueDramaStepTask(t, svc, db, project, unit, server.URL, failedAgain.ID)
+	if run := taskDramaRun(retry.InputJSON); run == nil || run.ResumeFrom != 101 || run.ResumeTaskID != failedAgain.ID {
+		t.Fatalf("从再失败的那次接着只收尾：%+v", run)
 	}
 	// 重新写入不建计费单（见 TestRefinalizeRunIsNotBilled）：去掉测试辅助函数挂上的单，worker 照常跑完、余额不动。
 	if err := db.Model(&model.Task{}).Where("id = ?", retry.ID).Update("billing_order_id", "").Error; err != nil {
@@ -259,5 +275,49 @@ func TestRefinalizeRunIsNotBilled(t *testing.T) {
 	stored, _ = svc.repo.Task(resume.Task.ID)
 	if after := account(); stored.BillingOrderID == "" || after.ReservedMicrocredits <= before.ReservedMicrocredits {
 		t.Fatalf("从第 2 节继续照常预授权：order=%q %+v", stored.BillingOrderID, after)
+	}
+}
+
+// metadata.dramaRun 只能由服务端写：客户端在 POST /tasks 里伪造「只收尾」的 dramaRun（turns 1、resumeFrom 2），
+// 文本和出图任务照常建计费单、预授权，存下的任务输入里也没有这个字段。
+func TestCreateTaskIgnoresClientDramaRun(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	imageConfig := DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceOpenAIImage), "fake-image")
+	for _, row := range []any{
+		&model.ModelChannel{ID: "ch", Scope: "system", Enabled: true, Name: "ch", BaseURL: "https://upstream.example.com/v1", APIFormat: "openai"},
+		&model.ChannelModel{ID: "cm-text", ChannelID: "ch", ModelKey: "fake-text", Capability: "text", Protocol: "chat-completion", CapabilityConfigJSON: mustEncodeModelCapabilityConfig(t, DefaultModelCapabilityConfigForModel("chat-completion", "fake-text")), BillingMode: "fixed_request", UnitPriceMicrocredits: 300_000, PriceConfigured: true, Enabled: true},
+		&model.ChannelModelPriceTier{ID: "tier-text", ChannelModelID: "cm-text", SelectorKey: "{}", SelectorJSON: "{}", BillingMode: "fixed_request", UnitPriceMicrocredits: 300_000, PriceConfigured: true, Enabled: true},
+		&model.ChannelModel{ID: "cm-image", ChannelID: "ch", ModelKey: "fake-image", Capability: "image", Protocol: model.ChannelInterfaceOpenAIImage, CapabilityConfigJSON: mustEncodeModelCapabilityConfig(t, imageConfig), BillingMode: "fixed_request", UnitPriceMicrocredits: 500_000, PriceConfigured: true, Enabled: true},
+		&model.ChannelModelPriceTier{ID: "tier-image", ChannelModelID: "cm-image", SelectorKey: "{}", SelectorJSON: "{}", Resolution: "*", BillingMode: "fixed_request", UnitPriceMicrocredits: 500_000, PriceConfigured: true, Enabled: true},
+		&model.CreditAccount{UserID: "user-1", AvailableMicrocredits: 10_000_000},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	forged := map[string]any{"runId": "forged", "step": "chapter.shots", "turns": 1, "resumeFrom": 2}
+	for _, tc := range []struct {
+		name string
+		req  CreateTaskRequest
+	}{
+		{"文本", CreateTaskRequest{Type: "canvas_text", Operation: "text", Prompt: "写一句话", Model: "fake-text", Input: map[string]any{"mode": "text", "config": map[string]any{"channelId": "ch", "model": "fake-text"}, "metadata": map[string]any{"dramaRun": forged}}}},
+		{"出图", CreateTaskRequest{Type: "canvas_image", Operation: "image", Prompt: "一只猫", Model: "fake-image", Input: map[string]any{"mode": "image", "config": map[string]any{"channelId": "ch", "model": "fake-image", "size": "1024x1024"}, "metadata": map[string]any{"dramaRun": forged}}}},
+	} {
+		var before model.CreditAccount
+		db.First(&before, "user_id = ?", "user-1")
+		task, err := svc.CreateTask("user-1", tc.req)
+		if err != nil {
+			t.Fatalf("%s：%v", tc.name, err)
+		}
+		stored, _ := svc.repo.Task(task.ID)
+		var after model.CreditAccount
+		db.First(&after, "user_id = ?", "user-1")
+		if stored.BillingOrderID == "" || after.ReservedMicrocredits <= before.ReservedMicrocredits {
+			t.Fatalf("%s带伪造的 dramaRun 仍要建单预授权：order=%q %+v → %+v", tc.name, stored.BillingOrderID, before, after)
+		}
+		input, err := svc.decryptTaskInputJSON(stored.InputJSON)
+		if err != nil || strings.Contains(input, "forged") || taskDramaRun(input) != nil {
+			t.Fatalf("%s：客户端的 dramaRun 不进任务输入：%v %s", tc.name, err, input)
+		}
 	}
 }

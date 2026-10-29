@@ -309,8 +309,15 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		return nil, errors.New("上一次任务存下的各轮不完整，不能只重新收尾，请重新生成")
 	}
 	if len(turns) >= total {
-		// 各轮都在上一次任务里写完了（上一次收尾失败）：不调模型，直接拿存下的输出收尾。
-		_ = s.repo.UpdateTaskProgressForLease(task.ID, task.LeaseOwner, fmt.Sprintf("%d %s已写完，重新收尾", total, plan.Unit), 95)
+		// 各轮都在上一次任务里写完了（上一次收尾失败）：不调模型，直接拿存下的输出收尾。先把各轮存进本任务的结果，
+		// 这次收尾再失败时本任务也能「用已写好的 N 节重新写入」（续写同样只认上一次任务存下的轮次）。
+		encoded, err := json.Marshal(map[string]any{"mode": "text", "dramaRun": progress})
+		if err != nil {
+			return nil, err
+		}
+		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, fmt.Sprintf("%d %s已写完，重新收尾", total, plan.Unit), 95, string(encoded)); err != nil {
+			return nil, fmt.Errorf("保存各%s进度失败：%w", plan.Unit, err)
+		}
 	}
 	for k := len(turns) + 1; k <= total; k++ {
 		// 用户可以在轮与轮之间取消（task_lifecycle 对逐轮续写放行）：取消落库后，别的实例上的 worker 在下一轮开始前停下。
