@@ -760,7 +760,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
                     if (!layout.legacy) {
                         return (
                             <li key={`${shot.at}-${shotIndex}`}>
-                                <GenreShotCard layout={layout} card={layout.cards[shotIndex]} highlighted={onShot.length > 0} actions={cardActions} assets={cardBoundAssets(shot, source, boundAssets)}>
+                                <GenreShotCard layout={layout} card={layout.cards[shotIndex]} highlighted={onShot.length > 0} actions={cardActions} assets={cardBoundAssets(shot, spec, boundAssets)}>
                                     {onShot.length ? issueList(onShot, shotIndex, source, shot) : null}
                                 </GenreShotCard>
                             </li>

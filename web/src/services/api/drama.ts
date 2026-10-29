@@ -54,6 +54,8 @@ export type DramaSubShot = {
     light_full?: string;
     /** 武戏节镜头的打斗标签（力度、受击、战损、闪帧、特效、摄影机目标、站位、环境反馈、下一镜连接、核心观看体验）。 */
     extras?: Record<string, string>;
+    /** 装段时这一镜实际用到的参考（段 refs 的 file，资产版本 ID）：子卡没图退回主卡、同人去重、名额截断之后的。旧段没有。 */
+    refs?: string[];
 };
 /** 契约 segment：一段 = 一次生成，段内多镜头。 */
 export type DramaSegment = {

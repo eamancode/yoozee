@@ -216,18 +216,24 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const segmentRule = videoSegmentRule || projectSegmentRule;
     // 卡 G：段卡上的编号按项目编号显示（第 2 集写 E02S01），每张分镜卡下列这一段绑的角色子卡、道具、场景、本场色卡。
     const unitEpisode = useMemo(() => unitEpisodeNumber(detail.units, unitId), [detail.units, unitId]);
+    // 卡下按每镜的 refs（资产版本 ID）列资产：这里把这一段的资产引用和段 refs 里的版本都对回资产。
     const segmentAssets = useMemo<SegmentAsset[]>(() => {
         const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
-        const seen = new Set<string>();
-        return (detail.shotReferences || []).flatMap((reference) => {
-            if (reference.shotId !== selectedShot?.id || reference.status !== "linked") return [];
-            const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
-            if (!asset || seen.has(asset.id)) return [];
-            seen.add(asset.id);
-            const kind: SegmentAsset["kind"] = reference.role === "style" || asset.category === "palette" ? "palette" : asset.category === "character" ? "character" : asset.category === "prop" ? "prop" : asset.category === "environment" ? "scene" : "other";
-            return [{ id: asset.id, title: asset.title, kind, person: asset.variant?.parentTitle || asset.title, preview: assetPreviewUrl(asset), code: asset.palette?.code }];
-        });
-    }, [detail.assets, detail.shotReferences, selectedShot?.id]);
+        const byId = new Map<string, SegmentAsset>();
+        const add = (asset: ProjectAsset | undefined, versionId: string, style = false) => {
+            if (!asset || !versionId) return;
+            const kind: SegmentAsset["kind"] = style || asset.category === "palette" ? "palette" : asset.category === "character" ? "character" : asset.category === "prop" ? "prop" : asset.category === "environment" ? "scene" : "other";
+            const current = byId.get(asset.id) || { id: asset.id, title: asset.title, kind, versionIds: [], preview: assetPreviewUrl(asset), code: asset.palette?.code };
+            if (!current.versionIds.includes(versionId)) current.versionIds.push(versionId);
+            byId.set(asset.id, current);
+        };
+        for (const reference of detail.shotReferences || []) {
+            if (reference.shotId !== selectedShot?.id || reference.status !== "linked") continue;
+            add(reference.asset || assetByVersionId.get(reference.assetVersionId), reference.assetVersionId, reference.role === "style");
+        }
+        for (const ref of (parseSegmentSpec(segmentSpecJson) as DramaSegment | undefined)?.refs || []) add(assetByVersionId.get(ref.file), ref.file);
+        return Array.from(byId.values());
+    }, [detail.assets, detail.shotReferences, segmentSpecJson, selectedShot?.id]);
     const segmentTakeCounts = useMemo(() => {
         const counts: Record<string, number> = {};
         for (const artifact of detail.shotArtifacts || []) if (artifact.unitId === unitId) counts[artifact.shotId] = (counts[artifact.shotId] || 0) + 1;

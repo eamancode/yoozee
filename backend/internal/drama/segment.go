@@ -113,6 +113,9 @@ type SubShot struct {
 	LightFull       string      `json:"light_full,omitempty"`
 	// Extras 是武戏节镜头的打斗标签（力度、受击、战损、闪帧、特效、摄影机目标、站位、环境反馈、下一镜连接、核心观看体验），编译武戏结构用。
 	Extras map[string]string `json:"extras,omitempty"`
+	// Refs 是装段时这一镜实际用到的参考文件（段 refs 里的 file，柚子资产版本 ID）：按这一镜绑定的资产查出、经过段级同人去重和
+	// 名额截断后留下的那些（子卡没图退回主卡、场景按本场回填后的结果）。分镜卡按它列这一镜的资产，不按名字猜。不进产物指纹。
+	Refs []string `json:"refs,omitempty"`
 }
 
 type Line struct {
@@ -139,7 +142,7 @@ const (
 var segmentIDPattern = regexp.MustCompile(`^S[0-9]{2,3}[a-z]?$`)
 
 // SegmentShape 是写给 Agent 和人看的分段字段说明（契约 segment）。
-const SegmentShape = "每段字段：id（S01、S12b）；scene（场次）；title?；dur（秒）；mode（lock_identity / lock_first_frame / text_only）；first_frame?、last_frame?（lock_first_frame 用）；refs?:[{file, role(identity/location/plate/prop/frame/motion), note?, state?}]，file 填柚子资产 ID；voices?:[{character, file}]；shots:[{at（段内第几秒）, size?, camera?, text, lines?:[{speaker, text, vo?, delivery?, line_id?, timbre?, pace?, tone?, emotion?, placement?}], sound?（这一镜的声音）, end_state?（这一镜结束时的状态）, shot_id?, start_state?, purpose?, expression?, expression_terms?, composition?, transition?:{in?, out?, cut_point?}, vo?, positions?, anchors?, motion?, light_full?, risk_tags?, extras?（武戏节的打斗标签）}]；sound?（不写时按镜头顺序接各镜头的 sound）、rules?（不写时取最后一镜的 end_state）、hook?、lang?；2.1 装段另写 shot_ids、profile、cast、screen_text、jimeng、warnings、story_span、continuity_bridge（同场后段）。拆段合段时把声音和结尾状态写在镜头上，段级 sound / rules 只写整段通用的。不认识的字段会被拒绝。"
+const SegmentShape = "每段字段：id（S01、S12b）；scene（场次）；title?；dur（秒）；mode（lock_identity / lock_first_frame / text_only）；first_frame?、last_frame?（lock_first_frame 用）；refs?:[{file, role(identity/location/plate/prop/frame/motion), note?, state?}]，file 填柚子资产 ID；voices?:[{character, file}]；shots:[{at（段内第几秒）, size?, camera?, text, lines?:[{speaker, text, vo?, delivery?, line_id?, timbre?, pace?, tone?, emotion?, placement?}], sound?（这一镜的声音）, end_state?（这一镜结束时的状态）, shot_id?, start_state?, purpose?, expression?, expression_terms?, composition?, transition?:{in?, out?, cut_point?}, vo?, positions?, anchors?, motion?, light_full?, risk_tags?, extras?（武戏节的打斗标签）, refs?（这一镜用到的参考 file，装段写）}]；sound?（不写时按镜头顺序接各镜头的 sound）、rules?（不写时取最后一镜的 end_state）、hook?、lang?；2.1 装段另写 shot_ids、profile、cast、screen_text、jimeng、warnings、story_span、continuity_bridge（同场后段）。拆段合段时把声音和结尾状态写在镜头上，段级 sound / rules 只写整段通用的。不认识的字段会被拒绝。"
 
 var refRoles = map[string]bool{"identity": true, "location": true, "plate": true, "prop": true, "frame": true, "motion": true}
 

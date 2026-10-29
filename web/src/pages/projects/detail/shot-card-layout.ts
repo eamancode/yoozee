@@ -248,34 +248,27 @@ export function sectionLayoutBadge(layout: Pick<SectionLayoutModel, "genre" | "l
 }
 
 /**
- * 一段绑的一项资产（工作台按这一段的资产引用算好）：person 是角色卡对应的人（子卡是主卡名），code 是色卡的场编号，
- * preview 是缩略图地址（没有图时为空，显示占位）。
+ * 一段绑的一项资产（工作台按这一段的资产引用和段 refs 算好）：versionIds 是它在段 refs / 资产引用里出现的版本 ID，
+ * code 是色卡的场编号，preview 是缩略图地址（没有图时为空，显示占位）。
  */
-export type SegmentAsset = { id: string; title: string; kind: "character" | "prop" | "scene" | "palette" | "other"; person: string; preview: string; code?: string };
+export type SegmentAsset = { id: string; title: string; kind: "character" | "prop" | "scene" | "palette" | "other"; versionIds: string[]; preview: string; code?: string };
 
 const ASSET_ORDER: Record<SegmentAsset["kind"], number> = { character: 0, prop: 1, scene: 2, palette: 3, other: 4 };
 
 /**
- * 一张卡下面的绑定资产：角色只列这一镜在场的（站位、焦点、摄影机目标、台词说话人、画面里写到的；主卡名、子卡名、「主卡名·任意」都算同一个人），
- * 道具只列这一镜写到的，场景和本场色卡整段共用、每张都列。资产都来自这一段的绑定，不另猜。
+ * 一张卡下面的绑定资产：按装段时这一镜实际用到的参考（镜头的 refs：子卡没图已退回主卡、场景按本场回填、同人去重和名额截断之后的）列，
+ * 和出图、编译视频提示词用的是同一份；名字只作显示，不用来判断在场。
+ * - 只算还在段 refs 里的（在制作台取消了绑定的不再列）；段 refs 里没分到任何一镜的（在制作台给整段补绑的）每张都列。
+ * - 本场色卡整段共用，每张都列。
+ * - 旧段的镜头没有 refs：这一段绑的资产每张都列。
  */
-export function cardBoundAssets(sub: DramaSubShot, shot: DramaShot | undefined, assets: SegmentAsset[]) {
-    const names = new Set<string>();
-    const addName = (name?: string) => {
-        const value = (name || "").trim();
-        if (!value) return;
-        names.add(value);
-        names.add(value.split("·")[0].trim());
-    };
-    for (const item of shot?.blocking || []) addName(item.who);
-    addName(shot?.focus);
-    addName((shot?.extras || sub.extras || {})["摄影机目标"]?.split(/[\s·，,]/)[0]);
-    for (const line of sub.lines || []) addName(line.speaker);
-    const text = [shot?.action, sub.text, sub.positions, ...Object.values({ ...(shot?.extras || {}), ...(sub.extras || {}) })].filter(Boolean).join(" ");
-    const has = (asset: SegmentAsset) => {
-        if (asset.kind === "scene" || asset.kind === "palette") return true;
-        if (asset.kind === "character") return names.has(asset.title) || names.has(asset.person) || text.includes(asset.title) || text.includes(asset.person);
-        return text.includes(asset.title);
-    };
-    return assets.filter(has).sort((left, right) => ASSET_ORDER[left.kind] - ASSET_ORDER[right.kind]);
+export function cardBoundAssets(sub: DramaSubShot, spec: Pick<DramaSegment, "shots" | "refs">, assets: SegmentAsset[]) {
+    const palettes = assets.filter((asset) => asset.kind === "palette");
+    const others = assets.filter((asset) => asset.kind !== "palette");
+    const byOrder = (list: SegmentAsset[]) => list.sort((left, right) => ASSET_ORDER[left.kind] - ASSET_ORDER[right.kind]);
+    if (!spec.shots.some((shot) => shot.refs)) return byOrder([...others, ...palettes]);
+    const current = new Set((spec.refs || []).filter((ref) => ref.role !== "motion").map((ref) => ref.file));
+    const attributed = new Set(spec.shots.flatMap((shot) => shot.refs || []));
+    const files = new Set([...(sub.refs || []).filter((file) => current.has(file)), ...Array.from(current).filter((file) => !attributed.has(file))]);
+    return byOrder([...others.filter((asset) => asset.versionIds.some((id) => files.has(id))), ...palettes]);
 }

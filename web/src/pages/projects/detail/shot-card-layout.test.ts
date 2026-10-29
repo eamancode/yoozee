@@ -199,17 +199,35 @@ test("原样输出缺失（卡 F 之前的段、没存下、戏类对不上）�
     assert.equal(pending.title, "片段 1（时长：12秒）");
 });
 
-test("卡下的绑定资产：角色只列这一镜在场的（子卡认主卡名），道具只列写到的，场景和本场色卡每张都列", () => {
+test("卡下的绑定资产按这一镜实际的参考（refs）列，不按名字：写「小满」也显示绑的淋湿子卡，子卡没图退回主卡时显示主卡", () => {
     const assets: SegmentAsset[] = [
-        { id: "palette", title: "E02S01 色卡", kind: "palette", person: "E02S01 色卡", preview: "", code: "E02S01" },
-        { id: "wet", title: "林小满·淋湿", kind: "character", person: "林小满", preview: "/wet.png" },
-        { id: "zhou", title: "周岸", kind: "character", person: "周岸", preview: "" },
-        { id: "chart", title: "病历夹", kind: "prop", person: "病历夹", preview: "" },
-        { id: "station", title: "护士站", kind: "scene", person: "护士站", preview: "" },
+        { id: "palette", title: "E02S01 色卡", kind: "palette", versionIds: ["v-palette"], preview: "", code: "E02S01" },
+        { id: "wet", title: "林小满·淋湿", kind: "character", versionIds: ["v-wet"], preview: "/wet.png" },
+        { id: "lin", title: "林小满", kind: "character", versionIds: ["v-lin"], preview: "/lin.png" },
+        { id: "zhou", title: "周岸", kind: "character", versionIds: ["v-zhou"], preview: "" },
+        { id: "chart", title: "病历夹", kind: "prop", versionIds: ["v-chart"], preview: "" },
+        { id: "station", title: "护士站", kind: "scene", versionIds: ["v-station"], preview: "" },
     ];
-    const [, second] = wenxi15Spec.shots;
-    const listed = cardBoundAssets(second, wenxi15Shots[1], assets).map((asset) => asset.id);
-    assert.deepEqual(listed, ["wet", "chart", "station", "palette"]);
-    const first = cardBoundAssets(wenxi15Spec.shots[0], { id: "E01S01-01", scene: "E01S01", action: "空镜：护士站的灯闪了一下。" }, assets).map((asset) => asset.id);
-    assert.deepEqual(first, ["station", "palette"]);
+    const sub = (text: string, refs?: string[]): DramaSubShot => ({ at: 0, text, ...(refs ? { refs } : {}) });
+    const spec = (shots: DramaSubShot[], files: string[]): Pick<DramaSegment, "shots" | "refs"> => ({ shots, refs: files.map((file) => ({ file, role: "identity" })) });
+    const ids = (list: SegmentAsset[]) => list.map((asset) => asset.id);
+
+    // 名字写成「小满」、绑定是淋湿子卡：显示淋湿；文字里提到病历夹但没绑也不列；写错名字的周岸按绑定仍列出。
+    const wetShot = sub("小满抬头，握紧病历夹，阿岸在身后", ["v-wet", "v-station", "v-zhou"]);
+    const segment = spec([wetShot, sub("空镜", ["v-station"])], ["v-wet", "v-zhou", "v-station"]);
+    assert.deepEqual(ids(cardBoundAssets(wetShot, segment, assets)), ["wet", "zhou", "station", "palette"]);
+    assert.deepEqual(ids(cardBoundAssets(segment.shots[1], segment, assets)), ["station", "palette"]);
+
+    // 子卡没图、装段退回主卡：refs 是主卡的版本，卡下显示主卡，不显示淋湿。
+    const fallback = sub("林小满·淋湿抬头", ["v-lin"]);
+    assert.deepEqual(ids(cardBoundAssets(fallback, spec([fallback], ["v-lin"]), assets)), ["lin", "palette"]);
+
+    // 在制作台取消了绑定（不在段 refs 里了）的不再列；给整段补绑、没分到任何一镜的每张都列。
+    const edited = spec([wetShot, sub("空镜", ["v-station"])], ["v-wet", "v-station", "v-chart"]);
+    assert.deepEqual(ids(cardBoundAssets(wetShot, edited, assets)), ["wet", "chart", "station", "palette"]);
+    assert.deepEqual(ids(cardBoundAssets(edited.shots[1], edited, assets)), ["chart", "station", "palette"]);
+
+    // 旧段的镜头没有 refs：这一段绑的资产每张都列。
+    const legacy = sub("林小满走进病房");
+    assert.deepEqual(ids(cardBoundAssets(legacy, spec([legacy], ["v-lin"]), assets)), ["wet", "lin", "zhou", "chart", "station", "palette"]);
 });

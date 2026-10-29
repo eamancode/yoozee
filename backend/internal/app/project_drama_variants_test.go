@@ -758,6 +758,7 @@ func TestSectionShotsVariantBindingPaths(t *testing.T) {
 							t.Fatalf("%s：段 %s（%s）绑 %s，%s 却 has=%v：%s", path, seg.Spec.ID, seg.Spec.Section, family[want].Title, a.Title, has, keys)
 						}
 					}
+					inShot := map[string]bool{}
 					for _, sh := range view.Shotlist.Shots {
 						if sh.Section != seg.Spec.Section {
 							continue
@@ -769,6 +770,20 @@ func TestSectionShotsVariantBindingPaths(t *testing.T) {
 						for _, name := range names {
 							if strings.HasPrefix(name, "林小满") && name != family[want].Title {
 								t.Fatalf("%s：镜头 %s 的人物名 %q 应换成 %q", path, sh.ID, name, family[want].Title)
+							}
+							if strings.HasPrefix(name, "林小满") {
+								inShot[sh.ID] = true
+							}
+						}
+					}
+					// 卡 G：分镜卡按每镜的 refs 列资产——有林小满的镜头 refs 是这一场最终绑的那张卡（子卡没图退回主卡），不挂这个人的别的卡。
+					for _, sub := range seg.Spec.Shots {
+						if !inShot[sub.ShotID] {
+							continue
+						}
+						for id, a := range family {
+							if has := slices.Contains(sub.Refs, a.PrimaryVersionID); has != (id == want) {
+								t.Fatalf("%s：段 %s 镜头 %s 的 refs 应是 %s，%s has=%v：%v", path, seg.Spec.ID, sub.ShotID, family[want].Title, a.Title, has, sub.Refs)
 							}
 						}
 					}

@@ -381,9 +381,10 @@ describe("分镜制作页的段卡：按小节的戏类版式显示（卡 G）",
     });
     const viewOf = (spec: DramaSegment): DramaSegmentView => ({ shotId: `shot-${spec.id}`, unitId: "unit-1", title: spec.id, position: 0, durationMs: spec.dur * 1000, spec, derived: false });
     const assets = [
-        { id: "wet", title: "林小满·淋湿", kind: "character" as const, person: "林小满", preview: "" },
-        { id: "station", title: "护士站", kind: "scene" as const, person: "护士站", preview: "" },
-        { id: "palette", title: "E02S01 色卡", kind: "palette" as const, person: "E02S01 色卡", preview: "", code: "E02S01" },
+        { id: "wet", title: "林小满·淋湿", kind: "character" as const, versionIds: ["v-wet"], preview: "" },
+        { id: "lin", title: "林小满", kind: "character" as const, versionIds: ["v-lin"], preview: "" },
+        { id: "station", title: "护士站", kind: "scene" as const, versionIds: ["v-station"], preview: "" },
+        { id: "palette", title: "E02S01 色卡", kind: "palette" as const, versionIds: ["v-palette"], preview: "", code: "E02S01" },
     ];
 
     test("第 2 集的武戏节：段卡头写 E02S01-P2 · 武戏，v7 一秒一镜带力度标签，卡下列子卡、场景和本场色卡", () => {
@@ -394,9 +395,13 @@ describe("分镜制作页的段卡：按小节的戏类版式显示（卡 G）",
             mode: "lock_identity",
             section: "E01S01-P2",
             genre: "wuxi",
+            refs: [
+                { file: "v-wet", role: "identity" },
+                { file: "v-station", role: "location" },
+            ],
             shots: [
-                { at: 0, size: "全景", camera: "推镜", text: "", shot_id: "E01S01-03", extras: { 力度: "P2 中·擦伤", 战损: "L1→L2" } },
-                { at: 1, size: "中景", camera: "甩镜", text: "", shot_id: "E01S01-04", extras: { 力度: "P3 重·格挡", 闪帧: "F2 黑闪 2 帧" } },
+                { at: 0, size: "全景", camera: "推镜", text: "", shot_id: "E01S01-03", extras: { 力度: "P2 中·擦伤", 战损: "L1→L2" }, refs: ["v-wet", "v-station"] },
+                { at: 1, size: "中景", camera: "甩镜", text: "", shot_id: "E01S01-04", extras: { 力度: "P3 重·格挡", 闪帧: "F2 黑闪 2 帧" }, refs: ["v-station"] },
             ],
         };
         const shotlist = shotlistOf({
@@ -419,6 +424,8 @@ describe("分镜制作页的段卡：按小节的戏类版式显示（卡 G）",
         expect(html).toContain("P2 中·擦伤");
         expect(html).toContain("genre-tag is-level-3");
         expect(html).toContain("林小满·淋湿");
+        expect(html).not.toContain(">林小满<");
+        expect(html.match(/林小满·淋湿<\/span>/g)?.length).toBe(1);
         expect(html).toContain("护士站");
         expect(html).toContain("E02S01 色卡");
         expect(html).toContain("看技能原文");
