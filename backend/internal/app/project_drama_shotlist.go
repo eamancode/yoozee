@@ -397,7 +397,8 @@ func sceneOwnLocations(shots []drama.Shot, hints [][]string, locationOf func(str
 
 // attachRefsHints 让每镜的 refs_hint 带上这一行绑定的资产名：模型写的提示保留（「病历夹·掉在地上」进装段的状态句），
 // 绑定了但没写进提示的资产补在后面，装段时一起挂成参考。
-//   - 人物资产只补这一镜真在场的（站位、焦点、分镜行人物里有他），免得同一场景资产串起来的两场戏互相带人。
+//   - 人物资产只补这一镜真在场的（站位、焦点、分镜行人物里有他），免得同一场景资产串起来的两场戏互相带人。在场按人认：
+//     主卡名、这个人任一张子卡的标题、「主卡名·任意」都算同一个人（绑的是主卡、名字写子卡，或反过来，都不丢人）。
 //   - 场景只认本场自己的（spec.scene 对应的场景资产，见 sceneOwnLocations）：一镜列了别的场景（段首镜头写到
 //     「身后是病房走廊」、同一镜写了两个场景）一律换成本场的，段的场景参考因此只有一个。场景参考是整段生成的背景，
 //     两张背景图会让模型在两处之间来回跳；一场里真换了地方，应在剧本里另起一场。本场认不出场景时才留这一镜列的第一个。
@@ -410,6 +411,8 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 	}
 	byID := make(map[string]boundAsset, len(assets))
 	locations := map[string]bool{}
+	// personOf 是角色卡标题 → 主卡名，人物名先按卡标题认，认不出时取「·」前面的主卡名。
+	personOf := map[string]string{}
 	for _, a := range assets {
 		if a.PrimaryVersionID == "" {
 			continue
@@ -420,9 +423,24 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 			person = a.Variant.ParentTitle
 		}
 		byID[a.ID] = boundAsset{title, dramaRefRole(a.Category) == "identity", person}
+		if dramaRefRole(a.Category) == "identity" {
+			personOf[title] = person
+		}
 		if dramaRefRole(a.Category) == "location" {
 			locations[title] = true
 		}
+	}
+	personKey := func(name string) string {
+		name = strings.TrimSpace(name)
+		if p, ok := personOf[name]; ok {
+			return p
+		}
+		if head, _, found := strings.Cut(name, "·"); found {
+			if p, ok := personOf[strings.TrimSpace(head)]; ok {
+				return p
+			}
+		}
+		return name
 	}
 	for i := range shots {
 		hints := slices.Clone([]string(shots[i].RefsHint))
@@ -432,16 +450,16 @@ func attachRefsHints(shots []drama.Shot, rows []shotlistRow, assets []ProjectAss
 				name, _, _ := strings.Cut(h, "·")
 				named[name], named[strings.TrimSpace(h)] = true, true
 			}
-			present := map[string]bool{shots[i].Focus: true}
+			present := map[string]bool{personKey(shots[i].Focus): true}
 			for _, b := range shots[i].Blocking {
-				present[b.Who] = true
+				present[personKey(b.Who)] = true
 			}
 			for _, c := range rows[i].Characters {
-				present[strings.TrimSpace(c.CharacterName)] = true
+				present[personKey(c.CharacterName)] = true
 			}
 			for _, id := range rows[i].assetIDs() {
 				a := byID[id]
-				if a.title == "" || named[a.title] || (a.character && !present[a.title] && !present[a.person]) {
+				if a.title == "" || named[a.title] || (a.character && !present[a.person]) {
 					continue
 				}
 				named[a.title] = true

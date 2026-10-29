@@ -471,8 +471,8 @@ func TestApplySceneCastAndBible(t *testing.T) {
 		// 子卡还没出三视图、主卡有图：不换成子卡，镜头里直接写了子卡的也退回主卡。
 		assets[0].Character.VisualStatus, assets[1].Character.VisualStatus, assets[3].Character.VisualStatus = "ready", "missing", "ready"
 		fallback := sceneCastOf(bible, units, "ep2", assets)
-		if fallback.Variants["E01S02"]["lin"] != "suit" || fallback.Fallback["wet"] != "lin" {
-			t.Fatalf("没图的子卡退回主卡：%+v %+v", fallback.Variants, fallback.Fallback)
+		if fallback.Variants["E01S02"]["lin"] != "suit" || fallback.finalCard("E01S03", "lin", "wet") != "lin" {
+			t.Fatalf("没图的子卡退回主卡：%+v", fallback.Variants)
 		}
 		back := []shotlistRow{row("wet")}
 		backShots := []drama.Shot{{ID: "E01S02-02", Scene: "E01S02", RefsHint: []string{"林小满·淋湿"}}}
@@ -597,5 +597,234 @@ func TestChapterShotsBindsSceneVariant(t *testing.T) {
 	}
 	if bound == 0 {
 		t.Fatalf("第 2 场有段引用子卡：%d 段", len(segments))
+	}
+}
+
+// 主卡移出项目：子卡跟着一起移出；任一子卡被镜头引用时整批拒绝（409，列出镜头），主卡和子卡都留着。
+// 在素材库彻底删除主卡：子卡一起删掉，资产表里不留没有主卡的子卡。
+func TestUnlinkOrDeleteParentTakesVariants(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, episodes := seedEpisodeProject(t, svc, db)
+	lin := seedLinXiaoman(t, svc, db, project.ID)
+	suit, err := svc.CreateDramaAssetVariant("user-1", project.ID, lin.Asset.ID, DramaAssetVariantRequest{Label: "西服", Look: "深灰西服"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wet, err := svc.CreateDramaAssetVariant("user-1", project.ID, lin.Asset.ID, DramaAssetVariantRequest{Label: "淋湿", Look: "护士服湿透"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot := model.Shot{ID: newID(), ProjectID: project.ID, UnitID: episodes[1].ID, Title: "E02S01-01", Description: "段", Status: "draft"}
+	if err := db.Create(&shot).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.LinkShotAsset("user-1", project.ID, shot.ID, LinkShotAssetRequest{AssetVersionID: wet.Asset.PrimaryVersionID, Role: "reference"}); err != nil {
+		t.Fatal(err)
+	}
+	linked := func(id string) bool {
+		ok, err := svc.repo.ProjectAssetLinked(project.ID, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	err = svc.UnlinkProjectAsset("user-1", project.ID, lin.Asset.ID)
+	var conflict *AppError
+	if !errors.As(err, &conflict) || conflict.Status != http.StatusConflict || !strings.Contains(err.Error(), "「林小满·淋湿」：E02S01-01") {
+		t.Fatalf("子卡被引用时主卡不能移出：%v", err)
+	}
+	if !linked(lin.Asset.ID) || !linked(suit.Asset.ID) || !linked(wet.Asset.ID) {
+		t.Fatal("拒绝时一张都不移出")
+	}
+	if err := db.Where("shot_id = ?", shot.ID).Delete(&model.ShotAssetReference{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.UnlinkProjectAsset("user-1", project.ID, lin.Asset.ID); err != nil {
+		t.Fatal(err)
+	}
+	if linked(lin.Asset.ID) || linked(suit.Asset.ID) || linked(wet.Asset.ID) {
+		t.Fatal("主卡和两张子卡一起移出项目")
+	}
+
+	if err := svc.deleteUserAssetsWithResources("user-1", []string{lin.Asset.ID}, true); err != nil {
+		t.Fatal(err)
+	}
+	var left int64
+	if err := db.Model(&model.Asset{}).Where("id IN ?", []string{lin.Asset.ID, suit.Asset.ID, wet.Asset.ID}).Count(&left).Error; err != nil || left != 0 {
+		t.Fatalf("彻底删除主卡连子卡一起删：%v 还剩 %d", err, left)
+	}
+}
+
+// 按小节生成时子卡在各种情况下都落到「本场应有的人物参考图」：七床第一集（Seedance 2.0，文戏 15），林小满主卡有图；
+// 子卡淋湿（第 2 场）有图、西服（没记场，算别场）有图、雨衣（第 2 场）没图。模型把人物一律写成某张子卡名，
+// 整章生成、重装、只重跑一节三条路径之后：有林小满的段，第 2 场绑淋湿（淋湿去图后绑主卡）、第 1 场绑主卡，不丢人；
+// 镜头里的人物名跟着换成最终绑的那张卡。
+func TestSectionShotsVariantBindingPaths(t *testing.T) {
+	cases := []struct {
+		name    string
+		written string
+		// stripWet 为 true 时淋湿先有图生成，生成后去图（加一版不出图）再重装 / 只重跑一节，最后补图重装换回淋湿。
+		stripWet bool
+	}{
+		{"子卡有图", "林小满·淋湿", false},
+		{"子卡去图", "林小满·淋湿", true},
+		{"写了别场子卡", "林小满·西服", false},
+		{"写了没图子卡", "林小满·雨衣", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, db := newDramaWorkerTestService(t)
+			project, unit := seedQichuang(t, svc, db)
+			seedQichuangStyle(t, svc, project, unit)
+			project = qichuangOnModel(t, svc, db, project, "seedance-2.0")
+			assets := projectAssetsByTitle(t, svc, project.ID)
+			lin := assets["林小满"].ID
+			draw := func(id string, c color.Color) {
+				t.Helper()
+				if _, err := svc.ReplaceProjectCharacterRepresentations("user-1", project.ID, id, ReplaceCharacterRepresentationsRequest{Representations: []CharacterRepresentationInput{{Role: "turnaround_sheet", ResourceID: uploadTestImage(t, svc, "user-1", c)}}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			variant := func(label string, scenes []string, imaged bool) string {
+				t.Helper()
+				created, err := svc.CreateDramaAssetVariant("user-1", project.ID, lin, DramaAssetVariantRequest{Label: label, Look: label + "的林小满", Scenes: scenes})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if imaged {
+					draw(created.Asset.ID, color.White)
+				}
+				return created.Asset.ID
+			}
+			draw(lin, color.Gray{Y: 128})
+			wet := variant("淋湿", []string{"E01S02"}, true)
+			variant("西服", nil, true)
+			variant("雨衣", []string{"E01S02"}, false)
+			upstream := &sectionShotsUpstream{rewrite: func(_ string, out string) string { return strings.ReplaceAll(out, "林小满", tc.written) }}
+			server := httptest.NewServer(upstream)
+			defer server.Close()
+			runChapter := func(label string, run *dramaRunMeta) {
+				t.Helper()
+				project, _ := svc.repo.ProjectForUser("user-1", project.ID)
+				plan, err := svc.planDramaStep("user-1", project, unit.ID, drama.StepChapterShots, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				meta := newDramaRunMeta(plan, unit.ID)
+				if run != nil {
+					meta = *run
+				}
+				req := dramaStepTaskRequest(project.ID, unit.ID, plan, dramaStepTaskOptions{Model: "test", Config: map[string]any{"baseUrl": server.URL, "apiKey": "test-key", "model": "test", "interfaceType": "chat-completion"}})
+				req.Input["metadata"].(map[string]any)["dramaRun"] = meta
+				insertDramaTestTask(t, svc, db, project.ID, req)
+				if done, err := runQueuedTask(t, svc); err != nil || done.Status != model.TaskStatusSucceeded {
+					t.Fatalf("%s：%v %q", label, err, done.Error)
+				}
+			}
+			// expect 核对每个有林小满的段：第 1 场绑 scene1、第 2 场绑 scene2（资产 ID），不挂这个人的别的卡；镜头里的人物名是那张卡的标题。
+			expect := func(path, scene1, scene2 string) {
+				t.Helper()
+				family := map[string]ProjectAssetSummary{}
+				for _, a := range projectAssetsByTitle(t, svc, project.ID) {
+					if a.ID == lin || (a.Variant != nil && a.Variant.ParentID == lin) {
+						family[a.ID] = a
+					}
+				}
+				view, err := svc.DramaShotlist("user-1", project.ID, unit.ID)
+				if err != nil || view.Draft {
+					t.Fatalf("%s：镜头表 %v draft=%v", path, err, view != nil && view.Draft)
+				}
+				raw := map[string]string{}
+				for _, sec := range view.Sections {
+					raw[sec.ID] = sec.Raw
+				}
+				segments, err := svc.DramaSegments("user-1", project.ID, unit.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				checked := map[string]int{}
+				for _, seg := range segments {
+					if !strings.Contains(raw[seg.Spec.Section], "林小满") {
+						continue
+					}
+					scene := strings.ToUpper(seg.Spec.Scene)[:6]
+					want := scene1
+					if scene == "E01S02" {
+						want = scene2
+					}
+					keys := strings.Join(referenceKeys(t, db, seg.ShotID), ",")
+					for id, a := range family {
+						if has := strings.Contains(keys, a.PrimaryVersionID); has != (id == want) {
+							t.Fatalf("%s：段 %s（%s）绑 %s，%s 却 has=%v：%s", path, seg.Spec.ID, seg.Spec.Section, family[want].Title, a.Title, has, keys)
+						}
+					}
+					for _, sh := range view.Shotlist.Shots {
+						if sh.Section != seg.Spec.Section {
+							continue
+						}
+						names := []string{sh.Focus}
+						for _, b := range sh.Blocking {
+							names = append(names, b.Who)
+						}
+						for _, name := range names {
+							if strings.HasPrefix(name, "林小满") && name != family[want].Title {
+								t.Fatalf("%s：镜头 %s 的人物名 %q 应换成 %q", path, sh.ID, name, family[want].Title)
+							}
+						}
+					}
+					checked[scene]++
+				}
+				if checked["E01S01"] == 0 || checked["E01S02"] == 0 {
+					t.Fatalf("%s：两场都要有林小满的段：%v", path, checked)
+				}
+			}
+			repack := func() {
+				t.Helper()
+				if _, err := svc.RepackDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistRepackRequest{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			onlyOne := func() {
+				t.Helper()
+				project, _ := svc.repo.ProjectForUser("user-1", project.ID)
+				plan, err := svc.planDramaStep("user-1", project, unit.ID, drama.StepChapterShots, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				run, err := svc.onlyScenesRun(project.ID, unit.ID, plan, newDramaRunMeta(plan, unit.ID), nil, []string{"E01S02-P1"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				calls := upstream.calls
+				runChapter("只重跑一节", &run)
+				if upstream.calls != calls+1 {
+					t.Fatalf("只重跑一节只调一次模型：%d", upstream.calls-calls)
+				}
+			}
+
+			runChapter("整章生成", nil)
+			expect("整章", lin, wet)
+			if !tc.stripWet {
+				repack()
+				expect("重装", lin, wet)
+				onlyOne()
+				expect("只重跑一节", lin, wet)
+				return
+			}
+			// 淋湿加一版不出图：重装、只重跑一节（留下的节是淋湿有图时写的）、整章重跑都退回主卡。
+			if _, err := svc.UpdateDramaAssetVariant("user-1", project.ID, wet, DramaAssetVariantRequest{Label: "淋湿", Look: "护士服湿透、发梢滴水", Scenes: []string{"E01S02"}}); err != nil {
+				t.Fatal(err)
+			}
+			repack()
+			expect("去图后重装", lin, lin)
+			onlyOne()
+			expect("去图后只重跑一节", lin, lin)
+			runChapter("去图后整章生成", nil)
+			expect("去图后整章", lin, lin)
+			// 淋湿补上图再重装：第 2 场换回淋湿。
+			draw(wet, color.White)
+			repack()
+			expect("补图后重装", lin, wet)
+		})
 	}
 }
