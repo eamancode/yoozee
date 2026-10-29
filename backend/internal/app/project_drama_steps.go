@@ -226,6 +226,9 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}
+	if err := chapterShotsOverCap(plan.shots); err != nil {
+		return DramaStepRunResult{}, err
+	}
 	if plan.assets != nil {
 		plan.assets.Images = req.ImageTask.usable()
 		plan.assets.Chain = req.chain

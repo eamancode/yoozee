@@ -149,16 +149,17 @@ func (r *Repository) ReplaceProjectUnitShotsWithShotlist(projectID string, unitI
 		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, unitID).Delete(&model.Shot{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Create(&shots).Error; err != nil {
+		// 分批插入：一章最多 2000 段，一条 INSERT 带全部段的版本和参考会超过 SQLite / PostgreSQL 的绑定参数上限。
+		if err := tx.CreateInBatches(&shots, 200).Error; err != nil {
 			return err
 		}
 		if len(revisions) > 0 {
-			if err := tx.Create(&revisions).Error; err != nil {
+			if err := tx.CreateInBatches(&revisions, 200).Error; err != nil {
 				return err
 			}
 		}
 		if len(references) > 0 {
-			if err := tx.Create(&references).Error; err != nil {
+			if err := tx.CreateInBatches(&references, 200).Error; err != nil {
 				return err
 			}
 		}

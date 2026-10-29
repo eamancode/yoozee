@@ -103,6 +103,14 @@ test("storyboardRunStop 第 1 场就失败、没有进度或收尾失败时只�
     assert.deepEqual(storyboardRunStop({ id: "t4", status: "cancelled", error: "" }, { total: 3, completed: 0 }), { kind: "failed", taskId: "t4", status: "cancelled", error: undefined });
 });
 
+test("storyboardRunStop 生成分段各节都写完、收尾失败时给重新写入（重跑也给），别的步骤仍只能重新生成", () => {
+    const written = { createdAt: "2026-10-27T03:18:01Z", completedAt: "2026-10-27T03:27:46Z" };
+    const failed = { id: "t5", status: "failed", error: "本章 300 个镜头超过一章 200 个镜头的上限", createdAt: "2026-10-28T03:00:00Z" };
+    assert.deepEqual(storyboardRunStop(failed, { total: 60, completed: 60 }, written, { refinalize: true }), { kind: "refinalize", taskId: "t5", total: 60, status: "failed", error: "本章 300 个镜头超过一章 200 个镜头的上限" });
+    assert.equal(storyboardRunStop(failed, { total: 60, completed: 59 }, undefined, { refinalize: true })?.kind, "resume");
+    assert.equal(storyboardRunStop(failed, { total: 60, completed: 60 })?.kind, "failed");
+});
+
 test("storyboardRunStop 已有成功写入后取消或失败的重跑不给续写，说明当前结果来自哪次运行", () => {
     const written = { createdAt: "2026-10-27T03:18:01Z", completedAt: "2026-10-27T03:27:46Z" };
     const cancelledRerun = { id: "t2", status: "cancelled", error: "任务已取消", createdAt: "2026-10-27T03:44:43Z" };
