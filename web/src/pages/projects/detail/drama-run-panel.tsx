@@ -91,7 +91,7 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
                         tone={refinalize.status === "cancelled" ? "warning" : "error"}
                         title={`上一次 ${refinalize.total} ${unit}都写完了，写入没成功`}
                         action={
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-col items-end gap-1.5">
                                 <Button size="small" type="primary" onClick={onResume}>
                                     用已写好的 {refinalize.total} {unit}重新写入
                                 </Button>
