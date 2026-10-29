@@ -18,7 +18,9 @@ import (
 func addArtifact(t *testing.T, svc *Service, db *gorm.DB, projectID string, view DramaSegmentView, kind string) string {
 	t.Helper()
 	id := newID()
-	artifact := model.ShotArtifact{ID: id, ProjectID: projectID, UnitID: view.UnitID, ShotID: view.ShotID, RevisionID: view.RevisionID, Type: kind, Version: 1, Status: "ready", Selected: true,
+	var version int64
+	db.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", view.ShotID, kind).Count(&version)
+	artifact := model.ShotArtifact{ID: id, ProjectID: projectID, UnitID: view.UnitID, ShotID: view.ShotID, RevisionID: view.RevisionID, Type: kind, Version: int(version) + 1, Status: "ready", Selected: true,
 		InputHash: svc.artifactInputHash(view.ShotID, view.RevisionID, kind), CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	if err := db.Create(&artifact).Error; err != nil {
 		t.Fatal(err)
@@ -153,4 +155,94 @@ func TestKeptSegmentsStayFreshAcrossCardGFormat(t *testing.T) {
 	fresh("改别的段", false, func(shotID string) bool {
 		return shotID == target.ShotID || !strings.HasPrefix(sectionOf[shotID], "E01S01-")
 	})
+
+	// ④ 改过的这一段重新出分镜图、预演、视频；在制作台原样保存一次（PUT 相同 spec）是空操作：剧情和装段同一个派生法，指纹不变。
+	current := func() DramaSegmentView {
+		t.Helper()
+		views, err := svc.DramaSegments("user-1", project.ID, unit.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range views {
+			if v.ShotID == target.ShotID {
+				return v
+			}
+		}
+		t.Fatal("第 1 段不见了")
+		return DramaSegmentView{}
+	}
+	type triple struct{ storyboard, previz, video string }
+	regen := func() triple {
+		v := current()
+		return triple{addArtifact(t, svc, db, project.ID, v, drama.ArtifactStoryboard), addArtifact(t, svc, db, project.ID, v, drama.ArtifactActionBoard), addArtifact(t, svc, db, project.ID, v, drama.ArtifactVideo)}
+	}
+	expect := func(path string, a triple, storyboard, previz, video string) {
+		t.Helper()
+		if s, p, v := artifactStatus(t, db, a.storyboard), artifactStatus(t, db, a.previz), artifactStatus(t, db, a.video); s != storyboard || p != previz || v != video {
+			t.Fatalf("%s：第 1 段分镜图 %s、预演 %s、视频 %s，应是 %s / %s / %s", path, s, p, v, storyboard, previz, video)
+		}
+	}
+	mine := regen()
+	if current().Spec.Title == "" {
+		t.Fatal("文戏 15 段有兜底标题（首镜动作）")
+	}
+	same, _ := json.Marshal(current().Spec)
+	if _, err := svc.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: unit.ID, Segments: []json.RawMessage{same}}); err != nil {
+		t.Fatal(err)
+	}
+	expect("原样保存", mine, "ready", "ready", "ready")
+
+	// ⑤ 编辑过、重新出过产物的段：之后只重跑别的节、改别的场的戏类，装段把它按装段写法重写一版，产物仍不过期。
+	plan, err = svc.planDramaStep("user-1", &project, unit.ID, drama.StepChapterShots, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run, err = svc.onlyScenesRun(project.ID, unit.ID, plan, newDramaRunMeta(plan, unit.ID), nil, []string{last}); err != nil {
+		t.Fatal(err)
+	}
+	req = dramaStepTaskRequest(project.ID, unit.ID, plan, dramaStepTaskOptions{Model: "test", Config: map[string]any{"baseUrl": server.URL, "apiKey": "test-key", "model": "test", "interfaceType": "chat-completion"}})
+	req.Input["metadata"].(map[string]any)["dramaRun"] = run
+	insertDramaTestTask(t, svc, db, project.ID, req)
+	if done, err := runQueuedTask(t, svc); err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("再只重跑 %s：%v %q", last, err, done.Error)
+	}
+	expect("编辑后只重跑别的节", mine, "ready", "ready", "ready")
+	var wenxiSection string
+	for _, v := range func() []DramaSegmentView { views, _ := svc.DramaSegments("user-1", project.ID, unit.ID); return views }() {
+		if strings.HasPrefix(v.Spec.Section, "E01S02-") && v.Spec.Genre == drama.ShotGenreWenxi15 {
+			wenxiSection = v.Spec.Section
+		}
+	}
+	if wenxiSection == "" {
+		t.Fatal("第 2 场还有文戏 15 节")
+	}
+	queueRegenreTask(t, svc, db, project, unit, server.URL, wenxiSection, "wuxi")
+	if done, err := runQueuedTask(t, svc); err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("改 %s 为武戏：%v %q", wenxiSection, err, done.Error)
+	}
+	expect("编辑后改别的场的戏类", mine, "ready", "ready", "ready")
+
+	// ⑥ 只改一句台词（这一镜去掉台词）：分镜图和预演的输入里没有台词（只看画面、景别机位、镜头文字和时长），不过期；视频过期。
+	v := current()
+	shotlist, err := svc.DramaShotlist("user-1", project.ID, unit.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lineShot json.RawMessage
+	for _, sub := range v.Spec.Shots {
+		for _, sh := range shotlist.Shotlist.Shots {
+			if sh.ID == sub.ShotID && len(sh.Lines) > 0 && lineShot == nil {
+				sh.Lines = nil
+				lineShot, _ = json.Marshal(sh)
+			}
+		}
+	}
+	if lineShot == nil {
+		t.Fatal("第 1 段有带台词的镜头")
+	}
+	specRaw, _ := json.Marshal(v.Spec)
+	if _, err := svc.WriteDramaSegmentsChecked("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: unit.ID, Segments: []json.RawMessage{specRaw}, Shots: []json.RawMessage{lineShot}, ShotlistVersion: shotlist.Version}); err != nil {
+		t.Fatal(err)
+	}
+	expect("只改台词", mine, "ready", "ready", "stale")
 }

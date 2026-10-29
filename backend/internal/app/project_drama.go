@@ -215,15 +215,10 @@ func applyRevisionSpec(input *ShotRevisionInput) (string, error) {
 	if input.DurationMs == 0 {
 		input.DurationMs = int64(seg.Dur * 1000)
 	}
+	// 剧情描述和装段（dramaSegmentShotInput）同一个派生法：各镜文字用「；」连起来，不拼段标题——两条路径写法不同时，
+	// 同一段内容在制作台保存一次指纹就变，产物全部过期（之前拼过标题的旧版本在指纹里归一，见 drama.InputHash）。
 	if strings.TrimSpace(input.PlotDescription) == "" {
-		var parts []string
-		if seg.Title != "" {
-			parts = append(parts, seg.Title)
-		}
-		for _, sh := range seg.Shots {
-			parts = append(parts, sh.Text)
-		}
-		input.PlotDescription = strings.Join(parts, "；")
+		input.PlotDescription = drama.SegmentPlot(seg)
 	}
 	if strings.TrimSpace(input.Dialogue) == "" {
 		var lines []string
