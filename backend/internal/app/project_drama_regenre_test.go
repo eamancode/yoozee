@@ -366,3 +366,107 @@ func TestScenePaletteBiblePatchKeepsConcurrentKeys(t *testing.T) {
 		t.Fatalf("两边的写都要保留：%s", fresh.BibleJSON)
 	}
 }
+
+// 改武戏的任务各节都写完、收尾失败（这里把镜头上限临时调低）：「用已写好的 N 节重新写入」沿用上一次任务的切法（改戏类范围和这次改动），
+// 不按镜头表里还是改之前的戏类重切；新任务不调模型，写完照样是武戏、保留装段（原第 2 节的段换成武戏、其余段不动）。
+// 建任务前的预检按一秒一镜估：武戏节的估时就是镜数，不会误拦。
+func TestSectionGenreChangeRefinalizesAfterFinalizeFailure(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, unit := seedQichuang(t, svc, db)
+	upstream := &sectionShotsUpstream{}
+	server := httptest.NewServer(upstream)
+	defer server.Close()
+	queueDramaStepTask(t, svc, db, project, unit, server.URL, "")
+	if done, err := runQueuedTask(t, svc); err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("整章文戏 30：%v %q", err, done.Error)
+	}
+	before, _ := svc.DramaSegments("user-1", project.ID, unit.ID)
+	task, _ := queueRegenreTask(t, svc, db, project, unit, server.URL, "E01S02-P2", "wuxi")
+	if err := chapterShotsOverCap(taskDramaShots(task.InputJSON)); err != nil {
+		t.Fatalf("武戏节按一秒一镜预检不该拦：%v", err)
+	}
+	saved := dramaChapterMaxShots
+	dramaChapterMaxShots = 20
+	failed, err := runQueuedTask(t, svc)
+	dramaChapterMaxShots = saved
+	if err == nil || failed.Status != model.TaskStatusFailed || !strings.Contains(failed.Error, "超过一章 20 个镜头的上限") {
+		t.Fatalf("收尾失败：%v %q", err, failed.Error)
+	}
+	calls := upstream.calls
+	plan, run, err := svc.prepareDramaStepRun("user-1", &project, unit.ID, drama.StepChapterShots, DramaStepRunRequest{ResumeTaskID: failed.ID}, nil, nil)
+	if err != nil {
+		t.Fatalf("改戏类的任务能重新写入：%v", err)
+	}
+	if !dramaRunCallsNoUpstream(&run) || plan.shots.Regenre == nil || plan.shots.Sections[2].Genre != drama.ShotGenreWuxi || !slices.Equal(run.OnlySections, []string{"E01S02-P2", "E01S02-P3"}) {
+		t.Fatalf("沿用上一次的切法、只收尾：%+v %+v", run, plan.shots.Regenre)
+	}
+	req := dramaStepTaskRequest(project.ID, unit.ID, plan, dramaStepTaskOptions{Model: "test", Config: map[string]any{"baseUrl": server.URL, "apiKey": "test-key", "model": "test", "interfaceType": "chat-completion"}})
+	req.Input["metadata"].(map[string]any)["dramaRun"] = run
+	insertDramaTestTask(t, svc, db, project.ID, req)
+	if done, err := runQueuedTask(t, svc); err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("重新写入：%v %q", err, done.Error)
+	}
+	if upstream.calls != calls {
+		t.Fatalf("重新写入不调模型：%d → %d", calls, upstream.calls)
+	}
+	if got := sectionGenresOf(t, svc, project, unit); !slices.Equal(got, []string{"E01S01-P1/wenxi30/[2 11]", "E01S02-P1/wenxi30/[13 27]", "E01S02-P2/wuxi/[28 36]", "E01S02-P3/wuxi/[37 42]"}) {
+		t.Fatalf("重新写入后是武戏：%v", got)
+	}
+	after, _ := svc.DramaSegments("user-1", project.ID, unit.ID)
+	if len(after) != 4 || after[0].ShotID != before[0].ShotID || after[1].ShotID != before[1].ShotID || after[2].ShotID != before[2].ShotID {
+		t.Fatalf("重新写入也走保留装段：%v", segmentSections(after))
+	}
+}
+
+// 大章节（20 场 × 10 句 = 100 节 100 段，#48 的分批写段）只重写一节：保留装段后仍是 100 段、段 ID 不重复，
+// 99 段沿用原段、被重写的那一节沿用原段并换了内容，没有多出或丢掉的段。
+func TestOnlySectionsKeepsSegmentsInLargeChapter(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, unit := seedLongQichuang(t, svc, db, 20, 10)
+	upstream := &sectionShotsUpstream{}
+	server := httptest.NewServer(upstream)
+	defer server.Close()
+	queueDramaStepTask(t, svc, db, project, unit, server.URL, "")
+	if done, err := runQueuedTask(t, svc); err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("整章：%v %q", err, done.Error)
+	}
+	before, _ := svc.DramaSegments("user-1", project.ID, unit.ID)
+	if len(before) != 100 {
+		t.Fatalf("100 段：%d", len(before))
+	}
+	target := before[57].Spec.Section
+	plan, err := svc.planDramaStep("user-1", &project, unit.ID, drama.StepChapterShots, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := svc.onlyScenesRun(project.ID, unit.ID, plan, newDramaRunMeta(plan, unit.ID), nil, []string{target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream.rewrite = func(section string, out string) string { return strings.ReplaceAll(out, "转身", "回头") }
+	req := dramaStepTaskRequest(project.ID, unit.ID, plan, dramaStepTaskOptions{Model: "test", Config: map[string]any{"baseUrl": server.URL, "apiKey": "test-key", "model": "test", "interfaceType": "chat-completion"}})
+	req.Input["metadata"].(map[string]any)["dramaRun"] = run
+	insertDramaTestTask(t, svc, db, project.ID, req)
+	if done, err := runQueuedTask(t, svc); err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("只重写一节：%v %q", err, done.Error)
+	}
+	after, _ := svc.DramaSegments("user-1", project.ID, unit.ID)
+	seen := map[string]bool{}
+	for i, seg := range after {
+		if seen[seg.ShotID] {
+			t.Fatalf("段 ID 重复：%s", seg.ShotID)
+		}
+		seen[seg.ShotID] = true
+		if seg.ShotID != before[i].ShotID || seg.Spec.Section != before[i].Spec.Section {
+			t.Fatalf("第 %d 段应沿用原段：%s/%s → %s/%s", i+1, before[i].ShotID, before[i].Spec.Section, seg.ShotID, seg.Spec.Section)
+		}
+	}
+	if len(after) != 100 || after[57].RevisionID == before[57].RevisionID || after[56].RevisionID != before[56].RevisionID {
+		t.Fatalf("100 段，只有重写的那一节换了版本：%d %v %v", len(after), after[57].RevisionID == before[57].RevisionID, after[56].RevisionID == before[56].RevisionID)
+	}
+	var count int64
+	db.Model(&model.Shot{}).Where("project_id = ? AND unit_id = ?", project.ID, unit.ID).Count(&count)
+	if count != 100 {
+		t.Fatalf("库里 %d 段", count)
+	}
+}

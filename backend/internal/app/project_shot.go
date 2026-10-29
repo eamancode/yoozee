@@ -144,8 +144,13 @@ func (s *Service) replaceProjectUnitShots(userID string, projectID string, unitI
 	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
 		return nil, err
 	}
-	if len(req.Shots) == 0 || len(req.Shots) > 200 {
-		return nil, BadAuthRequest("章节分镜数量必须在 1 到 200 之间")
+	// 镜头表装出的段（shotlist 不为空）跟着一章镜头数的上限走；手写整章分镜仍是一次 200 段。
+	limit := 200
+	if shotlist != nil {
+		limit = dramaChapterMaxShots
+	}
+	if len(req.Shots) == 0 || len(req.Shots) > limit {
+		return nil, BadAuthRequest(fmt.Sprintf("本章 %d 段，章节分镜数量必须在 1 到 %d 之间", len(req.Shots), limit))
 	}
 	now := time.Now()
 	shots := make([]model.Shot, 0, len(req.Shots))

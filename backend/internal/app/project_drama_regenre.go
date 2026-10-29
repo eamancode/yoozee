@@ -182,6 +182,9 @@ func (s *Service) replaceProjectUnitShotsKeeping(userID string, projectID string
 	if err != nil {
 		return err
 	}
+	if len(inputs) == 0 || len(inputs) > dramaChapterMaxShots {
+		return BadAuthRequest(fmt.Sprintf("本章 %d 段，章节分镜数量必须在 1 到 %d 之间", len(inputs), dramaChapterMaxShots))
+	}
 	all, err := s.repo.ProjectShots(projectID)
 	if err != nil {
 		return err

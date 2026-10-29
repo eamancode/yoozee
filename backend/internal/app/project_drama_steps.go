@@ -269,7 +269,7 @@ func (s *Service) runDramaStepFor(userID string, project *model.Project, unitID 
 		return DramaStepRunResult{}, err
 	}
 	taskReq := dramaStepTaskRequest(project.ID, unitID, plan, dramaStepTaskOptions{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config, Rule: req.Rule, TraceID: req.TraceID, RequestID: req.RequestID})
-	taskReq.Input["metadata"].(map[string]any)["dramaRun"] = run
+	taskReq.dramaRun = &run
 	if req.chainedFrom != "" {
 		taskReq.Input["metadata"].(map[string]any)["chainedFrom"] = req.chainedFrom
 	}
@@ -286,6 +286,16 @@ func (s *Service) runDramaStepFor(userID string, project *model.Project, unitID 
 
 // prepareDramaStepRun 组装一次运行：提示词计划和 metadata.dramaRun（「从第 N 场继续」「只重写几节」、改戏类要重写的节都在这里定）。
 func (s *Service) prepareDramaStepRun(userID string, project *model.Project, unitID string, stepID string, req DramaStepRunRequest, overrides *[]drama.GenreOverride, regenre *dramaRegenre) (*dramaStepPlan, dramaRunMeta, error) {
+	// 「从第 N 节继续」「用已写好的 N 节重新写入」沿用上一次任务的切法：改戏类的任务没写进镜头表就失败时，镜头表里存的还是改之前的戏类，
+	// 按镜头表重切会和上一次的小节对不上；所以取上一次任务记下的改戏类范围和这次改动。
+	if resumeID := strings.TrimSpace(req.ResumeTaskID); resumeID != "" && overrides == nil && stepID == drama.StepChapterShots {
+		if previous, err := s.repo.TaskForUser(userID, resumeID); err == nil {
+			if prev := taskDramaShots(previous.InputJSON); prev != nil && (prev.Regenre != nil || len(prev.Overrides) > 0) {
+				ranges := append([]drama.GenreOverride{}, prev.Overrides...)
+				overrides, regenre = &ranges, prev.Regenre
+			}
+		}
+	}
 	plan, err := s.planDramaStepWith(userID, project, unitID, stepID, req.Rule, overrides)
 	if err != nil {
 		return nil, dramaRunMeta{}, err
@@ -295,7 +305,7 @@ func (s *Service) prepareDramaStepRun(userID string, project *model.Project, uni
 			return nil, dramaRunMeta{}, BadAuthRequest("只有生成分段能改戏类")
 		}
 		plan.shots.Regenre = regenre
-		if len(regenre.Sections) < len(plan.shots.Sections) {
+		if len(regenre.Sections) < len(plan.shots.Sections) && strings.TrimSpace(req.ResumeTaskID) == "" {
 			req.OnlySections = regenre.Sections
 		}
 	}
@@ -313,6 +323,12 @@ func (s *Service) prepareDramaStepRun(userID string, project *model.Project, uni
 		}
 	} else if len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 {
 		if run, err = s.onlyScenesRun(project.ID, unitID, plan, run, req.OnlyScenes, req.OnlySections); err != nil {
+			return nil, dramaRunMeta{}, err
+		}
+	}
+	// 要调模型的运行先按估时预拦镜头上限（改戏类同样拦）；只重新收尾的不调模型，按实际镜头数在收尾时判断。
+	if !dramaRunCallsNoUpstream(&run) {
+		if err := chapterShotsOverCap(plan.shots); err != nil {
 			return nil, dramaRunMeta{}, err
 		}
 	}

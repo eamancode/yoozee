@@ -74,8 +74,8 @@ func (s *Service) planDramaShotEdits(userID string, projectID string, req DramaS
 	if len(req.Order) > 0 {
 		return dramaShotEditPlan{}, BadAuthRequest("改分镜卡和拆段、合段要分两次保存")
 	}
-	if len(req.Shots) > dramaShotlistMaxRows {
-		return dramaShotEditPlan{}, BadAuthRequest(fmt.Sprintf("一次最多改 %d 个镜头", dramaShotlistMaxRows))
+	if len(req.Shots) > dramaShotEditMaxShots {
+		return dramaShotEditPlan{}, BadAuthRequest(fmt.Sprintf("一次最多改 %d 个镜头", dramaShotEditMaxShots))
 	}
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {

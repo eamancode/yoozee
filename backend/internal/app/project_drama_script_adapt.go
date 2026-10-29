@@ -174,7 +174,7 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 	}
 	taskReq := dramaStepTaskRequest(project.ID, "", plan, dramaStepTaskOptions{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config, TraceID: req.TraceID, RequestID: req.RequestID})
 	metadata := taskReq.Input["metadata"].(map[string]any)
-	metadata["dramaRun"] = run
+	taskReq.dramaRun = &run
 	if req.chainedFrom != "" {
 		metadata["chainedFrom"] = req.chainedFrom
 	}
