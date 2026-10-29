@@ -210,7 +210,12 @@ export type StoryboardRunStop =
  * lastWrite 是比这个任务更早、成功写入的那次任务（同一章）：有它时停下的是重跑，不给「从第 N 场继续」。
  * options.refinalize 为 true（生成分段）时各节都写完的任务给「重新收尾」：整章输出都是这次运行的，重跑也照样收尾。
  */
-export function storyboardRunStop(task: { id: string; status: string; error?: string; createdAt?: string }, progress?: { total: number; completed: number }, lastWrite?: { createdAt: string; completedAt?: string }, options: { refinalize?: boolean } = {}): StoryboardRunStop | undefined {
+export function storyboardRunStop(
+    task: { id: string; status: string; error?: string; createdAt?: string },
+    progress?: { total: number; completed: number },
+    lastWrite?: { createdAt: string; completedAt?: string },
+    options: { refinalize?: boolean } = {},
+): StoryboardRunStop | undefined {
     if (task.status !== "failed" && task.status !== "cancelled") return undefined;
     const error = task.error?.trim() || undefined;
     if (options.refinalize && progress && progress.total >= 1 && progress.completed >= progress.total) return { kind: "refinalize", taskId: task.id, total: progress.total, status: task.status, error };
