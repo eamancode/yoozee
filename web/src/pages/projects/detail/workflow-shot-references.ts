@@ -296,3 +296,11 @@ export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: st
     if (frames && (frames < images.length || audios.length)) unsupported.push("首尾帧不能和参考图、参考音频一起提交，请去掉这一段的参考或改用锁人物模式");
     return { images, audios, frames: frames > 0, missing, unsupported };
 }
+
+/** 资产的缩略图：角色取主图（没有取第一张形象图），其余取图片资源；没有图时为空。 */
+export function assetPreviewUrl(asset: ProjectAsset) {
+    const representation = asset.character?.representations?.find((item) => item.role === "primary") || asset.character?.representations?.[0];
+    if (representation?.resourceId) return resourceFileUrl(representation.resourceId);
+    const resourceId = resourceIdFromStorageKey(asset.storageKey);
+    return resourceId && asset.mediaType === "image" ? resourceFileUrl(resourceId) : "";
+}

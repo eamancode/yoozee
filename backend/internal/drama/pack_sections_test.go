@@ -96,3 +96,26 @@ func TestCompileWenxi15WithoutMusic(t *testing.T) {
 		t.Fatal("别的戏类不改段文字")
 	}
 }
+
+// 段标题段号后面带内容说明：首镜写了镜头目的（即梦）就用它；按小节生成的武戏节取核心观看体验、文戏 15 取首镜动作；旧镜头表只认镜头目的。
+func TestSegmentTitleForSections(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		shot Shot
+		want string
+	}{
+		{"即梦镜头目的", Shot{Section: "E01S01-P1", Purpose: "建立走廊与人物。", Action: "林小满走来"}, "建立走廊与人物。"},
+		{"武戏核心观看体验", Shot{Section: "E01S02-P2", Genre: ShotGenreWuxi, Extras: map[string]string{"核心观看体验": "护人者以伤换位"}, Action: "阿坤冲出"}, "护人者以伤换位"},
+		{"文戏 15 首镜动作", Shot{Section: "E01S01-P1", Genre: ShotGenreWenxi15, Action: "林小满转身看向门口。"}, "林小满转身看向门口。"},
+		{"旧镜头表没写目的", Shot{Action: "林小满转身"}, ""},
+	} {
+		shot := tc.shot
+		if got := segmentTitle([]*Shot{&shot}); got != tc.want {
+			t.Fatalf("%s：%q，想要 %q", tc.name, got, tc.want)
+		}
+	}
+	long := Shot{Section: "E01S01-P1", Action: strings.Repeat("长", 60)}
+	if got := segmentTitle([]*Shot{&long}); len([]rune(got)) != 40 {
+		t.Fatalf("标题最多 40 字：%d", len([]rune(got)))
+	}
+}

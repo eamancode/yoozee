@@ -407,7 +407,7 @@ func TestDramaAssetVariantEditDeleteAndFollow(t *testing.T) {
 
 	err = svc.DeleteDramaAssetVariant("user-1", project.ID, child.ID)
 	var conflict *AppError
-	if !errors.As(err, &conflict) || conflict.Status != http.StatusConflict || !strings.Contains(err.Error(), "「林小满·正装」：E01S02-01") {
+	if !errors.As(err, &conflict) || conflict.Status != http.StatusConflict || !strings.Contains(err.Error(), "「林小满·正装」：七床空了 E01S02-01") {
 		t.Fatalf("被引用的子卡不能删（409，列出镜头）：%v", err)
 	}
 	if err := db.Where("shot_id = ?", childShot.ID).Delete(&model.ShotAssetReference{}).Error; err != nil {
@@ -630,7 +630,7 @@ func TestUnlinkOrDeleteParentTakesVariants(t *testing.T) {
 	}
 	err = svc.UnlinkProjectAsset("user-1", project.ID, lin.Asset.ID)
 	var conflict *AppError
-	if !errors.As(err, &conflict) || conflict.Status != http.StatusConflict || !strings.Contains(err.Error(), "「林小满·淋湿」：E02S01-01") {
+	if !errors.As(err, &conflict) || conflict.Status != http.StatusConflict || !strings.Contains(err.Error(), "「林小满·淋湿」：现在信了 E02S01-01") {
 		t.Fatalf("子卡被引用时主卡不能移出：%v", err)
 	}
 	if !linked(lin.Asset.ID) || !linked(suit.Asset.ID) || !linked(wet.Asset.ID) {

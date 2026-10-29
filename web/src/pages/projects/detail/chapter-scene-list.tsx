@@ -78,9 +78,11 @@ export function ChapterSceneList({ scenes: data, editor, dirty }: ChapterSceneLi
 function sceneTooltip(scene: DramaScene) {
     const lines = [`${scene.heading}（第 ${scene.lines[0]}–${scene.lines[1]} 行）`];
     if (scene.sourceHeadings.length > 1) lines.push(`正文里连续 ${scene.sourceHeadings.length} 个同地点场次头并成这一场`);
-    if (scene.shotScene !== scene.id) lines.push(`镜头表里写作 ${scene.shotScene}`);
+    // 小节编号按项目编号显示（和场次编号同一套集号）；存下的镜头表、小节仍用单元内编号 shotScene。
     for (const section of scene.sections || []) {
-        lines.push(`${section.id} 约 ${Math.round(section.est)} 秒（第 ${section.lines[0]}–${section.lines[1]} 行，${section.lineIds.length} 句台词）${section.warnings?.length ? `：${section.warnings.join("；")}` : ""}`);
+        lines.push(
+            `${scene.shotScene !== scene.id ? section.id.replace(scene.shotScene, scene.id) : section.id} 约 ${Math.round(section.est)} 秒（第 ${section.lines[0]}–${section.lines[1]} 行，${section.lineIds.length} 句台词）${section.warnings?.length ? `：${section.warnings.join("；")}` : ""}`,
+        );
     }
     return lines.join("；");
 }

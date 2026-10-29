@@ -734,6 +734,17 @@ func wuxiShotText(sh *Shot, cp *CompileProfile) string {
 	}, func(x string) bool { return strings.TrimSpace(x) == "" }), "")
 }
 
+// segmentTitle 是段标题里段号后面的内容说明：取首镜的镜头目的（即梦每镜都写）；按小节生成的段首镜没写目的时，
+// 武戏取这一节的核心观看体验，文戏 15（7.3 不写镜头目的）取首镜的画面动作，不让段标题只剩段号。
+func segmentTitle(shots []*Shot) string {
+	first := shots[0]
+	title := strings.TrimSpace(first.Purpose)
+	if title == "" && first.Section != "" {
+		title = firstNonBlank(first.Extras["核心观看体验"], first.Action)
+	}
+	return runePrefix(title, 40)
+}
+
 func soundText(sh *Shot, cp *CompileProfile) string {
 	s := strings.TrimSpace(sh.Sfx)
 	appendPart := func(part string) {
@@ -1433,7 +1444,7 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 	for _, sh := range shots {
 		shotIDs = append(shotIDs, sh.ID)
 	}
-	seg := Segment{ID: segID, Scene: sceneID, Title: runePrefix(shots[0].Purpose, 40), Dur: float64(dur), Mode: mode, Shots: segShots, ShotIDs: shotIDs, Profile: p.in.ProfileID}
+	seg := Segment{ID: segID, Scene: sceneID, Title: segmentTitle(shots), Dur: float64(dur), Mode: mode, Shots: segShots, ShotIDs: shotIDs, Profile: p.in.ProfileID}
 	seg.Jimeng = jimengBlock(scene, shots, p.in.Bible, segShots)
 	seg.Cast = castLines(shots, refs, p.in.Bible, p.in.FileExists, cp.Cast.LockMax)
 	seg.ScreenText = screenTextsFor(shots, scene)

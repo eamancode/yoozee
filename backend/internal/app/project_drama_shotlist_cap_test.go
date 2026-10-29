@@ -267,6 +267,19 @@ func TestRefinalizeRunIsNotBilled(t *testing.T) {
 	if stored.BillingOrderID != "" || account() != before || ledger() != entries {
 		t.Fatalf("重新写入不建计费单、余额和流水不动：order=%q %+v → %+v，流水 %d → %d", stored.BillingOrderID, before, account(), entries, ledger())
 	}
+	// 重新写入的任务失败后，任务中心不给重试（列表标 refinalizeOnly），直接调重试也被拒，不建单冻结。
+	if !taskSummaryForOutput(*stored).RefinalizeOnly {
+		t.Fatal("重新写入的任务在任务列表里标 refinalizeOnly")
+	}
+	if err := db.Model(&model.Task{}).Where("id = ?", stored.ID).Updates(map[string]any{"status": model.TaskStatusFailed, "error": "收尾失败"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RetryTask("user-1", stored.ID); err == nil || !strings.Contains(err.Error(), "重新写入") {
+		t.Fatalf("重新写入的任务不能在任务中心重试：%v", err)
+	}
+	if retried, _ := svc.repo.Task(stored.ID); retried.Status != model.TaskStatusFailed || retried.BillingOrderID != "" || account() != before || ledger() != entries {
+		t.Fatalf("拒绝重试时任务、余额、流水都不动：%s order=%q %+v", retried.Status, retried.BillingOrderID, account())
+	}
 
 	resume, err := svc.RunDramaStep("user-1", project.ID, unit.ID, drama.StepChapterShots, runReq(oneWritten))
 	if err != nil {
@@ -275,6 +288,9 @@ func TestRefinalizeRunIsNotBilled(t *testing.T) {
 	stored, _ = svc.repo.Task(resume.Task.ID)
 	if after := account(); stored.BillingOrderID == "" || after.ReservedMicrocredits <= before.ReservedMicrocredits {
 		t.Fatalf("从第 2 节继续照常预授权：order=%q %+v", stored.BillingOrderID, after)
+	}
+	if taskSummaryForOutput(*stored).RefinalizeOnly {
+		t.Fatal("要调模型的续写不是只重新收尾")
 	}
 }
 

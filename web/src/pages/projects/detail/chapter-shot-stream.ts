@@ -39,6 +39,8 @@ export type ShotStreamState = {
     shotCount: number;
     /** 「重新生成问题场 / 小节」时要重写的场或小节（回合标记带的；只有这几轮有输出）。 */
     only?: string[];
+    /** 这次是「改为武戏 / 改回文戏」：改成的戏类（wuxi / wenxi，回合标记带的）；不是改戏类时为空。 */
+    regenre?: "wuxi" | "wenxi";
 };
 
 /** 一场下的各节（侧栏按「场 → 小节」分组）。 */
@@ -99,6 +101,7 @@ export function parseShotStream(text: string): ShotStreamState {
             const section = textOf(marker.section);
             if (section) Object.assign(next, { section, genre: textOf(marker.genre) || undefined, est: Number(marker.est) || undefined });
             if (Array.isArray(marker.only)) state.only = marker.only.map(textOf).filter(Boolean);
+            if (marker.regenre === "wuxi" || marker.regenre === "wenxi") state.regenre = marker.regenre;
             const existing = state.scenes.findIndex((item) => item.index === index);
             if (existing >= 0) state.scenes[existing] = next;
             else state.scenes.push(next);
@@ -129,6 +132,37 @@ export function parseShotStream(text: string): ShotStreamState {
     return state;
 }
 
+/** 一轮在状态行里的叫法：小节编号，旧的整章生成是场编号。 */
+function turnName(turn?: StreamScene) {
+    return turn?.section || turn?.scene || "";
+}
+
+/**
+ * 运行中状态行的前半句：改戏类写「正在改为武戏 / 正在改回文戏 E02S01-P2（1/2）」，重新生成问题小节写「正在重写问题小节 …」，
+ * 整章写「正在写第 k/N 节」。code 把单元内编号换成项目编号。
+ */
+export function storyboardRunningLabel(stream: ShotStreamState, code: (text: string) => string = (text) => text) {
+    const action = stream.regenre === "wuxi" ? "正在改为武戏" : stream.regenre === "wenxi" ? "正在改回文戏" : "";
+    const rewriting = stream.only?.length ? stream.only : undefined;
+    if (rewriting) {
+        const current = turnName(stream.scenes[stream.scenes.length - 1]);
+        return `${action || "正在重写问题小节"} ${code(current || rewriting[0])}（${Math.max(1, rewriting.indexOf(current) + 1)}/${rewriting.length}）`;
+    }
+    if (stream.total) return `${action ? `${action}：` : ""}正在写第 ${Math.max(1, stream.current)}/${stream.total} 节`;
+    return stream.shotCount ? "正在收尾" : "等待模型开始输出";
+}
+
+/** 一场在侧栏的摘要：几节、几镜；还没转出镜头的节不说成「0 镜」（武戏、改戏类的节写完前只有原文）。 */
+export function streamGroupMeta(sections: StreamScene[]) {
+    const shots = sections.reduce((sum, turn) => sum + turn.shots.length, 0);
+    return [sections.some((turn) => turn.section) ? `${sections.length} 节` : "", shots ? `${shots} 镜` : ""].filter(Boolean).join(" · ");
+}
+
+/** 一节的镜头数：转出镜头后说几镜，正在写的说「写作中」，没输出的不写。 */
+export function streamTurnCount(turn: StreamScene, running: boolean) {
+    return turn.shots.length ? `${turn.shots.length} 镜` : running ? "写作中" : "";
+}
+
 /** 把各轮按场分组（同一场的几节排在一起，按出现顺序）。 */
 export function streamSceneGroups(state: ShotStreamState): StreamSceneGroup[] {
     const groups: StreamSceneGroup[] = [];
@@ -145,7 +179,7 @@ export function streamSceneGroups(state: ShotStreamState): StreamSceneGroup[] {
 }
 
 type ResultTurn = { index?: number; scene?: string; heading?: string; section?: string; text?: string };
-type ResultScene = { scene: string; heading: string; section?: string; est?: number };
+type ResultScene = { scene: string; heading: string; section?: string; genre?: string; est?: number };
 type ResultRun = { total?: number; genre?: string; scenes?: ResultScene[]; turns?: ResultTurn[] };
 
 const genreLabels: Record<string, string> = { wenxi15: "文戏 15", wenxi30: "文戏 30", wuxi: "武戏" };
@@ -165,9 +199,11 @@ export function shotStreamFromResult(resultJson?: string): ShotStreamState {
     const total = Number(run.total) || 0;
     const scenes = run.scenes || [];
     const genre = run.genre ? genreLabels[run.genre] || run.genre : undefined;
+    // 每一节标自己的戏类（改过戏类的章里文戏、武戏节混着）；没记戏类的旧任务用这次运行的默认戏类。
     const turnOf = (index: number, scene = "", heading = "", section = "") => {
-        const planned = scenes[index - 1];
-        return JSON.stringify({ [SHOT_TURN_MARKER]: { index, total, scene, heading, attempt: 1, ...(section ? { section, genre, est: planned?.est } : {}) } });
+        const planned = (section && scenes.find((item) => item.section === section)) || scenes[index - 1];
+        const sectionGenre = planned?.genre ? genreLabels[planned.genre] || planned.genre : genre;
+        return JSON.stringify({ [SHOT_TURN_MARKER]: { index, total, scene, heading, attempt: 1, ...(section ? { section, genre: sectionGenre, est: planned?.est } : {}) } });
     };
     const turns = (run.turns || []).filter((turn) => typeof turn.text === "string" && turn.text);
     if (turns.length) {

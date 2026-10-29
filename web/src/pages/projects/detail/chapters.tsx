@@ -88,6 +88,7 @@ import { followChainedScenePalette, ScenePaletteControl } from "./chapter-scene-
 import { StyleLockControl } from "./chapter-style-lock";
 import { ChapterSceneList } from "./chapter-scene-list";
 import { withEpisodeSourcesComment } from "./episode-sources";
+import { projectSceneCode, unitEpisodeNumber } from "./unit-numbering";
 
 const CHAPTER_ROW_HEIGHT = 62;
 const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
@@ -130,6 +131,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const [storyboardOpen, setStoryboardOpen] = useState(false);
     // 「重新生成问题小节」打开同一个生成弹窗，只重写这几节；为空是整章生成。
     const [storyboardOnlySections, setStoryboardOnlySections] = useState<string[]>([]);
+
+
     const [chapterOperations, setChapterOperations] = useState<Record<string, ChapterOperation>>({});
     const [completedChapterOperations, setCompletedChapterOperations] = useState<Record<string, true>>({});
     const [operationNow, setOperationNow] = useState(() => Date.now());
@@ -158,6 +161,9 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         refetchOnWindowFocus: true,
     });
     const selectedUnit = selectedUnitSummary;
+    // 小节、场、镜头号按项目编号显示（第 2 集写 E02S01-P1，和场次条一致）；传给后端的仍是单元内编号。
+    const selectedEpisode = selectedUnit ? unitEpisodeNumber(detail.units, selectedUnit.id) : 0;
+    const shownSections = storyboardOnlySections.map((section) => projectSceneCode(section, selectedEpisode));
     const unitKind = (unit: ProjectUnit): UnitView => (unit.kind === "episode" ? "episode" : "chapter");
     const chapterUnits = useMemo(() => orderedUnits.filter((unit) => unitKind(unit) === "chapter"), [orderedUnits]);
     const episodeUnits = useMemo(() => orderedUnits.filter((unit) => unitKind(unit) === "episode"), [orderedUnits]);
@@ -534,7 +540,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         beginChapterOperation(unit.id, "storyboard");
         setStoryboardStreams((current) => ({ ...current, [unit.id]: { taskId: "", text: "" } }));
         setRunPanelOpen(true);
-        message.info(options.refinalize ? "用上一次写好的各节重新写入镜头表，不再调模型" : options.resumeTaskId ? "从中断的那一节接着写，可继续编辑或切换章节" : options.onlySections?.length ? `只重写 ${options.onlySections.join("、")}，其余小节的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
+        message.info(options.refinalize ? "用上一次写好的各节重新写入镜头表，不再调模型" : options.resumeTaskId ? "从中断的那一节接着写，可继续编辑或切换章节" : options.onlySections?.length ? `只重写 ${options.onlySections.map((section) => projectSceneCode(section, unitEpisodeNumber(detail.units, unit.id))).join("、")}，其余小节的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
         try {
             const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: dramaRule, resumeTaskId: options.resumeTaskId, onlySections: options.onlySections }, {
                 onTaskUpdate: (task) => {
@@ -551,7 +557,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 return;
             }
             const summary = outcome ? `已按 ${outcome.sections ? `${outcome.sections} 节（${dramaShotGenreLabel(outcome.genre)}）` : `${outcome.scenes} 场`}生成 ${outcome.segments} 段（每段 ${segmentRule.label}${outcome.profile ? `，风格档案：${outcome.profile}` : ""}）` : "分段已写入";
-            if (outcome?.notes?.length) message.warning(outcome.notes.join("；"), 10);
+            if (outcome?.notes?.length) message.warning(outcome.notes.map((note) => projectSceneCode(note, unitEpisodeNumber(detail.units, unit.id))).join("；"), 10);
             message.success(`${summary}，技能：${result.usage.skill.name} ${result.usage.skill.version}`);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/video`);
         } catch (error) {
@@ -825,11 +831,12 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 onRegenerate={() => { setRunPanelOpen(false); setStoryboardOnlySections([]); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
                 onRegenerateSections={(sections) => { setRunPanelOpen(false); setStoryboardOnlySections(sections); setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }}
                 sceneNotice={scenesQuery.data?.notice}
+                episode={selectedEpisode}
                 onOpenProduction={() => { if (selectedUnit) navigate(`/projects/${detail.project.id}/workflow/${selectedUnit.id}/video`); }}
             />
-            <Modal className="library-modal" title={storyboardOnlySections.length ? `重新生成问题小节（${storyboardOnlySections.join("、")}）` : `生成${selectedUnitNoun}分段`} open={storyboardOpen} width={560} okText={storyboardOnlySections.length ? `只重写这 ${storyboardOnlySections.length} 节` : storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard(storyboardOnlySections.length ? { onlySections: storyboardOnlySections } : {})} styles={{ body: { paddingTop: 12 } }}>
+            <Modal className="library-modal" title={storyboardOnlySections.length ? `重新生成问题小节（${shownSections.join("、")}）` : `生成${selectedUnitNoun}分段`} open={storyboardOpen} width={560} okText={storyboardOnlySections.length ? `只重写这 ${storyboardOnlySections.length} 节` : storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard(storyboardOnlySections.length ? { onlySections: storyboardOnlySections } : {})} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
-                    {storyboardOnlySections.length ? <Callout tone="info" title="只重写问题所在的小节">一轮一节：{storyboardOnlySections.join("、")} 重新调模型写，其余小节用镜头表里已有的镜头（原样输出照原来的顺序放进对话，不调模型），写完按整章重新检查、装段。</Callout> : null}
+                    {storyboardOnlySections.length ? <Callout tone="info" title="只重写问题所在的小节">一轮一节：{shownSections.join("、")} 重新调模型写，其余小节用镜头表里已有的镜头（原样输出照原来的顺序放进对话，不调模型），写完按整章重新检查、装段。</Callout> : null}
                     {projectStyleMissing ? <Callout tone="warning" title="还没有项目画风" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去选画风</Button>}>分镜要按项目画风写画面和参考，先在项目设置里选一个画风并保存，再回来生成。</Callout> : null}
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
                         <div className="text-[var(--fs-tiny)] text-foreground/42">当前{selectedUnitNoun}</div>

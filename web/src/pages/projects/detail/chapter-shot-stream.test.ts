@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardOutcomeSummary, storyboardRunStop, streamSceneGroups } from "./chapter-shot-stream";
+import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardOutcomeSummary, storyboardRunningLabel, storyboardRunStop, streamGroupMeta, streamSceneGroups, streamTurnCount } from "./chapter-shot-stream";
+import { projectSceneCode } from "./unit-numbering";
 
 const marker = (index: number, attempt = 1) => JSON.stringify({ "@turn": { index, total: 2, scene: `E01S0${index}`, heading: index === 1 ? "内·病房走廊·夜" : "内·电梯口·夜", attempt } });
 const shot = (n: number, plot: string) => JSON.stringify({ shotNumber: n, plotDescription: plot, dialogue: "", shotSize: "中景", spec: { id: `E01S01-0${n}` } });
@@ -210,4 +211,46 @@ test("shotStreamFromResult 按小节生成成功后按 spec.section 分组，失
 
 test("storyboardOutcomeSummary 按小节生成时说几节", () => {
     assert.equal(storyboardOutcomeSummary({ status: "written", shots: 19, scenes: 2, errors: 0, sections: 3 }, { segmentCount: 3 }), "已写入 19 镜，按 3 节装成 3 段");
+});
+
+test("改戏类任务：状态写「正在改为武戏 / 改回文戏」，不写「正在重写问题小节」，编号按项目编号，没转出镜头的节不说 0 镜", () => {
+    const turn = (regenre?: string) =>
+        JSON.stringify({ "@turn": { index: 2, total: 3, scene: "E01S01", heading: "内·护士站·夜", attempt: 1, section: "E01S01-P2", genre: "武戏", est: 23, only: ["E01S01-P2", "E01S01-P3"], ...(regenre ? { regenre } : {}) } });
+    const code = (text: string) => projectSceneCode(text, 2);
+    const wuxi = parseShotStream([turn("wuxi"), "【核心观看体验】以伤换位", "镜 1｜0-1s"].join("\n") + "\n");
+    assert.equal(wuxi.regenre, "wuxi");
+    assert.equal(storyboardRunningLabel(wuxi, code), "正在改为武戏 E02S01-P2（1/2）");
+    const back = parseShotStream([turn("wenxi"), "## 片段 1（时长：12秒）"].join("\n") + "\n");
+    assert.equal(storyboardRunningLabel(back, code), "正在改回文戏 E02S01-P2（1/2）");
+    const problem = parseShotStream([turn(), "## 片段 1（时长：12秒）"].join("\n") + "\n");
+    assert.equal(storyboardRunningLabel(problem), "正在重写问题小节 E01S01-P2（1/2）");
+    assert.equal(streamTurnCount(wuxi.scenes[0], true), "写作中");
+    assert.equal(streamTurnCount(wuxi.scenes[0], false), "");
+    assert.equal(streamGroupMeta(wuxi.scenes), "1 节");
+    const whole = parseShotStream(JSON.stringify({ "@turn": { index: 1, total: 2, scene: "E01S01", heading: "", attempt: 1, section: "E01S01-P1", genre: "武戏", regenre: "wuxi" } }) + "\n");
+    assert.equal(storyboardRunningLabel(whole), "正在改为武戏：正在写第 1/2 节");
+});
+
+test("shotStreamFromResult 每一节标自己的戏类：改过戏类的章里武戏节不再显示成默认的文戏", () => {
+    const row = (section: string, n: number) => JSON.stringify({ shotNumber: n, plotDescription: "格挡", shotSize: "中景", spec: { id: `E01S01-0${n}`, scene: "E01S01", section } });
+    const resultJson = JSON.stringify({
+        text: [row("E01S01-P1", 1), row("E01S01-P2", 2)].join("\n") + "\n",
+        dramaRun: {
+            total: 2,
+            genre: "wenxi15",
+            scenes: [
+                { scene: "E01S01", heading: "内·护士站·夜", section: "E01S01-P1", genre: "wenxi15", est: 12 },
+                { scene: "E01S01", heading: "内·护士站·夜", section: "E01S01-P2", genre: "wuxi", est: 8 },
+            ],
+            turns: [],
+        },
+    });
+    const state = shotStreamFromResult(resultJson);
+    assert.deepEqual(
+        state.scenes.map((turn) => [turn.section, turn.genre, turn.shots.length]),
+        [
+            ["E01S01-P1", "文戏 15", 1],
+            ["E01S01-P2", "武戏", 1],
+        ],
+    );
 });

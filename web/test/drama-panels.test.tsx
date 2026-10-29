@@ -18,9 +18,10 @@ import {
     dramaEvidenceKey,
     dramaProgressKey,
     dramaSegmentsKey,
+    dramaShotlistKey,
     takeEvidenceStatus,
 } from "@/pages/projects/detail/drama-panels";
-import type { DramaBible, DramaEvidence, DramaProgress, DramaSegment, DramaSegmentProgress, DramaSegmentView } from "@/services/api/drama";
+import type { DramaBible, DramaEvidence, DramaProgress, DramaSegment, DramaSegmentProgress, DramaSegmentView, DramaShotlistView } from "@/services/api/drama";
 import type { ProjectAsset, ShotArtifact } from "@/services/api/projects";
 
 const model = {
@@ -79,13 +80,14 @@ function evidence(patch: Partial<DramaEvidence> = {}): DramaEvidence {
 
 const artifact = { id: "take-1", projectId: "p1", shotId: "shot-1", type: "video", version: 3, status: "ready", selected: false, metadataJson: "{}", createdAt: "", updatedAt: "" } as ShotArtifact;
 
-function render(element: ReactElement, seed: { progress?: DramaProgress; evidence?: DramaEvidence[]; bible?: DramaBible; assets?: ProjectAsset[]; segments?: DramaSegmentView[] } = {}) {
+function render(element: ReactElement, seed: { progress?: DramaProgress; evidence?: DramaEvidence[]; bible?: DramaBible; assets?: ProjectAsset[]; segments?: DramaSegmentView[]; shotlist?: DramaShotlistView } = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     if (seed.progress) client.setQueryData(dramaProgressKey("p1"), seed.progress);
     if (seed.evidence) client.setQueryData(dramaEvidenceKey("p1"), seed.evidence);
     if (seed.bible) client.setQueryData(dramaBibleKey("p1"), seed.bible);
     if (seed.assets) client.setQueryData(dramaChecklistAssetsKey("p1"), seed.assets);
     if (seed.segments) client.setQueryData(dramaSegmentsKey("p1", "unit-1"), seed.segments);
+    if (seed.shotlist) client.setQueryData(dramaShotlistKey("p1", "unit-1"), seed.shotlist);
     return renderToStaticMarkup(
         <QueryClientProvider client={client}>
             <App>{element}</App>
@@ -306,7 +308,7 @@ describe("分镜制作页的段卡：段内镜头可拆合、可编辑", () => {
         expect(html).toContain("合并 S03");
         expect(html).toContain("编辑第 1 个镜头的画面、台词和时长");
         expect(html).toContain("第 2 个镜头：拆段或移到相邻段");
-        expect(html).toContain("段长按当前视频渠道（最长 30 秒）取档");
+        expect(html).toContain("段长按视频渠道（最长 30 秒）取档");
     });
 
     test("段没有参考时提示人物一致性只靠文字，并给「选择资产」入口；有参考时不提示", () => {
@@ -350,5 +352,125 @@ describe("分镜制作页的段卡：段内镜头可拆合、可编辑", () => {
         const readOnly = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S02" specJson={JSON.stringify(spec("S02", 3))} />, { segments: [view("S01", 2), view("S02", 3)] });
         expect(readOnly).not.toContain("编辑第 1 个镜头");
         expect(readOnly).toContain("S02 镜头3");
+    });
+});
+
+describe("分镜制作页的段卡：按小节的戏类版式显示（卡 G）", () => {
+    const shotlistOf = (patch: Partial<DramaShotlistView>): DramaShotlistView => ({
+        unitId: "unit-1",
+        version: 3,
+        shotlist: { profile: "live-realism", shots: [] },
+        check: { kind: "shots", errors: 0, warnings: 0, items: [], skipped: [] },
+        draft: false,
+        updatedAt: "",
+        ...patch,
+    });
+    const sectionOf = (id: string, genre: "wenxi15" | "wenxi30" | "wuxi", raw: string, fields: Array<{ name: string; value: string }>) => ({
+        id,
+        scene: id.slice(0, 6),
+        heading: "内·护士站·夜",
+        no: 1,
+        genre,
+        lines: [2, 6] as [number, number],
+        lineIds: [],
+        est: 12,
+        raw,
+        fields,
+        stats: { blocks: 1, shots: 2, lines: 1 },
+        shots: [],
+    });
+    const viewOf = (spec: DramaSegment): DramaSegmentView => ({ shotId: `shot-${spec.id}`, unitId: "unit-1", title: spec.id, position: 0, durationMs: spec.dur * 1000, spec, derived: false });
+    const assets = [
+        { id: "wet", title: "林小满·淋湿", kind: "character" as const, person: "林小满", preview: "" },
+        { id: "station", title: "护士站", kind: "scene" as const, person: "护士站", preview: "" },
+        { id: "palette", title: "E02S01 色卡", kind: "palette" as const, person: "E02S01 色卡", preview: "", code: "E02S01" },
+    ];
+
+    test("第 2 集的武戏节：段卡头写 E02S01-P2 · 武戏，v7 一秒一镜带力度标签，卡下列子卡、场景和本场色卡", () => {
+        const spec: DramaSegment = {
+            id: "S02",
+            scene: "E01S01",
+            dur: 2,
+            mode: "lock_identity",
+            section: "E01S01-P2",
+            genre: "wuxi",
+            shots: [
+                { at: 0, size: "全景", camera: "推镜", text: "", shot_id: "E01S01-03", extras: { 力度: "P2 中·擦伤", 战损: "L1→L2" } },
+                { at: 1, size: "中景", camera: "甩镜", text: "", shot_id: "E01S01-04", extras: { 力度: "P3 重·格挡", 闪帧: "F2 黑闪 2 帧" } },
+            ],
+        };
+        const shotlist = shotlistOf({
+            shotlist: {
+                profile: "live-realism",
+                shots: [
+                    { id: "E01S01-03", scene: "E01S01", action: "林小满被推到护士站台面", blocking: [{ who: "林小满·淋湿", at: "护士站" }] },
+                    { id: "E01S01-04", scene: "E01S01", action: "周岸挡下刀" },
+                ],
+            },
+            sections: [sectionOf("E01S01-P2", "wuxi", "【核心观看体验】护人者以伤换位\n镜 1｜0-1s", [{ name: "核心观看体验", value: "护人者以伤换位" }])],
+        });
+        const html = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S02" specJson={JSON.stringify(spec)} durationRule={segmentDurationRule(15)} episode={2} boundAssets={assets} />, { segments: [viewOf(spec)], shotlist });
+        expect(html).toContain("E02S01-P2");
+        expect(html).toContain(">武戏<");
+        expect(html).not.toContain("E01S01");
+        expect(html).toContain("【核心观看体验】护人者以伤换位");
+        expect(html).toContain("镜 1");
+        expect(html).toContain("0-1s");
+        expect(html).toContain("P2 中·擦伤");
+        expect(html).toContain("genre-tag is-level-3");
+        expect(html).toContain("林小满·淋湿");
+        expect(html).toContain("护士站");
+        expect(html).toContain("E02S01 色卡");
+        expect(html).toContain("看技能原文");
+        expect(html).toContain("编辑第 1 个镜头的分镜卡");
+    });
+
+    test("文戏 15 显示 7.3 片段（S1 一行、风格 / 核心情绪），文戏 30 显示即梦小节（镜头1 逐字段），三种版式不一样", () => {
+        const wenxi15: DramaSegment = { id: "S01", scene: "E01S01", dur: 12, mode: "text_only", section: "E01S01-P1", genre: "wenxi15", shots: [{ at: 0, size: "全景", camera: "平视", text: "编译句", shot_id: "E01S01-01" }] };
+        const wenxi30: DramaSegment = { id: "S01", scene: "E01S01", dur: 24, mode: "text_only", section: "E01S01-P1", genre: "wenxi30", shots: [{ at: 0, size: "中景", camera: "固定", text: "编译句", shot_id: "E01S01-01" }] };
+        const shots = [{ id: "E01S01-01", scene: "E01S01", action: "林小满转身看向门口。", purpose: "建立走廊与人物。", extras: { 风格: "冷峻悬疑", 核心情绪: "不安" } }];
+        const html15 = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S01" specJson={JSON.stringify(wenxi15)} durationRule={segmentDurationRule(15)} />, {
+            segments: [viewOf(wenxi15)],
+            shotlist: shotlistOf({ shotlist: { profile: "live-realism", shots }, sections: [sectionOf("E01S01-P1", "wenxi15", "## 片段 1（时长：12秒）", [{ name: "要素提取", value: "[角色：林小满；BGM背景音乐：低音钢琴]" }])] }),
+        });
+        expect(html15).toContain("片段 1（时长：12秒）");
+        expect(html15).toContain("BGM背景音乐：低音钢琴");
+        expect(html15).toContain(">S1<");
+        expect(html15).toContain("0s-12s");
+        expect(html15).toContain("冷峻悬疑");
+        expect(html15).toContain(">文戏 15<");
+        const html30 = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S01" specJson={JSON.stringify(wenxi30)} durationRule={segmentDurationRule(30)} />, {
+            segments: [viewOf(wenxi30)],
+            shotlist: shotlistOf({
+                shotlist: { profile: "live-realism", shots },
+                sections: [
+                    sectionOf("E01S01-P1", "wenxi30", "小节1：七床空了", [
+                        { name: "小节", value: "七床空了" },
+                        { name: "剧情功能", value: "发现空床" },
+                    ]),
+                ],
+            }),
+        });
+        expect(html30).toContain("小节1：七床空了");
+        expect(html30).toContain("镜头1");
+        expect(html30).toContain("0-24秒");
+        expect(html30).toContain("镜头目的");
+        expect(html30).toContain("建立走廊与人物。");
+        expect(html30).toContain(">文戏 30<");
+        expect(html30).not.toContain(">S1<");
+        expect(html15).not.toContain("镜头目的");
+    });
+
+    test("原样输出缺失的旧数据按统一镜头表显示并标「旧数据」，仍可逐张编辑", () => {
+        const legacy: DramaSegment = { id: "S01", scene: "E01S01", dur: 8, mode: "text_only", shots: [{ at: 0, size: "中景", camera: "平视", text: "林小满走进病房", shot_id: "E01S01-01" }] };
+        const html = render(<DramaSegmentCard projectId="p1" unitId="unit-1" shotId="shot-S01" specJson={JSON.stringify(legacy)} durationRule={segmentDurationRule(15)} episode={2} />, {
+            segments: [viewOf(legacy)],
+            shotlist: shotlistOf({ shotlist: { profile: "live-realism", shots: [{ id: "E01S01-01", scene: "E01S01", action: "林小满走进病房" }] } }),
+        });
+        expect(html).toContain(">旧数据<");
+        expect(html).toContain("E02S01 · 8 秒");
+        expect(html).toContain("林小满走进病房");
+        expect(html).not.toContain("genre-card");
+        expect(html).toContain("编辑第 1 个镜头的分镜卡");
     });
 });

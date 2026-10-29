@@ -44,6 +44,9 @@ type TaskSummary struct {
 	ClientContext             *TaskClientContext         `json:"clientContext,omitempty"`
 	// DramaRun 是逐轮续写的文本任务（metadata.dramaRun）：运行中也能取消（只丢正在写的一轮），与出图等「提交上游后不可取消」不同。
 	DramaRun bool `json:"dramaRun,omitempty"`
+	// RefinalizeOnly 是「用已写好的 N 节重新写入」的任务（服务端建任务时算出的运行参数：各轮都在上一次任务里写完，只重新收尾，不调模型、不建计费单）。
+	// 任务中心不给它「重试」：重试会按普通任务建单冻结；要再写入回章节页点「重新写入」。
+	RefinalizeOnly bool `json:"refinalizeOnly,omitempty"`
 }
 
 type TaskClientContext struct {
@@ -154,6 +157,7 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 		UpdatedAt:                 task.UpdatedAt,
 		ClientContext:             taskClientContext(task.InputJSON),
 		DramaRun:                  task.MediaStage == "" && taskDramaRun(task.InputJSON) != nil,
+		RefinalizeOnly:            task.MediaStage == "" && dramaRunCallsNoUpstream(taskDramaRun(task.InputJSON)),
 	}
 }
 

@@ -20,7 +20,23 @@ const LIGHT_FIELDS: Array<{ key: keyof DramaShotLight; label: string; placeholde
  * 分镜卡编辑：改段内一个镜头背后的镜头表镜头。景别、机位、运镜、情绪弧只能从镜头表的可选值里选（情绪弧取情绪弧索引），
  * 台词从本章台词表里选，也可以改写原文（后端按原文对回台词表，对不上的检查会报出来）。保存后由后端重编段内文字并重检。
  */
-export function ShotCardEditor({ shot, vocab, lines, saving, onSave, onCancel }: { shot: DramaShot; vocab?: DramaShotVocab; lines: ScriptLineOption[]; saving: boolean; onSave: (shot: DramaShot) => void; onCancel: () => void }) {
+export function ShotCardEditor({
+    shot,
+    vocab,
+    lines,
+    saving,
+    onSave,
+    onCancel,
+    code = (text) => text,
+}: {
+    shot: DramaShot;
+    vocab?: DramaShotVocab;
+    lines: ScriptLineOption[];
+    saving: boolean;
+    onSave: (shot: DramaShot) => void;
+    onCancel: () => void;
+    code?: (text: string) => string;
+}) {
     const [action, setAction] = useState(shot.action || "");
     const [composition, setComposition] = useState(shot.composition || "");
     const [size, setSize] = useState(shot.size || "");
@@ -32,7 +48,8 @@ export function ShotCardEditor({ shot, vocab, lines, saving, onSave, onCancel }:
     const [blocking, setBlocking] = useState<DramaShotBlocking[]>(() => shot.blocking?.map((item) => ({ ...item })) || []);
     const [light, setLight] = useState<DramaShotLight>(() => ({ ...(shot.light || {}) }));
     const [lineDrafts, setLineDrafts] = useState<LineDraft[]>(() => (shot.lines || []).map((line, key) => ({ ...line, key, rewrite: !line.line_id })));
-    const lineOptions = useMemo(() => lines.map((line) => ({ value: line.id, label: `${line.id} ${line.speaker || "旁白"}${line.vo ? "（画外）" : ""}：${line.text}` })), [lines]);
+    // 镜头号、台词 id 按项目编号显示（code），选中的值仍是单元内的台词 id。
+    const lineOptions = useMemo(() => lines.map((line) => ({ value: line.id, label: `${code(line.id)} ${line.speaker || "旁白"}${line.vo ? "（画外）" : ""}：${line.text}` })), [code, lines]);
     const arcOptions = useMemo(() => (vocab?.emotionArcs || []).map((arc) => ({ value: arc.id, label: `${arc.name}（${arc.id}）${arc.phases.length ? ` · ${arc.phases.join(" → ")}` : ""}` })), [vocab]);
     const knownArc = !arcId || arcOptions.some((option) => option.value === arcId);
     const codeOptions = (words?: Record<string, string>) => Object.entries(words || {}).map(([value, label]) => ({ value, label: `${label}（${value}）` }));
@@ -73,9 +90,9 @@ export function ShotCardEditor({ shot, vocab, lines, saving, onSave, onCancel }:
     };
 
     return (
-        <div className="grid gap-2 rounded-md border border-border/70 bg-surface-active p-2" aria-label={`编辑分镜卡 ${shot.id}`}>
+        <div className="grid gap-2 rounded-md border border-border/70 bg-surface-active p-2" aria-label={`编辑分镜卡 ${code(shot.id)}`}>
             <div className="flex items-center justify-between text-foreground/50">
-                <span className="font-mono">{shot.id}</span>
+                <span className="font-mono">{code(shot.id)}</span>
                 <span>改的是镜头表，保存后按镜头表重编这一镜并重检</span>
             </div>
             <label className="grid gap-1">

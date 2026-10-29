@@ -151,7 +151,7 @@ export default function TasksPage() {
     };
 
     const retryGroupTasks = async (key: string, items: GenerationTask[]) => {
-        const retryable = items.filter((task) => isTaskFailed(task) && task.errorCode !== CONTENT_MODERATION_ERROR_CODE && !isContentModerationError(task.error));
+        const retryable = items.filter((task) => isTaskFailed(task) && !task.refinalizeOnly && task.errorCode !== CONTENT_MODERATION_ERROR_CODE && !isContentModerationError(task.error));
         if (!retryable.length) return;
         setRetryingGroup(key);
         try {
