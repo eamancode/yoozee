@@ -46,6 +46,16 @@ export default function DramaStepBindingsPage() {
         }
     };
 
+    const skillName = (id: string) => data.skills.find((skill) => skill.id === id)?.name || id;
+    /** 按风格档案另给了默认技能的列（武戏）：写明未绑定时哪些档案用哪个包，其余档案用步骤默认。 */
+    const defaultsSummary = (step: (typeof data.steps)[number]) => {
+        const byProfile = Object.entries(step.profileSkills || {});
+        if (!byProfile.length) return "";
+        const groups = new Map<string, string[]>();
+        for (const [profileId, skillId] of byProfile) groups.set(skillId, [...(groups.get(skillId) || []), data.profiles.find((profile) => profile.id === profileId)?.label || profileId]);
+        const parts = [...groups.entries()].map(([skillId, labels]) => `${labels.join("、")}用「${skillName(skillId)}」`);
+        return `没单独绑定时：${parts.join("；")}；其余档案用默认「${skillName(step.defaultSkill)}」。`;
+    };
     const columns: ColumnsType<DramaStyleProfile> = [
         {
             title: "风格档案",
@@ -63,6 +73,7 @@ export default function DramaStepBindingsPage() {
                 <div>
                     <div>{`${step.label}（${step.id}，契约 ${step.contract}）`}</div>
                     {step.note ? <div className="mt-0.5 text-xs font-normal text-foreground/50">{step.note}</div> : null}
+                    {defaultsSummary(step) ? <div className="mt-0.5 text-xs font-normal text-foreground/50">{defaultsSummary(step)}</div> : null}
                 </div>
             ),
             key: step.id,
