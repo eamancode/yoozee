@@ -123,6 +123,11 @@ func dramaTurnPlan(stepID string) drama.TurnPlan {
 	return step.Turns
 }
 
+// dramaRunCallsNoUpstream 表示这次运行一轮都不用写：从第 Turns+1 轮接着（上一次各轮都写完、只是收尾失败），只拿存下的输出重新收尾。
+func dramaRunCallsNoUpstream(run *dramaRunMeta) bool {
+	return run != nil && run.Turns > 0 && run.ResumeFrom > run.Turns
+}
+
 // taskDramaRun 从任务输入读 metadata.dramaRun；没有返回 nil。
 func taskDramaRun(inputJSON string) *dramaRunMeta {
 	if !strings.Contains(inputJSON, `"dramaRun"`) {
@@ -182,7 +187,7 @@ func storyboardTaskTimeout(task *model.Task, policy RuntimeTaskPolicy) time.Dura
 }
 
 // resumeDramaRun 是「从第 N 场 / 集继续」：上一次任务要是本人、本章（项目级步骤是同一批来源）、同一步，已经结束且没写完；
-// 轮次（章节的场次、要写的集）没变过。
+// 轮次（章节的场次、要写的集）没变过。生成分段各节都写完、只是收尾失败时也可以接着：ResumeFrom 是总轮数加一，新任务不调模型只重新收尾。
 func (s *Service) resumeDramaRun(userID string, projectID string, unitID string, plan *dramaStepPlan, resumeTaskID string) (dramaRunMeta, error) {
 	label := plan.usage.StepLabel
 	unit := dramaTurnPlan(plan.usage.Step).Unit
@@ -200,10 +205,18 @@ func (s *Service) resumeDramaRun(userID string, projectID string, unitID string,
 		return dramaRunMeta{}, BadAuthRequest("只有失败或取消的" + label + "任务才能从中间继续")
 	case progress == nil || progress.Completed == 0 || len(progress.Turns) < progress.Completed:
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("上一次一%s都没写完，请重新%s", unit, label))
-	case progress.Completed >= progress.Total:
+	case progress.Completed >= progress.Total && plan.usage.Step != drama.StepChapterShots:
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("上一次各%s都已写完，请重新%s", unit, label))
 	case !sameShotsScenes(run.Scenes, plan.scenes):
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("正文的%s次改过了（或场次规则已更新：连续同地点的场次头并成一场），不能从中间继续，请重新%s", unit, label))
+	}
+	// 生成分段各节都写完了、收尾（写镜头表、装段）没成：重新收尾，不再调模型，各节输出原样取上一次任务存下的。
+	// 只重写几节的运行，不重写的节用的是镜头表第 BaseShotlistVersion 版的镜头行：镜头表之后改过就不能拿旧行收尾。
+	if progress.Completed >= progress.Total && len(run.OnlySections) > 0 {
+		record, err := s.repo.DramaShotlistForUnit(projectID, unitID)
+		if err != nil || record.Version != run.BaseShotlistVersion {
+			return dramaRunMeta{}, BadAuthRequest("本章镜头表在上一次任务之后又改过，不能拿上一次的输出重新收尾，请重新" + label)
+		}
 	}
 	return dramaRunMeta{RunID: run.RunID, Step: run.Step, UnitID: unitID, Scenes: run.Scenes, Sources: run.Sources, Turns: run.Turns, ResumeFrom: progress.Completed + 1, ResumeTaskID: previous.ID,
 		OnlyScenes: run.OnlyScenes, OnlySections: run.OnlySections, BaseShotlistVersion: run.BaseShotlistVersion}, nil
@@ -290,6 +303,21 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 	kept, err := s.dramaRunKeptSections(task, run, len(turns))
 	if err != nil {
 		return nil, err
+	}
+	if dramaRunCallsNoUpstream(&run) && len(turns) < total {
+		// 只收尾的任务没建计费单，绝不能在这里补调模型。
+		return nil, errors.New("上一次任务存下的各轮不完整，不能只重新收尾，请重新生成")
+	}
+	if len(turns) >= total {
+		// 各轮都在上一次任务里写完了（上一次收尾失败）：不调模型，直接拿存下的输出收尾。先把各轮存进本任务的结果，
+		// 这次收尾再失败时本任务也能「用已写好的 N 节重新写入」（续写同样只认上一次任务存下的轮次）。
+		encoded, err := json.Marshal(map[string]any{"mode": "text", "dramaRun": progress})
+		if err != nil {
+			return nil, err
+		}
+		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, fmt.Sprintf("%d %s已写完，重新收尾", total, plan.Unit), 95, string(encoded)); err != nil {
+			return nil, fmt.Errorf("保存各%s进度失败：%w", plan.Unit, err)
+		}
 	}
 	for k := len(turns) + 1; k <= total; k++ {
 		// 用户可以在轮与轮之间取消（task_lifecycle 对逐轮续写放行）：取消落库后，别的实例上的 worker 在下一轮开始前停下。

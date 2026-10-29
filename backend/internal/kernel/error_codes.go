@@ -47,6 +47,8 @@ const (
 	ReasonTextOutputTruncated ErrorReason = "text_output_truncated"
 	// ReasonShotlistCheckFailed 是镜头表门禁有 error 级问题，没有保存；details.check 是检查结果（规则项与镜头）。
 	ReasonShotlistCheckFailed ErrorReason = "shotlist_check_failed"
+	// ReasonShotlistTooLarge 是一章镜头数（或分镜行合计体积）超过整章上限，镜头表没有写入；要把章节拆成两章，重新写入同样会被拒。
+	ReasonShotlistTooLarge ErrorReason = "shotlist_too_large"
 	// ReasonPackageCheckFailed 是上传的流程技能包没过静态校验，没有保存；details.problems 逐条列出原因。
 	ReasonPackageCheckFailed ErrorReason = "package_check_failed"
 	// ReasonPackageEvalNotPassed 是流程技能包版本的评测没通过（或还没跑完），不能直接启用；要强制启用就带上原因。

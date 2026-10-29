@@ -5,6 +5,8 @@
  * 这里只解析已经写完的行；同一轮重试时会再出一行标记，见到就把这一轮之前收到的半截输出清掉。只用于显示，写库在服务端。
  */
 
+import { API_ERROR_REASON } from "@/services/api/error-codes";
+
 export type StreamShot = {
     shotNumber: number;
     id: string;
@@ -199,6 +201,8 @@ export function shotStreamFromResult(resultJson?: string): ShotStreamState {
 /** 上一次生成分段任务停下来的样子：写完 ≥1 节（场）的可以从下一节续写（resume），一节都没写完或收尾失败的只能重新生成（failed）。 */
 export type StoryboardRunStop =
     | { kind: "resume"; taskId: string; from: number; total: number; error?: string }
+    /** 各节都写完了、收尾（写镜头表、装段）没成：接着这次任务只重新收尾，不再调模型（只有生成分段支持）。 */
+    | { kind: "refinalize"; taskId: string; total: number; status: "failed" | "cancelled"; error?: string }
     | { kind: "failed"; taskId: string; status: "failed" | "cancelled"; error?: string }
     /** 本章已有一次成功写入，之后的重跑停下了：当前结果仍是 resultAt 那次运行的，不给续写（续写会拿重跑写的前几场替换现有结果）。 */
     | { kind: "superseded"; taskId: string; status: "failed" | "cancelled"; error?: string; resultAt: string };
@@ -206,10 +210,19 @@ export type StoryboardRunStop =
 /**
  * 只看失败或取消的任务；progress 是任务结果里的 dramaRun（整章一轮或还没开始逐场时没有）。
  * lastWrite 是比这个任务更早、成功写入的那次任务（同一章）：有它时停下的是重跑，不给「从第 N 场继续」。
+ * options.refinalize 为 true（生成分段）时各节都写完的任务给「重新收尾」：整章输出都是这次运行的，重跑也照样收尾。
+ * 失败原因是整章镜头超上限（shotlist_too_large）时重新收尾必然再失败，不给，按普通失败说原因（提示拆章）。
  */
-export function storyboardRunStop(task: { id: string; status: string; error?: string; createdAt?: string }, progress?: { total: number; completed: number }, lastWrite?: { createdAt: string; completedAt?: string }): StoryboardRunStop | undefined {
+export function storyboardRunStop(
+    task: { id: string; status: string; error?: string; createdAt?: string; errorCode?: string; diagnostic?: { code?: string } },
+    progress?: { total: number; completed: number },
+    lastWrite?: { createdAt: string; completedAt?: string },
+    options: { refinalize?: boolean } = {},
+): StoryboardRunStop | undefined {
     if (task.status !== "failed" && task.status !== "cancelled") return undefined;
     const error = task.error?.trim() || undefined;
+    const tooLarge = (task.errorCode || task.diagnostic?.code) === API_ERROR_REASON.ShotlistTooLarge;
+    if (options.refinalize && !tooLarge && progress && progress.total >= 1 && progress.completed >= progress.total) return { kind: "refinalize", taskId: task.id, total: progress.total, status: task.status, error };
     if (lastWrite && (!task.createdAt || Date.parse(lastWrite.createdAt) < Date.parse(task.createdAt))) return { kind: "superseded", taskId: task.id, status: task.status, error, resultAt: lastWrite.completedAt || lastWrite.createdAt };
     if (progress && progress.completed >= 1 && progress.completed < progress.total) return { kind: "resume", taskId: task.id, from: progress.completed + 1, total: progress.total, error };
     return { kind: "failed", taskId: task.id, status: task.status, error };

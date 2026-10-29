@@ -15,7 +15,7 @@ var (
 	segmentRulesOnce sync.Once
 	segmentRules     RuleLevels
 	segmentRulesErr  error
-	segmentEpisode   = regexp.MustCompile(`^E(\d{2})`)
+	segmentEpisode   = regexp.MustCompile(`^E(\d+)S`)
 )
 
 // BuiltinSegmentRules 返回分段规则级别（进程内缓存）。

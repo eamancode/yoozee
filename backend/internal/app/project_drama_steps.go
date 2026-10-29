@@ -243,8 +243,14 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 			return DramaStepRunResult{}, err
 		}
 	}
+	// 要调模型的运行先按估时预拦镜头上限；只重新收尾的不调模型，按实际镜头数在收尾时判断。
+	if !dramaRunCallsNoUpstream(&run) {
+		if err := chapterShotsOverCap(plan.shots); err != nil {
+			return DramaStepRunResult{}, err
+		}
+	}
 	taskReq := dramaStepTaskRequest(project.ID, unitID, plan, dramaStepTaskOptions{Model: req.Model, LogicalModelID: req.LogicalModelID, Config: req.Config, Rule: req.Rule, TraceID: req.TraceID, RequestID: req.RequestID})
-	taskReq.Input["metadata"].(map[string]any)["dramaRun"] = run
+	taskReq.dramaRun = &run
 	if req.chainedFrom != "" {
 		taskReq.Input["metadata"].(map[string]any)["chainedFrom"] = req.chainedFrom
 	}

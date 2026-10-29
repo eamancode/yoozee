@@ -24,6 +24,8 @@ export const API_ERROR_REASON = {
     TextOutputTruncated: "text_output_truncated",
     /** 镜头表门禁有 error，没有保存；`ApiError.details.check` 是检查结果（规则项与镜头）。 */
     ShotlistCheckFailed: "shotlist_check_failed",
+    /** 一章镜头数（或分镜行合计体积）超过整章上限，镜头表没有写入；生成分段任务的 `errorCode` 也是它，此时「重新写入」必然再失败，要拆章。 */
+    ShotlistTooLarge: "shotlist_too_large",
     /** 上传的流程技能包没过静态校验，没有保存；`ApiError.details.problems` 逐条列出原因。 */
     PackageCheckFailed: "package_check_failed",
     /** 流程技能包版本的评测没通过或还没跑完，不能直接启用；强制启用要带 `force: true` 和原因。 */

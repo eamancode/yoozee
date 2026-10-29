@@ -43,6 +43,9 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	if err != nil {
 		return nil, err
 	}
+	if err := setServerDramaRun(normalizedInput, req.dramaRun); err != nil {
+		return nil, err
+	}
 	if err := s.enforceDramaSegmentTaskDuration(userID, normalizedInput); err != nil {
 		return nil, err
 	}
@@ -196,9 +199,13 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		}
 		return taskForOutput(task), nil
 	}
-	billingOrder, err := s.taskBillingOrder(userID, &task, normalizedInput)
-	if err != nil {
-		return nil, err
+	var billingOrder *model.BillingOrder
+	// 只重新收尾的逐轮续写（服务端算出的运行参数，见 dramaRunCallsNoUpstream）一次上游都不调：不预授权、不建计费单。
+	if !dramaRunCallsNoUpstream(req.dramaRun) {
+		billingOrder, err = s.taskBillingOrder(userID, &task, normalizedInput)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if req.admission != nil && billingOrder != nil {
 		if billingOrder.AmountMicrocredits > req.admission.MaxCharge {
@@ -357,6 +364,31 @@ func providerConfigOptionValue(value any) string {
 }
 
 // 所有任务输入先收敛为 JSON 对象，确保计费与密钥保护不会因 Go 结构体类型不同而被绕过。
+// setServerDramaRun 让 metadata.dramaRun 只能来自服务端：先去掉客户端带来的，run 不为空时写入服务端算好的。
+func setServerDramaRun(input map[string]any, run *dramaRunMeta) error {
+	metadata, _ := input["metadata"].(map[string]any)
+	if metadata != nil {
+		delete(metadata, "dramaRun")
+	}
+	if run == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(run)
+	if err != nil {
+		return err
+	}
+	var value map[string]any
+	if err := json.Unmarshal(encoded, &value); err != nil {
+		return err
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+		input["metadata"] = metadata
+	}
+	metadata["dramaRun"] = value
+	return nil
+}
+
 func normalizeTaskInput(input map[string]any) (map[string]any, error) {
 	if input == nil {
 		return map[string]any{}, nil

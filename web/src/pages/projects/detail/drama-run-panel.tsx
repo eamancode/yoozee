@@ -28,7 +28,7 @@ type DramaRunPanelProps = {
     /** 一轮叫什么（场、集）和这一步叫什么（生成分段、剧本优化），用在续写与失败提示里。 */
     unit: "场" | "节" | "集" | "轮";
     stepLabel: string;
-    /** 上一次任务失败或取消：写完 ≥1 轮的给「从第 N 轮继续」，否则给失败原因和「重新生成」。 */
+    /** 上一次任务失败或取消：写完 ≥1 轮的给「从第 N 轮继续」，各轮都写完、收尾失败的给「重新写入」（onResume），否则给失败原因和「重新生成」。 */
     stop?: StoryboardRunStop;
     onResume: () => void;
     onRegenerate: () => void;
@@ -64,6 +64,7 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
     const resume = stop?.kind === "resume" ? stop : undefined;
     const failed = stop?.kind === "failed" ? stop : undefined;
     const superseded = stop?.kind === "superseded" ? stop : undefined;
+    const refinalize = stop?.kind === "refinalize" ? stop : undefined;
     return (
         <AppDrawer open={open} onClose={onClose} placement="right" size="min(520px, 100vw)" mask={false} title={title}>
             <div className="flex h-full min-h-0 flex-col gap-3">
@@ -82,6 +83,26 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
                         }
                     >
                         前 {resume.from - 1} {unit}（共 {resume.total} {unit}）已保存，接着写会带上它们的对话，不用重跑。{resume.error ? `原因：${sentence(resume.error)}` : ""}
+                    </Callout>
+                ) : null}
+
+                {refinalize && !running ? (
+                    <Callout
+                        tone={refinalize.status === "cancelled" ? "warning" : "error"}
+                        title={`上一次 ${refinalize.total} ${unit}都写完了，写入没成功`}
+                        action={
+                            <div className="flex flex-col items-end gap-1.5">
+                                <Button size="small" type="primary" onClick={onResume}>
+                                    用已写好的 {refinalize.total} {unit}重新写入
+                                </Button>
+                                <Button size="small" onClick={onRegenerate}>
+                                    全部{regenerateLabel}
+                                </Button>
+                            </div>
+                        }
+                    >
+                        各{unit}输出都已保存，重新写入不再调模型。{refinalize.error ? `原因：${sentence(refinalize.error)}` : ""}
+                        {failedNote ? ` ${failedNote}` : ""}
                     </Callout>
                 ) : null}
 

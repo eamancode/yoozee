@@ -258,8 +258,9 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     });
     const storyboardTaskDetail = storyboardTaskDetailQuery.data;
     const storyboardOutcome = storyboardTaskDetail?.status === "succeeded" ? dramaStepOutcomeOf(storyboardTaskDetail) : undefined;
-    const storyboardStop = useMemo(() => (storyboardTaskDetail ? storyboardRunStop(storyboardTaskDetail, dramaRunProgressOf(storyboardTaskDetail), lastStoryboardWrite) : undefined), [lastStoryboardWrite, storyboardTaskDetail]);
-    const storyboardResume = storyboardStop?.kind === "resume" ? storyboardStop : undefined;
+    const storyboardStop = useMemo(() => (storyboardTaskDetail ? storyboardRunStop(storyboardTaskDetail, dramaRunProgressOf(storyboardTaskDetail), lastStoryboardWrite, { refinalize: true }) : undefined), [lastStoryboardWrite, storyboardTaskDetail]);
+    // 「从第 N 节继续」和各节都写完后的「重新写入」都是接着上一次任务建新任务（后者不再调模型，只收尾）。
+    const storyboardResume = storyboardStop?.kind === "resume" || storyboardStop?.kind === "refinalize" ? storyboardStop : undefined;
     const liveStoryboardStream = selectedUnitId ? storyboardStreams[selectedUnitId] : undefined;
     // 台词覆盖率和超长段：拿本章正文里引号中的台词，对照各段 lines；超过项目模型上限的段要拆。
     const unitShots = useMemo(() => detail.shots.filter((shot) => shot.unitId === selectedUnit?.id), [detail.shots, selectedUnit?.id]);
@@ -512,7 +513,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "drama-shotlist"] });
         },
     });
-    const createStoryboard = async (options: { replaceConfirmed?: boolean; resumeTaskId?: string; onlySections?: string[] } = {}) => {
+    const createStoryboard = async (options: { replaceConfirmed?: boolean; resumeTaskId?: string; refinalize?: boolean; onlySections?: string[] } = {}) => {
         const unit = selectedUnit;
         if (!unit) return message.warning("章节正文尚未加载完成");
         if (dirty) return message.warning("请先保存当前章节，再生成分镜");
@@ -533,7 +534,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         beginChapterOperation(unit.id, "storyboard");
         setStoryboardStreams((current) => ({ ...current, [unit.id]: { taskId: "", text: "" } }));
         setRunPanelOpen(true);
-        message.info(options.resumeTaskId ? "从中断的那一节接着写，可继续编辑或切换章节" : options.onlySections?.length ? `只重写 ${options.onlySections.join("、")}，其余小节的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
+        message.info(options.refinalize ? "用上一次写好的各节重新写入镜头表，不再调模型" : options.resumeTaskId ? "从中断的那一节接着写，可继续编辑或切换章节" : options.onlySections?.length ? `只重写 ${options.onlySections.join("、")}，其余小节的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
         try {
             const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: dramaRule, resumeTaskId: options.resumeTaskId, onlySections: options.onlySections }, {
                 onTaskUpdate: (task) => {
@@ -781,7 +782,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                             <div className="min-w-[12rem] flex-1">
                                 <div className="mb-1 text-[var(--fs-tiny)] font-medium tabular-nums text-foreground/38">{unitKind(selectedUnit) === "episode" ? "剧集" : "原文"} · 第 {String(chapterNumberById.get(selectedUnit.id) || 1).padStart(2, "0")} {unitKind(selectedUnit) === "episode" ? "集" : "章"}</div>
                                 <Input variant="borderless" value={draftTitle} disabled={!selectedUnit || originalLocked} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
-                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span>{unitShots.length ? <><span>·</span><span>{unitShots.length} 段</span></> : null}{dialogueCoverage.expected ? <><span>·</span><span className={dialogueCoverage.covered < dialogueCoverage.expected && unitShots.length ? "text-amber-600 dark:text-amber-400" : ""} title={dialogueCoverage.missing.length ? `没进分段的台词：${dialogueCoverage.missing.slice(0, 5).join(" / ")}` : undefined}>台词覆盖 {dialogueCoverage.covered}/{dialogueCoverage.expected}</span></> : null}{overLimitSegments.length ? <><span>·</span><span className="text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {segmentMaxSeconds} 秒，需拆分</span></> : null}{shotlist?.draft && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>镜头表有 {shotlist.check.errors} 个问题，还没装段</button></> : null}{storyboardResume && !storyboardOperation ? <><span>·</span><button type="button" className="text-amber-600 underline-offset-2 hover:underline dark:text-amber-400" onClick={() => setRunPanelOpen(true)}>分段停在第 {storyboardResume.from} 场</button></> : null}{storyboardStop?.kind === "failed" && storyboardStop.status === "failed" && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>上一次生成分段失败</button></> : null}</div>
+                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span>{unitShots.length ? <><span>·</span><span>{unitShots.length} 段</span></> : null}{dialogueCoverage.expected ? <><span>·</span><span className={dialogueCoverage.covered < dialogueCoverage.expected && unitShots.length ? "text-amber-600 dark:text-amber-400" : ""} title={dialogueCoverage.missing.length ? `没进分段的台词：${dialogueCoverage.missing.slice(0, 5).join(" / ")}` : undefined}>台词覆盖 {dialogueCoverage.covered}/{dialogueCoverage.expected}</span></> : null}{overLimitSegments.length ? <><span>·</span><span className="text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {segmentMaxSeconds} 秒，需拆分</span></> : null}{shotlist?.draft && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>镜头表有 {shotlist.check.errors} 个问题，还没装段</button></> : null}{storyboardResume && !storyboardOperation ? <><span>·</span><button type="button" className="text-amber-600 underline-offset-2 hover:underline dark:text-amber-400" onClick={() => setRunPanelOpen(true)}>{storyboardResume.kind === "refinalize" ? `${storyboardResume.total} 节都写完了，写入没成功` : `分段停在第 ${storyboardResume.from} 场`}</button></> : null}{storyboardStop?.kind === "failed" && storyboardStop.status === "failed" && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>上一次生成分段失败</button></> : null}</div>
                                 {unitLinks.length ? <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/45"><span>{unitKind(selectedUnit) === "episode" ? "改编自" : "已改编成"}</span>{unitLinks.map((link) => <button key={`${link.unitId}-${link.label}`} type="button" className="rounded bg-foreground/[.035] px-1.5 py-0.5 text-foreground/62 hover:text-[var(--workspace-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--workspace-accent)]" onClick={() => selectChapter(link.unitId)}>{link.label}</button>)}</div> : null}
                             </div>
                             <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5">
@@ -816,7 +817,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 shotlist={shotlist}
                 stop={storyboardStop}
                 segmentCount={storyboardImpact.shotCount}
-                onResume={() => { if (storyboardResume) void createStoryboard({ resumeTaskId: storyboardResume.taskId }); }}
+                onResume={() => { if (storyboardResume) void createStoryboard({ resumeTaskId: storyboardResume.taskId, refinalize: storyboardResume.kind === "refinalize" }); }}
                 onRepack={() => void repackStoryboard()}
                 repacking={repackMutation.isPending && !repackMutation.variables?.accept}
                 onAcceptIssues={() => void repackStoryboard(true)}

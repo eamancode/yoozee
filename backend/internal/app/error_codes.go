@@ -41,6 +41,7 @@ const (
 	ReasonUpstreamDNSFailed   = kernel.ReasonUpstreamDNSFailed
 	ReasonTextOutputTruncated = kernel.ReasonTextOutputTruncated
 	ReasonShotlistCheckFailed = kernel.ReasonShotlistCheckFailed
+	ReasonShotlistTooLarge    = kernel.ReasonShotlistTooLarge
 	ReasonPackageCheckFailed  = kernel.ReasonPackageCheckFailed
 	// ReasonPackageEvalNotPassed 见 kernel。
 	ReasonPackageEvalNotPassed = kernel.ReasonPackageEvalNotPassed
