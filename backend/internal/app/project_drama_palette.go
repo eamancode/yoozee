@@ -27,7 +27,7 @@ import (
 // paletteKindScene 是场次色卡（metadata.palette.kind）；主基调色卡另记在 metadata.masterPalette。
 const paletteKindScene = "scene"
 
-// DramaPaletteResynthesizeRequest 是资产页「重新合成」：AssetIDs 为空时重画全部还没有图的场次色卡。
+// DramaPaletteResynthesizeRequest 是资产页「重新合成」：AssetIDs 为空时重画全部还没有图的场次色卡；点名主基调色卡时重画主色卡图。
 type DramaPaletteResynthesizeRequest struct {
 	AssetIDs []string `json:"assetIds,omitempty"`
 }
@@ -36,6 +36,8 @@ type DramaPaletteResynthesizeRequest struct {
 type DramaPaletteResynthesizeResult struct {
 	Rendered []string              `json:"rendered"`
 	Failed   []DramaPaletteFailure `json:"failed"`
+	// FontNote 是合成时没用上中文字体的原因（图上只有 HEX 和英文名）。
+	FontNote string `json:"fontNote,omitempty"`
 }
 
 // DramaPaletteFailure 是一张没合成上图的色卡。
@@ -297,7 +299,7 @@ func (s *Service) renderScenePaletteImage(userID string, projectID string, asset
 }
 
 // ResynthesizeDramaPalettes 是资产页「重新合成」：按色卡当前版本的色板重画图、绑成新版本，不调模型。
-// 只认场次色卡（旧色卡要先重新生成场次色卡）；场次已不存在的不画。
+// 认场次色卡（旧色卡要先重新生成场次色卡；场次已不存在的不画）和点名的主基调色卡（服务器补装中文字体后重画旧图用）。
 func (s *Service) ResynthesizeDramaPalettes(userID string, projectID string, req DramaPaletteResynthesizeRequest) (DramaPaletteResynthesizeResult, error) {
 	result := DramaPaletteResynthesizeResult{Rendered: []string{}, Failed: []DramaPaletteFailure{}}
 	project, err := s.activeProjectForUser(userID, projectID)
@@ -312,6 +314,10 @@ func (s *Service) ResynthesizeDramaPalettes(userID string, projectID string, req
 	for _, a := range palettes {
 		byID[a.ID] = a
 	}
+	master, err := s.projectMasterPaletteAsset(userID, project.ID)
+	if err != nil {
+		return result, err
+	}
 	var targets []model.Asset
 	if len(req.AssetIDs) == 0 {
 		for _, code := range slices.Sorted(maps.Keys(palettes)) {
@@ -322,6 +328,14 @@ func (s *Service) ResynthesizeDramaPalettes(userID string, projectID string, req
 		}
 	}
 	for _, id := range req.AssetIDs {
+		if master != nil && strings.TrimSpace(id) == master.ID {
+			if err := s.resynthesizeMasterPalette(userID, project, master); err != nil {
+				result.Failed = append(result.Failed, DramaPaletteFailure{AssetID: master.ID, Error: userFacingTaskError(err.Error())})
+			} else {
+				result.Rendered = append(result.Rendered, master.ID)
+			}
+			continue
+		}
 		asset, ok := byID[strings.TrimSpace(id)]
 		if !ok {
 			return result, BadAuthRequest("所选资产不是这个项目的场次色卡")
@@ -354,7 +368,45 @@ func (s *Service) ResynthesizeDramaPalettes(userID string, projectID string, req
 		}
 		result.Rendered = append(result.Rendered, asset.ID)
 	}
+	if len(result.Rendered) > 0 {
+		_, result.FontNote = drama.MasterPaletteFontNote()
+	}
 	return result, nil
+}
+
+// resynthesizeMasterPalette 按主色卡当前版本的色板重画主色卡图、绑成新版本；项目锁定记录指着这张主色卡时，
+// 记录里的图和字体说明跟着换（写不上不影响已经绑好的图）。
+func (s *Service) resynthesizeMasterPalette(userID string, project *model.Project, master *model.Asset) error {
+	version, err := s.repo.AssetVersion(master.PrimaryVersionID)
+	if err != nil {
+		return err
+	}
+	var definition masterPaletteDefinition
+	if json.Unmarshal([]byte(version.DefinitionJSON), &definition) != nil || len(drama.NormalizeMasterPalette(definition.Palette).Groups) == 0 {
+		return BadAuthRequest("主色卡这一版读不出色板，到章节页重新锁定风格")
+	}
+	resource, fontNote, err := s.renderMasterPaletteResource(userID, firstNonEmpty(strings.TrimSpace(definition.Title), project.Name), definition.Palette)
+	if err != nil {
+		return err
+	}
+	if _, err := s.bindProjectAssetImage(userID, project.ID, master.ID, BindProjectAssetImageRequest{ResourceID: resource.ID, ExpectedVersionID: master.PrimaryVersionID}, newID()); err != nil {
+		return err
+	}
+	doc := map[string]any{}
+	if json.Unmarshal([]byte(project.BibleJSON), &doc) == nil && doc != nil {
+		if lock, ok := doc["style_lock"].(map[string]any); ok && lock["asset_id"] == master.ID {
+			lock["resource_id"] = resource.ID
+			if fontNote == "" {
+				delete(lock, "font_note")
+			} else {
+				lock["font_note"] = fontNote
+			}
+			if encoded, err := json.Marshal(doc); err == nil {
+				_ = s.repo.UpdateProjectDramaDocument(userID, project.ID, "bible_json", string(encoded), time.Now())
+			}
+		}
+	}
+	return nil
 }
 
 // paletteAssetSummary 是色卡资产的摘要。

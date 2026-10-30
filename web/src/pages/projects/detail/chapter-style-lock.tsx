@@ -208,7 +208,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
             await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ["project", projectId, "assets"] })]);
             message.success(`已锁定：风格锚和 ${masterPaletteColors(result.masterPalette).length} 色主基调色卡写进项目，主色卡在资产页`);
             if (result.imageError) message.warning(result.imageError);
-            if (result.fontNote) message.warning(`主色卡图没有中文字体，只画了 HEX 和英文名：${result.fontNote}`);
+            if (result.fontNote) message.warning(`主色卡图没有中文色名：服务器没读到中文字体，只画了 HEX 和英文名（${result.fontNote}）`);
         } catch (error) {
             message.error(error instanceof Error ? `锁定失败：${error.message}` : "锁定失败");
         } finally {
@@ -363,6 +363,19 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                           : []
                 }
             >
+                {current.locked && current.record?.font_note && !running ? (
+                    <Callout
+                        tone="warning"
+                        title="主色卡图上没有中文色名"
+                        action={
+                            <Button size="small" onClick={() => navigate(`/projects/${projectId}/assets?category=palette`)}>
+                                去资产页
+                            </Button>
+                        }
+                    >
+                        服务器没读到中文字体，主色卡图只画了 HEX 和英文名：{current.record.font_note}。装好字体后到资产页的主基调色卡点「重新合成」重画，不用重新分析。
+                    </Callout>
+                ) : null}
                 {outcome && !running ? (
                     <Callout
                         tone={outcome.status === "locked" || lockedThisTask ? "success" : "info"}

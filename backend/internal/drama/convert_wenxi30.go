@@ -271,7 +271,9 @@ func wenxi30ShotOf(f map[string]string, characters []string, lightSource string,
 		}
 		spec.Blocking = append(spec.Blocking, b)
 	}
-	sh.lines = append(wenxi30Lines(f["台词"], ctx), sh.lines...)
+	lines, screens := wenxi30Lines(f["台词"], ctx)
+	sh.lines = append(lines, sh.lines...)
+	addScreenText(spec, screens)
 	sh.plot = clean(f["画面"])
 	if spec.Action == "" {
 		spec.Action = sh.plot
@@ -280,12 +282,12 @@ func wenxi30ShotOf(f map[string]string, characters []string, lightSource string,
 }
 
 // wenxi30Lines 读台词字段：「角色名：原文【音色（…）+语速（…）+语调（…）+情感（…）】；画内」，一个字段可以有几句；「无」是没有台词。
-func wenxi30Lines(text string, ctx SectionContext) []sectionLine {
+// 冒号前写的是画面文字（「手机屏幕：“…”」）的不算台词，内容放进 screens。
+func wenxi30Lines(text string, ctx SectionContext) (out []sectionLine, screens []string) {
 	text = strings.TrimSpace(text)
 	if text == "" || strings.Trim(text, "。") == "无" {
-		return nil
+		return nil, nil
 	}
-	var out []sectionLine
 	matches := wenxi30Speech.FindAllStringSubmatch(text, -1)
 	if len(matches) == 0 {
 		for _, m := range wenxi30Quoted.FindAllStringSubmatch(text, -1) {
@@ -293,6 +295,10 @@ func wenxi30Lines(text string, ctx SectionContext) []sectionLine {
 		}
 	}
 	for _, m := range matches {
+		if screenTextSpeaker(m[1], ctx.Characters) {
+			screens = append(screens, strings.Trim(strings.TrimSpace(m[2]), "“”\""))
+			continue
+		}
 		ln := sectionLine{speaker: resolveSectionName(m[1], ctx.Characters), text: strings.Trim(strings.TrimSpace(m[2]), "“”\"")}
 		for _, q := range wenxi30Four.FindAllStringSubmatch(m[3], -1) {
 			v := strings.TrimSpace(q[2])
@@ -314,7 +320,7 @@ func wenxi30Lines(text string, ctx SectionContext) []sectionLine {
 		}
 		out = append(out, ln)
 	}
-	return out
+	return out, screens
 }
 
 // wenxi30Light 读灯光与光影：主光 / 辅光 / 轮廓光 / 光比 / 色温 / 阴影 / 曝光 / 变化按分句切；光源锚点取主光分句（没有就用小节的持续光源）。

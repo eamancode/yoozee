@@ -310,10 +310,12 @@ func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 	if script != nil {
 		var usedOrder []string
 		used := map[string][]string{}
+		firstText := map[string]string{}
 		for _, sh := range shots {
 			for _, ln := range sh.Lines {
 				if _, ok := used[ln.LineID]; !ok {
 					usedOrder = append(usedOrder, ln.LineID)
+					firstText[ln.LineID] = ln.Text
 				}
 				used[ln.LineID] = append(used[ln.LineID], sh.ID)
 			}
@@ -331,8 +333,12 @@ func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 			}
 		}
 		for _, lid := range usedOrder {
-			if !inEpisode[lid] {
-				addLine(used[lid][0], lid, fmt.Sprintf("镜头 %s 引用了剧本里不存在的台词 id %s", pyList(used[lid]), pyStrOrNone(lid)))
+			switch {
+			case lid == "":
+				// 转换时没对上剧本台词表的句子（没有 line_id）。
+				addLine(used[lid][0], lid, fmt.Sprintf("镜头 %s 的台词「%s」对不上剧本里的任何一句（没有台词 id）", strings.Join(used[lid], "、"), runePrefix(firstText[lid], 20)))
+			case !inEpisode[lid]:
+				addLine(used[lid][0], lid, fmt.Sprintf("镜头 %s 引用了剧本里不存在的台词 id %s", pyList(used[lid]), lid))
 			}
 		}
 	} else {
@@ -498,10 +504,10 @@ func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 				}
 			}
 			if quotas.ConsecutiveSameMoveMax != nil && sameMoveRun > *quotas.ConsecutiveSameMoveMax && !violentOnly {
-				add("R-SHOT-008", sh.ID, fmt.Sprintf("%s 连续 %d 镜同一运镜 %s", sh.ID, sameMoveRun, pyListOrNone(sh.Move)))
+				add("R-SHOT-008", sh.ID, fmt.Sprintf("%s 连续 %d 镜同一运镜 %s", sh.ID, sameMoveRun, listOr(sh.Move, "（没写运镜）")))
 			}
 			if quotas.ConsecutiveSameSizeMax != nil && sameSizeRun > *quotas.ConsecutiveSameSizeMax {
-				add("R-SHOT-009", sh.ID, fmt.Sprintf("%s 连续 %d 镜同一景别 %s", sh.ID, sameSizeRun, pyStrOrNone(sh.Size)))
+				add("R-SHOT-009", sh.ID, fmt.Sprintf("%s 连续 %d 镜同一景别 %s", sh.ID, sameSizeRun, textOr(sh.Size, "（没写景别）")))
 			}
 		} else {
 			sameMoveRun, sameSizeRun = 1, 1
@@ -520,7 +526,7 @@ func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 				}
 			}
 			if sc != nil && kind == "dialogue" && len(rulesP.DialogueOpenSize) > 0 && firstPerson == sh && !slices.Contains(rulesP.DialogueOpenSize, sh.Size) {
-				add("R-SHOT-021", sh.ID, fmt.Sprintf("%s 对话场第一个人物镜景别「%s」不在档案允许的 %s（先交代谁在场）", sh.ID, pyStrOrNone(sh.Size), pyList(rulesP.DialogueOpenSize)))
+				add("R-SHOT-021", sh.ID, fmt.Sprintf("%s 对话场第一个人物镜景别「%s」不在档案允许的 %s（先交代谁在场）", sh.ID, textOr(sh.Size, "没写"), pyList(rulesP.DialogueOpenSize)))
 			}
 		}
 		if sc != nil && sc.Kind == "action" {
@@ -595,7 +601,7 @@ func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 				n := len(a.Phases)
 				pf, pt := int(arc.PhaseFrom), int(arc.PhaseTo)
 				if (pf != 0 && pf > n) || (pt != 0 && pt > n) || (pf != 0 && pt != 0 && pf > pt) {
-					add("R-SHOT-025", sh.ID, fmt.Sprintf("%s 情绪弧 %s 只有 %d 段，phase_from/to=%s/%s 不合法", sh.ID, arc.ID, n, intOrNone(pf), intOrNone(pt)))
+					add("R-SHOT-025", sh.ID, fmt.Sprintf("%s 情绪弧 %s 只有 %d 段，phase_from/to=%s/%s 不合法", sh.ID, arc.ID, n, intOr(pf, "没写"), intOr(pt, "没写")))
 				}
 			}
 			if arc.Continues != "" {
@@ -619,7 +625,7 @@ func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 				pat = ctx.Vocab.Action(ap.ID)
 			}
 			if pat == nil {
-				add("R-SHOT-028", sh.ID, fmt.Sprintf("%s 动作模式 %s 不在词库里", sh.ID, pyStrOrNone(ap.ID)))
+				add("R-SHOT-028", sh.ID, fmt.Sprintf("%s 动作模式 %s 不在词库里", sh.ID, textOr(ap.ID, "（没写 id）")))
 			} else if pat.TwoPerson && len(sh.Blocking) < 2 {
 				add("R-SHOT-028", sh.ID, fmt.Sprintf("%s 双人动作模式 %s 用在只有 %d 人站位的镜头", sh.ID, ap.ID, len(sh.Blocking)))
 			}
@@ -646,7 +652,7 @@ func CheckShots(shotlist Shotlist, ctx CheckContext) CheckReport {
 				}
 			}
 			if n > 0 && n < 3 {
-				add("R-SHOT-029", sh.ID, fmt.Sprintf("%s 台词 %s 的三元（语速 / 语调 / 情感）没写齐，编译会退回 delivery", sh.ID, pyStrOrNone(ln.LineID)))
+				add("R-SHOT-029", sh.ID, fmt.Sprintf("%s 台词 %s 的三元（语速 / 语调 / 情感）没写齐，编译会退回 delivery", sh.ID, textOr(ln.LineID, "「"+runePrefix(ln.Text, 20)+"」")))
 			}
 		}
 		if prof.LightPolicy == "practicals_only" {
@@ -834,9 +840,10 @@ func abs(x int) int {
 	return x
 }
 
-func intOrNone(n int) string {
+// intOr 是报错文案里的整数，0（没写）时换成 fallback。
+func intOr(n int, fallback string) string {
 	if n == 0 {
-		return "None"
+		return fallback
 	}
 	return fmt.Sprint(n)
 }

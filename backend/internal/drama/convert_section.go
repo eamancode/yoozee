@@ -299,6 +299,38 @@ func stripMusic(text string) (string, int) {
 	return out, n
 }
 
+// screenTextLabels 是画面里要读出来的字（手机短信、屏幕、字幕、纸条）在冒号前的写法。剧本里这类内容是「（画面文字：…）」动作行，
+// 不在台词表里；技能写成「手机屏幕显示画面文字：“…”」时按台词读会对不上剧本（R-SHOT-001）。
+var screenTextLabels = []string{"画面文字", "屏幕", "字幕", "短信", "消息", "弹窗", "文字", "显示", "写着", "标题"}
+
+// screenTextSpeaker 是冒号前写的不是人而是画面文字（不是本节角色名，又带画面文字的写法）。
+func screenTextSpeaker(speaker string, characters []string) bool {
+	speaker = strings.TrimSpace(speaker)
+	if speaker == "" || containsString(characters, speaker) {
+		return false
+	}
+	for _, c := range characters {
+		if base, _, _ := strings.Cut(c, "·"); base == speaker {
+			return false
+		}
+	}
+	return containsAny(speaker, screenTextLabels...)
+}
+
+// addScreenText 把画面文字记进 spec.extras「画面文字」（几处用「；」接起来）。
+func addScreenText(spec *Shot, texts []string) {
+	if len(texts) == 0 {
+		return
+	}
+	if spec.Extras == nil {
+		spec.Extras = map[string]string{}
+	}
+	if prev := spec.Extras["画面文字"]; prev != "" {
+		texts = append([]string{prev}, texts...)
+	}
+	spec.Extras["画面文字"] = strings.Join(texts, "；")
+}
+
 // resolveSectionName 把技能写的名字对到资产原名：同名优先，其次唯一的包含关系（「林小满」对「林小满·病号服」只有一张子卡时）；对不上原样返回。
 func resolveSectionName(name string, names []string) string {
 	name = strings.Trim(strings.TrimSpace(name), "@【】[]「」")

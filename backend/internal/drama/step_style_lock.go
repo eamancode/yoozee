@@ -192,6 +192,8 @@ type StyleLockRecord struct {
 	ResourceID string `json:"resource_id,omitempty"`
 	LockedAt   string `json:"locked_at,omitempty"`
 	LockedBy   string `json:"locked_by,omitempty"`
+	// FontNote 是合成主色卡图时没用上中文字体的原因（图上只有 HEX 和英文名）；用上了是空的。资产页「重新合成」主色卡后跟着更新。
+	FontNote string `json:"font_note,omitempty"`
 }
 
 // ---------------------------------------------------------------- 项目类型

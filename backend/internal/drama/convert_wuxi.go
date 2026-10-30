@@ -288,7 +288,9 @@ func wuxiShotOf(f map[string]string, ctx SectionContext) (sectionShot, int) {
 			spec.Performance.Beats = append(spec.Performance.Beats, b)
 		}
 	}
-	sh.lines = wuxiLines(f["lines"], ctx)
+	var screens []string
+	sh.lines, screens = wuxiLines(f["lines"], ctx)
+	addScreenText(spec, screens)
 	spec.Light = wuxiLight(clean(f["light"]), ctx)
 	if next := strings.TrimSpace(f["next"]); next != "" {
 		spec.Transition = &Transition{Out: next, CutPoint: wuxiCutPoint(next)}
@@ -422,26 +424,35 @@ func wuxiFight(action, reaction string, blocking []Blocking, ctx SectionContext)
 }
 
 // wuxiLines 读台词：「人物（语气）：“原文”」，一镜可以有几句；「无」「（接上句）」是这一镜不另起台词。
-func wuxiLines(text string, ctx SectionContext) []sectionLine {
+// 冒号前写的是画面文字（「手机屏幕：“…”」）的不算台词，内容放进 screens。
+func wuxiLines(text string, ctx SectionContext) (out []sectionLine, screens []string) {
 	text = strings.TrimSpace(text)
 	if text == "" || strings.Trim(text, "。") == "无" || strings.Contains(text, "接上句") && !strings.ContainsAny(text, "“\"「") {
-		return nil
+		return nil, nil
 	}
-	var out []sectionLine
-	for _, m := range wuxiQuoted.FindAllStringSubmatch(text, -1) {
+	quoted := wuxiQuoted.FindAllStringSubmatch(text, -1)
+	for _, m := range quoted {
+		if screenTextSpeaker(m[1], ctx.Characters) {
+			screens = append(screens, strings.TrimSpace(m[3]))
+			continue
+		}
 		ln := sectionLine{speaker: resolveSectionName(m[1], ctx.Characters), text: strings.TrimSpace(m[3]), voice: strings.TrimSpace(m[2])}
 		if offscreenVoice(m[1] + m[2]) {
 			ln.offscreen, ln.placement = true, "画外"
 		}
 		out = append(out, ln)
 	}
-	if len(out) == 0 {
+	if len(quoted) == 0 {
 		// 没加引号：整格当一句，说话人取冒号前。
 		if speaker, line, ok := strings.Cut(text, "："); ok && strings.TrimSpace(line) != "" {
-			out = append(out, sectionLine{speaker: resolveSectionName(speaker, ctx.Characters), text: strings.Trim(strings.TrimSpace(line), "“”\"「」")})
+			line = strings.Trim(strings.TrimSpace(line), "“”\"「」")
+			if screenTextSpeaker(speaker, ctx.Characters) {
+				return nil, []string{line}
+			}
+			out = append(out, sectionLine{speaker: resolveSectionName(speaker, ctx.Characters), text: line})
 		}
 	}
-	return out
+	return out, screens
 }
 
 // wuxiLight 读光影：整格进 key，色温认「7500K」；光源锚点取光影里的场景锚点（室内补场景里像光源的锚点）。

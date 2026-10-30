@@ -363,3 +363,52 @@ func TestScriptAdaptPromptCarriesLockedAnchor(t *testing.T) {
 		t.Fatalf("锁定后带上风格锚：%v", err)
 	}
 }
+
+// 主色卡「重新合成」（服务器补装中文字体后重画旧图）：按主色卡当前色板重画、绑成新版本，锁定记录的图和字体说明跟着换；
+// 锁定结果和记录都带着字体说明（没有中文字体时页面据此提示）。
+func TestResynthesizeMasterPalette(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, _ := seedNovelProject(t, svc, db)
+	upstream := &visionUpstream{reply: styleLockReply}
+	server := httptest.NewServer(upstream)
+	defer server.Close()
+	queueStyleLockTask(t, svc, db, project.ID, server.URL, DramaProjectStepRunRequest{ProjectType: "live-action", StyleText: "都市冷调悬疑"})
+	done, err := runQueuedTask(t, svc)
+	if err != nil || done.Status != model.TaskStatusSucceeded {
+		t.Fatalf("风格分析：%v %s %q", err, done.Status, done.Error)
+	}
+	locked, err := svc.LockDramaStyle("user-1", project.ID, DramaStyleLockRequest{TaskID: done.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, note := drama.MasterPaletteFontNote()
+	if locked.FontNote != note || locked.StyleLock.FontNote != note {
+		t.Fatalf("锁定结果和记录带字体说明：%q %q，应为 %q", locked.FontNote, locked.StyleLock.FontNote, note)
+	}
+	result, err := svc.ResynthesizeDramaPalettes("user-1", project.ID, DramaPaletteResynthesizeRequest{AssetIDs: []string{locked.StyleLock.AssetID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rendered) != 1 || result.Rendered[0] != locked.StyleLock.AssetID || len(result.Failed) != 0 || result.FontNote != note {
+		t.Fatalf("重新合成主色卡：%+v", result)
+	}
+	asset, err := svc.repo.AssetForUser("user-1", locked.StyleLock.AssetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	versions, err := svc.repo.AssetVersions(asset.ID)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("已有图时绑成新版本：%v %d", err, len(versions))
+	}
+	bible, err := svc.ProjectBible("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := bible["style_lock"].(map[string]any)
+	if lock["resource_id"] == locked.StyleLock.ResourceID || lock["resource_id"] == "" || (note == "" && lock["font_note"] != nil) || (note != "" && lock["font_note"] != note) {
+		t.Fatalf("锁定记录的图和字体说明跟着换：%+v", lock)
+	}
+	if _, err := svc.ResynthesizeDramaPalettes("user-2", project.ID, DramaPaletteResynthesizeRequest{AssetIDs: []string{locked.StyleLock.AssetID}}); err == nil {
+		t.Fatal("别人的项目不能重新合成")
+	}
+}
