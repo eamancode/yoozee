@@ -72,6 +72,7 @@ export function ChapterStoryboardRunPanel({
     const problemSections = shotlist?.draft && shotlist.sections?.length && !sceneNotice?.shotlist ? issueSections(shotlist.issues) : [];
     const parse = shotlist?.check.parse;
     const failed = stop?.kind === "failed" ? stop : undefined;
+    const resume = stop?.kind === "resume" ? stop : undefined;
     const repackable = Boolean(shotlist && !shotlist.draft);
     const repackButton = (
         <Button size="small" loading={repacking} onClick={onRepack}>
@@ -102,6 +103,8 @@ export function ChapterStoryboardRunPanel({
                 <span>上一次输出 {stream.shotCount} 镜</span>
             ) : failed ? (
                 <span>{failed.status === "cancelled" ? "上一次生成已取消" : "上一次生成失败"}</span>
+            ) : resume ? (
+                <span>{`上一次${resume.rerun ? "重跑" : "生成"}停在第 ${resume.from} 节`}</span>
             ) : (
                 <span>还没有生成记录</span>
             )}
@@ -223,7 +226,7 @@ export function ChapterStoryboardRunPanel({
                 </Callout>
             ) : repackable ? (
                 <Callout tone="info" title={`镜头表已写入，本章 ${segmentCount} 段`} action={repackButton}>
-                    改了项目单段时长、资产或编译档案后，点「重新装段」用已存的镜头表按当前设置重装，不调模型；会整章替换段。
+                    改了项目单段时长、资产或编译档案后，点「重新装段」用已存的镜头表按当前设置重装，不调模型；按小节生成的镜头表只换内容变了的段（产物标过期），要删掉带产物的段会先确认。
                 </Callout>
             ) : null}
         </DramaRunPanel>

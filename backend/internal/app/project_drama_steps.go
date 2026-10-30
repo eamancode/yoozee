@@ -70,6 +70,9 @@ type DramaStepRunRequest struct {
 	// OnlySections 是「重新生成问题小节」：只重写这几节（小节编号，如 E01S02-P2），其余小节的镜头行取本章镜头表里已有的、
 	// 原样输出放进对话历史。按小节生成时 OnlyScenes 等于重写这几场的全部小节。
 	OnlySections []string `json:"onlySections,omitempty"`
+	// Discard 为 true 表示用户已确认整章重新生成会删掉本章段上已有的分镜图、预演、视频（收尾整章替换段）。没给且有这类产物时，
+	// 整章生成分段（不是续写、不是只重写几节）在建任务前就 409（drama_segments_discard_required，details.discards 列出）。
+	Discard bool `json:"discard,omitempty"`
 	// Rule 是视频渠道实际能提交的段长，收尾装段时叠在项目生成模型上限上（只收紧）。
 	Rule *DramaShotlistRule `json:"rule,omitempty"`
 	// ImageTask 是资产设计写完后给新资产出图用的图片任务模板（前端按图片模型组好）；不给时只建资产不出图。
@@ -257,6 +260,12 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return DramaStepRunResult{}, err
+	}
+	// 整章生成分段收尾时整章替换段：本章段上已有产物就先要用户确认（续写、只重写几节、改戏类走保留装段，不在这里拦）。
+	if stepID == drama.StepChapterShots && !req.Discard && strings.TrimSpace(req.ResumeTaskID) == "" && len(req.OnlyScenes) == 0 && len(req.OnlySections) == 0 {
+		if err := s.guardSegmentDiscards(projectID, strings.TrimSpace(unitID), nil); err != nil {
+			return DramaStepRunResult{}, err
+		}
 	}
 	return s.runDramaStepFor(userID, project, unitID, stepID, req, nil, nil)
 }

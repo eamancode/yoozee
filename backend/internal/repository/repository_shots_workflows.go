@@ -187,7 +187,7 @@ func upsertDramaShotlist(tx *gorm.DB, shotlist *model.DramaShotlist) error {
 	shotlist.CreatedAt = existing.CreatedAt
 	return tx.Model(&model.DramaShotlist{}).Where("id = ?", existing.ID).Updates(map[string]any{
 		"version": shotlist.Version, "shotlist_json": shotlist.ShotlistJSON, "script_json": shotlist.ScriptJSON,
-		"check_json": shotlist.CheckJSON, "rows_json": shotlist.RowsJSON, "sections_json": shotlist.SectionsJSON, "compile_profile_version": shotlist.CompileProfileVersion,
+		"check_json": shotlist.CheckJSON, "rows_json": shotlist.RowsJSON, "sections_json": shotlist.SectionsJSON, "packed_sections_json": shotlist.PackedSectionsJSON, "compile_profile_version": shotlist.CompileProfileVersion,
 		"created_by": shotlist.CreatedBy, "updated_at": shotlist.UpdatedAt,
 	}).Error
 }

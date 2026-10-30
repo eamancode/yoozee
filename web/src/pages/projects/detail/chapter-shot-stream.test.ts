@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardOutcomeSummary, storyboardRunningLabel, storyboardRunStop, streamGroupMeta, streamSceneGroups, streamTurnCount } from "./chapter-shot-stream";
+import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardOutcomeSummary, storyboardRunningLabel, storyboardRunPartial, storyboardRunStop, streamGroupMeta, streamSceneGroups, streamTurnCount } from "./chapter-shot-stream";
 import { projectSceneCode } from "./unit-numbering";
 
 const marker = (index: number, attempt = 1) => JSON.stringify({ "@turn": { index, total: 2, scene: `E01S0${index}`, heading: index === 1 ? "内·病房走廊·夜" : "内·电梯口·夜", attempt } });
@@ -125,6 +125,25 @@ test("storyboardRunStop 已有成功写入后取消或失败的重跑不给续�
     assert.equal(storyboardRunStop({ ...cancelledRerun, createdAt: "2026-10-27T03:00:00Z" }, { total: 2, completed: 1 }, written)?.kind, "resume");
     // 没有成功写入过：第一次运行中途停下，照常从下一场继续。
     assert.equal(storyboardRunStop(cancelledRerun, { total: 2, completed: 1 })?.kind, "resume");
+});
+
+test("storyboardRunStop 部分重跑 / 改戏类中途失败：已有写入也给「从第 N 节继续」（M8 验收 B 第 3、5 节失败）", () => {
+    const written = { createdAt: "2026-10-30T01:42:00Z", completedAt: "2026-10-30T01:42:30Z" };
+    const failed = { id: "f5", status: "failed", error: "第 3 节生成失败，已写完的 2 节已保存，可从第 3 节继续：画布 Agent 接口没有返回内容。", createdAt: "2026-10-30T02:10:00Z" };
+    assert.deepEqual(storyboardRunStop(failed, { total: 4, completed: 2 }, written, { refinalize: true, partial: true }), { kind: "resume", taskId: "f5", from: 3, total: 4, error: failed.error, rerun: true });
+    // 整章重跑照旧不给续写；部分重跑一节都没写完、或各节都写完只是收尾失败，照旧按失败 / 重新写入。
+    assert.equal(storyboardRunStop(failed, { total: 4, completed: 2 }, written, { refinalize: true })?.kind, "superseded");
+    assert.equal(storyboardRunStop(failed, { total: 4, completed: 4 }, written, { refinalize: true, partial: true })?.kind, "refinalize");
+    assert.equal(storyboardRunStop(failed, { total: 4, completed: 0 }, written, { refinalize: true, partial: true })?.kind, "superseded");
+});
+
+test("storyboardRunPartial 认只重写几节的运行（任务 metadata.dramaRun）", () => {
+    assert.equal(storyboardRunPartial(JSON.stringify({ metadata: { dramaRun: { runId: "r", onlySections: ["E01S02-P1", "E01S02-P2"] } } })), true);
+    assert.equal(storyboardRunPartial(JSON.stringify({ metadata: { dramaRun: { runId: "r", onlyScenes: ["E01S02"] } } })), true);
+    assert.equal(storyboardRunPartial(JSON.stringify({ metadata: { dramaRun: { runId: "r" }, dramaShots: { regenre: { from: "E01S02-P1", genre: "wuxi" } } } })), true);
+    assert.equal(storyboardRunPartial(JSON.stringify({ metadata: { dramaRun: { runId: "r", onlySections: [] } } })), false);
+    assert.equal(storyboardRunPartial("{"), false);
+    assert.equal(storyboardRunPartial(undefined), false);
 });
 
 test("latestStoryboardWrite 取最近一次成功的生成分段任务", () => {

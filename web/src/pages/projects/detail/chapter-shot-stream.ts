@@ -236,7 +236,8 @@ export function shotStreamFromResult(resultJson?: string): ShotStreamState {
 
 /** 上一次生成分段任务停下来的样子：写完 ≥1 节（场）的可以从下一节续写（resume），一节都没写完或收尾失败的只能重新生成（failed）。 */
 export type StoryboardRunStop =
-    | { kind: "resume"; taskId: string; from: number; total: number; error?: string }
+    /** rerun 是只重写几节（部分重跑、改戏类）的运行：本章已有写入，接着写只重写没写完的节，收尾照常保留装段。 */
+    | { kind: "resume"; taskId: string; from: number; total: number; error?: string; rerun?: boolean }
     /** 各节都写完了、收尾（写镜头表、装段）没成：接着这次任务只重新收尾，不再调模型（只有生成分段支持）。 */
     | { kind: "refinalize"; taskId: string; total: number; status: "failed" | "cancelled"; error?: string }
     | { kind: "failed"; taskId: string; status: "failed" | "cancelled"; error?: string }
@@ -244,8 +245,23 @@ export type StoryboardRunStop =
     | { kind: "superseded"; taskId: string; status: "failed" | "cancelled"; error?: string; resultAt: string };
 
 /**
+ * 只重写几节或改戏类的运行（任务 metadata.dramaRun.onlySections / onlyScenes：「重新生成问题小节」、部分重跑；metadata.dramaShots.regenre：
+ * 改为武戏 / 改回文戏）：收尾保留装段。整章重跑不算。
+ */
+export function storyboardRunPartial(inputJson?: string) {
+    try {
+        const input = JSON.parse(inputJson || "{}") as { metadata?: { dramaRun?: { onlySections?: unknown; onlyScenes?: unknown }; dramaShots?: { regenre?: unknown } } };
+        const run = input.metadata?.dramaRun;
+        return (Array.isArray(run?.onlySections) && run.onlySections.length > 0) || (Array.isArray(run?.onlyScenes) && run.onlyScenes.length > 0) || Boolean(input.metadata?.dramaShots?.regenre);
+    } catch {
+        return false;
+    }
+}
+
+/**
  * 只看失败或取消的任务；progress 是任务结果里的 dramaRun（整章一轮或还没开始逐场时没有）。
- * lastWrite 是比这个任务更早、成功写入的那次任务（同一章）：有它时停下的是重跑，不给「从第 N 场继续」。
+ * lastWrite 是比这个任务更早、成功写入的那次任务（同一章）：有它时停下的是重跑，不给「从第 N 场继续」（整章续写会拿重跑写的前几节换掉现有结果）；
+ * options.partial（只重写几节的运行）例外：不重写的节用的是作底的镜头表，续写只重写没写完的节、收尾保留装段，照常给「从第 N 节继续」。
  * options.refinalize 为 true（生成分段）时各节都写完的任务给「重新收尾」：整章输出都是这次运行的，重跑也照样收尾。
  * 失败原因是整章镜头超上限（shotlist_too_large）时重新收尾必然再失败，不给，按普通失败说原因（提示拆章）。
  */
@@ -253,12 +269,14 @@ export function storyboardRunStop(
     task: { id: string; status: string; error?: string; createdAt?: string; errorCode?: string; diagnostic?: { code?: string } },
     progress?: { total: number; completed: number },
     lastWrite?: { createdAt: string; completedAt?: string },
-    options: { refinalize?: boolean } = {},
+    options: { refinalize?: boolean; partial?: boolean } = {},
 ): StoryboardRunStop | undefined {
     if (task.status !== "failed" && task.status !== "cancelled") return undefined;
     const error = task.error?.trim() || undefined;
     const tooLarge = (task.errorCode || task.diagnostic?.code) === API_ERROR_REASON.ShotlistTooLarge;
     if (options.refinalize && !tooLarge && progress && progress.total >= 1 && progress.completed >= progress.total) return { kind: "refinalize", taskId: task.id, total: progress.total, status: task.status, error };
+    const midway = Boolean(progress && progress.completed >= 1 && progress.completed < progress.total);
+    if (options.partial && midway && progress) return { kind: "resume", taskId: task.id, from: progress.completed + 1, total: progress.total, error, rerun: true };
     if (lastWrite && (!task.createdAt || Date.parse(lastWrite.createdAt) < Date.parse(task.createdAt))) return { kind: "superseded", taskId: task.id, status: task.status, error, resultAt: lastWrite.completedAt || lastWrite.createdAt };
     if (progress && progress.completed >= 1 && progress.completed < progress.total) return { kind: "resume", taskId: task.id, from: progress.completed + 1, total: progress.total, error };
     return { kind: "failed", taskId: task.id, status: task.status, error };

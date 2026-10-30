@@ -213,8 +213,9 @@ func (s *Service) resumeDramaRun(userID string, projectID string, unitID string,
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("正文的%s次改过了（或场次规则已更新：连续同地点的场次头并成一场），不能从中间继续，请重新%s", unit, label))
 	}
 	// 生成分段各节都写完了、收尾（写镜头表、装段）没成：重新收尾，不再调模型，各节输出原样取上一次任务存下的。
-	// 只重写几节的运行，不重写的节用的是镜头表第 BaseShotlistVersion 版的镜头行：镜头表之后改过就不能拿旧行收尾。
-	if progress.Completed >= progress.Total && len(run.OnlySections) > 0 {
+	// 只重写几节（部分重跑、改戏类）的运行，不重写的节用的是镜头表第 BaseShotlistVersion 版的镜头行（已写完的也存在上一次任务里）：
+	// 镜头表之后改过就不能拿旧行接着写或收尾，否则会盖掉之后的改动。
+	if len(run.OnlySections) > 0 {
 		record, err := s.repo.DramaShotlistForUnit(projectID, unitID)
 		if err != nil || record.Version != run.BaseShotlistVersion {
 			return dramaRunMeta{}, BadAuthRequest("本章镜头表在上一次任务之后又改过，不能拿上一次的输出重新收尾，请重新" + label)
