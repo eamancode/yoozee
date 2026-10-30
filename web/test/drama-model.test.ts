@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, dramaAuthLabel, dramaModelOptions, findDramaModel } from "@/pages/projects/drama-model";
+import { DEFAULT_DRAMA_MODEL, DRAMA_PIPELINE_STAGES, DRAMA_RUN_MODES, dramaModelOptions, dramaRunModeLabel, findDramaModel } from "@/pages/projects/drama-model";
 import type { DramaModel, DramaRegistry } from "@/services/api/drama";
 
 function model(patch: Partial<DramaModel> & { id: string }): DramaModel {
@@ -30,10 +30,10 @@ const registry: DramaRegistry = {
 };
 
 describe("短剧生成模型选项", () => {
-    test("每项都带「每段最长 N 秒」，未校准的显式标出；不传过滤条件时全部可选", () => {
+    test("每项都带「每段最长 N 秒」，不在主标签里写「未校准」；不传过滤条件时全部可选", () => {
         expect(dramaModelOptions(registry)).toEqual([
-            { label: "Seedance 2.0 · 每段最长 15 秒 · 未校准", value: "seedance-2.0", disabled: false },
-            { label: "Seedance 2.5 · 每段最长 30 秒 · 未校准", value: "seedance-2.5", disabled: false },
+            { label: "Seedance 2.0 · 每段最长 15 秒", value: "seedance-2.0", disabled: false },
+            { label: "Seedance 2.5 · 每段最长 30 秒", value: "seedance-2.5", disabled: false },
             { label: "MiniMax-H3 · 每段最长 15 秒", value: "minimax-h3", disabled: false },
         ]);
     });
@@ -58,7 +58,7 @@ describe("短剧生成模型选项", () => {
         const available = new Set(["seedance-2.0", "seedance-2.5"]);
         expect(dramaModelOptions(registry, available, { aspectRatio: "4:3", ratios })).toEqual([
             { label: "Seedance 2.0 · 每段最长 15 秒 · 渠道不支持 4:3", value: "seedance-2.0", disabled: true },
-            { label: "Seedance 2.5 · 每段最长 30 秒 · 未校准", value: "seedance-2.5", disabled: false },
+            { label: "Seedance 2.5 · 每段最长 30 秒", value: "seedance-2.5", disabled: false },
             { label: "MiniMax-H3 · 每段最长 15 秒 · 没有可用渠道", value: "minimax-h3", disabled: false },
         ]);
         // 不带画幅时不置灰。
@@ -83,16 +83,20 @@ describe("按 ID 解析生成模型", () => {
     });
 });
 
-describe("授权档位", () => {
-    test("只有每步确认与全权两档", () => {
-        expect(DRAMA_AUTH_OPTIONS.map((item) => item.value)).toEqual(["step", "full"]);
-        expect(DRAMA_AUTH_OPTIONS.every((item) => item.label && item.hint)).toBe(true);
+describe("生成模式", () => {
+    test("三档，默认跑到出视频前；每一档都停在出视频", () => {
+        expect(DRAMA_RUN_MODES.map((item) => item.value)).toEqual(["until_video", "review_from_assets", "every_step"]);
+        expect(DRAMA_RUN_MODES.every((item) => item.label && item.hint && item.stops.includes("video"))).toBe(true);
+        expect(DRAMA_RUN_MODES.find((item) => item.value === "review_from_assets")?.stops).toEqual(["assets", "shots", "video"]);
     });
 
-    test("标签映射：full 是全权，其余（含空值）都按每步确认显示", () => {
-        expect(dramaAuthLabel("full")).toBe("全权");
-        expect(dramaAuthLabel("step")).toBe("每步确认");
-        expect(dramaAuthLabel(undefined)).toBe("每步确认");
-        expect(dramaAuthLabel("")).toBe("每步确认");
+    test("标签映射：不认识的按默认档显示", () => {
+        expect(dramaRunModeLabel("every_step")).toBe("每步都问我");
+        expect(dramaRunModeLabel(undefined)).toBe("跑到出视频前");
+        expect(dramaRunModeLabel("full")).toBe("跑到出视频前");
+    });
+
+    test("流水线八格与后端同序", () => {
+        expect(DRAMA_PIPELINE_STAGES.map((item) => item.label).join(" → ")).toBe("拆剧本 → 导演定画风 → 场次色卡 → 角色场景资产 → 分镜 → 装段 → 出视频 → 剪辑");
     });
 });

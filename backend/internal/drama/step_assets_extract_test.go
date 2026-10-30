@@ -117,7 +117,7 @@ func TestAssetsPaletteColors(t *testing.T) {
 // 「参考齐了」的规则不变，说明里分出资产未提取和有资产还没出图。
 func TestRefsDetailDistinguishesAssets(t *testing.T) {
 	detail := func(assets AssetsInput) string {
-		for _, s := range Derive(ProgressInput{AuthMode: AuthStep, Assets: assets}).EndStates {
+		for _, s := range Derive(ProgressInput{RunMode: RunEveryStep, Assets: assets}).EndStates {
 			if s.Key == "refs" {
 				return s.Detail
 			}

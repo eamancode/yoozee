@@ -12,7 +12,7 @@
 | 证据 | 挂在某条候选上的证据记录（契约 evidence） |
 | 需求文档、连戏表 | 项目上的两份 JSON（契约 brief、bible） |
 | 生成模型 | 项目的「生成模型」（建项目时选）：决定一段最长几秒 |
-| 授权档位 | 项目的「授权档位」：每步确认 / 全权 |
+| 生成模式 | 项目的「生成模式」：每步都问我 / 跑到出视频前 |
 
 ## 读知识卡
 
@@ -24,7 +24,7 @@
 | --- | --- |
 | `source.read` | `drama_chapters_read`：不传 unitId 列章节，传 unitId 分页读正文（剧情章节页里的原文） |
 | `progress.read` | `drama_progress_read`：每段六格和八个终态 |
-| `brief.read` / `brief.write` | `drama_brief_read` / `drama_brief_write`（整份需求 JSON，写入时校验生成模型和授权档位） |
+| `brief.read` / `brief.write` | `drama_brief_read` / `drama_brief_write`（整份需求 JSON，写入时校验生成模型和生成模式） |
 | `segments.read` / `segments.write` | `drama_segments_read` / `drama_segments_write`（unitId 取自 `drama_chapters_read`；按段号新增或改，新段号排到本章末尾；形状不合契约 segment 或超过项目生成模型上限的段会被拒绝。拆段、合段要带 `order`：先 `drama_segments_read` 取本章全部段号，`order` 是它们的新顺序，没改动的段和 derived 的旧镜头也要列；拆出的段用原段号加字母（S02 → S02b），紧跟在原段后面；被并掉的段不写进 `order`，它会连同候选视频和证据一起删除，无法恢复） |
 | `shotlist.read` / `shotlist.write` | `drama_shotlist_read` / `drama_shotlist_write`（一章一份镜头表，段由它装出：写入时服务端把章节正文转成台词表、分镜行 spec 转镜头表、按 R-SHOT 规则检查，有 error 整批拒绝并返回规则项；没有 error 才按场装段并替换本章全部段。用户在章节页生成分镜时走同一套） |
 | `bible.read` / `bible.write` | `drama_bible_read` / `drama_bible_write` |
@@ -34,7 +34,7 @@
 | `prompt.compile` | `drama_compile_prompt`（段号或镜头 ID；不传模型就用项目的生成模型）。返回提示词、参考清单（文件 → 编号 → 用途）和检查结果 |
 | `cost.estimate` | `model_list` 返回的价格档 × 秒数 × 候选数；分镜制作页提交前也会显示估价 |
 | `spend.approve` | `generate_media` 的界面审批；超预算时先 `ask_user` |
-| `video.generate` | 两条路：每步确认档——把编译好的提示词交给用户，在「分镜制作」页对该段点生成；全权档——`generate_media`（mode=video，提示词用编译结果，参考用编译清单里的素材），任务成功后用 `drama_artifact_register` 把它登记为该段的一条候选 |
+| `video.generate` | 两条路：「每步都问我」档——把编译好的提示词交给用户，在「分镜制作」页对该段点生成；「跑到出视频前」档——`generate_media`（mode=video，提示词用编译结果，参考用编译清单里的素材），任务成功后用 `drama_artifact_register` 把它登记为该段的一条候选 |
 | `media.transcribe` | `drama_qa_transcribe`（对一条候选创建本地转写任务），完成后 `drama_evidence_write`（kind=transcript，带 taskId）：服务端按该段台词算字错率并判过不过 |
 | `media.frames` | `drama_qa_frames`：给一条候选出抽帧拼图并记一条 frames 证据（结论待定）；拼图在分镜制作页的证据面板里看 |
 | `media.faces` | 分镜制作页证据面板里把候选帧和定妆照并排看；看过的人点「同一个人」。Agent 看不到视频帧时不要替人判，把 faces 留给人 |
@@ -47,11 +47,11 @@
 | `feedback.read` | 交付页的验收意见和带时间码的反馈，会变成需求文档的 R- 条目 |
 | `ask.user` | `ask_user` |
 
-## 授权档位怎么落地
+## 生成模式怎么落地
 
-- `drama_brief_read` 返回 `auth_mode`。
-- **每步确认**：每个终态成立前用 `ask_user` 给用户看结果（分段表、定妆照、选中的候选、草稿）；生成交给用户在页面上点。
-- **全权**：预算内直接 `generate_media`（界面审批仍会出现，由用户的权限模式决定是否自动通过）；只在超预算、删文件、对外发布、用账号时问人。
+- `drama_brief_read` 返回 `run_mode`。
+- **每步都问我**：每个终态成立前用 `ask_user` 给用户看结果（分段表、定妆照、选中的候选、草稿）；生成交给用户在页面上点。
+- **跑到出视频前**：预算内直接 `generate_media`（界面审批仍会出现，由用户的权限模式决定是否自动通过）；只在超预算、删文件、对外发布、用账号时问人。
 
 ## 规矩
 

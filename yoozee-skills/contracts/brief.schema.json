@@ -4,7 +4,7 @@
   "title": "需求文档",
   "description": "只有 status 为「已确认」或「默认，已授权」的条目才能拿去花钱。用户原话原样记、带日期。2.0 新增：剧本来源、风格档案、入口类型、提示词密度、速产参数、分集目标。",
   "type": "object",
-  "required": ["title", "video_model", "auth_mode", "style_profile", "script_mode"],
+  "required": ["title", "video_model", "run_mode", "style_profile", "script_mode"],
   "additionalProperties": false,
   "$defs": {
     "status": {"type": "string", "enum": ["已确认", "默认，待确认", "默认，已授权", "待答"]},
@@ -23,7 +23,7 @@
   "properties": {
     "title": {"type": "string", "minLength": 1},
     "video_model": {"type": "string", "description": "生成模型 ID，取自 models.json；默认 seedance-2.5（一段最长 30 秒）"},
-    "auth_mode": {"type": "string", "enum": ["step", "full"], "description": "step 每步确认；full 全权（只在超预算、删文件、对外发布、用账号时找人）"},
+    "run_mode": {"type": "string", "enum": ["until_video", "review_from_assets", "every_step"], "description": "生成模式：until_video 跑到出视频前；review_from_assets 资产我要过目；every_step 每步都问我"},
     "style_profile": {"type": "string", "description": "风格档案 id，取自 profiles/：live-realism（默认）、duanju-shiga、anime-3d、action-epic、game-ip 或用户派生档案"},
     "script_mode": {"type": "string", "enum": ["original", "adapt", "given"], "description": "original 原创（yz-story 五阶段或速产）；adapt 改编小说（先事实账本）；given 已有剧本"},
     "entry": {"type": "string", "enum": ["script", "image", "storyboard_grid", "reference_video", "idea"], "description": "入口类型：剧本 / 一张图 / 分镜板 / 参考视频 / 一句话创意"},

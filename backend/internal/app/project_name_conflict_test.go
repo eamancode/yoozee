@@ -44,7 +44,7 @@ func testStructuredProjectNameConflict(t *testing.T, service *Service, db *gorm.
 		t.Fatal(err)
 	}
 
-	request := CreateProjectRequest{Name: "同名短剧", Description: "原项目内容"}
+	request := CreateProjectRequest{VisualType: "live_action", Name: "同名短剧", Description: "原项目内容"}
 	first, err := service.CreateProject("user-1", request)
 	if err != nil {
 		t.Fatalf("create initial project: %v", err)

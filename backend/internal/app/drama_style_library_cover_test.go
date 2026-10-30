@@ -33,7 +33,7 @@ func seedStyleLibraryEntry(t *testing.T, svc *Service, ownerID string, name stri
 	paletteJSON, _ := json.Marshal(palette)
 	now := time.Now()
 	row := model.DramaStyleLibraryEntry{
-		ID: newID(), ProjectType: "live-action", Name: name, StyleAnchorJSON: `{"medium":"真人实拍"}`, MasterPaletteJSON: string(paletteJSON),
+		ID: newID(), ProjectType: drama.VisualLiveAction, Name: name, StyleAnchorJSON: `{"medium":"真人实拍"}`, MasterPaletteJSON: string(paletteJSON),
 		CoverResourceID: cover.ID, Source: DramaStyleLibrarySourceManual, CreatedBy: ownerID, UpdatedBy: ownerID, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := svc.repo.CreateDramaStyleLibraryEntry(&row); err != nil {

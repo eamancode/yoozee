@@ -8,7 +8,6 @@ import { nanoid } from "nanoid";
 import { StyleProfileEditorModal } from "@/components/canvas/style-profile-editor-modal";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { createStyleProfileSnapshot, parseStyleProfile, serializeStyleProfile, type StyleProfileSnapshot } from "@/lib/canvas/style-profile";
-import { projectContentType, styleMatchesContentType, type ProjectContentType } from "@/lib/canvas/project-content-type";
 import {
     compileCanvasStylePreset,
     customCanvasStylePreset,
@@ -427,14 +426,13 @@ type UserStyleLibraryItem = { kind: "user"; preset: CanvasStylePreset; entity: U
 type StyleLibraryItem = SystemStyleLibraryItem | UserStyleLibraryItem;
 type StyleEditorState = { profile: StyleProfileSnapshot; entityId?: string };
 
-export function CanvasStylePickerModal({ open, value, currentProfile, startInEditor = false, applying = false, contentType, onClose, onSelect }: {
+export function CanvasStylePickerModal({ open, value, currentProfile, startInEditor = false, applying = false, onClose, onSelect }: {
     open: boolean;
     value?: string;
     currentProfile?: StyleProfileSnapshot | null;
     startInEditor?: boolean;
     applying?: boolean;
     /** 建项目选了「类型」时只列这个类型的画风（按媒介过滤）；不传列全部。 */
-    contentType?: ProjectContentType;
     onClose: () => void;
     onSelect: (preset: CanvasStylePreset) => void;
 }) {
@@ -462,9 +460,9 @@ export function CanvasStylePickerModal({ open, value, currentProfile, startInEdi
 
     const userItems = useMemo<UserStyleLibraryItem[]>(() => (profilesQuery.data?.profiles || []).flatMap((entity) => {
         const preset = userStylePreset(entity);
-        return preset && styleMatchesContentType(preset, contentType) ? [{ kind: "user" as const, preset, entity }] : [];
-    }), [contentType, profilesQuery.data?.profiles]);
-    const systemPresets = useMemo(() => canvasStylePresets.filter((preset) => styleMatchesContentType(preset, contentType)), [contentType]);
+        return preset ? [{ kind: "user" as const, preset, entity }] : [];
+    }), [profilesQuery.data?.profiles]);
+    const systemPresets = canvasStylePresets;
     const systemItems = useMemo<SystemStyleLibraryItem[]>(() => systemPresets.map((preset) => ({ kind: "system", preset })), [systemPresets]);
     const categories = useMemo(() => ["全部", ...Array.from(new Set(systemPresets.map((preset) => preset.category)))], [systemPresets]);
 
@@ -546,7 +544,7 @@ export function CanvasStylePickerModal({ open, value, currentProfile, startInEdi
                     <header className="flex min-h-16 flex-col gap-3 border-b px-4 py-3 pr-12 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:pr-14" style={{ borderColor: theme.node.stroke }}>
                         <div className="min-w-0">
                             <h2 className="text-base font-semibold">风格中心</h2>
-                            <p className="mt-0.5 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>{contentType ? `只列「${projectContentType(contentType)?.label}」类型的画风` : "系统规范 · 个人风格 · 项目快照"}</p>
+                            <p className="mt-0.5 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>系统规范 · 个人风格 · 项目快照</p>
                         </div>
                         <div className="flex min-w-0 gap-2 sm:items-center">
                             <Input allowClear className="style-center-search min-w-0 flex-1" prefix={<Search className="size-3.5 text-foreground/35" />} value={query} placeholder="搜索风格、题材或媒介" onChange={(event) => setQuery(event.target.value)} />

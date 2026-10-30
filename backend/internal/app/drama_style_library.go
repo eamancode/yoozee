@@ -24,6 +24,8 @@ import (
 // 平台风格库条目的来源。
 const (
 	DramaStyleLibrarySourceAnalysis = "analysis"
+	// DramaStyleLibrarySourceDirector 是建项时交给导演分析、锁定后自动存入的（说明里写项目名）。
+	DramaStyleLibrarySourceDirector = "director"
 	DramaStyleLibrarySourceManual   = "manual"
 	DramaStyleLibrarySourceSeed     = "seed"
 	dramaStyleLibraryNameRunes      = 60
@@ -259,6 +261,51 @@ func (s *Service) SaveDramaStyleToLibrary(actor *model.User, req DramaStyleLibra
 	if err != nil {
 		return DramaStyleLibraryItem{}, err
 	}
+	return s.createDramaStyleLibraryEntry(actor, project, anchor, palette, projectType, name, description, DramaStyleLibrarySourceAnalysis)
+}
+
+// saveDirectorStyleToLibrary 把导演定画风锁定的风格存进平台风格库：名字取项目名（同类型重名时加「（2）」「（3）」……），
+// 说明写「来自导演分析 · 项目「X」」，来源 director。
+func (s *Service) saveDirectorStyleToLibrary(userID string, project *model.Project) (DramaStyleLibraryItem, error) {
+	actor, err := s.repo.User(userID)
+	if err != nil {
+		return DramaStyleLibraryItem{}, err
+	}
+	anchor, palette, record, locked := projectLockedStyle(project.BibleJSON)
+	if !locked {
+		return DramaStyleLibraryItem{}, BadAuthRequest("项目还没有锁定风格")
+	}
+	projectType := firstNonEmpty(record.ProjectType, project.VisualType)
+	if drama.ProjectTypeLabel(projectType) == "" {
+		return DramaStyleLibraryItem{}, BadAuthRequest("项目没有画面类型")
+	}
+	base := []rune(strings.Join(strings.Fields(project.Name), " "))
+	if len(base) > dramaStyleLibraryNameRunes-4 {
+		base = base[:dramaStyleLibraryNameRunes-4]
+	}
+	name := string(base)
+	for n := 2; ; n++ {
+		taken, err := s.repo.DramaStyleLibraryNameTaken(projectType, name, "")
+		if err != nil {
+			return DramaStyleLibraryItem{}, err
+		}
+		if !taken {
+			break
+		}
+		if n > 99 {
+			return DramaStyleLibraryItem{}, BadAuthRequest("风格库里同名的太多了")
+		}
+		name = fmt.Sprintf("%s（%d）", string(base), n)
+	}
+	description := fmt.Sprintf("来自导演分析 · 项目「%s」", string(base))
+	if utf8.RuneCountInString(description) > dramaStyleLibraryDescRunes {
+		description = string([]rune(description)[:dramaStyleLibraryDescRunes])
+	}
+	return s.createDramaStyleLibraryEntry(actor, project, anchor, palette, projectType, name, description, DramaStyleLibrarySourceDirector)
+}
+
+// createDramaStyleLibraryEntry 建一条风格库条目（封面另合成一张主色卡图，属于存入者），并把条目记进项目的锁定记录。
+func (s *Service) createDramaStyleLibraryEntry(actor *model.User, project *model.Project, anchor *drama.StyleAnchor, palette drama.MasterPalette, projectType string, name string, description string, source string) (DramaStyleLibraryItem, error) {
 	palette = drama.NormalizeMasterPalette(palette)
 	if err := drama.ValidateMasterPalette(palette); err != nil {
 		return DramaStyleLibraryItem{}, BadAuthRequest(err.Error())
@@ -272,7 +319,7 @@ func (s *Service) SaveDramaStyleToLibrary(actor *model.User, req DramaStyleLibra
 	now := time.Now()
 	row := model.DramaStyleLibraryEntry{
 		ID: newID(), ProjectType: projectType, Name: name, Description: description, StyleAnchorJSON: string(anchorJSON), MasterPaletteJSON: string(paletteJSON),
-		CoverResourceID: cover.ID, Source: DramaStyleLibrarySourceAnalysis, CreatedBy: actor.ID, UpdatedBy: actor.ID, CreatedAt: now, UpdatedAt: now,
+		CoverResourceID: cover.ID, Source: source, CreatedBy: actor.ID, UpdatedBy: actor.ID, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.repo.CreateDramaStyleLibraryEntry(&row); err != nil {
 		s.discardDramaStyleLibraryCover(cover.ID)

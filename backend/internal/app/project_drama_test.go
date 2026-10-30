@@ -33,7 +33,7 @@ func newDramaTestService(t *testing.T, generationModel string) (*Service, *gorm.
 		t.Fatal(err)
 	}
 	now := time.Now()
-	project := model.Project{ID: "project-drama", UserID: "user-1", Name: "夜班", Status: model.ProjectStatusActive, GenerationModel: generationModel, AuthMode: drama.AuthFull, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	project := model.Project{ID: "project-drama", UserID: "user-1", Name: "夜班", Status: model.ProjectStatusActive, GenerationModel: generationModel, RunMode: drama.RunUntilVideo, Revision: 1, CreatedAt: now, UpdatedAt: now}
 	unit := model.ProjectUnit{ID: "unit-1", ProjectID: project.ID, Kind: model.ProjectUnitKindChapter, Title: "第一章", Status: model.ProjectUnitStatusDraft, CreatedAt: now, UpdatedAt: now}
 	if err := db.Create(&project).Error; err != nil {
 		t.Fatal(err)
@@ -202,12 +202,12 @@ func TestPickRequiresEvidenceAndProgressFollowsIt(t *testing.T) {
 
 func TestBriefWriteSyncsProjectModelAndSegmentsUpsertByID(t *testing.T) {
 	service, _, project, unit := newDramaTestService(t, "seedance-2.0")
-	doc := json.RawMessage(`{"title":"夜班","video_model":"seedance-2.5","auth_mode":"step","purpose":{"value":"投放","status":"已确认"}}`)
+	doc := json.RawMessage(`{"title":"夜班","video_model":"seedance-2.5","run_mode":"every_step","purpose":{"value":"投放","status":"已确认"}}`)
 	brief, err := service.UpdateProjectBrief("user-1", project.ID, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if brief["video_model"] != "seedance-2.5" || brief["auth_mode"] != "step" {
+	if brief["video_model"] != "seedance-2.5" || brief["run_mode"] != "every_step" {
 		t.Fatalf("需求文档里的模型和档位应同步到项目: %+v", brief)
 	}
 	if _, err := service.UpdateProjectBrief("user-1", project.ID, json.RawMessage(`{"video_model":"kling"}`)); err == nil {

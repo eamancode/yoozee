@@ -2,7 +2,7 @@ import { apiBaseURL, compactApiParams, http } from "@/services/api/request";
 import type { DramaMasterPalette, DramaStyleAnchor, DramaStyleLockRecord } from "@/services/api/drama";
 import type { ProjectAsset } from "@/services/api/projects";
 
-/** 项目类型（与建项目的类型同值），平台风格库按它归档。 */
+/** 画面类型（与项目 visualType 同值），平台风格库按它归档。 */
 export type DramaProjectTypeOption = { value: string; label: string };
 
 /** 平台风格库的一条：风格锚 + 主基调色卡，按项目类型归档，团队共享；canEdit 是当前用户能不能改、删（管理员或创建者）。 */
@@ -17,7 +17,8 @@ export type DramaStyleLibraryItem = {
     colorCount: number;
     /** 主色卡图（相对 API 根）；用 dramaStyleLibraryCoverUrl 拼成完整地址。 */
     coverUrl?: string;
-    source: "analysis" | "manual" | "seed" | string;
+    /** director 是建项时交给导演分析、锁定后自动存入的（说明里写项目名）。 */
+    source: "director" | "analysis" | "manual" | "seed" | string;
     createdBy: string;
     createdByName: string;
     updatedBy: string;
@@ -27,6 +28,15 @@ export type DramaStyleLibraryItem = {
 };
 
 export type DramaStyleLibraryList = { items: DramaStyleLibraryItem[]; projectTypes: DramaProjectTypeOption[] };
+
+/** 风格中心排序：来自导演分析的、本人存的排在前面，其余按原顺序（后端按更新时间）。 */
+export function sortDramaStyleLibrary(items: DramaStyleLibraryItem[], userId?: string) {
+    const rank = (item: DramaStyleLibraryItem) => (item.source === "director" || (userId && item.createdBy === userId) ? 0 : 1);
+    return items
+        .map((item, index) => ({ item, index }))
+        .sort((left, right) => rank(left.item) - rank(right.item) || left.index - right.index)
+        .map(({ item }) => item);
+}
 
 export function dramaStyleLibraryKey(projectType?: string) {
     return ["drama-style-library", projectType || "all"] as const;

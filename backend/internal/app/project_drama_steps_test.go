@@ -108,10 +108,7 @@ func seedChapterShotsProject(t *testing.T, svc *Service, db *gorm.DB, dir string
 	if err := json.Unmarshal([]byte(readTestdataIn(t, dir, "seed.json")), &seed); err != nil {
 		t.Fatal(err)
 	}
-	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: seed.Project.Name, SourceType: "text", StylePresetID: seed.Project.StylePresetID, StyleProfileJSON: seed.Project.StyleProfileJSON, GenerationModel: "seedance-2.5"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	project := newTestProject(t, svc, db, "user-1", CreateProjectRequest{Name: seed.Project.Name, GenerationModel: "seedance-2.5"}, "text", seed.Project.StylePresetID, seed.Project.StyleProfileJSON)
 	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("brief_json", seed.Project.BriefJSON).Error; err != nil {
 		t.Fatal(err)
 	}

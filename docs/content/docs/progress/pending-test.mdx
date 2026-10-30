@@ -5,6 +5,30 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 建项目改版：一页四段 + 生成模式停靠点
+
+改了什么（接口见 `backend/http-api.mdx`「建项目」「流水线与停靠点」，表见 `backend/backend-database.mdx` 版本 71，设计见 `yoozee-skills/DESIGN-建项目改版.md`）：
+
+- 首页只留一个作曲区，删掉启动条（9 个故事设置下拉）和「创建短剧项目」弹窗；开始输入或拖入文件后原地展开四段，底部摘要栏 + 唯一主按钮「开始制作」（Ctrl/⌘+Enter）。识别创意 / 剧本 / 小说是 `web/src/lib/project-source.ts` 的纯函数（`bun test test/project-source.test.ts`）；导入弹窗三步，切分与章节页导入同一套 `splitTextIntoChapters`。草稿按账号 scope 存 localforage。
+- `POST /projects` 改成 `sourceAs + source + ideaPlan + visualType + style + aspectRatio + segmentSeconds + generationModel + runMode`；`authMode` 删掉，迁移 71 把 `step` → `every_step`、`full` → `until_video`；校验按段给 reason。
+- 停靠点由服务端执行：`drama.ShouldAutoContinue(runMode, next)`，链式触发点（剧本 → 导演定画风 / 场次色卡、导演定画风 → 场次色卡、场次色卡 → 提取资产、资产齐了 → 按集生成分镜）都问它；出视频在任何模式下都不自动建任务（`TestShouldAutoContinueNeverStartsVideo`、`TestContinueAfterAssetsStartsShotsOnlyWhenReady`）。新补的接续：交给导演分析时拆完剧本接导演定画风（按剧本节选定、收尾直接锁定并存进风格库）、资产都出好图后按集依次生成分镜。分镜和装段是同一个步骤（装段在生成分镜收尾里由代码完成），所以「每步都问我」「资产我要过目」在分镜前停，不在装段前单独停。
+- 项目概览首屏是流水线，写明「停在哪、等你做什么」，「继续」= `POST /projects/:id/drama/pipeline/next`；概览和项目设置都能切生成模式。项目设置删掉「授权档位」「项目画风」，画幅、画面类型、内容来源改成只读。
+- [x] `cd backend && go test ./internal/drama/ ./internal/database/` 通过；`./internal/app/` 跑了建项、流水线、剧本优化、风格锁定、场次色卡、资产、分镜相关用例（`-run 'Drama|Project|Style|Pipeline|Assets|Scene|Palette|Shot|Section|Chapter|Script|Adapt|Previz|Episode|Finalize|Variant|Regenre|Eval|Image'`）通过。
+- [x] `cd web && bun run build`、`bun run lint` 通过；`bun test test/project-source.test.ts test/project-create-sections.test.tsx test/drama-model.test.ts test/drama-panels.test.tsx test/drama-documents.test.ts` 通过。
+- [ ] 浏览器（明暗主题）：首页只有一个作曲区；粘贴「第1场 / △ / 林小满：」格式的文本，出现「识别为 剧本 · 1 集 · N 字」和第 2～4 段；粘贴「一个失忆的快递员每天收到十年前的信」识别为创意，多出「生成 5 集，每集约 1 分钟」；点「改」能换类型；项目名铅笔单击可改；「先建一个空项目」能展开四段。
+- [ ] 不选画面类型按 Ctrl+Enter：滚到第 2 段并显示「先选画面类型」，网络面板没有 `POST /projects`。
+- [ ] 画面类型卡片用方向键切换（Tab 只进一张，焦点环可见）；先挑风格中心里仿真人的风格再改成 2D 动漫：风格清空并提示「风格『X』只适用于仿真人，已清空」，点「撤销」恢复类型和风格。
+- [ ] 导入文件：拖一个 TXT 到页面任意位置打开弹窗 → 预览前三章 / 三集和总字数 → 选小说 / 剧本、按标题切或整篇一章 → 作曲区出现文件卡（文件名、字数、替换、移除）；先粘贴再导入时提示「已替换刚才粘贴的内容」；导入的切分和章节页「导入小说 / 导入剧本」一致。
+- [ ] 每段时长选 30 秒、模型是 Seedance 2.0：原地提示「Seedance 2.0 最长 15 秒，换成 Seedance 2.5？[换]」，不点就不换；不换直接开始制作，第 4 段报错、不发请求。
+- [ ] 账号没有视频渠道：第 4 段顶部有「还没有视频渠道，可以先建项目，出视频前要配好」，照样能建项。
+- [ ] 刷新页面草稿还在、标「草稿已保存在本机」（IndexedDB 的 `app_state` 里键带 `:user:<账号>`，localStorage 里没有）；换账号看不到别人的草稿；建项成功后草稿清掉。
+- [ ] 仿真人 + 交给导演分析 + 什么都不填 + 默认配置建一个剧本项目：进项目后流水线依次自动跑过拆剧本（导入剧本时剧集已在，直接跳过这一格）、导演定画风、场次色卡、资产提取与出图、分镜、装段，停在「出视频」，显示「停在出视频：等你确认花费」；任务中心里没有任何视频任务；风格中心多一条「来自导演分析」、名字是项目名。小说项目同样，从拆剧本开始。
+- [ ] 同样的输入选「资产我要过目」：跑完场次色卡后停在资产，写明是生成模式停的；点「继续」才提取（各集依次），提取和出图完了停在分镜，再点继续按集生成分镜。
+- [ ] 选风格中心里的风格建项：不跑风格分析（任务中心没有 style.lock），场次色卡照常生成。
+- [ ] `curl -X POST /api/projects` 不带 `visualType`：400、`reason=project_visual_type_required`；带 `"authMode":"step"`：没有效果（生成模式仍是 `until_video`）。
+- [ ] 切生成模式：停在资产时把「资产我要过目」切成「跑到出视频前」，资产不会自动开始提取（不追补），点继续后才往下，之后各步自动接。
+- [ ] 页面上找不到「授权档位」「全权」「每步确认」「未校准」「选中即锁定」「项目画风」（画布里的「项目画风」节点是画布功能，不在这次范围）。
+
 ## 生成分段整章超过 200 镜收尾失败
 
 - 已修复：按小节生成一章镜头数多（文戏 15 一节 4～6 镜），整章收尾时「分镜行数量必须在 1 到 200 之间」把已写完的各节全部丢掉。一章镜头上限改为 2000（也是一章段数上限，依据：最密的武戏一秒一镜，2000 镜约合 33 分钟一章）；分镜卡一次最多改 200 个镜头不变；Agent 整章写入另限分镜行合计 32 MB。建任务前按各节估时预估超上限的直接拒绝、不调模型；整章段的版本和参考分批插入（2000 段一条 INSERT 会超过数据库绑定参数上限）。

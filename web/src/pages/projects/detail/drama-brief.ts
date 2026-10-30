@@ -23,13 +23,13 @@ export function briefEpisodeSeconds(document: Record<string, unknown> | undefine
 }
 
 /**
- * 写回每集时长；空值去掉这一项。生成模型和授权档位以项目字段为准，不随需求文档写回：
- * 读到的 video_model / auth_mode 可能比刚保存的项目设置旧，带着写回会把项目字段改回去。
+ * 写回每集时长；空值去掉这一项。生成模型和生成模式以项目字段为准，不随需求文档写回：
+ * 读到的 video_model / run_mode 可能比刚保存的项目设置旧，带着写回会把项目字段改回去。
  */
 export function withEpisodeSeconds(document: Record<string, unknown>, seconds: number | null | undefined) {
     const next: Record<string, unknown> = { ...document };
     delete next.video_model;
-    delete next.auth_mode;
+    delete next.run_mode;
     if (seconds && seconds > 0) next.episode_seconds = Math.round(seconds);
     else delete next.episode_seconds;
     return next;
@@ -60,7 +60,7 @@ export function withSegmentSeconds(document: Record<string, unknown>, seconds: n
     return next;
 }
 
-/** 视频前的预演闸门（brief_json.previz_gate）；没写或不认识的按 auto（跟授权档位）。 */
+/** 视频前的预演闸门（brief_json.previz_gate）；没写或不认识的按 auto（跟生成模式）。 */
 export function briefPrevizGate(document: Record<string, unknown> | undefined): DramaPrevizGate {
     const value = document?.previz_gate;
     return value === "on" || value === "off" ? value : "auto";
@@ -74,9 +74,9 @@ export function withPrevizGate(document: Record<string, unknown>, gate: DramaPre
     return next;
 }
 
-/** 预演闸门的选项：auto 跟授权档位。 */
+/** 预演闸门的选项：auto 跟生成模式。 */
 export const PREVIZ_GATE_OPTIONS: Array<{ value: DramaPrevizGate; label: string }> = [
-    { value: "auto", label: "跟授权档位（每步确认时开）" },
+    { value: "auto", label: "跟生成模式（跑到出视频前时关，另两档开）" },
     { value: "on", label: "开：先选中黑白预演再生成视频" },
     { value: "off", label: "关：直接生成视频" },
 ];

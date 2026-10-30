@@ -7,15 +7,17 @@ import {
     dramaScenePaletteOutcomeOf,
     dramaStyleLockOutcomeOf,
     changeDramaSectionGenre,
+    continueDramaPipeline,
     runDramaProjectStep,
     runDramaStep,
     type DramaImageTaskTemplate,
     type DramaScriptAdaptMode,
 } from "@/services/api/drama";
 import { announceCreatedGenerationTask, queryGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
+import { configuredModelMatchesCapability, logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
 
 import { SHOT_TURN_MARKER } from "./chapter-shot-stream";
+import { assetImageTaskTemplate } from "./drama-image-task";
 
 type ChapterTaskOptions = {
     onTaskUpdate?: (task: GenerationTask) => void;
@@ -184,25 +186,23 @@ export function isStyleLockTask(task: GenerationTask) {
     return task.clientContext?.chapterOperation === "style-lock" || generationTaskMetadata(task.inputJson).source === STYLE_LOCK_TASK_SOURCE;
 }
 
-/** 风格锁定的输入：项目类型、风格文字、参考图资源 ID；lockOnFinish 是建项目时只选了画风，收尾直接锁定。 */
+/** 风格锁定的输入：风格文字、参考图资源 ID（画面类型取项目的）；lockOnFinish 是收尾直接锁定。 */
 export type StyleLockRunInput = {
     projectId: string;
     config: AiConfig;
-    projectType: string;
     styleText?: string;
     referenceImages?: string[];
     lockOnFinish?: boolean;
 };
 
-/** 起风格锁定任务（不等它跑完）：建项目后立刻起，章节页的侧栏接上它的流。 */
-export async function startStyleLock(input: StyleLockRunInput) {
+/** 起风格锁定任务（不等它跑完），章节页的侧栏接上它的流。 */
+async function startStyleLock(input: StyleLockRunInput) {
     const model = input.config.textModel || input.config.model;
     const config = { ...input.config, model };
     const { task, usage } = await runDramaProjectStep(input.projectId, "style.lock", {
         model,
         ...(logicalModelIDForConfig(config) ? { logicalModelId: logicalModelIDForConfig(config) } : {}),
         config: backendProviderConfig(config, "text") as Record<string, unknown>,
-        projectType: input.projectType,
         ...(input.styleText?.trim() ? { styleText: input.styleText.trim() } : {}),
         ...(input.referenceImages?.length ? { referenceImages: input.referenceImages } : {}),
         ...(input.lockOnFinish ? { lockOnFinish: true } : {}),
@@ -212,7 +212,7 @@ export async function startStyleLock(input: StyleLockRunInput) {
 }
 
 /**
- * 风格锁定（流程步骤 style.lock，项目级）：一个任务一轮，服务端按项目类型、风格文字、参考图（随任务以图片发给文本模型）和画风写风格锚
+ * 风格锁定（流程步骤 style.lock，项目级）：一个任务一轮，服务端按项目的画面类型、风格文字、参考图（随任务以图片发给文本模型）和剧本写风格锚
  * 和主基调色卡；收尾只出候选，用户点「锁定此风格」才写进项目。页面只订阅任务文本流。
  */
 export async function runStyleLock(input: StyleLockRunInput, options?: ChapterTaskOptions) {
@@ -236,8 +236,7 @@ type ScenePaletteInput = {
     /** 要做色卡的剧集（不给时全部；项目还没有剧集时是原文章节）。 */
     sourceUnitIds?: string[];
     resumeTaskId?: string;
-    /** 写完后按集依次接着提取资产（默认接）；assetImageTask 给了时提取后给新资产出图。 */
-    chainAssets?: boolean;
+    /** 之后提取资产时给新资产出图的模板；写完要不要接着提取按项目的生成模式。 */
     assetImageTask?: DramaImageTaskTemplate;
 };
 
@@ -254,8 +253,7 @@ export async function runScenePalette(input: ScenePaletteInput, options?: Chapte
         config: backendProviderConfig(config, "text") as Record<string, unknown>,
         ...(input.sourceUnitIds?.length ? { sourceUnitIds: input.sourceUnitIds } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
-        chainAssets: input.chainAssets !== false,
-        ...(input.chainAssets !== false && input.assetImageTask ? { assetImageTask: input.assetImageTask } : {}),
+        ...(input.assetImageTask ? { assetImageTask: input.assetImageTask } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);
@@ -295,4 +293,32 @@ function generationTaskMetadata(inputJson?: string): Record<string, unknown> {
     } catch {
         return {};
     }
+}
+
+/**
+ * 流水线「继续」（建项后首屏、概览）：从停下的环节开始做，之后由服务端按生成模式接续，出视频不接。文本模型用当前设置；
+ * 配好了图片模型（项目默认优先）时带上资产出图模板，提取完自动给新资产出图。
+ */
+export async function continueProjectPipeline(projectId: string, config: AiConfig, defaultImageModel?: string) {
+    const model = config.textModel || config.model;
+    if (!model) throw new Error("先在设置里配一个文本模型，再继续");
+    const textConfig = { ...config, model };
+    const imageModel = [defaultImageModel, config.imageModel].find((value) => value && configuredModelMatchesCapability(config, value, "image"));
+    let imageTask: DramaImageTaskTemplate | undefined;
+    if (imageModel) {
+        try {
+            imageTask = await assetImageTaskTemplate({ ...config, model: imageModel }, imageModel);
+        } catch {
+            // 出图模板组不出来时只提取不出图，流水线停在资产并写明原因，配好图片模型再点继续。
+            imageTask = undefined;
+        }
+    }
+    const result = await continueDramaPipeline(projectId, {
+        model,
+        ...(logicalModelIDForConfig(textConfig) ? { logicalModelId: logicalModelIDForConfig(textConfig) } : {}),
+        config: backendProviderConfig(textConfig, "text") as Record<string, unknown>,
+        ...(imageTask ? { imageTask } : {}),
+    });
+    if (result.task) announceCreatedGenerationTask(result.task);
+    return result;
 }
