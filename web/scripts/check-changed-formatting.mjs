@@ -25,19 +25,34 @@ export async function checkChangedFormatting({ cwd = process.cwd(), baseSha = pr
             log(`Base SHA ${baseSha} is unavailable; checking against the head parent instead.`);
         }
     }
-    const files = (base ? git(["diff", "--relative", "--name-only", "--diff-filter=ACMR", "-z", base, head, "--", "."]) : git(["ls-tree", "-r", "--name-only", "-z", head, "--", "."]))
-        .split("\0")
-        .filter((file) => /\.(css|html|json|js|jsx|md|mdx|mjs|cjs|ts|tsx|yaml|yml)$/.test(file));
+    // 改名的文件按原路径判断是否历史未格式化，单纯挪目录不强制整文件重排。
+    const changes = [];
+    if (base) {
+        const tokens = git(["diff", "--relative", "--name-status", "--find-renames", "--diff-filter=ACMR", "-z", base, head, "--", "."]).split("\0");
+        for (let index = 0; index < tokens.length - 1;) {
+            const status = tokens[index];
+            if (status.startsWith("R")) {
+                changes.push({ file: tokens[index + 2], previousFile: tokens[index + 1] });
+                index += 3;
+            } else {
+                changes.push({ file: tokens[index + 1], previousFile: tokens[index + 1] });
+                index += 2;
+            }
+        }
+    } else {
+        for (const file of git(["ls-tree", "-r", "--name-only", "-z", head, "--", "."]).split("\0")) changes.push({ file, previousFile: file });
+    }
+    const files = changes.filter(({ file }) => /\.(css|html|json|js|jsx|md|mdx|mjs|cjs|ts|tsx|yaml|yml)$/.test(file));
     const prefix = git(["rev-parse", "--show-prefix"]).trim();
     const previousFiles = new Set(base ? git(["ls-tree", "-r", "--name-only", "-z", base, "--", "."]).split("\0") : []);
     const failures = [];
-    for (const file of files) {
+    for (const { file, previousFile } of files) {
         const filepath = path.join(cwd, file);
         const info = await prettier.getFileInfo(filepath, { ignorePath: path.join(cwd, ".prettierignore") });
         if (info.ignored) continue;
         const options = { ...(await prettier.resolveConfig(filepath)), filepath };
         // 只允许明确的历史格式问题跳过；语法、Git、文件读取错误全部向上抛出。
-        const previous = previousFiles.has(file) ? git(["show", `${base}:${prefix}${file}`]) : null;
+        const previous = previousFiles.has(previousFile) ? git(["show", `${base}:${prefix}${previousFile}`]) : null;
         if (previous !== null && !(await prettier.check(previous, options))) {
             log(`Skipping legacy unformatted file: ${file}`);
             continue;

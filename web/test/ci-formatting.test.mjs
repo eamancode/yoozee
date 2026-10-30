@@ -53,6 +53,17 @@ describe("changed-file formatting gate", () => {
         expect(repo.messages).toContain("Skipping legacy unformatted file: legacy.ts");
     });
 
+    test("renamed legacy files are judged by their previous path", async () => {
+        const repo = fixture({ "legacy.ts": "export const legacyValue=1;\n", "formatted.ts": "export const formattedValue = 2;\n" });
+        mkdirSync(path.join(repo.cwd, "moved"));
+        repo.git("mv", "web/legacy.ts", "web/moved/legacy.ts");
+        repo.git("mv", "web/formatted.ts", "web/moved/formatted.ts");
+        repo.write("moved/formatted.ts", "export const formattedValue=2;\n");
+        repo.commit();
+        await expect(repo.check()).rejects.toThrow("moved/formatted.ts");
+        expect(repo.messages).toContain("Skipping legacy unformatted file: moved/legacy.ts");
+    });
+
     test("checks added files and respects prettierignore", async () => {
         const repo = fixture();
         repo.write("ignored.js", "const invalid = ;");
