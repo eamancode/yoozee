@@ -145,7 +145,6 @@ export default function ProjectsPage() {
                     }
                 />
             ) : null}
-
         </WorkspacePage>
     );
 }

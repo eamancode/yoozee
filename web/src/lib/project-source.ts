@@ -81,14 +81,21 @@ export function sourceDetectionLabel(detection: Pick<ProjectSourceDetection, "ki
 /** 正文的纯文本转成章节编辑器的 HTML（空行分段、单换行是 <br>）；章节页导入和建项导入共用。 */
 export function plainTextToHtml(value: string) {
     const escaped = value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return escaped.split(/\n{2,}/).map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br>")}</p>`).join("");
+    return escaped
+        .split(/\n{2,}/)
+        .map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br>")}</p>`)
+        .join("");
 }
 
 /** 自动生成的项目名：文件名去掉扩展名、剧本标题（第一行短标题）或首句，最多 24 字。 */
 export function suggestProjectName(text: string, fileName?: string) {
     const fromFile = fileName?.replace(/\.[^.]+$/, "").trim();
     if (fromFile) return fromFile.slice(0, 24);
-    const lines = text.replace(/\r\n?/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean);
+    const lines = text
+        .replace(/\r\n?/g, "\n")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
     const first = lines[0] || "";
     const title = first.match(/^[《【「]?([^》】」]{1,24})[》】」]?$/);
     if (title && first.length <= 26 && !DIALOGUE_LINE.test(first) && !SCENE_HEADING.test(first)) return title[1].trim();

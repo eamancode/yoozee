@@ -288,7 +288,9 @@
     font: inherit;
     text-align: left;
     cursor: pointer;
-    transition: border-color var(--motion-dur-fast, 120ms) var(--motion-ease-out, ease-out), background-color var(--motion-dur-fast, 120ms) var(--motion-ease-out, ease-out);
+    transition:
+        border-color var(--motion-dur-fast, 120ms) var(--motion-ease-out, ease-out),
+        background-color var(--motion-dur-fast, 120ms) var(--motion-ease-out, ease-out);
 }
 
 .project-choice:hover,

@@ -105,7 +105,9 @@ describe("概览：模型与档位标签", () => {
     });
 
     test("生成模式与超长段数如实标出，未校准不进主标签", () => {
-        const html = render(<DramaModelChips progress={progress({ runMode: "until_video", model: { ...model, calibrated: false }, counts: { segments: 3, script: 3, refs: 0, generated: 0, takes: 0, reviewed: 0, inCut: 0, accepted: 0, overLimit: 2 } })} />);
+        const html = render(
+            <DramaModelChips progress={progress({ runMode: "until_video", model: { ...model, calibrated: false }, counts: { segments: 3, script: 3, refs: 0, generated: 0, takes: 0, reviewed: 0, inCut: 0, accepted: 0, overLimit: 2 } })} />,
+        );
         expect(html).toContain("跑到出视频前");
         expect(html).not.toContain("未校准");
         expect(html).toContain("2 段超长");

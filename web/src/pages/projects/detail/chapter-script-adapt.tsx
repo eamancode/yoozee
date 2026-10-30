@@ -402,7 +402,9 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                                 aria-label="接着提取资产后给新资产出图"
                             />
                         </label>
-                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">写完剧集后要不要接着做下一步（导演定画风、场次色卡、按集提取资产）看项目的生成模式；开着时每集提取完直接给新资产出图（角色三视图，场景、道具概念图），不用再到资产页点「继续出图」。</p>
+                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">
+                            写完剧集后要不要接着做下一步（导演定画风、场次色卡、按集提取资产）看项目的生成模式；开着时每集提取完直接给新资产出图（角色三视图，场景、道具概念图），不用再到资产页点「继续出图」。
+                        </p>
                         {settings.images ? (
                             <ModelPicker
                                 config={effectiveConfig}

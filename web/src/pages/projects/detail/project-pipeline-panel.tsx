@@ -86,7 +86,9 @@ export function ProjectPipelinePanel({ project, firstUnitId, onProjectChange }: 
             <div className="project-pipeline-panel-head">
                 <div className="min-w-0">
                     <h2>制作流水线</h2>
-                    {query.isError ? <p>流水线读取失败：{query.error instanceof Error ? query.error.message : "请稍后重试"}</p> : stop ? (
+                    {query.isError ? (
+                        <p>流水线读取失败：{query.error instanceof Error ? query.error.message : "请稍后重试"}</p>
+                    ) : stop ? (
                         <p className="project-pipeline-panel-stop" role="status">
                             停在{stop.label}：{stop.reason}
                         </p>

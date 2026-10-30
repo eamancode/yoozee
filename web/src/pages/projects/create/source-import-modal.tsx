@@ -112,7 +112,11 @@ export function SourceImportModal({ open, initialFile, onClose, onConfirm }: { o
                             <p>把小说或剧本的 TXT 文件拖到这里</p>
                             <Button onClick={() => inputRef.current?.click()}>选择文件</Button>
                             <span className="project-import-hint">支持 TXT、Markdown；自动识别 UTF-8 和 GBK 编码</span>
-                            {error ? <p className="project-import-error" role="alert">{error}</p> : null}
+                            {error ? (
+                                <p className="project-import-error" role="alert">
+                                    {error}
+                                </p>
+                            ) : null}
                             <input
                                 ref={inputRef}
                                 type="file"
@@ -142,7 +146,11 @@ export function SourceImportModal({ open, initialFile, onClose, onConfirm }: { o
                                     </li>
                                 ))}
                             </ol>
-                            {splitUnits.length > 3 ? <p className="project-import-hint">只预览前三{noun}，后面还有 {splitUnits.length - 3} {noun}</p> : null}
+                            {splitUnits.length > 3 ? (
+                                <p className="project-import-hint">
+                                    只预览前三{noun}，后面还有 {splitUnits.length - 3} {noun}
+                                </p>
+                            ) : null}
                         </div>
                     ) : null}
                     {step === "confirm" ? (
@@ -163,7 +171,9 @@ export function SourceImportModal({ open, initialFile, onClose, onConfirm }: { o
                                 <div role="radiogroup" aria-label="切分方式" className="project-choice-row">
                                     <button type="button" role="radio" aria-checked={split} className={`project-choice${split ? " is-selected" : ""}`} onClick={() => setSplit(true)}>
                                         <strong>按「第 N {noun}」标题切</strong>
-                                        <span>切成 {importedUnits(text, kind, true).length} {noun}</span>
+                                        <span>
+                                            切成 {importedUnits(text, kind, true).length} {noun}
+                                        </span>
                                     </button>
                                     <button type="button" role="radio" aria-checked={!split} className={`project-choice${!split ? " is-selected" : ""}`} onClick={() => setSplit(false)}>
                                         <strong>整篇算一{noun}</strong>
@@ -171,7 +181,11 @@ export function SourceImportModal({ open, initialFile, onClose, onConfirm }: { o
                                     </button>
                                 </div>
                             </fieldset>
-                            {tooMany ? <p className="project-import-error" role="alert">最多一次导入 {MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} {noun}</p> : null}
+                            {tooMany ? (
+                                <p className="project-import-error" role="alert">
+                                    最多一次导入 {MAX_NOVEL_IMPORT_CHAPTERS.toLocaleString("zh-CN")} {noun}
+                                </p>
+                            ) : null}
                         </div>
                     ) : null}
                 </div>

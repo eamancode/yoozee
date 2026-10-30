@@ -106,7 +106,14 @@ export function ProjectComposer() {
         }
         return map;
     }, [libraryQuery.data]);
-    const typeItems = useMemo(() => sortDramaStyleLibrary((libraryQuery.data?.items || []).filter((item) => item.projectType === draft.visualType), userId), [draft.visualType, libraryQuery.data, userId]);
+    const typeItems = useMemo(
+        () =>
+            sortDramaStyleLibrary(
+                (libraryQuery.data?.items || []).filter((item) => item.projectType === draft.visualType),
+                userId,
+            ),
+        [draft.visualType, libraryQuery.data, userId],
+    );
     const selectedStyle = (libraryQuery.data?.items || []).find((item) => item.id === draft.styleId);
 
     const dramaModels = useDramaModels();
@@ -383,7 +390,14 @@ export function ProjectComposer() {
                         {kind === "idea" && draft.text.trim() ? (
                             <div className="project-create-idea">
                                 生成
-                                <Select size="small" className="w-20" value={draft.ideaEpisodes} onChange={(value: number) => update({ ideaEpisodes: value })} options={IDEA_EPISODES.map((value) => ({ value, label: String(value) }))} aria-label="生成几集" />
+                                <Select
+                                    size="small"
+                                    className="w-20"
+                                    value={draft.ideaEpisodes}
+                                    onChange={(value: number) => update({ ideaEpisodes: value })}
+                                    options={IDEA_EPISODES.map((value) => ({ value, label: String(value) }))}
+                                    aria-label="生成几集"
+                                />
                                 集，每集约
                                 <Select size="small" className="w-24" value={draft.ideaEpisodeSeconds} onChange={(value: number) => update({ ideaEpisodeSeconds: value })} options={IDEA_SECONDS} aria-label="每集时长" />
                             </div>

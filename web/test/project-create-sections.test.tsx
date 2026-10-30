@@ -24,11 +24,39 @@ function render(node: ReactElement) {
 }
 
 function model(id: string, max: number): DramaModel {
-    return { id, label: id, vendor: "", kind: "video", match: [], duration: { min: 4, max, step: 1 }, refs: { images: 9, videos: 3, audios: 3, total: null }, frames_exclusive_with_refs: null, prompt_max_chars: null, resolutions: [], calibrated: false, checked: "" };
+    return {
+        id,
+        label: id,
+        vendor: "",
+        kind: "video",
+        match: [],
+        duration: { min: 4, max, step: 1 },
+        refs: { images: 9, videos: 3, audios: 3, total: null },
+        frames_exclusive_with_refs: null,
+        prompt_max_chars: null,
+        resolutions: [],
+        calibrated: false,
+        checked: "",
+    };
 }
 
 function libraryItem(patch: Partial<DramaStyleLibraryItem> & { id: string }): DramaStyleLibraryItem {
-    return { projectType: "live_action", projectTypeLabel: "仿真人", name: patch.id, description: "", masterPalette: { groups: [] }, colorCount: 0, source: "manual", createdBy: "someone", createdByName: "", updatedBy: "", createdAt: "", updatedAt: "", canEdit: false, ...patch };
+    return {
+        projectType: "live_action",
+        projectTypeLabel: "仿真人",
+        name: patch.id,
+        description: "",
+        masterPalette: { groups: [] },
+        colorCount: 0,
+        source: "manual",
+        createdBy: "someone",
+        createdByName: "",
+        updatedBy: "",
+        createdAt: "",
+        updatedAt: "",
+        canEdit: false,
+        ...patch,
+    };
 }
 
 const noop = () => {};
@@ -84,7 +112,21 @@ describe("段 4 · 怎么做", () => {
     const models = [model("seedance-2.0", 15), model("seedance-2.5", 30)];
 
     test("没有视频渠道也能建项，顶部有提醒；生成模式三档，出视频必停", () => {
-        const html = render(<ProductionSection aspectRatio="9:16" segmentSeconds={15} models={models} recommendedModel="seedance-2.0" model={models[0]} families={new Set()} runMode="until_video" onAspectRatio={noop} onSegmentSeconds={noop} onModel={noop} onRunMode={noop} />);
+        const html = render(
+            <ProductionSection
+                aspectRatio="9:16"
+                segmentSeconds={15}
+                models={models}
+                recommendedModel="seedance-2.0"
+                model={models[0]}
+                families={new Set()}
+                runMode="until_video"
+                onAspectRatio={noop}
+                onSegmentSeconds={noop}
+                onModel={noop}
+                onRunMode={noop}
+            />,
+        );
         expect(html).toContain("还没有视频渠道，可以先建项目，出视频前要配好");
         expect(html).toContain("建项后不可改");
         for (const label of ["跑到出视频前", "资产我要过目", "每步都问我"]) expect(html).toContain(label);
@@ -95,7 +137,21 @@ describe("段 4 · 怎么做", () => {
     });
 
     test("30 秒配一段最长 15 秒的模型：原地提示换成哪个，不悄悄换", () => {
-        const html = render(<ProductionSection aspectRatio="9:16" segmentSeconds={30} models={models} recommendedModel="seedance-2.0" model={models[0]} families={new Set(["seedance-2.0", "seedance-2.5"])} runMode="until_video" onAspectRatio={noop} onSegmentSeconds={noop} onModel={noop} onRunMode={noop} />);
+        const html = render(
+            <ProductionSection
+                aspectRatio="9:16"
+                segmentSeconds={30}
+                models={models}
+                recommendedModel="seedance-2.0"
+                model={models[0]}
+                families={new Set(["seedance-2.0", "seedance-2.5"])}
+                runMode="until_video"
+                onAspectRatio={noop}
+                onSegmentSeconds={noop}
+                onModel={noop}
+                onRunMode={noop}
+            />,
+        );
         expect(html).toContain("seedance-2.0 最长 15 秒");
         expect(html).toContain("换成 seedance-2.5？");
         expect(html).toMatch(/aria-checked="true"[^>]*>[\s\S]*?seedance-2\.0/);

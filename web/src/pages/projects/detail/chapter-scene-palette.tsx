@@ -374,8 +374,11 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                         />
                     </label>
                     <div className="grid gap-2 rounded-lg border border-border/70 px-3 py-2.5">
-                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">写完后要不要按集依次提取资产（角色、场景、道具）看项目的生成模式「{dramaRunModeLabel(detail.project.runMode)}」。资产按色卡约束：角色用主基调色卡，道具用主基调色卡或所在场的本场色卡，场景用本场色卡和主基调色卡；角色换装或换状态时自动拆子卡。一集提完再提下一集。</p>
-                        {(
+                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">
+                            写完后要不要按集依次提取资产（角色、场景、道具）看项目的生成模式「{dramaRunModeLabel(detail.project.runMode)}
+                            」。资产按色卡约束：角色用主基调色卡，道具用主基调色卡或所在场的本场色卡，场景用本场色卡和主基调色卡；角色换装或换状态时自动拆子卡。一集提完再提下一集。
+                        </p>
+                        {
                             <>
                                 <label className="flex items-center justify-between gap-3 text-xs">
                                     <span className="font-medium text-foreground/68">提取后给新资产出图（带色卡图作参考）</span>
@@ -405,7 +408,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                                     />
                                 ) : null}
                             </>
-                        )}
+                        }
                     </div>
                     {precheckError ? (
                         <Callout tone="error" title="还没开始：资产出图准备没通过">

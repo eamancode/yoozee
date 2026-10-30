@@ -32,7 +32,10 @@ export type DramaStyleLibraryList = { items: DramaStyleLibraryItem[]; projectTyp
 /** 风格中心排序：来自导演分析的、本人存的排在前面，其余按原顺序（后端按更新时间）。 */
 export function sortDramaStyleLibrary(items: DramaStyleLibraryItem[], userId?: string) {
     const rank = (item: DramaStyleLibraryItem) => (item.source === "director" || (userId && item.createdBy === userId) ? 0 : 1);
-    return items.map((item, index) => ({ item, index })).sort((left, right) => rank(left.item) - rank(right.item) || left.index - right.index).map(({ item }) => item);
+    return items
+        .map((item, index) => ({ item, index }))
+        .sort((left, right) => rank(left.item) - rank(right.item) || left.index - right.index)
+        .map(({ item }) => item);
 }
 
 export function dramaStyleLibraryKey(projectType?: string) {

@@ -42,10 +42,29 @@ export function ComposerSectionShell({ id, index, title, hint, required, error, 
 /**
  * 单选卡片组（role=radiogroup）：方向键在选项间移动并选中，只有选中的那个（没选时第一个）能用 Tab 进来。
  */
-export function ChoiceGroup<T extends string>({ label, value, options, onChange, className = "", optionClassName = "", render }: { label: string; value?: T; options: ReadonlyArray<{ value: T; disabled?: boolean }>; onChange: (value: T) => void; className?: string; optionClassName?: string; render: (value: T, selected: boolean) => ReactNode }) {
+export function ChoiceGroup<T extends string>({
+    label,
+    value,
+    options,
+    onChange,
+    className = "",
+    optionClassName = "",
+    render,
+}: {
+    label: string;
+    value?: T;
+    options: ReadonlyArray<{ value: T; disabled?: boolean }>;
+    onChange: (value: T) => void;
+    className?: string;
+    optionClassName?: string;
+    render: (value: T, selected: boolean) => ReactNode;
+}) {
     const refs = useRef<Array<HTMLButtonElement | null>>([]);
     const enabled = options.filter((option) => !option.disabled);
-    const focusIndex = Math.max(0, options.findIndex((option) => option.value === value));
+    const focusIndex = Math.max(
+        0,
+        options.findIndex((option) => option.value === value),
+    );
     const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
         const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
         if (!step || !enabled.length) return;
@@ -160,7 +179,14 @@ export function StyleSourceSection(props: {
             />
             {mode === "director" ? (
                 <div className="project-create-style-director">
-                    <Input.TextArea value={brief} onChange={(event) => onBrief(event.target.value)} autoSize={{ minRows: 2, maxRows: 5 }} maxLength={STYLE_LOCK_TEXT_CHARS} placeholder="一句风格描述（可不填），例如：都市冷调悬疑，低饱和、实景光源" aria-label="风格描述" />
+                    <Input.TextArea
+                        value={brief}
+                        onChange={(event) => onBrief(event.target.value)}
+                        autoSize={{ minRows: 2, maxRows: 5 }}
+                        maxLength={STYLE_LOCK_TEXT_CHARS}
+                        placeholder="一句风格描述（可不填），例如：都市冷调悬疑，低饱和、实景光源"
+                        aria-label="风格描述"
+                    />
                     <div>
                         <span className="project-create-field-label">参考图（可不填，最多 6 张）</span>
                         <StyleReferenceImagesPicker value={images} onChange={onImages} />
@@ -273,7 +299,15 @@ export function ProductionSection(props: {
                     每段时长
                     {segmentEstimate ? <em>约 {segmentEstimate} 段</em> : null}
                 </span>
-                <ChoiceGroup label="每段时长" value={String(segmentSeconds)} options={[{ value: "15" }, { value: "30" }]} onChange={(value) => onSegmentSeconds(Number(value))} className="project-segmented" optionClassName="project-segmented-item" render={(value) => `${value} 秒`} />
+                <ChoiceGroup
+                    label="每段时长"
+                    value={String(segmentSeconds)}
+                    options={[{ value: "15" }, { value: "30" }]}
+                    onChange={(value) => onSegmentSeconds(Number(value))}
+                    className="project-segmented"
+                    optionClassName="project-segmented-item"
+                    render={(value) => `${value} 秒`}
+                />
                 {overLimit && model ? (
                     <p className="project-create-inline-prompt" role="status">
                         {model.label} 最长 {model.duration.max} 秒
@@ -284,7 +318,9 @@ export function ProductionSection(props: {
                                     换
                                 </Button>
                             </>
-                        ) : "，改回 15 秒才能建项。"}
+                        ) : (
+                            "，改回 15 秒才能建项。"
+                        )}
                     </p>
                 ) : null}
             </div>
@@ -306,7 +342,9 @@ export function ProductionSection(props: {
                                     {item.label}
                                     {id === recommendedModel ? <em className="project-create-badge">推荐</em> : null}
                                 </span>
-                                <span className="project-create-model-meta">每段最长 {item.duration.max} 秒{noChannel ? " · 没有渠道" : ""}</span>
+                                <span className="project-create-model-meta">
+                                    每段最长 {item.duration.max} 秒{noChannel ? " · 没有渠道" : ""}
+                                </span>
                             </>
                         );
                     }}

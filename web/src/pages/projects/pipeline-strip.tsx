@@ -19,7 +19,13 @@ export function PipelineStrip({ stages, stops, className = "" }: { stages?: Dram
                 <li key={stage.key} className={`project-pipeline-strip-item${stage.state ? ` is-${stage.state}` : ""}${stage.stop ? " is-stop" : ""}`} aria-current={stage.state === "stopped" || stage.state === "running" ? "step" : undefined}>
                     {index > 0 ? <span className="project-pipeline-strip-link" aria-hidden /> : null}
                     <span className="project-pipeline-strip-dot" aria-hidden>
-                        {stage.state === "done" ? <Check className="size-3" strokeWidth={3} /> : stage.state === "running" ? <Loader2 className="project-pipeline-strip-spin size-3" /> : stage.stop || stage.state === "stopped" ? <Hand className="size-3" /> : null}
+                        {stage.state === "done" ? (
+                            <Check className="size-3" strokeWidth={3} />
+                        ) : stage.state === "running" ? (
+                            <Loader2 className="project-pipeline-strip-spin size-3" />
+                        ) : stage.stop || stage.state === "stopped" ? (
+                            <Hand className="size-3" />
+                        ) : null}
                     </span>
                     <span className="project-pipeline-strip-label">{stage.label}</span>
                     {stage.stop ? <span className="sr-only">（在这里停下等你点）</span> : null}
