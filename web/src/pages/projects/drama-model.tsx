@@ -2,15 +2,40 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { configuredModelMatchesCapability, modelDisplayName, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
-import { getDramaStyleProfiles, listDramaModels, recommendDramaStyleProfile, type DramaAuthMode, type DramaModel, type DramaRegistry, type DramaStyleProfiles } from "@/services/api/drama";
+import { getDramaStyleProfiles, listDramaModels, recommendDramaStyleProfile, type DramaModel, type DramaPipelineStageKey, type DramaRegistry, type DramaRunMode, type DramaStyleProfiles } from "@/services/api/drama";
 
 /** models.json 的默认值；目录还没读到时用它占位，最终以服务端校验为准。 */
 export const DEFAULT_DRAMA_MODEL = "seedance-2.0";
 
-export const DRAMA_AUTH_OPTIONS: Array<{ label: string; value: DramaAuthMode; hint: string }> = [
-    { label: "每步确认", value: "step", hint: "每个节点交付后停下来等你确认" },
-    { label: "全权", value: "full", hint: "一路做到交付，只在超预算、删文件、对外发布、用你的账号时找你" },
+/** 流水线的环节（与后端 drama.PipelineStages 同序）。 */
+export const DRAMA_PIPELINE_STAGES: Array<{ key: DramaPipelineStageKey; label: string }> = [
+    { key: "script", label: "拆剧本" },
+    { key: "style", label: "导演定画风" },
+    { key: "palette", label: "场次色卡" },
+    { key: "assets", label: "角色场景资产" },
+    { key: "shots", label: "分镜" },
+    { key: "pack", label: "装段" },
+    { key: "video", label: "出视频" },
+    { key: "cut", label: "剪辑" },
 ];
+
+/**
+ * 三档生成模式（与后端 drama.ShouldAutoContinue 一致）。stops 是这一档在哪几格前停下等你点：
+ * 出视频在任何模式下都停（要花钱），剪辑跟着出视频之后由人做。
+ */
+export const DRAMA_RUN_MODES: Array<{ value: DramaRunMode; label: string; hint: string; stops: DramaPipelineStageKey[] }> = [
+    { value: "until_video", label: "跑到出视频前", hint: "从拆剧本一路自动做到装段完成，停在出视频前", stops: ["video"] },
+    { value: "review_from_assets", label: "资产我要过目", hint: "自动跑到场次色卡；从资产提取起每一步都停下等你看", stops: ["assets", "shots", "video"] },
+    { value: "every_step", label: "每步都问我", hint: "每一步做完都停下，等你点继续", stops: ["script", "style", "palette", "assets", "shots", "video"] },
+];
+
+/** 生成模式的中文名；不认识的按默认档显示。 */
+export function dramaRunModeLabel(mode: string | undefined) {
+    return (DRAMA_RUN_MODES.find((item) => item.value === mode) || DRAMA_RUN_MODES[0]).label;
+}
+
+/** 固定的一句：出视频要花钱，任何模式都在这里停。 */
+export const DRAMA_VIDEO_STOP_NOTE = "出视频要花钱，任何模式都会在这里停下，带上预估花费等你点。";
 
 export function useDramaModels() {
     return useQuery({ queryKey: ["drama", "models"], queryFn: async () => (await listDramaModels()).models, staleTime: 10 * 60_000 });
@@ -87,7 +112,7 @@ export function dramaModelOptions(registry?: DramaRegistry, available?: Set<stri
         .map((item) => {
             const ratios = filter?.aspectRatio ? filter.ratios?.get(item.id) : undefined;
             const ratioUnsupported = Boolean(ratios && filter?.aspectRatio && !ratios.has(filter.aspectRatio));
-            const note = ratioUnsupported ? ` · 渠道不支持 ${filter?.aspectRatio}` : available && !available.has(item.id) ? " · 没有可用渠道" : item.calibrated ? "" : " · 未校准";
+            const note = ratioUnsupported ? ` · 渠道不支持 ${filter?.aspectRatio}` : available && !available.has(item.id) ? " · 没有可用渠道" : "";
             return { label: `${item.label} · 每段最长 ${item.duration.max} 秒${note}`, value: item.id, disabled: ratioUnsupported };
         });
 }
@@ -106,10 +131,6 @@ export function projectVideoModel(config: AiConfig, projectDefault: string | und
 export function findDramaModel(registry: DramaRegistry | undefined, id: string | undefined): DramaModel | undefined {
     if (!registry) return undefined;
     return registry.models.find((item) => item.id === (id || registry.default)) || registry.models.find((item) => item.id === registry.default);
-}
-
-export function dramaAuthLabel(mode: string | undefined) {
-    return mode === "full" ? "全权" : "每步确认";
 }
 
 /** 渠道模型属于哪个生成模型族：按 models.json 的 match 片段取最长匹配，与后端 MatchChannelModel 一致。 */

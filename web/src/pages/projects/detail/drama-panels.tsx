@@ -15,7 +15,7 @@ import { waitForGenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 
-import { dramaAuthLabel } from "../drama-model";
+import { dramaRunModeLabel } from "../drama-model";
 import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
 import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
 import { editShotCard, editSubShot, failedSegmentEditHint, mergeWithNext, moveEdgeShot, segmentLacksReferences, shotFixEdit, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
@@ -195,7 +195,7 @@ export function DramaBriefModal({ projectId, open, onClose }: { projectId: strin
         mutationFn: () => putDramaBrief(projectId, mode === "json" ? parseDocumentJson(jsonText) : formDocument()),
         onSuccess: ({ document }) => {
             queryClient.setQueryData(dramaBriefKey(projectId), document);
-            // 需求文档里的生成模型、授权档位会同步到项目字段，项目和进度都要刷新。
+            // 需求文档里的生成模型、生成模式会同步到项目字段，项目和进度都要刷新。
             void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
             message.success("需求文档已保存");
             onClose();
@@ -304,8 +304,7 @@ export function DramaModelChips({ progress }: { progress: DramaProgress }) {
     return (
         <div className="flex flex-wrap gap-1.5 text-[var(--fs-label)]">
             <span className="rounded bg-foreground/10 px-2 py-0.5 text-foreground/65">{progress.model.label} · 每段最长 {progress.model.duration.max} 秒</span>
-            <span className="rounded bg-foreground/10 px-2 py-0.5 text-foreground/65">{dramaAuthLabel(progress.authMode)}</span>
-            {!progress.model.calibrated ? <span className="rounded bg-amber-500/10 px-2 py-0.5 text-amber-600 dark:text-amber-400">档案未校准</span> : null}
+            <span className="rounded bg-foreground/10 px-2 py-0.5 text-foreground/65">{dramaRunModeLabel(progress.runMode)}</span>
             {progress.counts.overLimit ? <span className="rounded bg-amber-500/10 px-2 py-0.5 text-amber-600 dark:text-amber-400">{progress.counts.overLimit} 段超长</span> : null}
         </div>
     );

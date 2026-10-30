@@ -6,6 +6,7 @@ import { useNavigate } from "react-router";
 
 import { ModelPicker } from "@/components/model-picker";
 import { Callout } from "@/components/ui/product/callout";
+import { dramaRunModeLabel } from "../drama-model";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaRunProgressOf, dramaSceneCode, dramaScenePaletteOutcomeOf, getDramaStepUsage, type DramaScenePaletteOutcome } from "@/services/api/drama";
 import type { ProjectDetail, ProjectUnit } from "@/services/api/projects";
@@ -57,8 +58,8 @@ function takeChainedScenePalette(projectId: string) {
     }
 }
 
-/** chainAssets：写完后按集依次接着提取资产；chainImages / imageModel：提取后给新资产出图用的图片模型。 */
-type Settings = { sourceIds: string[]; textModel: string; chainAssets: boolean; chainImages: boolean; imageModel: string };
+/** chainImages / imageModel：之后提取资产时给新资产出图用的图片模型（写完要不要接着提取按项目的生成模式）。 */
+type Settings = { sourceIds: string[]; textModel: string; chainImages: boolean; imageModel: string };
 
 /** 「从第 N 集继续」要和上一次同一批剧集（服务端核对轮次）：从上一次任务的 metadata.dramaScenePalette 取。 */
 function previousPaletteRun(task?: GenerationTask) {
@@ -141,7 +142,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
     const [stream, setStream] = useState<{ taskId: string; text: string }>({ taskId: "", text: "" });
     const [resumeView, setResumeView] = useState<{ from: number; total: number; previous: ScenePaletteStreamState }>();
     const followedRef = useRef(new Set<string>());
-    const [settings, setSettings] = useState<Settings>({ sourceIds: [], textModel: "", chainAssets: true, chainImages: true, imageModel: "" });
+    const [settings, setSettings] = useState<Settings>({ sourceIds: [], textModel: "", chainImages: true, imageModel: "" });
     const [preparing, setPreparing] = useState(false);
     const [precheckError, setPrecheckError] = useState("");
     const usageQuery = useQuery({
@@ -203,7 +204,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
         const sourceUnitIds = previous?.sourceUnitIds || (settings.sourceIds.length === candidates.length ? [] : settings.sourceIds);
         // 接着提取资产要出图时，出图模板在开跑前组好：组不出来时不建任务，原因留在对话框里（续跑时直接提示）。
         let assetImageTask: Awaited<ReturnType<typeof assetImageTaskTemplate>> | undefined;
-        if (settings.chainAssets && settings.chainImages) {
+        if (settings.chainImages) {
             const imageModel = settings.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
             const imageConfig = { ...effectiveConfig, model: imageModel };
             const fail = (reason: string) => (options.resumeTaskId ? void message.error(`没有继续场次色卡：${reason}`) : setPrecheckError(reason));
@@ -225,7 +226,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
         setPanelOpen(true);
         try {
             const result = await runScenePalette(
-                { projectId, config, sourceUnitIds, resumeTaskId: options.resumeTaskId, chainAssets: settings.chainAssets, assetImageTask },
+                { projectId, config, sourceUnitIds, resumeTaskId: options.resumeTaskId, assetImageTask },
                 {
                     onTaskUpdate: (task) => {
                         followedRef.current.add(task.id);
@@ -329,7 +330,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                 width={560}
                 okText="生成"
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.chainAssets && settings.chainImages && !settings.imageModel), loading: preparing }}
+                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.chainImages && !settings.imageModel), loading: preparing }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -373,20 +374,8 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                         />
                     </label>
                     <div className="grid gap-2 rounded-lg border border-border/70 px-3 py-2.5">
-                        <label className="flex items-center justify-between gap-3 text-xs">
-                            <span className="font-medium text-foreground/68">写完后按集依次提取资产（角色、场景、道具）</span>
-                            <Switch
-                                size="small"
-                                checked={settings.chainAssets}
-                                onChange={(chainAssets) => {
-                                    setPrecheckError("");
-                                    setSettings((current) => ({ ...current, chainAssets }));
-                                }}
-                                aria-label="写完后接着提取资产"
-                            />
-                        </label>
-                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">资产按色卡约束：角色用主基调色卡，道具用主基调色卡或所在场的本场色卡，场景用本场色卡和主基调色卡；角色换装或换状态时自动拆子卡。一集提完再提下一集。</p>
-                        {settings.chainAssets ? (
+                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">写完后要不要按集依次提取资产（角色、场景、道具）看项目的生成模式「{dramaRunModeLabel(detail.project.runMode)}」。资产按色卡约束：角色用主基调色卡，道具用主基调色卡或所在场的本场色卡，场景用本场色卡和主基调色卡；角色换装或换状态时自动拆子卡。一集提完再提下一集。</p>
+                        {(
                             <>
                                 <label className="flex items-center justify-between gap-3 text-xs">
                                     <span className="font-medium text-foreground/68">提取后给新资产出图（带色卡图作参考）</span>
@@ -416,7 +405,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                                     />
                                 ) : null}
                             </>
-                        ) : null}
+                        )}
                     </div>
                     {precheckError ? (
                         <Callout tone="error" title="还没开始：资产出图准备没通过">

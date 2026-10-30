@@ -6,9 +6,8 @@ import { useNavigate } from "react-router";
 
 import { MasterPaletteGroups, StyleAnchorSummary } from "@/components/drama/master-palette";
 import { ModelPicker } from "@/components/model-picker";
-import { Select } from "@/components/ui/base/select";
 import { Callout } from "@/components/ui/product/callout";
-import { PROJECT_CONTENT_TYPES, projectContentType } from "@/lib/canvas/project-content-type";
+import { projectVisualTypeLabel } from "@/lib/project-visual-type";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaRunProgressOf, dramaStyleLockOutcomeOf, getDramaStepUsage, masterPaletteColors, type DramaBible } from "@/services/api/drama";
 import { dramaStyleLibraryKey, lockDramaStyle, saveDramaStyleToLibrary } from "@/services/api/drama-style-library";
@@ -22,30 +21,6 @@ import { DramaRunPanel } from "./drama-run-panel";
 import { followDramaRunTask, isStyleLockTask, runStyleLock } from "./project-chapter-ai";
 import { parseStyleLockStream, type StyleLockStreamState } from "./style-lock-stream";
 
-const FOLLOW_KEY = "drama-style-lock-follow:";
-
-/**
- * 建项目时起了风格分析：记下任务，章节页的「分析项目风格」挂载后打开侧栏接上它的流（建项目后要跳页面，组件 state 会丢）。
- */
-export function followStyleLockAfterCreate(projectId: string, taskId: string) {
-    try {
-        sessionStorage.setItem(FOLLOW_KEY + projectId, JSON.stringify({ taskId, at: Date.now() }));
-    } catch {
-        // 存不了（隐私模式）时用户点「风格进度」也能看到。
-    }
-}
-
-function takeFollowedStyleLock(projectId: string) {
-    try {
-        const raw = sessionStorage.getItem(FOLLOW_KEY + projectId);
-        sessionStorage.removeItem(FOLLOW_KEY + projectId);
-        const saved = raw ? (JSON.parse(raw) as { taskId?: string; at?: number }) : undefined;
-        return saved?.taskId && Date.now() - (saved.at || 0) < 10 * 60_000 ? saved.taskId : "";
-    } catch {
-        return "";
-    }
-}
-
 /** 项目连戏表里锁定的风格（风格锚、主基调色卡、来源）。 */
 export function projectLockedStyle(bibleJson?: string) {
     try {
@@ -57,17 +32,17 @@ export function projectLockedStyle(bibleJson?: string) {
     }
 }
 
-/** 上一次分析的输入（「重新分析」回填项目类型和风格文字；参考图要重新选）。 */
+/** 上一次分析的输入（「重新分析」回填风格文字；参考图要重新选）。 */
 function previousLockInput(task?: GenerationTask) {
     try {
-        const lock = (JSON.parse(task?.inputJson || "{}") as { metadata?: { dramaStyleLock?: { projectType?: string; text?: string } } }).metadata?.dramaStyleLock;
-        return lock ? { projectType: lock.projectType || "", text: lock.text || "" } : undefined;
+        const lock = (JSON.parse(task?.inputJson || "{}") as { metadata?: { dramaStyleLock?: { text?: string } } }).metadata?.dramaStyleLock;
+        return lock ? { text: lock.text || "" } : undefined;
     } catch {
         return undefined;
     }
 }
 
-const SOURCE_LABELS: Record<string, string> = { analysis: "风格分析后锁定", library: "取自平台风格库", preset: "按画风生成后锁定" };
+const SOURCE_LABELS: Record<string, string> = { analysis: "风格分析后锁定", library: "取自平台风格库", preset: "按画风生成后锁定", director: "导演分析后锁定" };
 
 function StyleLockRunGroups(stream: StyleLockStreamState) {
     const groups = stream.anchor ? [{ key: "anchor", title: "全局风格锚", meta: "", body: <StyleAnchorSummary anchor={stream.anchor} /> }] : [];
@@ -76,7 +51,7 @@ function StyleLockRunGroups(stream: StyleLockStreamState) {
     return groups;
 }
 
-type Settings = { projectType: string; text: string; images: File[]; textModel: string };
+type Settings = { text: string; images: File[]; textModel: string };
 
 /**
  * 章节页的「分析项目风格」（项目级步骤 style.lock）：对话框写风格文字、传参考图（随任务发给能读图的文本模型）、选文本模型；侧栏流式显示
@@ -99,7 +74,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
     const [saving, setSaving] = useState(false);
     const [stream, setStream] = useState<{ taskId: string; text: string }>({ taskId: "", text: "" });
     const followedRef = useRef(new Set<string>());
-    const [settings, setSettings] = useState<Settings>({ projectType: "", text: "", images: [], textModel: "" });
+    const [settings, setSettings] = useState<Settings>({ text: "", images: [], textModel: "" });
     const usageQuery = useQuery({
         queryKey: ["project", projectId, "drama-step", "style.lock", detail.project.styleProfile || ""],
         queryFn: ({ signal }) => getDramaStepUsage(projectId, "style.lock", signal).then((result) => result.usage),
@@ -131,7 +106,6 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         setPanelOpen(false);
         const previous = previousLockInput(taskDetail);
         setSettings((value) => ({
-            projectType: value.projectType || previous?.projectType || current.record?.project_type || "",
             text: value.text || previous?.text || "",
             images: value.images,
             textModel: value.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
@@ -154,7 +128,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         try {
             const referenceImages = await uploadStyleReferenceImages(settings.images);
             const result = await runStyleLock(
-                { projectId, config, projectType: settings.projectType, styleText: settings.text, referenceImages },
+                { projectId, config, styleText: settings.text, referenceImages },
                 {
                     onTaskUpdate: (task) => {
                         followedRef.current.add(task.id);
@@ -187,19 +161,6 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         if (!panelOpen || !task || (task.status !== "queued" && task.status !== "running") || followedRef.current.has(task.id)) return;
         follow(task);
     }, [latestTask, panelOpen]);
-    // 建项目时起的分析：挂载时打开侧栏接上。
-    useEffect(() => {
-        const taskId = takeFollowedStyleLock(projectId);
-        if (!taskId) return;
-        setPanelOpen(true);
-        void queryGenerationTask(taskId)
-            .then((task) => {
-                if (task.status === "queued" || task.status === "running") follow(task);
-                void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] });
-            })
-            .catch(() => message.warning("没读到建项目时起的风格分析，稍后在「风格进度」里看"));
-    }, [projectId]);
-
     const lock = async () => {
         if (!taskDetail) return;
         setLocking(true);
@@ -232,7 +193,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
 
     const usage = usageQuery.data;
     const warnings = (outcome?.items || []).filter((item) => item.level !== "error");
-    const typeLabel = projectContentType(settings.projectType)?.label;
+    const typeLabel = projectVisualTypeLabel(detail.project.visualType);
     const status = running ? (
         <span className="font-medium text-foreground/80">{streamState.colorCount ? `已出 ${streamState.colorCount} 色` : streamState.anchor ? "风格锚已出，正在写色板" : "等待模型开始输出"}</span>
     ) : outcome ? (
@@ -263,7 +224,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                 width={600}
                 okText="开始分析"
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !settings.projectType || !usage || settings.text.length > STYLE_LOCK_TEXT_CHARS }}
+                okButtonProps={{ disabled: !settings.textModel || !typeLabel || !usage || settings.text.length > STYLE_LOCK_TEXT_CHARS }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -274,16 +235,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                             重新分析不会改动已锁定的风格；分析完满意再点「锁定此风格」替换，主色卡加一个版本。
                         </Callout>
                     ) : null}
-                    <label className="block">
-                        <span className="mb-1.5 block text-xs font-medium text-foreground/68">项目类型</span>
-                        <Select
-                            className="w-full"
-                            value={settings.projectType || undefined}
-                            placeholder="选类型"
-                            onChange={(projectType: string) => setSettings((value) => ({ ...value, projectType }))}
-                            options={PROJECT_CONTENT_TYPES.map(({ label, value }) => ({ label, value }))}
-                        />
-                    </label>
+                    <p className="m-0 text-xs text-foreground/62">画面类型：{typeLabel || "项目没有画面类型，不能分析风格"}（建项时定，不可改）</p>
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">风格描述（可选）</span>
                         <Input.TextArea
@@ -299,7 +251,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                     <div>
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">参考图（可选，最多 6 张）</span>
                         <StyleReferenceImagesPicker value={settings.images} onChange={(images) => setSettings((value) => ({ ...value, images }))} />
-                        <p className="mt-1.5 text-[var(--fs-tiny)] leading-[18px] text-foreground/45">参考图会随任务发给下面的文本模型，要选能读图的模型。文字和图都不给时按项目画风{typeLabel ? `（${typeLabel}）` : ""}定。</p>
+                        <p className="mt-1.5 text-[var(--fs-tiny)] leading-[18px] text-foreground/45">参考图会随任务发给下面的文本模型，要选能读图的模型。文字和图都不给时由导演按剧本{typeLabel ? `和画面类型（${typeLabel}）` : ""}定。</p>
                     </div>
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>

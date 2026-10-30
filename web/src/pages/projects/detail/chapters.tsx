@@ -80,18 +80,18 @@ import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboar
 import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
-import { consumeChapterImportQuery } from "./chapter-import-query";
+import { ImportChapterPreview, MAX_NOVEL_IMPORT_CHAPTERS } from "../import-chapter-preview";
+import { plainTextToHtml } from "@/lib/project-source";
 import { chapterTaskIdentity, followDramaRunTask, generateChapterStoryboard, isScenePaletteTask, isScriptAdaptTask, isStyleLockTask } from "./project-chapter-ai";
 import { AssetsExtractControl } from "./chapter-assets-extract";
 import { ScriptAdaptControl } from "./chapter-script-adapt";
 import { followChainedScenePalette, ScenePaletteControl } from "./chapter-scene-palette";
-import { StyleLockControl } from "./chapter-style-lock";
+import { projectLockedStyle, StyleLockControl } from "./chapter-style-lock";
 import { ChapterSceneList } from "./chapter-scene-list";
 import { withEpisodeSourcesComment } from "./episode-sources";
 import { projectSceneCode, unitEpisodeNumber } from "./unit-numbering";
 
 const CHAPTER_ROW_HEIGHT = 62;
-const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
 type ChapterOperationKind = "storyboard";
 // queued：任务还在排队（或刚提交、还没开始跑），按钮显示「排队中」而不是从 0 秒开始的「已运行」。
 type ChapterOperation = { startedAt: number; taskId?: string; queued?: boolean };
@@ -119,7 +119,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         return detail.project.sourceType === "script" || detail.units.some((unit) => unit.kind === "episode") ? "episode" : "chapter";
     });
     const [createOpen, setCreateOpen] = useState(false);
-    const [importOpen, setImportOpen] = useState(consumeChapterImportQuery);
+    const [importOpen, setImportOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [moveTargetId, setMoveTargetId] = useState("");
     const [movePosition, setMovePosition] = useState<number | null>(null);
@@ -225,7 +225,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const assetsNotReady = projectAssetsQuery.isSuccess && (pendingCandidateCount > 0 || referenceAssetCount === 0);
     // 建项目时画风可以先空着，但生成分镜要按画风写画面：在对话框里直接说明并给入口，而不是提交后顶部闪一下。
     // 提示词在服务端组装，画风原文取项目保存的画风快照；只存了预设 ID 的老项目要在项目设置里重新保存一次画风。
-    const projectStyleMissing = !parseStyleProfile(detail.project.styleProfileJson)?.prompt.trim();
+    // 分镜按项目风格写画面：锁定了风格（导演定画风或从风格中心挑）才能生成；改版前带画风原文的老项目照旧可用。
+    const projectStyleMissing = !projectLockedStyle(detail.project.bibleJson).locked && !parseStyleProfile(detail.project.styleProfileJson)?.prompt.trim();
     // 生成分段用哪个技能由项目风格档案绑定（后台「流程技能」），对话框只显示，不让选。
     const storyboardStepQuery = useQuery({
         queryKey: ["project", detail.project.id, "drama-step", "chapter.shots", detail.project.styleProfile || "", dramaRule.maxSeconds, dramaRule.minSeconds],
@@ -527,7 +528,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (detail.project.status === "archived") return message.warning("项目已归档，请先在项目设置中恢复");
         const sourceText = editor?.getText().trim() || stripHtml(unit.sourceText);
         if (!sourceText) return message.warning("当前章节没有可用于分镜的正文");
-        if (projectStyleMissing) return message.warning("请先在项目设置中选择项目画风，再生成分镜");
+        if (projectStyleMissing) return message.warning("项目还没锁定风格：先让导演定画风，或从风格中心挑一个，再生成分镜");
         if (segmentRule.problem) return message.warning(`${segmentRule.problem}，先在项目设置里换默认视频模型或生成模型`);
         const textModel = selectedTextModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
         const config = { ...effectiveConfig, model: textModel, textModel };
@@ -837,7 +838,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             <Modal className="library-modal" title={storyboardOnlySections.length ? `重新生成问题小节（${shownSections.join("、")}）` : `生成${selectedUnitNoun}分段`} open={storyboardOpen} width={560} okText={storyboardOnlySections.length ? `只重写这 ${storyboardOnlySections.length} 节` : storyboardImpact.shotCount ? "重新生成分段" : "生成分段"} cancelText="取消" okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }} onCancel={() => setStoryboardOpen(false)} onOk={() => void createStoryboard(storyboardOnlySections.length ? { onlySections: storyboardOnlySections } : {})} styles={{ body: { paddingTop: 12 } }}>
                 <div className="grid gap-4">
                     {storyboardOnlySections.length ? <Callout tone="info" title="只重写问题所在的小节">一轮一节：{shownSections.join("、")} 重新调模型写，其余小节用镜头表里已有的镜头（原样输出照原来的顺序放进对话，不调模型），写完按整章重新检查、装段。</Callout> : null}
-                    {projectStyleMissing ? <Callout tone="warning" title="还没有项目画风" action={<Button size="small" onClick={() => { setStoryboardOpen(false); navigate(`/projects/${detail.project.id}/settings`); }}>去选画风</Button>}>分镜要按项目画风写画面和参考，先在项目设置里选一个画风并保存，再回来生成。</Callout> : null}
+                    {projectStyleMissing ? <Callout tone="warning" title="项目还没锁定风格">分镜要按项目风格写画面和参考：先在本页「分析项目风格」让导演定画风并锁定，再回来生成。</Callout> : null}
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
                         <div className="text-[var(--fs-tiny)] text-foreground/42">当前{selectedUnitNoun}</div>
                         <div className="mt-1 truncate text-sm font-medium text-foreground/85">{selectedUnit?.title}</div>
@@ -1006,31 +1007,6 @@ function ImportNovelModal({ open, kind, loading, onClose, onImport }: { open: bo
             </div>
         </AppModal>
     );
-}
-
-function ImportChapterPreview({ chapters, noun }: { chapters: Array<{ title: string; plainText: string }>; noun: string }) {
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const virtualizer = useVirtualizer({
-        count: chapters.length,
-        getScrollElement: () => scrollRef.current,
-        estimateSize: () => 49,
-        overscan: 10,
-    });
-    return (
-        <div ref={scrollRef} className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
-            {chapters.length ? <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
-                {virtualizer.getVirtualItems().map((virtualItem) => {
-                    const chapter = chapters[virtualItem.index];
-                    return <div key={`${chapter.title}-${virtualItem.index}`} className="absolute left-0 top-0 flex w-full gap-2 border-b border-border/60 px-1.5 py-2" style={{ height: virtualItem.size, transform: `translateY(${virtualItem.start}px)` }}><span className="w-8 shrink-0 pt-0.5 text-[var(--fs-tiny)] tabular-nums text-foreground/35">{String(virtualItem.index + 1).padStart(Math.max(2, String(chapters.length).length), "0")}</span><div className="min-w-0"><div className="truncate text-xs font-medium">{chapter.title}</div><div className="mt-0.5 text-[var(--fs-tiny)] text-foreground/40">{formatCount(chapter.plainText.length)} 字</div></div></div>;
-                })}
-            </div> : <div className="grid h-full place-items-center px-4 text-center text-xs leading-5 text-foreground/40">选择 TXT 文件或粘贴正文后，这里会显示按{noun}拆分的结果</div>}
-        </div>
-    );
-}
-
-function plainTextToHtml(value: string) {
-    const escaped = value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return escaped.split(/\n{2,}/).map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br>")}</p>`).join("");
 }
 
 function stripHtml(value: string) {

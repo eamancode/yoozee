@@ -3,21 +3,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Input, InputNumber, Modal } from "antd";
 import { useBlocker } from "react-router";
 import { Select } from "@/components/ui/base/select";
-import { Archive, Check, Eye, FolderOpen, Image as ImageIcon, Palette, Pencil, Save, ShieldAlert, Trash2 } from "lucide-react";
+import { Archive, Check, FolderOpen, Image as ImageIcon, Lock, Save, ShieldAlert, Trash2 } from "lucide-react";
 
 import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
-import { CanvasStyleDetailModal, CanvasStylePickerModal, resolveProjectCanvasStyle, type CanvasStylePreset } from "@/components/canvas/canvas-style-picker-modal";
 import { ModelPicker } from "@/components/model-picker";
-import { createStyleProfileSnapshot, parseStyleProfile, resolveStyleExecutionPlan, serializeStyleProfile } from "@/lib/canvas/style-profile";
+import { projectVisualTypeLabel } from "@/lib/project-visual-type";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import { listProjectAssetsPage, updateProject } from "@/services/api/projects";
-import { getDramaBrief, getDramaProgress, putDramaBrief, type DramaAuthMode } from "@/services/api/drama";
+import { getDramaBrief, getDramaProgress, putDramaBrief, type DramaRunMode } from "@/services/api/drama";
 import { uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { modelDisplayName, resolveModelRequestConfig, useEffectiveConfig } from "@/stores/use-config-store";
+import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store";
 
-import type { ProjectDetailViewProps } from "./shared";
-import { DRAMA_AUTH_OPTIONS, DRAMA_STYLE_PROFILE_HINT, SEGMENT_SECONDS_OPTIONS, dramaModelOptions, dramaStyleProfileOptions, findDramaModel, recommendedDramaStyleProfile, useDramaChannelFamilies, useDramaFamilyRatios, useDramaModels, useDramaStyleProfiles } from "../drama-model";
+import { sourceTypeLabel, type ProjectDetailViewProps } from "./shared";
+import { projectLockedStyle } from "./chapter-style-lock";
+import { DRAMA_RUN_MODES, DRAMA_STYLE_PROFILE_HINT, DRAMA_VIDEO_STOP_NOTE, SEGMENT_SECONDS_OPTIONS, dramaModelOptions, dramaStyleProfileOptions, findDramaModel, useDramaChannelFamilies, useDramaFamilyRatios, useDramaModels, useDramaStyleProfiles } from "../drama-model";
 import { briefEpisodeSeconds, briefPrevizGate, briefSegmentSeconds, dramaBriefKey, EPISODE_SECONDS_RANGE, PREVIZ_GATE_OPTIONS, withEpisodeSeconds, withPrevizGate, withSegmentSeconds } from "./drama-brief";
 
 export default function ProjectSettingsView({ detail, refreshProject }: ProjectDetailViewProps) {
@@ -28,17 +28,14 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     const addAsset = useAssetStore((state) => state.addAsset);
     const [name, setName] = useState(project.name);
     const [description, setDescription] = useState(project.description || "");
-    const [aspectRatio, setAspectRatio] = useState(project.aspectRatio);
-    const [sourceType, setSourceType] = useState(project.sourceType);
-    const [stylePresetId, setStylePresetId] = useState(project.stylePresetId || "");
-    const [styleProfileJson, setStyleProfileJson] = useState(project.styleProfileJson || "");
     const [defaultImageModel, setDefaultImageModel] = useState(project.defaultImageModel || "");
     const [defaultVideoModel, setDefaultVideoModel] = useState(project.defaultVideoModel || "");
     const dramaModels = useDramaModels();
     const dramaFamilies = useDramaChannelFamilies(dramaModels.data);
     const dramaRatios = useDramaFamilyRatios(dramaModels.data);
     const [generationModel, setGenerationModel] = useState(project.generationModel || "");
-    const [authMode, setAuthMode] = useState<DramaAuthMode>(project.authMode === "full" ? "full" : "step");
+    const savedRunMode: DramaRunMode = (DRAMA_RUN_MODES.find((item) => item.value === project.runMode) || DRAMA_RUN_MODES[0]).value;
+    const [runMode, setRunMode] = useState<DramaRunMode>(savedRunMode);
     const [dramaProfile, setDramaProfile] = useState(project.styleProfile || "");
     const styleProfiles = useDramaStyleProfiles();
     const savedGenerationModel = project.generationModel || dramaModels.data?.default || "";
@@ -63,9 +60,6 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     const previzGateDirty = briefQuery.isSuccess && previzGate !== savedPrevizGate;
     const segmentSecondsShrunk = segmentSecondsDirty && segmentSeconds > 0 && (savedSegmentSeconds === 0 || segmentSeconds < savedSegmentSeconds);
     const overLimitSegments = selectedDramaModel ? (dramaProgressQuery.data?.segments || []).filter((segment) => segment.durationMs > selectedDramaModel.duration.max * 1000) : [];
-    const [styleDetail, setStyleDetail] = useState<CanvasStylePreset | null>(null);
-    const [stylePickerOpen, setStylePickerOpen] = useState(false);
-    const [styleEditorRequested, setStyleEditorRequested] = useState(false);
     const [archiveOpen, setArchiveOpen] = useState(false);
     const [coverPickerOpen, setCoverPickerOpen] = useState(false);
     const [coverPage, setCoverPage] = useState(1);
@@ -76,20 +70,9 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
         enabled: coverPickerOpen,
     });
     const projectCoverAssets = coverAssetsQuery.data?.assets || [];
-    useEffect(() => { setName(project.name); setDescription(project.description || ""); setAspectRatio(project.aspectRatio); setSourceType(project.sourceType); setStylePresetId(project.stylePresetId || ""); setStyleProfileJson(project.styleProfileJson || ""); setDefaultImageModel(project.defaultImageModel || ""); setDefaultVideoModel(project.defaultVideoModel || ""); setGenerationModel(project.generationModel || ""); setAuthMode(project.authMode === "full" ? "full" : "step"); setDramaProfile(project.styleProfile || ""); }, [project]);
-    const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || aspectRatio !== project.aspectRatio || sourceType !== project.sourceType || stylePresetId !== (project.stylePresetId || "") || styleProfileJson !== (project.styleProfileJson || "") || defaultImageModel !== (project.defaultImageModel || "") || defaultVideoModel !== (project.defaultVideoModel || "") || (generationModel !== "" && generationModel !== savedGenerationModel) || authMode !== (project.authMode === "full" ? "full" : "step") || dramaProfile !== (project.styleProfile || "") || episodeSecondsDirty || segmentSecondsDirty || previzGateDirty, [aspectRatio, authMode, dramaProfile, defaultImageModel, defaultVideoModel, description, episodeSecondsDirty, generationModel, name, previzGateDirty, project, savedGenerationModel, segmentSecondsDirty, sourceType, stylePresetId, styleProfileJson]);
-    const selectedStyle = useMemo(() => resolveProjectCanvasStyle(stylePresetId, styleProfileJson), [stylePresetId, styleProfileJson]);
-    const styleProfile = useMemo(() => parseStyleProfile(styleProfileJson) || selectedStyle?.profile || (selectedStyle ? createStyleProfileSnapshot(selectedStyle) : null), [selectedStyle, styleProfileJson]);
-    const enabledStyleAssets = styleProfile?.assets.filter((asset) => asset.enabled !== false) || [];
-    const styleExecutionPlans = useMemo(() => {
-        if (!styleProfile) return null;
-        const imageConfig = resolveModelRequestConfig(effectiveConfig, effectiveConfig.imageModel || effectiveConfig.model);
-        const videoConfig = resolveModelRequestConfig(effectiveConfig, effectiveConfig.videoModel || effectiveConfig.model);
-        return {
-            image: resolveStyleExecutionPlan(styleProfile, { mode: "image", model: imageConfig.model, interfaceType: imageConfig.interfaceType || imageConfig.apiFormat }),
-            video: resolveStyleExecutionPlan(styleProfile, { mode: "video", model: videoConfig.model, interfaceType: videoConfig.interfaceType || videoConfig.apiFormat }),
-        };
-    }, [effectiveConfig, styleProfile]);
+    useEffect(() => { setName(project.name); setDescription(project.description || ""); setDefaultImageModel(project.defaultImageModel || ""); setDefaultVideoModel(project.defaultVideoModel || ""); setGenerationModel(project.generationModel || ""); setRunMode(savedRunMode); setDramaProfile(project.styleProfile || ""); }, [project, savedRunMode]);
+    const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || defaultImageModel !== (project.defaultImageModel || "") || defaultVideoModel !== (project.defaultVideoModel || "") || (generationModel !== "" && generationModel !== savedGenerationModel) || runMode !== savedRunMode || dramaProfile !== (project.styleProfile || "") || episodeSecondsDirty || segmentSecondsDirty || previzGateDirty, [runMode, savedRunMode, dramaProfile, defaultImageModel, defaultVideoModel, description, episodeSecondsDirty, generationModel, name, previzGateDirty, project, savedGenerationModel, segmentSecondsDirty]);
+    const lockedStyle = useMemo(() => projectLockedStyle(project.bibleJson), [project.bibleJson]);
     const coverPickerItems = useMemo<AssetLibraryPickerItem[]>(() => {
         const result: AssetLibraryPickerItem[] = [];
         const seenResourceIds = new Set<string>();
@@ -130,8 +113,8 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     const currentCoverItemId = coverPickerItems.find((item) => coverResourceByItemId.get(item.id) === project.coverResourceId)?.id;
     const saveMutation = useMutation({
         mutationFn: async () => {
-            await updateProject(project.id, { name: name.trim(), description, aspectRatio, sourceType, stylePresetId, styleProfileJson, defaultImageModel, defaultVideoModel, authMode, ...(generationModel ? { generationModel } : {}), ...(dramaProfile ? { styleProfile: dramaProfile } : {}), ...(segmentSecondsDirty ? { segmentSeconds } : {}), ...(previzGateDirty ? { previzGate } : {}) });
-            // 项目字段先存：需求文档写回时不带生成模型和授权档位，不会把刚存的项目字段改回去；单段秒数、预演闸门已随项目写入，这里带上新值。
+            await updateProject(project.id, { name: name.trim(), description, defaultImageModel, defaultVideoModel, runMode, ...(generationModel ? { generationModel } : {}), ...(dramaProfile ? { styleProfile: dramaProfile } : {}), ...(segmentSecondsDirty ? { segmentSeconds } : {}), ...(previzGateDirty ? { previzGate } : {}) });
+            // 项目字段先存：需求文档写回时不带生成模型和生成模式，不会把刚存的项目字段改回去；单段秒数、预演闸门已随项目写入，这里带上新值。
             if (episodeSecondsDirty && briefQuery.data) {
                 const { document } = await putDramaBrief(project.id, withEpisodeSeconds(withPrevizGate(withSegmentSeconds(briefQuery.data, segmentSeconds), previzGate), episodeSeconds));
                 queryClient.setQueryData(dramaBriefKey(project.id), document);
@@ -142,7 +125,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
         onSuccess: () => { refreshProject(); void dramaProgressQuery.refetch(); message.success("项目设置已保存"); },
         onError: (error) => message.error(error instanceof Error ? error.message : "项目设置保存失败"),
     });
-    // 选了画风、改了模型却没点「保存设置」就离开，改动会静默丢失；路由跳转和关闭标签页都要先问一句。
+    // 改了模型、生成模式却没点「保存设置」就离开，改动会静默丢失；路由跳转和关闭标签页都要先问一句。
     const unsaved = dirty && !saveMutation.isPending;
     const blocker = useBlocker(unsaved);
     const leaveConfirmOpenRef = useRef(false);
@@ -158,7 +141,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
         leaveConfirmOpenRef.current = true;
         modal.confirm({
             title: "项目设置还没保存",
-            content: "画风、模型或基础信息的修改还没有保存，离开后会丢失。",
+            content: "模型、生成模式或基础信息的修改还没有保存，离开后会丢失。",
             okText: "放弃修改并离开",
             okButtonProps: { danger: true },
             cancelText: "留下保存",
@@ -171,34 +154,34 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
 
     return (
         <div>
-            <header className="flex items-end justify-between gap-3 pb-3"><div><h2 className="text-lg font-semibold">项目设置</h2><p className="mt-1 text-xs text-foreground/48">基础信息、项目画风与归档管理</p></div><Button type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!dirty || !name.trim()} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存设置" : "已保存"}</Button></header>
+            <header className="flex items-end justify-between gap-3 pb-3"><div><h2 className="text-lg font-semibold">项目设置</h2><p className="mt-1 text-xs text-foreground/48">基础信息、生成模式与归档管理</p></div><Button type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!dirty || !name.trim()} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存设置" : "已保存"}</Button></header>
 
             <section className="py-5">
                 <h3 className="mb-3 text-sm font-semibold">基础设置</h3>
                 <div className="grid gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
                     <Field label="项目名称" className="xl:col-span-2"><Input value={name} onChange={(event) => setName(event.target.value)} /></Field>
-                    <Field label="默认画幅"><Select className="w-full" value={aspectRatio} options={[{ label: "9:16 · 竖屏短剧", value: "9:16" }, { label: "16:9 · 横屏", value: "16:9" }, { label: "1:1 · 方形", value: "1:1" }, { label: "4:3 · 标准横屏", value: "4:3" }]} onChange={setAspectRatio} /></Field>
-                    <Field label="内容来源"><Select className="w-full" value={sourceType} options={[{ label: "空白开始", value: "blank" }, { label: "导入小说", value: "novel" }, { label: "导入剧本", value: "script" }, { label: "粘贴文本", value: "text" }]} onChange={setSourceType} /></Field>
+                    <ReadOnlyField label="画幅" value={project.aspectRatio} note="建项后不可改" />
+                    <ReadOnlyField label="内容来源" value={sourceTypeLabel(project.sourceType)} />
                     <Field label="项目简介" className="md:col-span-2 xl:col-span-4"><Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="一句话说明项目目标" /></Field>
                 </div>
             </section>
 
             <section className="border-t border-border/70 py-5">
-                <div className="mb-3"><h3 className="text-sm font-semibold">短剧生成</h3><p className="mt-0.5 text-[var(--fs-label)] text-foreground/45">一段 = 一次视频生成。生成模型决定一段最长几秒和提示词方言；授权档位决定 Agent 每个节点是否停下来等你确认。</p></div>
+                <div className="mb-3"><h3 className="text-sm font-semibold">短剧生成</h3><p className="mt-0.5 text-[var(--fs-label)] text-foreground/45">一段 = 一次视频生成。生成模型决定一段最长几秒和提示词方言；生成模式决定一步做完后要不要自动接着做下一步。</p></div>
                 <div className="grid gap-4 md:grid-cols-2">
-                    <Field label="生成模型"><Select className="w-full" loading={dramaModels.isLoading} value={generationModel || savedGenerationModel || undefined} options={dramaModelOptions(dramaModels.data, dramaFamilies, { aspectRatio, ratios: dramaRatios })} onChange={(value) => { setGenerationModel(value); const max = findDramaModel(dramaModels.data, value)?.duration.max; if (max && segmentSeconds > max) setSegmentSeconds(SEGMENT_SECONDS_OPTIONS.filter((item) => item <= max).at(-1) ?? 0); }} /></Field>
-                    <Field label="授权档位"><Select className="w-full" value={authMode} options={DRAMA_AUTH_OPTIONS.map(({ label, value }) => ({ label, value }))} onChange={setAuthMode} /></Field>
-                    <Field label="风格档案"><Select className="w-full" loading={styleProfiles.isLoading} value={dramaProfile || undefined} options={dramaStyleProfileOptions(styleProfiles.data, recommendedDramaStyleProfile(styleProfiles.data, styleProfile || undefined))} onChange={setDramaProfile} /></Field>
+                    <Field label="生成模型"><Select className="w-full" loading={dramaModels.isLoading} value={generationModel || savedGenerationModel || undefined} options={dramaModelOptions(dramaModels.data, dramaFamilies, { aspectRatio: project.aspectRatio, ratios: dramaRatios })} onChange={(value) => { setGenerationModel(value); const max = findDramaModel(dramaModels.data, value)?.duration.max; if (max && segmentSeconds > max) setSegmentSeconds(SEGMENT_SECONDS_OPTIONS.filter((item) => item <= max).at(-1) ?? 0); }} /></Field>
+                    <Field label="生成模式"><Select className="w-full" value={runMode} options={DRAMA_RUN_MODES.map(({ label, value }) => ({ label, value }))} onChange={setRunMode} /></Field>
+                    <Field label="风格档案"><Select className="w-full" loading={styleProfiles.isLoading} value={dramaProfile || undefined} options={dramaStyleProfileOptions(styleProfiles.data)} onChange={setDramaProfile} /></Field>
                     <Field label="单段最长时长"><Select className="w-full" value={segmentSeconds} disabled={!briefQuery.isSuccess} options={[{ label: `不限（按模型上限 ${selectedDramaModel?.duration.max ?? "-"} 秒）`, value: 0 }, ...SEGMENT_SECONDS_OPTIONS.map((value) => ({ label: `${value} 秒`, value, disabled: Boolean(selectedDramaModel && value > selectedDramaModel.duration.max) }))]} onChange={setSegmentSeconds} /></Field>
                     <Field label="视频前预演闸门"><Select className="w-full" value={previzGate} disabled={!briefQuery.isSuccess} options={PREVIZ_GATE_OPTIONS} onChange={setPrevizGate} /></Field>
                     <Field label="每集时长（秒）"><InputNumber className="w-full" min={EPISODE_SECONDS_RANGE.min} max={EPISODE_SECONDS_RANGE.max} step={10} precision={0} value={episodeSeconds} disabled={!briefQuery.isSuccess} placeholder="不限" onChange={(value) => setEpisodeSeconds(typeof value === "number" ? value : null)} /></Field>
                 </div>
-                <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_STYLE_PROFILE_HINT}换了画风不会自动改档案。</p>
+                <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_STYLE_PROFILE_HINT}</p>
                 {segmentSecondsShrunk ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">单段最长时长改小后，下次装段生效；已经装好的段不会自动重拆，可在章节页「进度」侧栏里点「重新装段」。</div> : null}
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">单段最长时长只能比生成模型一段的上限更严，装段时按两者里小的那个切段。</p>
-                <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">预演闸门开着时，每一段要先生成并选中黑白动作预演，才能生成视频（制作台和 Agent 都按这个拦）；跟授权档位时，每步确认开、全权关。</p>
+                <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">预演闸门开着时，每一段要先生成并选中黑白动作预演，才能生成视频（制作台和 Agent 都按这个拦）；跟生成模式时，跑到出视频前关，另两档开。</p>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">每集时长写进生成分镜的提示词（镜头估时合计不超过它的 1.1 倍），保存分镜时按它检查分段合计；不填就不限。</p>
-                <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_AUTH_OPTIONS.find((item) => item.value === authMode)?.hint}{selectedDramaModel && !selectedDramaModel.calibrated ? "。该模型档案尚未用真实样片校准，首次使用请先跑一次校准。" : ""}</p>
+                <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_RUN_MODES.find((item) => item.value === runMode)?.hint}。改生成模式只影响之后的接续，已经停住的环节不会自动补做。{DRAMA_VIDEO_STOP_NOTE}</p>
                 {selectedDramaModel && dramaFamilies && !dramaFamilies.has(selectedDramaModel.id) ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">当前没有 {selectedDramaModel.label} 的视频渠道，分镜制作页无法按这个模型生成视频。请先配置渠道，或改用已有渠道的模型。</div> : null}
                 {overLimitSegments.length ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {selectedDramaModel?.label} 一段 {selectedDramaModel?.duration.max} 秒的上限（{overLimitSegments.slice(0, 6).map((segment) => segment.segmentId || segment.title).join("、")}{overLimitSegments.length > 6 ? " 等" : ""}）。保存后这些段不能生成视频，需要先拆分。</div> : null}
             </section>
@@ -222,7 +205,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
             </section>
 
             <section className="border-t border-border/70 py-5">
-                <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">项目主图</h3><p className="mt-0.5 text-[var(--fs-label)] text-foreground/45">项目列表优先展示这张图片；未设置时使用项目画风示意图</p></div><span className="text-[var(--fs-label)] text-foreground/40">建议使用与项目画幅一致的图片</span></div>
+                <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">项目主图</h3><p className="mt-0.5 text-[var(--fs-label)] text-foreground/45">项目列表优先展示这张图片；未设置时显示占位图</p></div><span className="text-[var(--fs-label)] text-foreground/40">建议使用与项目画幅一致的图片</span></div>
                 <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-surface-active p-3 sm:flex-row sm:items-center">
                     {project.coverResourceId ? <img src={resourceFileUrl(project.coverResourceId)} alt={`${project.name}项目主图`} className="aspect-video w-full shrink-0 rounded-md bg-foreground/5 object-cover sm:w-52" /> : <span className="grid aspect-video w-full shrink-0 place-items-center rounded-md bg-foreground/5 text-foreground/30 sm:w-52"><ImageIcon className="size-6" /></span>}
                     <div className="min-w-0 flex-1"><div className="text-sm font-medium">{project.coverResourceId ? "已设置项目主图" : "尚未设置项目主图"}</div><p className="mt-1 text-xs leading-5 text-foreground/48">从个人素材库或项目素材库选择，也可以在选择窗口中上传一张新图片。</p></div>
@@ -231,19 +214,11 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
             </section>
 
             <section className="border-t border-border/70 py-5">
-                <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">项目画风</h3><p className="mt-0.5 text-[var(--fs-label)] text-foreground/45">项目保存当前版本快照；修改“我的风格”不会自动改写历史项目</p></div>{styleProfile ? <span className="text-[var(--fs-label)] text-foreground/52">{styleProfile.source === "user" ? "来自我的风格" : styleProfile.source === "external" ? "外部导入" : "系统预设"}</span> : <span className="text-[var(--fs-label)] text-foreground/40">未设置</span>}</div>
-                <div className="flex flex-col gap-3 rounded-lg bg-surface-active p-3 lg:flex-row lg:items-center">
-                    {selectedStyle ? <img src={selectedStyle.imageUrl} width="160" height="90" alt={`${selectedStyle.title}画风示意`} className="aspect-video w-40 shrink-0 rounded-md object-cover" /> : <span className="grid aspect-video w-40 shrink-0 place-items-center rounded-md bg-foreground/5 text-foreground/35"><Palette className="size-5" /></span>}
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold">{styleProfile?.title || selectedStyle?.title || "尚未设置项目画风"}</div>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-foreground/48">{styleProfile?.description || selectedStyle?.description || "从系统风格开始，或创建可自由编辑的项目视觉规范。"}</p>
-                        {styleProfile ? <div className="mt-2 flex flex-wrap gap-1">{styleProfile.tags.map((tag) => <span key={tag} className="rounded bg-foreground/10 px-1.5 py-0.5 text-[var(--fs-tiny)] text-foreground/55">{tag}</span>)}</div> : null}
-                    </div>
-                    <div className="flex shrink-0 flex-wrap gap-2"><Button icon={<Eye className="size-3.5" />} disabled={!selectedStyle} onClick={() => setStyleDetail(selectedStyle || null)}>查看规范</Button><Button icon={<Pencil className="size-3.5" />} disabled={!styleProfile} onClick={() => { setStyleEditorRequested(true); setStylePickerOpen(true); }}>编辑画风</Button><Button icon={<Palette className="size-3.5" />} onClick={() => { setStyleEditorRequested(false); setStylePickerOpen(true); }}>{selectedStyle ? "更换画风" : "选择画风"}</Button></div>
+                <div className="mb-3"><h3 className="text-sm font-semibold">画面类型与画风</h3><p className="mt-0.5 text-[var(--fs-label)] text-foreground/45">画面类型建项时定，之后不可改；画风由导演定画风或从风格中心挑，锁定后风格锚和主基调色卡写进项目。</p></div>
+                <div className="grid gap-4 md:grid-cols-2">
+                    <ReadOnlyField label="画面类型" value={projectVisualTypeLabel(project.visualType) || "未设置"} note="建项后不可改" />
+                    <ReadOnlyField label="画风" value={lockedStyle.locked ? (lockedStyle.record?.source === "library" ? "取自风格中心，已锁定" : "导演分析后锁定") : project.style?.mode === "library" ? "从风格中心挑（还没锁定）" : "交给导演分析（拆完剧本后自动定）"} icon={lockedStyle.locked ? <Lock className="size-3.5" /> : undefined} />
                 </div>
-                {stylePresetId !== (project.stylePresetId || "") || styleProfileJson !== (project.styleProfileJson || "") ? <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400"><span>画风已选好，保存设置后才对分镜和生成生效。</span><Button size="small" type="primary" icon={<Save className="size-3.5" />} disabled={!name.trim()} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>保存设置</Button></div> : null}
-                {styleProfile ? <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5"><StyleMetric label="执行策略" value={styleProfile.executionPolicy === "strict-assets" ? "严格校验" : "兼容降级"} /><StyleMetric label="绑定资产" value={`${styleProfile.assets.length} 个`} /><StyleMetric label="已启用" value={`${enabledStyleAssets.length} 个`} /><StyleMetric label="图片执行" value={styleExecutionStatusLabel(styleExecutionPlans?.image.status)} /><StyleMetric label="视频执行" value={styleExecutionStatusLabel(styleExecutionPlans?.video.status)} /></div> : null}
-                {styleExecutionPlans && (styleExecutionPlans.image.warnings.length || styleExecutionPlans.video.warnings.length) ? <div className="mt-2 grid gap-1 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">{styleExecutionPlans.image.warnings.length ? <p>图片：{styleExecutionPlans.image.warnings.join("；")}</p> : null}{styleExecutionPlans.video.warnings.length ? <p>视频：{styleExecutionPlans.video.warnings.join("；")}</p> : null}</div> : null}
             </section>
 
             <section className="py-4">
@@ -290,25 +265,15 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                     await coverMutation.mutateAsync(resourceId);
                 }}
             />
-            <CanvasStylePickerModal open={stylePickerOpen} value={stylePresetId} currentProfile={styleProfile} startInEditor={styleEditorRequested} onClose={() => { setStylePickerOpen(false); setStyleEditorRequested(false); }} onSelect={(preset) => { applyStyle(preset); setStylePickerOpen(false); setStyleEditorRequested(false); }} />
-            <CanvasStyleDetailModal open={Boolean(styleDetail)} preset={styleDetail} selected={styleDetail?.id === stylePresetId} onClose={() => setStyleDetail(null)} onSelect={(preset) => { applyStyle(preset); setStyleDetail(null); }} />
         </div>
     );
 
-    function applyStyle(preset: CanvasStylePreset) {
-        setStylePresetId(preset.id);
-        setStyleProfileJson(serializeStyleProfile(preset.profile || createStyleProfileSnapshot(preset)));
-    }
-}
-
-function StyleMetric({ label, value }: { label: string; value: string }) {
-    return <div className="min-w-0 rounded-md bg-surface-active px-3 py-2"><span className="block text-[var(--fs-tiny)] text-foreground/40">{label}</span><span className="mt-0.5 block truncate font-medium text-foreground/65">{value}</span></div>;
-}
-
-function styleExecutionStatusLabel(status?: "ready" | "degraded" | "blocked") {
-    return status === "blocked" ? "不可执行" : status === "degraded" ? "降级执行" : "完整执行";
 }
 
 function Field({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
     return <label className={`grid gap-1.5 text-xs ${className}`}><span className="font-medium text-foreground/62">{label}</span>{children}</label>;
+}
+
+function ReadOnlyField({ label, value, note, icon }: { label: string; value: string; note?: string; icon?: ReactNode }) {
+    return <div className="grid gap-1.5 text-xs"><span className="font-medium text-foreground/62">{label}{note ? <span className="ml-1.5 font-normal text-foreground/38">{note}</span> : null}</span><span className="flex min-h-8 items-center gap-1.5 rounded-md bg-surface-active px-3 text-foreground/75">{icon}{value}</span></div>;
 }

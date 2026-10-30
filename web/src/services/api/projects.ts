@@ -1,8 +1,32 @@
 import { compactApiParams, http } from "@/services/api/request";
 import { normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
-import type { DramaColorScriptEntry, DramaImageQueueResult, DramaImageTaskTemplate, DramaMasterPalette, DramaStyleAnchor } from "@/services/api/drama";
+import type { DramaColorScriptEntry, DramaImageQueueResult, DramaImageTaskTemplate, DramaMasterPalette, DramaRunMode, DramaStyleAnchor } from "@/services/api/drama";
 import type { GenerationTask } from "@/services/api/task-center";
 
+
+/** 画面类型（与后端 drama.ProjectTypes 同值），平台风格库按它归档。 */
+export type ProjectVisualType = "live_action" | "cg_real" | "anime_3d" | "anime_2d";
+
+/** 画风来源：mode=director 交给导演分析；mode=library 从风格中心挑（styleId，建项时直接锁定）。 */
+export type ProjectStyleSource = { mode: "director"; brief?: string; refImageIds?: string[] } | { mode: "library"; styleId: string };
+
+/** 建项的「要拍什么」：创意写原话，小说、剧本是用章节页导入同一套解析切好的章 / 集（sourceText 是编辑器 HTML）。 */
+export type ProjectSourceAs = "idea" | "novel" | "script" | "blank";
+
+export type CreateProjectInput = {
+    name: string;
+    sourceAs: ProjectSourceAs;
+    source: { text?: string; units?: Array<{ title: string; sourceText: string }> };
+    /** 只在创意时给：生成几集、每集约几秒。 */
+    ideaPlan?: { episodes: number; episodeSeconds: number };
+    visualType: ProjectVisualType;
+    style: ProjectStyleSource;
+    aspectRatio: string;
+    /** 每段时长（15 / 30 秒），不能超过视频模型一段的上限。 */
+    segmentSeconds: number;
+    generationModel: string;
+    runMode: DramaRunMode;
+};
 
 export type Project = {
     id: string;
@@ -19,8 +43,12 @@ export type Project = {
     defaultVideoModel?: string;
     /** 短剧生成模型族（kb-dialects/models.json 的 id），决定一段最长秒数。 */
     generationModel?: string;
-    /** 授权档位：step 每步确认，full 全权。 */
-    authMode?: "step" | "full" | "";
+    /** 画面类型（建项必选、之后不可改）：live_action / cg_real / anime_3d / anime_2d。 */
+    visualType?: ProjectVisualType | "";
+    /** 生成模式：一步做完后服务端要不要自动接下一步；出视频在任何模式下都停下等人点。 */
+    runMode?: DramaRunMode | "";
+    /** 画风来源：交给导演分析（描述、参考图可不填）或从风格中心挑的一条。 */
+    style?: ProjectStyleSource;
     /** yoozee 风格档案（五选一），短剧流程每一步按它取绑定的技能；与画风快照 styleProfileJson 不是一回事。 */
     styleProfile?: string;
     briefJson?: string;
@@ -511,13 +539,16 @@ function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
     };
 }
 
-/** segmentSeconds 是单段最长秒数（15 / 30），后端写进 brief_json.segment_seconds；不超过生成模型一段的上限。 */
-export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string; generationModel?: string; authMode?: "step" | "full"; styleProfile?: string; segmentSeconds?: number }) {
-    return http.post<{ project: Project }>("/projects", input);
+/**
+ * 建项目（首页一页四段）。校验失败按段给 reason：project_source_invalid / project_visual_type_required / project_style_invalid /
+ * project_production_invalid，页面把错误落到对应的段；同名返回 project_name_conflict。
+ */
+export function createProject(input: CreateProjectInput) {
+    return http.post<{ project: Project }>("/projects", { type: "short-drama", ...input });
 }
 
 /** segmentSeconds 改单段最长秒数（0 去掉这一项），与生成模型一起按模型上限校验；previzGate 改视频前的预演闸门（写进 brief_json.previz_gate）。 */
-export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "authMode" | "styleProfile" | "status">> & { segmentSeconds?: number; previzGate?: "auto" | "on" | "off" }) {
+export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "runMode" | "styleProfile" | "status">> & { segmentSeconds?: number; previzGate?: "auto" | "on" | "off" }) {
     return http.patch<{ project: Project }>(`/projects/${encodeURIComponent(projectId)}`, input);
 }
 

@@ -22,8 +22,8 @@ describe("需求文档与连戏表的前端入口", () => {
         expect(next.title).toBe("两江一城");
     });
 
-    test("每集时长读写需求文档的 episode_seconds，写回不带生成模型和授权档位", () => {
-        const document = { title: "七床", video_model: "seedance-2.0", auth_mode: "step", duration: { value: "每集约 90 秒", status: "已确认" }, episode_seconds: 90 };
+    test("每集时长读写需求文档的 episode_seconds，写回不带生成模型和生成模式", () => {
+        const document = { title: "七床", video_model: "seedance-2.0", run_mode: "every_step", duration: { value: "每集约 90 秒", status: "已确认" }, episode_seconds: 90 };
         expect(briefEpisodeSeconds(document)).toBe(90);
         expect(briefEpisodeSeconds({ episode_seconds: "90" })).toBeUndefined();
         const next = withEpisodeSeconds(document, 120.4);

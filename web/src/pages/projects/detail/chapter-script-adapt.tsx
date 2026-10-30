@@ -41,7 +41,7 @@ type ScriptAdaptControlProps = {
     disabled?: boolean;
     /** 写完以后切到剧集视图，选中第一集。 */
     onWritten: (outcome: DramaScriptAdaptOutcome) => void;
-    /** 写完剧集后服务端自动接着建了场次色卡任务：交给「生成场次色卡」按钮接上它的流。 */
+    /** 写完剧集后服务端按生成模式接着建了场次色卡任务：交给「生成场次色卡」按钮接上它的流。 */
     onChained?: (taskId: string) => void;
 };
 
@@ -242,12 +242,14 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             if (result.outcome) {
                 message.success(result.outcome.mode === "rhythm" ? `已改写 ${result.outcome.episodes.length} 集剧集` : `已写入 ${result.outcome.episodes.length} 集剧集，技能：${result.usage.skill.name} ${result.usage.skill.version}`);
                 onWritten(result.outcome);
-                const chainedTaskId = result.outcome.chained?.taskId;
-                if (chainedTaskId) {
+                const chained = result.outcome.chained;
+                if (chained?.taskId && chained.step === "style.lock") {
+                    message.info("接着让导演定画风：在「项目风格」里看进度，锁定后按生成模式接着做场次色卡");
+                } else if (chained?.taskId) {
                     setPanelOpen(false);
-                    onChained?.(chainedTaskId);
-                } else if (result.outcome.chained?.error) {
-                    message.warning(`场次色卡没有自动开始：${result.outcome.chained.error}`);
+                    onChained?.(chained.taskId);
+                } else if (chained?.error) {
+                    message.warning(`${chained.step === "style.lock" ? "导演定画风" : "场次色卡"}没有自动开始：${chained.error}`);
                 }
             }
         } catch (error) {
@@ -400,7 +402,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                                 aria-label="接着提取资产后给新资产出图"
                             />
                         </label>
-                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">写完剧集后自动接着生成场次色卡、按集提取资产；开着时每集提取完直接给新资产出图（角色三视图，场景、道具概念图），不用再到资产页点「继续出图」。</p>
+                        <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">写完剧集后要不要接着做下一步（导演定画风、场次色卡、按集提取资产）看项目的生成模式；开着时每集提取完直接给新资产出图（角色三视图，场景、道具概念图），不用再到资产页点「继续出图」。</p>
                         {settings.images ? (
                             <ModelPicker
                                 config={effectiveConfig}

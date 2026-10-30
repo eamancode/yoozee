@@ -22,7 +22,15 @@ export type DramaModel = {
 
 export type DramaRegistry = { version: string; default: string; models: DramaModel[] };
 
-export type DramaAuthMode = "step" | "full";
+/** 生成模式：until_video 跑到出视频前（默认）；review_from_assets 资产我要过目；every_step 每步都问我。出视频任何模式都停下等人点。 */
+export type DramaRunMode = "until_video" | "review_from_assets" | "every_step";
+
+/** 流水线的一格（拆剧本 → 导演定画风 → 场次色卡 → 角色场景资产 → 分镜 → 装段 → 出视频 → 剪辑）。 */
+export type DramaPipelineStageKey = "script" | "style" | "palette" | "assets" | "shots" | "pack" | "video" | "cut";
+export type DramaPipelineStage = { key: DramaPipelineStageKey; label: string; state: "done" | "running" | "stopped" | "pending"; detail?: string };
+/** 流水线停在哪、等你做什么；continuable 为 true 时可以点「继续」由服务端接着做这一格。 */
+export type DramaPipelineStop = { stage: DramaPipelineStageKey; label: string; reason: string; action: string; continuable: boolean };
+export type DramaPipeline = { runMode: DramaRunMode; runModeLabel: string; stages: DramaPipelineStage[]; current?: DramaPipelineStageKey; stop?: DramaPipelineStop };
 
 /** 台词：2.1 起回指剧本 line_id，三元（pace / tone / emotion）齐全时编译成即梦四元。 */
 export type DramaLine = { speaker: string; text: string; vo?: boolean; delivery?: string; line_id?: string; timbre?: string; pace?: string; tone?: string; emotion?: string; placement?: string };
@@ -140,12 +148,12 @@ export type DramaSegmentProgress = {
 
 export type DramaEndState = { key: string; label: string; done: boolean; detail: string; skill: string };
 
-/** 视频前的预演闸门（brief_json.previz_gate）：auto 跟授权档位（每步确认强制、全权跳过）。 */
+/** 视频前的预演闸门（brief_json.previz_gate）：auto 跟生成模式（跑到出视频前跳过，另两档强制）。 */
 export type DramaPrevizGate = "auto" | "on" | "off";
 
 export type DramaProgress = {
     model: DramaModel;
-    authMode: DramaAuthMode | "";
+    runMode: DramaRunMode | "";
     /** 预演闸门是否生效：生效时没有选中的黑白预演不能生成视频（后端拒绝，reason previz_required）。 */
     previzGate: boolean;
     previzGateSetting: DramaPrevizGate;
@@ -155,6 +163,8 @@ export type DramaProgress = {
     line: string;
     endStates: DramaEndState[];
     next?: DramaEndState;
+    /** 建项后的流水线：停在哪、等你做什么。 */
+    pipeline?: DramaPipeline;
 };
 
 export type DramaEvidenceKind = "transcript" | "frames" | "faces" | "levels" | "voice" | "pick" | "gate" | "review" | "delivery" | "acceptance";
@@ -572,9 +582,14 @@ export type DramaScriptAdaptMode = "adapt" | "rhythm";
  */
 export type DramaImageTaskTemplate = { model: string; logicalModelId?: string; provider?: string; input: Record<string, unknown>; maxReferenceImages?: number };
 
+/** 流水线「继续」：从停下的环节开始做，之后按生成模式接续（出视频不接，reason pipeline_video_manual）。imageTask 给了时提取后给新资产出图。 */
+export function continueDramaPipeline(projectId: string, input: { model: string; logicalModelId?: string; config: Record<string, unknown>; imageTask?: DramaImageTaskTemplate }) {
+    return http.post<{ stage: DramaPipelineStageKey; task?: GenerationTask; images?: DramaImageQueueResult; pipeline: DramaPipeline }>(`/projects/${encodeURIComponent(projectId)}/drama/pipeline/next`, input);
+}
+
 /**
- * 项目级步骤：风格锁定（style.lock，建项目时按类型、风格文字、参考图和画风出风格锚和主基调色卡，收尾只出候选，lockOnFinish 时直接锁定）、
- * 剧本优化（script.adapt，写完剧集服务端自动接着建场次色卡任务）、场次色卡（scene.palette：项目锁定风格后，以风格锚和主基调色卡为参考
+ * 项目级步骤：风格锁定（style.lock，按项目的画面类型、风格文字、参考图和剧本出风格锚和主基调色卡，收尾只出候选，lockOnFinish 时直接锁定）、
+ * 剧本优化（script.adapt，写完剧集服务端按生成模式接着建导演定画风或场次色卡任务）、场次色卡（scene.palette：项目锁定风格后，以风格锚和主基调色卡为参考
  * 为全部剧集逐场写色彩脚本，一轮一集，收尾写进 bible_json.color_script、每场建 / 加版本一张场次色卡，色卡图由代码合成）。
  */
 export function runDramaProjectStep(
@@ -590,13 +605,11 @@ export function runDramaProjectStep(
         episodeSeconds?: number;
         replace?: boolean;
         resumeTaskId?: string;
-        /** 风格锁定：项目类型（live-action …）、风格文字、参考图资源 ID（最多 6 张）、收尾直接锁定。 */
-        projectType?: string;
+        /** 风格锁定：风格文字、参考图资源 ID（最多 6 张）、收尾直接锁定（画面类型取项目的）。 */
         styleText?: string;
         referenceImages?: string[];
         lockOnFinish?: boolean;
-        /** 场次色卡（或剧本优化接着跑的场次色卡）写完后要不要按集依次接着提取资产（不给时接）；assetImageTask 给了时提取后给新资产出图。 */
-        chainAssets?: boolean;
+        /** 之后提取资产时给新资产出图的模板（随按生成模式接着建的任务一路带下去）；要不要接着做由项目的生成模式决定。 */
         assetImageTask?: DramaImageTaskTemplate;
     },
 ) {
@@ -718,7 +731,8 @@ export type DramaScriptAdaptOutcome = {
     warnings: number;
     items?: DramaCheckReport["items"];
     /** 写完剧集后服务端自动接着建的场次色卡任务；error 是没建成的原因（如项目还没锁定风格），剧集照写。 */
-    chained?: { step: "scene.palette"; taskId?: string; error?: string };
+    /** 写完剧集后按生成模式接着建的任务：交给导演分析、还没锁定风格时是导演定画风（style.lock），否则是场次色卡。 */
+    chained?: { step: "scene.palette" | "style.lock"; taskId?: string; error?: string };
 };
 
 /** 场次色卡收尾的摘要（任务 result.dramaStep）：写了几集几场、色卡新建 / 加版本几张、合成了几张图、没合成上的。 */

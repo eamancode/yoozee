@@ -63,7 +63,7 @@ function progress(patch: Partial<DramaProgress> = {}): DramaProgress {
     const segments = patch.segments ?? [segment()];
     return {
         model,
-        authMode: "step",
+        runMode: "every_step",
         segments,
         counts: { segments: segments.length, script: 0, refs: 0, generated: 0, takes: 0, reviewed: 0, inCut: 0, accepted: 0, overLimit: 0, ...(patch.counts ?? {}) },
         line: "1 段 · 剧本 1",
@@ -99,15 +99,15 @@ describe("概览：模型与档位标签", () => {
     test("显示每段上限、授权档位和未校准提示", () => {
         const html = render(<DramaModelChips progress={progress()} />);
         expect(html).toContain("Seedance 2.0 · 每段最长 15 秒");
-        expect(html).toContain("每步确认");
-        expect(html).not.toContain("档案未校准");
+        expect(html).toContain("每步都问我");
+        expect(html).not.toContain("未校准");
         expect(html).not.toContain("段超长");
     });
 
-    test("全权档位、未校准档案与超长段数都如实标出", () => {
-        const html = render(<DramaModelChips progress={progress({ authMode: "full", model: { ...model, calibrated: false }, counts: { segments: 3, script: 3, refs: 0, generated: 0, takes: 0, reviewed: 0, inCut: 0, accepted: 0, overLimit: 2 } })} />);
-        expect(html).toContain("全权");
-        expect(html).toContain("档案未校准");
+    test("生成模式与超长段数如实标出，未校准不进主标签", () => {
+        const html = render(<DramaModelChips progress={progress({ runMode: "until_video", model: { ...model, calibrated: false }, counts: { segments: 3, script: 3, refs: 0, generated: 0, takes: 0, reviewed: 0, inCut: 0, accepted: 0, overLimit: 2 } })} />);
+        expect(html).toContain("跑到出视频前");
+        expect(html).not.toContain("未校准");
         expect(html).toContain("2 段超长");
     });
 });
