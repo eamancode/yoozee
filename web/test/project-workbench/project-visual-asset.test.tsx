@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { projectVisualImageRequest, projectVisualTaskAssetId } from "../src/pages/projects/workbench/detail/project-visual-asset";
-import { assetKindLabel, assetSummary } from "../src/pages/assets/asset-library-format";
-import { ProjectVisualAssetCard } from "../src/pages/projects/workbench/detail/project-visual-asset-card";
-import { defaultConfig } from "../src/stores/use-config-store";
-import type { ProjectAsset } from "../src/services/api/projects";
+import { projectVisualImageRequest, projectVisualTaskAssetId } from "../../src/pages/projects/workbench/detail/project-visual-asset";
+import { assetKindLabel, assetSummary } from "../../src/pages/assets/asset-library-format";
+import { ProjectVisualAssetCard } from "../../src/pages/projects/workbench/detail/project-visual-asset-card";
+import { defaultConfig } from "../../src/stores/use-config-store";
+import type { ProjectAsset } from "../../src/services/api/projects";
 
 const asset: ProjectAsset = {
     id: "scene",

@@ -3,11 +3,11 @@ import { resolve } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import type { CharacterRepresentation } from "../src/services/api/projects";
-import { projectCharacterCover } from "../src/pages/projects/workbench/detail/project-character-cover";
+import type { CharacterRepresentation } from "../../src/services/api/projects";
+import { projectCharacterCover } from "../../src/pages/projects/workbench/detail/project-character-cover";
 
-const characterCardSource = readFileSync(resolve(import.meta.dir, "../src/pages/projects/workbench/detail/project-character-card.tsx"), "utf8");
-const projectAssetsSource = readFileSync(resolve(import.meta.dir, "../src/pages/projects/workbench/detail/assets.tsx"), "utf8");
+const characterCardSource = readFileSync(resolve(import.meta.dir, "../../src/pages/projects/workbench/detail/project-character-card.tsx"), "utf8");
+const projectAssetsSource = readFileSync(resolve(import.meta.dir, "../../src/pages/projects/workbench/detail/assets.tsx"), "utf8");
 
 describe("project character cover selection", () => {
     test("prefers the front representation over an earlier side representation", () => {

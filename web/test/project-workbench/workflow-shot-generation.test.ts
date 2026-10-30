@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 
-import { createModelChannel, defaultConfig, encodeChannelModel } from "../src/stores/use-config-store";
-import { submitBackendGenerationTask, type GenerationTaskDependencies } from "../src/services/api/generation-task";
-import type { GenerationTask } from "../src/services/api/task-center";
-import type { ProjectDetail } from "../src/services/api/projects";
-import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt } from "../src/pages/projects/workbench/detail/workflow-shot-references";
+import { createModelChannel, defaultConfig, encodeChannelModel } from "../../src/stores/use-config-store";
+import { submitBackendGenerationTask, type GenerationTaskDependencies } from "../../src/services/api/generation-task";
+import type { GenerationTask } from "../../src/services/api/task-center";
+import type { ProjectDetail } from "../../src/services/api/projects";
+import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt } from "../../src/pages/projects/workbench/detail/workflow-shot-references";
 
 function videoTaskConfig() {
     const channel = createModelChannel({
@@ -21,14 +21,14 @@ function videoTaskConfig() {
 }
 
 test("production workbench does not silently drop bound voice samples before backend validation", async () => {
-    const source = await Bun.file(new URL("../src/pages/projects/workbench/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+    const source = await Bun.file(new URL("../../src/pages/projects/workbench/detail/workflow-production-workbench.tsx", import.meta.url)).text();
 
     expect(source).toContain('const generationReferenceAudios = generationCapability === "video" ? shotAssetReferenceContext.referenceAudios : [];');
     expect(source).not.toContain("selectedVideoProfile?.references.maxAudios");
 });
 
 test("shot generation fits skill context into the model prompt limit and validates before submitting", async () => {
-    const source = await Bun.file(new URL("../src/pages/projects/workbench/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+    const source = await Bun.file(new URL("../../src/pages/projects/workbench/detail/workflow-production-workbench.tsx", import.meta.url)).text();
 
     // 图片/视频模型声明了 promptMaxChars（派普图片 API 是 32000），技能上下文整段前置会顶爆它。
     expect(source).toContain("const promptMaxChars = modelPromptMaxChars(effectiveConfig, routedModel, mode);");

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 test("镜头编辑器在保存按钮左侧提供带确认的删除操作", async () => {
-    const source = await Bun.file(new URL("../src/pages/projects/workbench/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+    const source = await Bun.file(new URL("../../src/pages/projects/workbench/detail/workflow-production-workbench.tsx", import.meta.url)).text();
     const deleteButton = source.indexOf(">删除镜头</Button>");
     const saveButton = source.indexOf(">保存脚本</Button>");
 
@@ -13,7 +13,7 @@ test("镜头编辑器在保存按钮左侧提供带确认的删除操作", async
 });
 
 test("镜头删除 API 使用项目和镜头双重路径作用域", async () => {
-    const source = await Bun.file(new URL("../src/services/api/projects.ts", import.meta.url)).text();
+    const source = await Bun.file(new URL("../../src/services/api/projects.ts", import.meta.url)).text();
 
     expect(source).toContain("http.delete<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}`)");
 });
