@@ -59,6 +59,9 @@ type DramaShotlistWriteRequest struct {
 	// KeepSegments 是只重写了几节（「重新生成问题小节」、改戏类）：装段按小节沿用本章现有的段（没变的节分镜图、预演、视频都留着，
 	// 被改的节原来的段换上新内容、产物过期），不整章替换。见 replaceProjectUnitShotsKeeping。
 	KeepSegments bool `json:"-"`
+	// GuardDiscard 为 true 时，装段要删掉的段（保留装段对不上的旧段、整章替换的全部旧段）有分镜图 / 预演 / 视频就拒绝
+	// （drama_segments_discard_required），由用户确认后带 discard 再来。重新装段、先装段用它；生成任务收尾不用。
+	GuardDiscard bool `json:"-"`
 	// Sections 是按小节生成时每一节的原样输出（存进 sections_json）；为 nil 时（重新装段、带问题装段、手写镜头表）沿用上一版存下的，
 	// 新的镜头表已经不按小节（镜头没写 section）时清空。
 	Sections []drama.SectionOutput `json:"-"`
@@ -634,11 +637,24 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if pc.SceneCast, err = s.unitSceneCast(project, unit.ID, assets); err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	plan, err := planDramaShotlistWith(rows, script, assets, imaged, m, phrases, pc, req.AcceptIssues)
+	// 只重写了几节（部分重跑、改戏类）：上一次带问题装段时接受过的问题在没重写的节里仍算已接受，不把整章打回草稿；新出现的照常拦。
+	var accepted map[string]int
+	if req.KeepSegments && !req.AcceptIssues {
+		if accepted, err = s.previousAcceptedIssues(projectID, unitID); err != nil {
+			return DramaShotlistWriteResult{}, err
+		}
+	}
+	plan, err := planDramaShotlistWith(rows, script, assets, imaged, m, phrases, pc, req.AcceptIssues || len(accepted) > 0)
 	plan.Report.Parse = req.Parse
 	sections, err2 := s.dramaShotlistSections(projectID, unitID, req.Sections, plan.Shotlist)
 	if err2 != nil {
 		return DramaShotlistWriteResult{}, err2
+	}
+	carried := false
+	if err == nil && !req.AcceptIssues && len(accepted) > 0 && plan.Report.HasErrors() {
+		if carried = issuesAllAccepted(plan.Report, plan.Shotlist, script, sections, accepted); !carried {
+			err = shotlistCheckFailed(plan.Report, plan.Stats)
+		}
 	}
 	var appErr *AppError
 	if err != nil && req.KeepDraft && errors.As(err, &appErr) && appErr.Reason == ReasonShotlistCheckFailed {
@@ -647,7 +663,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	if req.AcceptIssues && plan.Report.HasErrors() {
+	if (req.AcceptIssues || carried) && plan.Report.HasErrors() {
 		if err := acceptedPackBlocked(plan, m); err != nil {
 			return DramaShotlistWriteResult{}, err
 		}
@@ -683,14 +699,18 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 		scriptJSON, _ := json.Marshal(script)
 		record.ScriptJSON = string(scriptJSON)
 	}
+	// 段这次就按这一版各节装：之后的草稿不改它，「先装段」按它对回现有的段。
+	record.PackedSectionsJSON = record.SectionsJSON
 	if req.KeepSegments && len(sections) > 0 {
 		previous, err := s.previousShotlistSections(projectID, unitID)
 		if err != nil {
 			return DramaShotlistWriteResult{}, err
 		}
-		if err := s.replaceProjectUnitShotsKeeping(userID, projectID, unitID, inputs, segments, previous, sections, record); err != nil {
+		if err := s.replaceProjectUnitShotsKeeping(userID, projectID, unitID, inputs, segments, previous, sections, record, req.GuardDiscard); err != nil {
 			return DramaShotlistWriteResult{}, err
 		}
+	} else if err := s.guardWholeReplace(projectID, unitID, req.GuardDiscard); err != nil {
+		return DramaShotlistWriteResult{}, err
 	} else if _, err := s.replaceProjectUnitShots(userID, projectID, unitID, ReplaceProjectUnitShotsRequest{Shots: inputs, ExpectedShotIDs: req.ExpectedShotIDs}, record); err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
@@ -702,7 +722,10 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	if script == nil {
 		notes = append(notes, "章节正文为空，台词覆盖（R-SHOT-001）没有检查")
 	}
-	if report.Accepted {
+	switch {
+	case carried:
+		notes = append(notes, fmt.Sprintf("镜头表检查的 %d 个问题都在没重写的小节里、上次已接受过，照常装段；问题仍标在分镜制作的段和镜头上", report.Errors))
+	case report.Accepted:
 		notes = append(notes, fmt.Sprintf("镜头表检查有 %d 个问题，已带着问题装段；问题标在分镜制作的段和镜头上，逐张改完会自动重检", report.Errors))
 	}
 	view := DramaShotlistView{UnitID: unitID, Version: record.Version, Shotlist: shotlist, Script: script, Check: report, Accepted: report.Accepted, Issues: drama.ShotIssues(report, shotlist, script, "error"), CompileProfile: compileProfileRef(phrases), Sections: sections, UpdatedAt: record.UpdatedAt}
@@ -756,6 +779,12 @@ func (s *Service) writeDramaShotlistDraft(userID string, projectID string, unitI
 		scriptJSON, _ := json.Marshal(script)
 		record.ScriptJSON = string(scriptJSON)
 	}
+	// 草稿不装段：本章现有的段仍是上一版各节装出的，记下那一版（「先装段」按它保留装段）。
+	if previous, err := s.repo.DramaShotlistForUnit(projectID, unitID); err == nil {
+		record.PackedSectionsJSON = packedSectionsJSON(previous)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return DramaShotlistWriteResult{}, err
+	}
 	if err := s.repo.SaveDramaShotlist(record); err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
@@ -799,7 +828,8 @@ func (s *Service) dramaShotlistSections(projectID string, unitID string, given [
 	return out, nil
 }
 
-// previousShotlistSections 是本章镜头表上一版存下的各节（保留装段按它把新段对到现有的段）；没有时为空。
+// previousShotlistSections 是本章现有的段是按哪一版各节装出的（保留装段按它把新段对到现有的段）；没有时为空。
+// 上一版是草稿时它的 sections_json 是草稿的各节、和现有的段对不上，取 packed_sections_json。
 func (s *Service) previousShotlistSections(projectID string, unitID string) ([]drama.SectionOutput, error) {
 	previous, err := s.repo.DramaShotlistForUnit(projectID, unitID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -809,10 +839,29 @@ func (s *Service) previousShotlistSections(projectID string, unitID string) ([]d
 		return nil, err
 	}
 	var out []drama.SectionOutput
-	if strings.TrimSpace(previous.SectionsJSON) != "" {
-		_ = json.Unmarshal([]byte(previous.SectionsJSON), &out)
+	raw := packedSectionsJSON(previous)
+	if raw == "" {
+		// 加这一列之前存的草稿：不知道现有的段按哪一版装，退回按草稿的各节对（按小节编号）。
+		raw = previous.SectionsJSON
+	}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &out)
 	}
 	return out, nil
+}
+
+// packedSectionsJSON 是一份镜头表记录对应的现有段是按哪一版各节装出的：记下了就用；没记（加这一列之前的记录）且不是草稿时
+// 就是它自己的各节；草稿没记时为空（不知道）。
+func packedSectionsJSON(record *model.DramaShotlist) string {
+	if strings.TrimSpace(record.PackedSectionsJSON) != "" {
+		return record.PackedSectionsJSON
+	}
+	var check drama.CheckReport
+	_ = json.Unmarshal([]byte(firstNonEmpty(record.CheckJSON, "{}")), &check)
+	if check.HasErrors() && !check.Accepted {
+		return ""
+	}
+	return record.SectionsJSON
 }
 
 func sectionsJSON(sections []drama.SectionOutput) string {
@@ -1051,10 +1100,13 @@ func dramaSegmentShotInput(seg drama.Segment, rowByShot map[string]shotlistRow) 
 type DramaShotlistRepackRequest struct {
 	Rule         *DramaShotlistRule `json:"rule,omitempty"`
 	AcceptIssues bool               `json:"acceptIssues,omitempty"`
+	// Discard 为 true 表示用户已确认：装段要删掉的段上已有的分镜图、预演、视频可以一起删。没给时遇到这种段就 409（details.discards 列出）。
+	Discard bool `json:"discard,omitempty"`
 }
 
 // RepackDramaShotlist 用这一章已存的分镜行原文按当前生效的编译档案重新检查、装段（不调模型）：改了镜头画面句类的文字后用它让段换上新写法。
-// 与写镜头表一样整章替换段，旧段的候选视频和证据一并删除。
+// 按小节生成的镜头表（存了每节原样输出，含草稿上的「先装段」）走保留装段：节没变的段沿用原 ID 与产物，内容变了的加版本、按指纹过期，
+// 对不上任何节的旧段才删。旧镜头表整章替换，旧段的候选视频和证据一并删除。要删的段有产物时先拒绝，带 discard 确认后再做。
 func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID string, req DramaShotlistRepackRequest) (DramaShotlistWriteResult, error) {
 	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
 		return DramaShotlistWriteResult{}, err
@@ -1096,7 +1148,8 @@ func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID st
 	}
 	// 已经带着问题装过段的，重装（改了时长、资产、编译档案）照样带着问题装，不用再选一次。
 	accept := req.AcceptIssues || previous.Accepted
-	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, Parse: previous.Parse, LegacyScenes: legacy, AcceptIssues: accept})
+	keep := strings.TrimSpace(record.SectionsJSON) != ""
+	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, Parse: previous.Parse, LegacyScenes: legacy, AcceptIssues: accept, KeepSegments: keep, GuardDiscard: !req.Discard})
 }
 
 // DramaShotlist 读一章的镜头表、台词表与最近一次检查结果；这一章还没有镜头表时返回 nil。

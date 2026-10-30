@@ -367,7 +367,10 @@ type DramaShotlist struct {
 	RowsJSON string `json:"-" gorm:"type:text"`
 	// SectionsJSON 是按小节生成时每一节的原样输出（drama.SectionOutput 数组，M8）：分镜卡按戏类版式显示、只重写几节时作对话历史；
 	// 旧镜头表、手写镜头表为空。
-	SectionsJSON          string    `json:"-" gorm:"type:text"`
+	SectionsJSON string `json:"-" gorm:"type:text"`
+	// PackedSectionsJSON 是本章现有的段是按哪一版各节装出的（与 sections_json 同形状）：写段时与 sections_json 一起写，
+	// 检查没过的草稿只换 sections_json、不动它。草稿上「先装段」按它把新段对回现有的段（保留装段）。旧记录为空。
+	PackedSectionsJSON    string    `json:"-" gorm:"type:text"`
 	CompileProfileVersion int       `json:"compileProfileVersion" gorm:"not null;default:0"`
 	CreatedBy             string    `json:"createdBy,omitempty" gorm:"size:36"`
 	CreatedAt             time.Time `json:"createdAt"`

@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 70
+const CurrentSchemaVersion int64 = 71
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -254,6 +254,10 @@ var schemaMigrations = []migration{
 	}},
 	// M8 卡 D：角色子卡（服装 / 状态）是独立的角色资产，assets 加 parent_asset_id（指向主卡，带索引）和 variant_label（变体名）。
 	{version: 70, name: "asset_character_variants", checksum: "sha256:asset-character-variants-v70-20261028", apply: migrateAssetCharacterVariants},
+	// M8 验收修复：drama_shotlists 加 packed_sections_json（本章现有的段按哪一版各节装出；草稿不改它），草稿上「先装段」按它保留装段。
+	{version: 71, name: "drama_shotlist_packed_sections", checksum: "sha256:drama-shotlist-packed-sections-v71-20261030", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaShotlist{})
+	}},
 }
 
 // migrateAssetCharacterVariants 给 assets 加子卡的两列（已有行是空串，即主卡或普通资产）和 parent_asset_id 索引。

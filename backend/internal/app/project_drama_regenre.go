@@ -176,8 +176,8 @@ func dramaSegmentSection(specJSON string) string {
 //   - 被改的节原来的段换成同一场里正文范围有重叠的第一段新内容（加版本，产物过期）；
 //   - 多出来的新建，不再对应任何节的旧段删掉（连同候选视频和证据）。
 //
-// previous 是写之前的镜头表各节，sections 是这次的各节。
-func (s *Service) replaceProjectUnitShotsKeeping(userID string, projectID string, unitID string, inputs []ReplaceProjectUnitShotInput, segments []drama.Segment, previous []drama.SectionOutput, sections []drama.SectionOutput, shotlist *model.DramaShotlist) error {
+// previous 是写之前的镜头表各节，sections 是这次的各节。guard 为 true 时要删的旧段有产物就拒绝（见 guardSegmentDiscards），什么都不写。
+func (s *Service) replaceProjectUnitShotsKeeping(userID string, projectID string, unitID string, inputs []ReplaceProjectUnitShotInput, segments []drama.Segment, previous []drama.SectionOutput, sections []drama.SectionOutput, shotlist *model.DramaShotlist, guard bool) error {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return err
@@ -289,10 +289,15 @@ func (s *Service) replaceProjectUnitShotsKeeping(userID string, projectID string
 		}
 		writes = append(writes, w)
 	}
-	var deletes []string
+	deletes := []string{}
 	for j, o := range olds {
 		if !used[j] {
 			deletes = append(deletes, o.shot.ID)
+		}
+	}
+	if guard {
+		if err := s.guardSegmentDiscards(projectID, unitID, deletes); err != nil {
+			return err
 		}
 	}
 	if shotlist != nil {
