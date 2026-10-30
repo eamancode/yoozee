@@ -76,6 +76,8 @@ type pipelineState struct {
 	active map[string][]model.Task
 	// latest 是每个「步骤|单元」最近的一个任务（项目级步骤单元为空）。
 	latest map[string]model.Task
+	// lastStep 是最近一个成功收尾的流程步骤任务（链式接续没接上时，原因记在它的结果里）。
+	lastStep *model.Task
 	// extracted 是提取资产成功过的单元。
 	extracted map[string]bool
 	shotlist  map[string]bool
@@ -154,6 +156,10 @@ func (s *Service) loadPipelineState(userID string, project *model.Project) (*pip
 		}
 		if key == drama.StepAssetsExtract && task.Status == model.TaskStatusSucceeded && unitID != "" {
 			st.extracted[unitID] = true
+		}
+		if st.lastStep == nil && task.Status == model.TaskStatusSucceeded && key != pipelineKeyImage && key != pipelineKeyVideo {
+			last := task
+			st.lastStep = &last
 		}
 	}
 	shotlists, err := s.repo.DramaShotlistsForProject(project.ID)
@@ -349,7 +355,44 @@ func (s *Service) projectPipeline(userID string, project *model.Project, progres
 	}
 	facts[drama.StageVideo] = video
 	facts[drama.StageCut] = drama.PipelineFacts{Done: end["gate"].Done}
-	return drama.DerivePipeline(project.RunMode, facts), nil
+	pipeline := drama.DerivePipeline(project.RunMode, facts)
+	// 生成模式本该接着做、却停在这一格又没有别的原因：多半是链式接续没接上（比如参考图要能读图的模型），
+	// 原因记在最近一个成功收尾的步骤结果里，写出来。
+	if stop := pipeline.Stop; stop != nil && facts[stop.Stage].Problem == "" && drama.ShouldAutoContinue(project.RunMode, stop.Stage) {
+		if reason := s.lastChainError(userID, st.lastStep); reason != "" {
+			f := facts[stop.Stage]
+			f.Problem = "没能自动开始：" + reason
+			facts[stop.Stage] = f
+			pipeline = drama.DerivePipeline(project.RunMode, facts)
+		}
+	}
+	return pipeline, nil
+}
+
+// lastChainError 读一个步骤任务结果里没接上的原因（result.dramaStep.chained.error 或 next.error）；没有返回空串。
+func (s *Service) lastChainError(userID string, task *model.Task) string {
+	if task == nil {
+		return ""
+	}
+	full, err := s.repo.TaskForUser(userID, task.ID)
+	if err != nil {
+		return ""
+	}
+	var result struct {
+		DramaStep struct {
+			Chained *DramaChainedTask `json:"chained"`
+			Next    *DramaChainedTask `json:"next"`
+		} `json:"dramaStep"`
+	}
+	if json.Unmarshal([]byte(full.ResultJSON), &result) != nil {
+		return ""
+	}
+	for _, chained := range []*DramaChainedTask{result.DramaStep.Next, result.DramaStep.Chained} {
+		if chained != nil && chained.TaskID == "" && chained.Error != "" {
+			return chained.Error
+		}
+	}
+	return ""
 }
 
 // DramaPipelineNext 是流水线「继续」：从当前环节开始做（用户点的，不看生成模式），之后按生成模式接续。出视频、剪辑不接。

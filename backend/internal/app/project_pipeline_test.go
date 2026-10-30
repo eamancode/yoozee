@@ -221,3 +221,30 @@ func TestDramaProgressCarriesPipeline(t *testing.T) {
 		t.Fatal("不该有视频任务")
 	}
 }
+
+// 生成模式本该接着做、链式接续却没接上时，流水线写出没接上的原因（记在最近一个成功收尾的步骤结果里）。
+func TestProjectPipelineShowsChainError(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, _ := seedEpisodeProject(t, svc, db)
+	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("bible_json", `{"characters":[]}`).Error; err != nil {
+		t.Fatal(err)
+	}
+	adapt := insertPipelineStepTask(t, db, project, drama.StepScriptAdapt, "", model.TaskStatusSucceeded)
+	if err := db.Model(&model.Task{}).Where("id = ?", adapt.ID).Update("result_json", `{"dramaStep":{"step":"script.adapt","chained":{"step":"style.lock","error":"参考图要用能读图的文本模型"}}}`).Error; err != nil {
+		t.Fatal(err)
+	}
+	progress, err := svc.DramaProgress("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := progress.Pipeline.Stop
+	if stop == nil || stop.Stage != drama.StageStyle || stop.Reason != "没能自动开始：参考图要用能读图的文本模型" || !stop.Continuable {
+		t.Fatalf("停在导演定画风并写明没接上的原因：%+v", stop)
+	}
+	// 每步都问我本来就停在这里：写生成模式的原因。
+	setProjectRunMode(t, db, project.ID, drama.RunEveryStep)
+	progress, _ = svc.DramaProgress("user-1", project.ID)
+	if stop := progress.Pipeline.Stop; stop == nil || !strings.Contains(stop.Reason, "每步都问我") {
+		t.Fatalf("每步都问我停下的原因：%+v", stop)
+	}
+}
