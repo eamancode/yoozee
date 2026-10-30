@@ -1,6 +1,6 @@
 import { Tooltip } from "antd";
 
-import type { DramaMasterPalette, DramaPaletteColor, DramaStyleAnchor } from "@/services/api/drama";
+import type { DramaMasterPalette, DramaPaletteColor, DramaStyleAnchor } from "@/services/api/project-drama";
 
 const ANCHOR_FIELDS: Array<[keyof DramaStyleAnchor, string]> = [
     ["medium", "画风 / 媒介"],

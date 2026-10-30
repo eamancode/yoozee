@@ -50,7 +50,7 @@ func shotByID(t *testing.T, shots []drama.Shot, id string) drama.Shot {
 
 // 草稿「先装段」：带着 error 装段，问题挂到对应镜头和段上；逐张补台词、只保留一处后重检清零，标记消失，之后重装段也不丢改动。
 func TestAcceptIssuesThenEditShotsClearsMarks(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuang(t, db, project, unit)
 	result := map[string]any{"text": brokenQichuangLines(t)}
 	if _, err := service.finalizeDramaStepTask(dramaStepTask(project, unit, nil), result); err != nil {
@@ -157,7 +157,7 @@ func TestAcceptIssuesThenEditShotsClearsMarks(t *testing.T) {
 
 // 带问题装段仍拒绝会让装段本身做不成的问题：镜头时长不是正数。
 func TestAcceptIssuesRejectsUnpackableShots(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuang(t, db, project, unit)
 	rows, text := onlineOutputLines(t)
 	spec := map[string]any{}

@@ -26,11 +26,11 @@ writeFileSync(
         "};",
     ].join("\n"),
 );
-const source = readFileSync(new URL("../src/services/api/drama.ts", import.meta.url), "utf8");
+const source = readFileSync(new URL("../src/services/api/project-drama.ts", import.meta.url), "utf8");
 const dramaPath = join(dir, "drama.ts");
 const errorCodesPath = fileURLToPath(new URL("../src/services/api/error-codes.ts", import.meta.url));
 writeFileSync(dramaPath, source.replace('"@/services/api/request"', JSON.stringify(requestPath)).replace('"@/services/api/error-codes"', JSON.stringify(errorCodesPath)));
-const drama: typeof import("../src/services/api/drama") = await import(dramaPath);
+const drama: typeof import("../src/services/api/project-drama") = await import(dramaPath);
 const transport = await import(requestPath);
 
 const lastCall = () => transport.calls[transport.calls.length - 1];

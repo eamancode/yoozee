@@ -44,7 +44,7 @@ describe("技能选择", () => {
     });
 
     test("生成分段对话框不再让用户选技能：技能由项目风格档案绑定", async () => {
-        const chapters = await Bun.file(new URL("../src/pages/projects/detail/chapters.tsx", import.meta.url)).text();
+        const chapters = await Bun.file(new URL("../src/pages/projects/workbench/detail/chapters.tsx", import.meta.url)).text();
         expect(chapters).not.toContain("SkillRuntimePicker");
         expect(chapters).toContain("本步使用：");
     });

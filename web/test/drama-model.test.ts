@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, dramaAuthLabel, dramaModelOptions, findDramaModel } from "@/pages/projects/drama-model";
-import type { DramaModel, DramaRegistry } from "@/services/api/drama";
+import { DEFAULT_DRAMA_MODEL, DRAMA_AUTH_OPTIONS, dramaAuthLabel, dramaModelOptions, findDramaModel } from "@/pages/projects/workbench/drama-model";
+import type { DramaModel, DramaRegistry } from "@/services/api/project-drama";
 
 function model(patch: Partial<DramaModel> & { id: string }): DramaModel {
     return {

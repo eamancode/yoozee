@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { chapterTaskIdentity } from "@/pages/projects/detail/project-chapter-ai";
+import { chapterTaskIdentity } from "@/pages/projects/workbench/detail/project-chapter-ai";
 import type { GenerationTask } from "@/services/api/task-center";
 
 describe("章节生成任务刷新恢复", () => {

@@ -103,7 +103,7 @@ func chapterHTML(t *testing.T) string {
 }
 
 func TestWriteDramaShotlistChecksPacksAndStores(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	if err := db.Model(&model.ProjectUnit{}).Where("id = ?", unit.ID).Update("source_text", chapterHTML(t)).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +513,7 @@ func TestCompileDropsImagelessRefsFromStoredSegments(t *testing.T) {
 
 // 剧本优化替换掉的旧剧集被删后，页面还可能读它的镜头表：返回 404（not_found），不是 500；在的单元照常读。
 func TestDramaShotlistOfDeletedUnitIsNotFound(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	if view, err := service.DramaShotlist("user-1", project.ID, unit.ID); err != nil || view != nil {
 		t.Fatalf("还没有镜头表的章节返回空：%v %+v", err, view)
 	}

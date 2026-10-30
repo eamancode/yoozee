@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { applyBriefFacts, bibleSummary, briefConfirmedCount, briefEpisodeSeconds, briefFactsFromDocument, parseDocumentJson, segmentMaxSecondsWithBrief, withEpisodeSeconds } from "../src/pages/projects/detail/drama-brief";
+import { applyBriefFacts, bibleSummary, briefConfirmedCount, briefEpisodeSeconds, briefFactsFromDocument, parseDocumentJson, segmentMaxSecondsWithBrief, withEpisodeSeconds } from "../src/pages/projects/workbench/detail/drama-brief";
 
 describe("需求文档与连戏表的前端入口", () => {
     test("六项事实读成表单，旧的字符串写法回落为默认待确认", () => {
@@ -64,7 +64,7 @@ describe("需求文档与连戏表的前端入口", () => {
     });
 
     test("概览终态卡给出打开需求文档、连戏表的入口", async () => {
-        const source = await Bun.file(new URL("../src/pages/projects/detail/drama-panels.tsx", import.meta.url)).text();
+        const source = await Bun.file(new URL("../src/pages/projects/workbench/detail/drama-panels.tsx", import.meta.url)).text();
         // 「风格定了」打开连戏表的风格锚页，「色卡齐了」去资产页的色卡分类。
         expect(source).toContain('const DOCUMENT_BY_END_STATE: Record<string, "brief" | "bible" | undefined> = { brief: "brief", style: "bible", refs: "bible" };');
         expect(source).toContain("/assets?category=palette");

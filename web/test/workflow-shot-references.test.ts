@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
 import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "@/pages/projects/detail/workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "@/pages/projects/workbench/detail/workflow-shot-references";
 
 describe("workflow shot asset references", () => {
     test("builds ordered image references for bound media and characters", () => {

@@ -15,7 +15,7 @@ import (
 )
 
 // addArtifact 给一段挂一个按当前版本算好指纹的产物（ready）。
-func addArtifact(t *testing.T, svc *Service, db *gorm.DB, projectID string, view DramaSegmentView, kind string) string {
+func addArtifact(t *testing.T, svc *Service, db *gorm.DB, projectID string, view ProjectDramaSegmentView, kind string) string {
 	t.Helper()
 	id := newID()
 	var version int64
@@ -157,7 +157,7 @@ func TestKeptSegmentsStayFreshAcrossCardGFormat(t *testing.T) {
 	})
 
 	// ④ 改过的这一段重新出分镜图、预演、视频；在制作台原样保存一次（PUT 相同 spec）是空操作：剧情和装段同一个派生法，指纹不变。
-	current := func() DramaSegmentView {
+	current := func() ProjectDramaSegmentView {
 		t.Helper()
 		views, err := svc.DramaSegments("user-1", project.ID, unit.ID)
 		if err != nil {
@@ -169,7 +169,7 @@ func TestKeptSegmentsStayFreshAcrossCardGFormat(t *testing.T) {
 			}
 		}
 		t.Fatal("第 1 段不见了")
-		return DramaSegmentView{}
+		return ProjectDramaSegmentView{}
 	}
 	type triple struct{ storyboard, previz, video string }
 	regen := func() triple {
@@ -208,7 +208,10 @@ func TestKeptSegmentsStayFreshAcrossCardGFormat(t *testing.T) {
 	}
 	expect("编辑后只重跑别的节", mine, "ready", "ready", "ready")
 	var wenxiSection string
-	for _, v := range func() []DramaSegmentView { views, _ := svc.DramaSegments("user-1", project.ID, unit.ID); return views }() {
+	for _, v := range func() []ProjectDramaSegmentView {
+		views, _ := svc.DramaSegments("user-1", project.ID, unit.ID)
+		return views
+	}() {
 		if strings.HasPrefix(v.Spec.Section, "E01S02-") && v.Spec.Genre == drama.ShotGenreWenxi15 {
 			wenxiSection = v.Spec.Section
 		}

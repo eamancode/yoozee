@@ -1,5 +1,5 @@
 import { http } from "@/services/api/request";
-import type { DramaStyleProfile } from "@/services/api/drama";
+import type { DramaStyleProfile } from "@/services/api/project-drama";
 
 /** 绑定矩阵的一格：skillId 为空表示没配，运行时用步骤默认技能。 */
 export type DramaStepBindingCell = {

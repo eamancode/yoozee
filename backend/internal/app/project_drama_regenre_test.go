@@ -81,7 +81,7 @@ func queueRegenreTask(t *testing.T, svc *Service, db *gorm.DB, project model.Pro
 }
 
 // addStoryboardArtifact 给一段挂一张按当前版本算好指纹的分镜图（ready），看装段后它过不过期。
-func addStoryboardArtifact(t *testing.T, svc *Service, db *gorm.DB, projectID string, view DramaSegmentView) string {
+func addStoryboardArtifact(t *testing.T, svc *Service, db *gorm.DB, projectID string, view ProjectDramaSegmentView) string {
 	t.Helper()
 	id := newID()
 	artifact := model.ShotArtifact{ID: id, ProjectID: projectID, UnitID: view.UnitID, ShotID: view.ShotID, RevisionID: view.RevisionID, Type: drama.ArtifactStoryboard, Version: 1, Status: "ready", Selected: true,
@@ -101,7 +101,7 @@ func artifactStatus(t *testing.T, db *gorm.DB, id string) string {
 	return a.Status
 }
 
-func segmentSections(segments []DramaSegmentView) []string {
+func segmentSections(segments []ProjectDramaSegmentView) []string {
 	var out []string
 	for _, s := range segments {
 		out = append(out, s.Spec.Section+"/"+s.Spec.Genre)

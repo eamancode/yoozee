@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { chapterStoryboardReplaceImpact } from "@/pages/projects/detail/chapter-storyboard-production";
+import { chapterStoryboardReplaceImpact } from "@/pages/projects/workbench/detail/chapter-storyboard-production";
 import type { ProjectDetail } from "@/services/api/projects";
 
 describe("章节分镜替换", () => {

@@ -1,5 +1,5 @@
 import { apiBaseURL, compactApiParams, http } from "@/services/api/request";
-import type { DramaMasterPalette, DramaStyleAnchor, DramaStyleLockRecord } from "@/services/api/drama";
+import type { DramaMasterPalette, DramaStyleAnchor, DramaStyleLockRecord } from "@/services/api/project-drama";
 import type { ProjectAsset } from "@/services/api/projects";
 
 /** 项目类型（与建项目的类型同值），平台风格库按它归档。 */

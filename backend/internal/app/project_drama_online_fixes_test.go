@@ -207,7 +207,7 @@ func TestProjectDramaContextMapsStyleToProfile(t *testing.T) {
 
 // 项目选了画风：镜头表按对照出的档案装段，视频提示词的风格段是画风执行规范，不再是档案 style_block。
 func TestCompileProjectShotUsesProjectStyle(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Updates(map[string]any{"style_profile_json": testSuspenseStyleJSON, "brief_json": `{"title":"夜班","episode_seconds":60}`}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestCompileProjectShotUsesProjectStyle(t *testing.T) {
 
 // 资产页编辑场景锚点：原地写主版本设定的 anchors（不建新版本，镜头引用的版本不变），只有场景能写。
 func TestUpdateProjectAssetSceneAnchors(t *testing.T) {
-	service, db, project, _ := newDramaTestService(t, "seedance-2.5")
+	service, db, project, _ := newProjectDramaTestService(t, "seedance-2.5")
 	now := time.Now()
 	for _, a := range []struct {
 		id, title string

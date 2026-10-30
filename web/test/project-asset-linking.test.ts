@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { linkSelectedProjectAssets } from "@/pages/projects/detail/project-asset-linking";
+import { linkSelectedProjectAssets } from "@/pages/projects/workbench/detail/project-asset-linking";
 
 describe("project asset batch linking", () => {
     test("links every selected asset instead of only the first one", async () => {

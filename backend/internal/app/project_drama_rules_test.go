@@ -85,7 +85,7 @@ func TestDramaAgentToolsFollowPermissionMode(t *testing.T) {
 }
 
 func TestProjectVideoModelFamilyMustMatchGenerationModel(t *testing.T) {
-	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
+	service, _, project, _ := newProjectDramaTestService(t, "seedance-2.0")
 
 	// 建项目：生成模型是 Seedance 2.0，默认视频模型却选了 H3 族的渠道模型 → 拒绝。
 	if _, err := service.CreateProject("user-1", CreateProjectRequest{
@@ -143,7 +143,7 @@ func TestProjectVideoModelFamilyMustMatchGenerationModel(t *testing.T) {
 }
 
 func TestProjectAuthModeOnlyAcceptsTwoTiers(t *testing.T) {
-	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
+	service, _, project, _ := newProjectDramaTestService(t, "seedance-2.0")
 
 	// 空值按每步确认落库。
 	created, err := service.CreateProject("user-1", CreateProjectRequest{Name: "默认档位", Type: "short-drama"})
@@ -187,7 +187,7 @@ func TestProjectAuthModeOnlyAcceptsTwoTiers(t *testing.T) {
 }
 
 func TestWriteDramaSegmentsRejectsOverLongBatchWithoutPartialWrites(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.0")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.0")
 
 	// 一批三段，只有第三段超长（20 秒 > 15 秒）→ 整批拒绝，一段都不能落库。
 	_, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
@@ -236,7 +236,7 @@ func TestWriteDramaSegmentsRejectsOverLongBatchWithoutPartialWrites(t *testing.T
 
 func TestDramaProgressMarksOverLimitAfterShrinkingModel(t *testing.T) {
 	// 项目先按 Seedance 2.5（30 秒）建，写一段 20 秒的段；再把生成模型改小到 2.0（15 秒）。
-	service, _, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, _, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
 		UnitID:   unit.ID,
 		Segments: []json.RawMessage{dramaSpec("S01", 20, "第一句")},
@@ -272,7 +272,7 @@ func TestDramaProgressMarksOverLimitAfterShrinkingModel(t *testing.T) {
 
 // 拆段、合段走同一个写入接口：给出本章段顺序，新段插在原段后面，被合并掉的段连同生成结果删除。
 func TestWriteDramaSegmentsOrderSplitsAndMergesInPlace(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	views, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{
 		UnitID:   unit.ID,
 		Segments: []json.RawMessage{dramaSpec("S01", 8, "第一句"), dramaSpec("S02", 12, "第二句"), dramaSpec("S03", 6, "第三句")},
@@ -345,7 +345,7 @@ func TestWriteDramaSegmentsOrderSplitsAndMergesInPlace(t *testing.T) {
 	}
 }
 
-func segmentIDs(views []DramaSegmentView) string {
+func segmentIDs(views []ProjectDramaSegmentView) string {
 	ids := make([]string, 0, len(views))
 	for _, view := range views {
 		ids = append(ids, view.Spec.ID)
@@ -443,9 +443,9 @@ func TestSegmentOrderErrorsReachAgentVerbatim(t *testing.T) {
 // Agent 从工具入口拆段、合段：新段插在原段后面，合掉的段连候选一起删，order 有错时整批不落库且报错可读。
 // 需要 CGO（SQLite），本机无 CGO 时不能运行。
 func TestDramaSegmentsWriteToolSplitsAndMergesWithOrder(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	state := &cloudAgentRuntime{Request: CloudAgentRequest{DramaProjectID: project.ID}}
-	write := func(segments []json.RawMessage, order []string) ([]DramaSegmentView, error) {
+	write := func(segments []json.RawMessage, order []string) ([]ProjectDramaSegmentView, error) {
 		args := map[string]any{"unitId": unit.ID, "segments": segments}
 		if order != nil {
 			args["order"] = order
@@ -454,7 +454,7 @@ func TestDramaSegmentsWriteToolSplitsAndMergesWithOrder(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return result.([]DramaSegmentView), nil
+		return result.([]ProjectDramaSegmentView), nil
 	}
 	views, err := write([]json.RawMessage{dramaSpec("S01", 8, "第一句"), dramaSpec("S02", 12, "第二句"), dramaSpec("S03", 6, "第三句")}, nil)
 	if err != nil {
@@ -502,7 +502,7 @@ func TestDramaSegmentsWriteToolSplitsAndMergesWithOrder(t *testing.T) {
 
 // 旧镜头没有分段 JSON、段号按位置合成：order 里漏掉它不能当成删除，必须列出来。需要 CGO（SQLite）。
 func TestDramaSegmentsWriteToolOrderMustListLegacySegments(t *testing.T) {
-	service, _, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, _, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	state := &cloudAgentRuntime{Request: CloudAgentRequest{DramaProjectID: project.ID}}
 	legacy, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "旧镜头", Description: "护士推开七床的门", DurationMs: 5000})
 	if err != nil {
@@ -520,7 +520,7 @@ func TestDramaSegmentsWriteToolOrderMustListLegacySegments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("列出旧镜头后应通过：%v", err)
 	}
-	views := result.([]DramaSegmentView)
+	views := result.([]ProjectDramaSegmentView)
 	if len(views) != 2 || views[0].ShotID != legacy.ID || !views[0].Derived || views[1].Spec.ID != "S02" {
 		t.Fatalf("旧镜头应原样保留、新段排在后面：%+v", views)
 	}

@@ -81,7 +81,7 @@ type DramaCompileResult struct {
 	CompileProfile DramaCompileProfileRef `json:"compileProfile"`
 }
 
-type DramaSegmentView struct {
+type ProjectDramaSegmentView struct {
 	ShotID     string        `json:"shotId"`
 	UnitID     string        `json:"unitId"`
 	Title      string        `json:"title"`
@@ -524,8 +524,8 @@ func (s *Service) segmentForShot(userID string, projectID string, shot *model.Sh
 	sub := drama.SubShot{At: 0, Text: firstNonEmpty(shot.Description, shot.Title)}
 	if revision != nil {
 		sub.Size = revision.ShotSize
-		sub.Camera = strings.TrimSpace(strings.Join(nonEmpty(revision.CameraAngle, revision.CameraMovement), "，"))
-		sub.Text = strings.TrimSpace(strings.Join(nonEmpty(revision.PlotDescription, revision.Action), "。"))
+		sub.Camera = strings.TrimSpace(strings.Join(projectDramaNonEmpty(revision.CameraAngle, revision.CameraMovement), "，"))
+		sub.Text = strings.TrimSpace(strings.Join(projectDramaNonEmpty(revision.PlotDescription, revision.Action), "。"))
 		sub.Lines = parseLegacyDialogue(revision.Dialogue)
 		seg.Rules = revision.ContinuityNotes
 	}
@@ -551,7 +551,7 @@ func (s *Service) segmentForShot(userID string, projectID string, shot *model.Sh
 	return seg, revision, true, nil
 }
 
-func nonEmpty(values ...string) []string {
+func projectDramaNonEmpty(values ...string) []string {
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -562,7 +562,7 @@ func nonEmpty(values ...string) []string {
 }
 
 // DramaSegments 列出项目（或某章）的全部段。
-func (s *Service) DramaSegments(userID string, projectID string, unitID string) ([]DramaSegmentView, error) {
+func (s *Service) DramaSegments(userID string, projectID string, unitID string) ([]ProjectDramaSegmentView, error) {
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return nil, err
 	}
@@ -579,7 +579,7 @@ func (s *Service) DramaSegments(userID string, projectID string, unitID string) 
 		unitTitles[unit.ID] = unit.Title
 	}
 	assets := s.dramaAssetIndex(userID, projectID)
-	out := []DramaSegmentView{}
+	out := []ProjectDramaSegmentView{}
 	for i := range shots {
 		shot := &shots[i]
 		if unitID != "" && shot.UnitID != unitID {
@@ -589,7 +589,7 @@ func (s *Service) DramaSegments(userID string, projectID string, unitID string) 
 		if err != nil {
 			return nil, err
 		}
-		view := DramaSegmentView{ShotID: shot.ID, UnitID: shot.UnitID, Title: shot.Title, Position: shot.Position, DurationMs: shot.DurationMs, Spec: seg, Derived: derived}
+		view := ProjectDramaSegmentView{ShotID: shot.ID, UnitID: shot.UnitID, Title: shot.Title, Position: shot.Position, DurationMs: shot.DurationMs, Spec: seg, Derived: derived}
 		if revision != nil {
 			view.RevisionID = revision.ID
 		}
@@ -603,12 +603,12 @@ func (s *Service) DramaSegments(userID string, projectID string, unitID string) 
 
 // WriteDramaSegments 按段号新增或修改一章的段：已有段号的写新版本，新段号建新镜头。
 // 不给 Order 时不删除段；给了 Order（拆段、合段）就按它重排，并删除不在其中的段。带 Shots 时一起改镜头表并重检（WriteDramaSegmentsChecked）。
-func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]DramaSegmentView, error) {
+func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]ProjectDramaSegmentView, error) {
 	result, err := s.WriteDramaSegmentsChecked(userID, projectID, req)
 	return result.Segments, err
 }
 
-func (s *Service) writeDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]DramaSegmentView, error) {
+func (s *Service) writeDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]ProjectDramaSegmentView, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return nil, err
@@ -652,7 +652,7 @@ func (s *Service) writeDramaSegments(userID string, projectID string, req DramaS
 	if err != nil {
 		return nil, err
 	}
-	byID := map[string]DramaSegmentView{}
+	byID := map[string]ProjectDramaSegmentView{}
 	maxPosition := -1
 	current := make([]drama.ExistingSegment, 0, len(existing))
 	for _, view := range existing {
@@ -741,7 +741,7 @@ func (s *Service) writeDramaSegments(userID string, projectID string, req DramaS
 
 // inheritSegmentReferences 把来源段的资产引用补到目标段上（拆段、合段，见 DramaSegmentsWriteRequest.Inherit）。
 // 目标段已有的（版本, 用途）不重复加；加了引用的段产物过期，之后来源资产换版本也会跟到它。
-func (s *Service) inheritSegmentReferences(projectID string, unitID string, inherit map[string][]string, shotOf map[string]string, before map[string]DramaSegmentView) error {
+func (s *Service) inheritSegmentReferences(projectID string, unitID string, inherit map[string][]string, shotOf map[string]string, before map[string]ProjectDramaSegmentView) error {
 	if len(inherit) == 0 {
 		return nil
 	}

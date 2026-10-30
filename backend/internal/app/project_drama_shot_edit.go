@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// DramaSegmentsCheck 是写段时一起改了镜头表后整章的检查结果；各段挂的问题在 DramaSegmentView.Issues。
+// DramaSegmentsCheck 是写段时一起改了镜头表后整章的检查结果；各段挂的问题在 ProjectDramaSegmentView.Issues。
 type DramaSegmentsCheck struct {
 	Version  int  `json:"version"`
 	Errors   int  `json:"errors"`
@@ -29,7 +29,7 @@ type DramaSegmentsCheck struct {
 }
 
 type DramaSegmentsWriteResult struct {
-	Segments []DramaSegmentView `json:"segments"`
+	Segments []ProjectDramaSegmentView `json:"segments"`
 	// Check 只在带 shots（分镜卡编辑）时有。
 	Check *DramaSegmentsCheck `json:"check,omitempty"`
 }
@@ -272,7 +272,7 @@ func (s *Service) dramaShotEditSegments(userID string, projectID string, unitID 
 		if slices.ContainsFunc(segments, func(seg drama.Segment) bool { return holds(seg, id) }) {
 			continue
 		}
-		at := slices.IndexFunc(views, func(v DramaSegmentView) bool { return !v.Derived && holds(v.Spec, id) })
+		at := slices.IndexFunc(views, func(v ProjectDramaSegmentView) bool { return !v.Derived && holds(v.Spec, id) })
 		if at < 0 {
 			return nil, BadAuthRequest(fmt.Sprintf("镜头 %s 不在本章的段里（还没装段，或拆合时去掉了），不能按分镜卡编辑", id))
 		}
@@ -301,7 +301,7 @@ func (s *Service) dramaShotEditSegments(userID string, projectID string, unitID 
 
 // attachDramaSegmentIssues 把各章镜头表检查的 error 挂到段上：只看带问题装了段（或检查没问题）的镜头表，
 // 还没装段的草稿不挂（段是上一次装出的，镜头对不上）。
-func (s *Service) attachDramaSegmentIssues(projectID string, views []DramaSegmentView) error {
+func (s *Service) attachDramaSegmentIssues(projectID string, views []ProjectDramaSegmentView) error {
 	byUnit := map[string][]drama.ShotIssue{}
 	for i := range views {
 		unitID := views[i].UnitID

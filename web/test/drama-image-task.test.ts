@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { assetImageTaskTemplate } from "../src/pages/projects/detail/drama-image-task";
-import { dramaImageSummaryText } from "../src/pages/projects/detail/drama-image-summary";
+import { assetImageTaskTemplate } from "../src/pages/projects/workbench/detail/drama-image-task";
+import { dramaImageSummaryText } from "../src/pages/projects/workbench/detail/drama-image-summary";
 import { createModelChannel, defaultConfig, encodeChannelModel } from "../src/stores/use-config-store";
 
 // 系统渠道的同名模型带声明式参数表（只有 size），个人渠道的同名模型按协议默认能力（有 quality 等）。

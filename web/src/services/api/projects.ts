@@ -1,6 +1,6 @@
 import { compactApiParams, http } from "@/services/api/request";
 import { normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
-import type { DramaColorScriptEntry, DramaImageQueueResult, DramaImageTaskTemplate, DramaMasterPalette, DramaStyleAnchor } from "@/services/api/drama";
+import type { DramaColorScriptEntry, DramaImageQueueResult, DramaImageTaskTemplate, DramaMasterPalette, DramaStyleAnchor } from "@/services/api/project-drama";
 import type { GenerationTask } from "@/services/api/task-center";
 
 

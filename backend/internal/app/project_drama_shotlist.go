@@ -49,7 +49,7 @@ type DramaShotlistWriteRequest struct {
 	// 但不装段、不动本章已有的段；用户处理完问题后用 repack 重新装段。生成分段的收尾用它。
 	KeepDraft bool `json:"-"`
 	// AcceptIssues 为 true 时是「先装段，到分镜制作再改」：检查有 error 也照样装段写库，检查结果记成已接受（check.accepted），
-	// 问题按镜头挂到段上（DramaSegmentView.Issues）。会让装段本身做不成的问题（镜头时长不是正数、一场找不到合法切点
+	// 问题按镜头挂到段上（ProjectDramaSegmentView.Issues）。会让装段本身做不成的问题（镜头时长不是正数、一场找不到合法切点
 	// 只能整场装成一段而超过单段上限）仍然拒绝。
 	AcceptIssues bool `json:"-"`
 	// Parse 是服务端解析模型输出的统计，记进检查结果。
@@ -85,10 +85,10 @@ type DramaShotlistView struct {
 }
 
 type DramaShotlistWriteResult struct {
-	Shotlist DramaShotlistView  `json:"shotlist"`
-	Segments []DramaSegmentView `json:"segments"`
-	Check    drama.CheckReport  `json:"check"`
-	Stats    drama.RowsStats    `json:"stats"`
+	Shotlist DramaShotlistView         `json:"shotlist"`
+	Segments []ProjectDramaSegmentView `json:"segments"`
+	Check    drama.CheckReport         `json:"check"`
+	Stats    drama.RowsStats           `json:"stats"`
 	// Draft 表示检查有 error，只存了草稿，没有装段（Segments 是本章原有的段）。
 	Draft bool `json:"draft"`
 	// Accepted 表示检查有 error，按 acceptIssues 带着问题装了段。
