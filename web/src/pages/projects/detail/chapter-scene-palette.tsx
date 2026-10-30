@@ -467,7 +467,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
             >
                 {outcome && !running ? (
                     <Callout
-                        tone={failures.length ? "warning" : "success"}
+                        tone={failures.length || outcome.fontNote ? "warning" : "success"}
                         title={failures.length ? `场次色卡已写入，${failures.length} 张图没合成上` : "场次色卡已生成"}
                         action={
                             <Button size="small" type="primary" onClick={() => navigate(`/projects/${projectId}/assets?category=palette`)}>
@@ -476,6 +476,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                         }
                     >
                         {failures.length ? `没合成上的：${failures.map((item) => `${item.code}（${item.error}）`).join("、")}。到资产页点「重新合成」补图。` : `${outcome.rendered} 张色卡图已由代码合成，生成分段时绑到这一场的镜头。`}
+                        {outcome.fontNote ? `色卡图上没有中文色名：服务器没读到中文字体（${outcome.fontNote}），只画了 HEX 和英文名；装好字体后到资产页点「重新合成」重画。` : ""}
                         {outcome.chained?.taskId
                             ? `已接着提取资产${outcome.chained.remaining ? `（共 ${outcome.chained.remaining + 1} 集，一集提完再提下一集）` : ""}，进度在「资产进度」里。`
                             : outcome.chained?.error

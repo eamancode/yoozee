@@ -67,6 +67,8 @@ type DramaScenePaletteOutcome struct {
 	// Rendered 是合成并绑上图的色卡张数；ImageFailures 是没合成上图的（资产页「重新合成」可以补）。
 	Rendered      int                   `json:"rendered"`
 	ImageFailures []DramaPaletteFailure `json:"imageFailures,omitempty"`
+	// FontNote 是合成色卡图时没用上中文字体的原因（图上只有 HEX 和英文名）。
+	FontNote string `json:"fontNote,omitempty"`
 	// Chained 是写完后自动接着起的第一集提取资产（M8 卡 D）。
 	Chained *DramaChainedTask `json:"chained,omitempty"`
 }
@@ -411,6 +413,9 @@ func (s *Service) applyScenePaletteTask(task model.Task, meta *dramaStepTaskMeta
 			continue
 		}
 		outcome.Rendered++
+	}
+	if outcome.Rendered > 0 {
+		_, outcome.FontNote = drama.MasterPaletteFontNote()
 	}
 	return outcome, nil
 }

@@ -781,7 +781,7 @@ type EffectiveConfig = ReturnType<typeof useEffectiveConfig>;
 type ProjectStyleChoice = ReturnType<typeof useProjectStyleChoice>;
 
 /** 建完项目定风格的结果：锁定了、起了分析任务，或没定上（项目已经建好，只提示）。 */
-type ProjectStyleOutcome = { locked?: boolean; taskId?: string; error?: string };
+type ProjectStyleOutcome = { locked?: boolean; taskId?: string; error?: string; fontNote?: string };
 
 function useProjectStyleChoice() {
     const [mode, setMode] = useState<ProjectStyleMode>("library");
@@ -823,8 +823,8 @@ function projectStyleSummary(choice: ProjectStyleChoice, selectedStyle: CanvasSt
 async function lockCreatedProjectStyle(projectId: string, contentType: ProjectContentType | undefined, choice: ProjectStyleChoice, selectedStyle: CanvasStylePreset | null, effectiveConfig: EffectiveConfig): Promise<ProjectStyleOutcome> {
     try {
         if (choice.mode === "library" && choice.libraryItem) {
-            await lockDramaStyle(projectId, { libraryId: choice.libraryItem.id });
-            return { locked: true };
+            const locked = await lockDramaStyle(projectId, { libraryId: choice.libraryItem.id });
+            return { locked: true, fontNote: locked.fontNote };
         }
         const text = choice.text.trim();
         const images = choice.mode === "library" ? [] : choice.images;
@@ -850,6 +850,7 @@ async function lockCreatedProjectStyle(projectId: string, contentType: ProjectCo
 function reportProjectStyle(message: ReturnType<typeof App.useApp>["message"], style: ProjectStyleOutcome) {
     if (style.error) message.warning(`项目已建好，风格没定上：${style.error}`);
     else if (style.locked) message.success("项目风格已锁定：风格锚和主基调色卡已带上");
+    if (style.fontNote) message.warning(`主色卡图没有中文色名：服务器没读到中文字体，只画了 HEX 和英文名（${style.fontNote}）`);
 }
 
 /** 项目风格三选一：风格库 / 写风格描述 / 传参考图（建项目对话框和首页「AI 生成章节」共用）。 */

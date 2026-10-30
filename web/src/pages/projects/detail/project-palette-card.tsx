@@ -116,7 +116,7 @@ export function ProjectPaletteCard({
 }) {
     const palette = asset.palette;
     const resourceId = asset.mediaType === "image" ? resourceIdFromStorageKey(asset.storageKey) : "";
-    if (palette?.master) return <MasterPaletteCard asset={asset} resourceId={resourceId} busy={busy} folderItems={folderItems} onOpen={onOpen} onMove={onMove} onRemove={onRemove} />;
+    if (palette?.master) return <MasterPaletteCard asset={asset} resourceId={resourceId} resynthesizing={resynthesizing} busy={busy} folderItems={folderItems} onOpen={onOpen} onResynthesize={onResynthesize} onMove={onMove} onRemove={onRemove} />;
     const colors = palette ? [...(palette.entry?.shared_colors || []), ...(palette.entry?.new_colors || [])] : [];
     const gone = Boolean(palette?.sceneGone);
     const legacy = Boolean(palette && palette.kind !== "scene");
@@ -179,21 +179,25 @@ export function ProjectPaletteCard({
     );
 }
 
-/** 资产页的主基调色卡卡片：合成的色卡图（没绑上时画色带）、分组色带、来源；图由代码按色值合成，没有出图按钮。 */
+/** 资产页的主基调色卡卡片：合成的色卡图（没绑上时画色带）、分组色带、来源；图由代码按色值合成，「重新合成」按当前色板重画（不调模型）。 */
 function MasterPaletteCard({
     asset,
     resourceId,
+    resynthesizing,
     busy,
     folderItems,
     onOpen,
+    onResynthesize,
     onMove,
     onRemove,
 }: {
     asset: ProjectAsset;
     resourceId: string;
+    resynthesizing: boolean;
     busy: boolean;
     folderItems: Array<{ key: string; label: string }>;
     onOpen: () => void;
+    onResynthesize: () => void;
     onMove: (folderId: string) => void;
     onRemove: () => void;
 }) {
@@ -223,12 +227,17 @@ function MasterPaletteCard({
                 <p className="mt-1 truncate text-[var(--fs-tiny)] text-foreground/50">{[`${master?.palette.groups.length || 0} 组 ${count} 色`, styleAnchorBrief(master?.styleAnchor)].filter(Boolean).join(" · ")}</p>
                 <MasterPaletteStrip palette={master?.palette} className="mt-2 h-4" />
                 <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
+                    <Tooltip title="按当前色板重画主色卡图（不调模型），比如服务器补装中文字体后补上中文色名">
+                        <Button size="small" icon={<RefreshCw className="size-3.5" />} loading={resynthesizing} disabled={busy} onClick={onResynthesize}>
+                            重新合成
+                        </Button>
+                    </Tooltip>
                     <span className="mr-auto text-[var(--fs-tiny)] text-foreground/45">图由代码按色值合成</span>
                     <Dropdown trigger={["click"]} menu={{ selectedKeys: [asset.folderId || ""], items: folderItems, onClick: ({ key }) => onMove(key) }}>
                         <Button type="text" size="small" disabled={busy} icon={<MoveRight className="size-3.5" />} aria-label={`移动 ${asset.title}`} />
                     </Dropdown>
                     <Popconfirm title="移出项目资产？" description="项目锁定的风格不变；重新锁定会再建一张主色卡。" okText="移出" cancelText="取消" onConfirm={onRemove}>
-                        <Button type="text" danger size="small" loading={busy} icon={<Trash2 className="size-3.5" />} aria-label={`移出 ${asset.title}`} />
+                        <Button type="text" danger size="small" disabled={resynthesizing} loading={busy} icon={<Trash2 className="size-3.5" />} aria-label={`移出 ${asset.title}`} />
                     </Popconfirm>
                 </div>
             </div>

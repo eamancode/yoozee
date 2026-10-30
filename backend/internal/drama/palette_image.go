@@ -2,6 +2,7 @@ package drama
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"image"
 	"image/color"
@@ -18,13 +19,15 @@ import (
 	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 )
 
 // 色卡图（M8 卡 A 主基调色卡、卡 B 场次色卡）：不调图片模型，由代码按色值画一张 16:9 的 PNG——白底，顶部标题，每组一行：组名在左，右边一排色块，
 // 每块下面写 HEX、中文名、英文名（与《色卡提示词卡》的版式一致：色块 + HEX + 色名）。拉丁字母用 Go 自带字体（gofont，BSD 许可，
 // 随 golang.org/x/image 编进二进制）；中文用系统里的 CJK 字体（CANVAS_CJK_FONT 指定，否则按常见路径找：Linux 文泉驿 / Noto CJK、
-// Windows 微软雅黑 / 黑体、macOS 苹方）。找不到中文字体时只画 HEX 和英文名，中文名不画（MasterPaletteFontNote 说明原因）。
+// Windows 微软雅黑 / 黑体、macOS 苹方；.ttc 字体集合取带中文字形的那一款）。找不到中文字体时只画 HEX 和英文名，中文名不画
+// （MasterPaletteFontNote 说明原因，风格锁定 / 场次色卡 / 重新合成的结果带着它给页面提示）。
 
 const (
 	MasterPaletteImageWidth  = 1920
@@ -89,7 +92,7 @@ func loadPaletteFonts() (*paletteFontSet, error) {
 			if err != nil {
 				continue
 			}
-			f, err := parseFontFile(raw)
+			f, err := parseFontFile(raw, cjkProbe)
 			if err != nil {
 				problems = append(problems, path+"："+err.Error())
 				continue
@@ -105,19 +108,115 @@ func loadPaletteFonts() (*paletteFontSet, error) {
 	return &paletteFonts, paletteFontsErr
 }
 
-// parseFontFile 读单个字体或字体集合（.ttc 取第一个）。
-func parseFontFile(raw []byte) (*opentype.Font, error) {
-	if f, err := opentype.Parse(raw); err == nil {
-		return f, nil
-	}
-	collection, err := opentype.ParseCollection(raw)
+// cjkProbe 是挑中文字体的试字：一款字体这几个字都有字形才算能画中文色名。
+const cjkProbe = "暖杏色中"
+
+// parseFontFile 读单个字体或字体集合（.ttc / .otc）：逐款试，取 probe 里每个字都有字形的第一款。
+// golang.org/x/image 的 sfnt 要求每张表从 4 字节对齐的位置开始，文泉驿正黑（Alpine font-wqy-zenhei 的 wqy-zenhei.ttc）三款
+// 几乎每张表都没对齐，直接解析报「sfnt: invalid table offset」；读不出时把这一款的表抄成一份对齐的单字体再解析（只改表的位置，不改内容）。
+func parseFontFile(raw []byte, probe string) (*opentype.Font, error) {
+	offsets, err := sfntFontOffsets(raw)
 	if err != nil {
 		return nil, err
 	}
-	if collection.NumFonts() == 0 {
-		return nil, fmt.Errorf("字体集合是空的")
+	var firstErr error
+	parsed := 0
+	for _, offset := range offsets {
+		f, err := parseSFNTAt(raw, offset)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		parsed++
+		if fontHasGlyphs(f, probe) {
+			return f, nil
+		}
 	}
-	return collection.Font(0)
+	if parsed > 0 {
+		return nil, fmt.Errorf("字体里没有中文字形（试了 %d 款）", parsed)
+	}
+	return nil, firstErr
+}
+
+// sfntFontOffsets 是文件里每一款字体的表目录位置：单字体是 0，字体集合按 TTC 头里的偏移。
+func sfntFontOffsets(raw []byte) ([]uint32, error) {
+	if len(raw) < 12 {
+		return nil, fmt.Errorf("不是字体文件")
+	}
+	if string(raw[:4]) != "ttcf" {
+		return []uint32{0}, nil
+	}
+	n := binary.BigEndian.Uint32(raw[8:12])
+	if n == 0 || n > 64 || 12+4*int(n) > len(raw) {
+		return nil, fmt.Errorf("字体集合头不对（%d 款）", n)
+	}
+	offsets := make([]uint32, n)
+	for i := range offsets {
+		offsets[i] = binary.BigEndian.Uint32(raw[12+4*i:])
+	}
+	return offsets, nil
+}
+
+// parseSFNTAt 解析 offset 处的一款字体：先原样解析，表没对齐时抄成对齐的单字体再解析。
+func parseSFNTAt(raw []byte, offset uint32) (*opentype.Font, error) {
+	if offset == 0 {
+		if f, err := opentype.Parse(raw); err == nil {
+			return f, nil
+		}
+	}
+	aligned, err := alignedSFNT(raw, offset)
+	if err != nil {
+		return nil, err
+	}
+	return opentype.Parse(aligned)
+}
+
+// alignedSFNT 把 offset 处这一款字体的表目录和表按顺序抄进一份新的单字体，每张表从 4 字节对齐处开始（表的偏移在 TTC 里也是从文件头算）。
+func alignedSFNT(raw []byte, offset uint32) ([]byte, error) {
+	if uint64(offset)+12 > uint64(len(raw)) {
+		return nil, fmt.Errorf("字体表目录越界")
+	}
+	head := raw[offset:]
+	n := int(binary.BigEndian.Uint16(head[4:6]))
+	dir := 12 + 16*n
+	if len(head) < dir {
+		return nil, fmt.Errorf("字体表目录越界")
+	}
+	size := dir
+	for i := 0; i < n; i++ {
+		rec := head[12+16*i:]
+		o, l := binary.BigEndian.Uint32(rec[8:12]), binary.BigEndian.Uint32(rec[12:16])
+		if uint64(o)+uint64(l) > uint64(len(raw)) {
+			return nil, fmt.Errorf("字体表 %q 越界", rec[:4])
+		}
+		size += (int(l) + 3) &^ 3
+	}
+	out := make([]byte, size)
+	copy(out, head[:12])
+	pos := dir
+	for i := 0; i < n; i++ {
+		rec, dst := head[12+16*i:12+16*i+16], out[12+16*i:12+16*i+16]
+		o, l := binary.BigEndian.Uint32(rec[8:12]), binary.BigEndian.Uint32(rec[12:16])
+		copy(dst, rec[:8])
+		binary.BigEndian.PutUint32(dst[8:12], uint32(pos))
+		binary.BigEndian.PutUint32(dst[12:16], l)
+		copy(out[pos:], raw[o:o+l])
+		pos += (int(l) + 3) &^ 3
+	}
+	return out, nil
+}
+
+// fontHasGlyphs 是 probe 里每个字在字体里都有字形。
+func fontHasGlyphs(f *opentype.Font, probe string) bool {
+	var buf sfnt.Buffer
+	for _, r := range probe {
+		if i, err := f.GlyphIndex(&buf, r); err != nil || i == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // MasterPaletteFontNote 是合成图用的中文字体：找到时返回路径，找不到时返回原因（只画 HEX 和英文名）。
@@ -248,6 +347,10 @@ func renderPalettePNG(heading string, latinHeading string, sub string, p MasterP
 	if err != nil {
 		return nil, err
 	}
+	return fonts.renderPalette(heading, latinHeading, sub, p)
+}
+
+func (fonts *paletteFontSet) renderPalette(heading string, latinHeading string, sub string, p MasterPalette) ([]byte, error) {
 	p = NormalizeMasterPalette(p)
 	type swatch struct {
 		c   color.RGBA

@@ -229,6 +229,8 @@ export type DramaStyleLockRecord = {
     resource_id?: string;
     locked_at?: string;
     locked_by?: string;
+    /** 合成主色卡图时没用上中文字体的原因（图上只有 HEX 和英文名）；用上了没有这个字段。 */
+    font_note?: string;
 };
 export type DramaBible = {
     characters?: DramaBibleCharacter[];
@@ -607,7 +609,7 @@ export function runDramaProjectStep(
 export type DramaImageQueueResult = { queued: string[]; waiting: string[]; failed: string[] };
 
 /** 重新合成场次色卡的结果：rendered 是合成并绑上图的色卡，failed 是没合成上的（带原因）。 */
-export type DramaPaletteResynthesizeResult = { rendered: string[]; failed: Array<{ assetId: string; code: string; error: string }> };
+export type DramaPaletteResynthesizeResult = { rendered: string[]; failed: Array<{ assetId: string; code: string; error: string }>; fontNote?: string };
 
 /** 资产页「重新合成」：按色卡当前版本的色板由代码重画图、绑成新版本（镜头引用跟过去），不调模型；assetIds 为空时只画还没有图的。 */
 export function resynthesizeDramaPalettes(projectId: string, input: { assetIds?: string[] } = {}) {
@@ -735,6 +737,8 @@ export type DramaScenePaletteOutcome = {
     palettes: { created: number; versioned: number; retired?: number };
     rendered: number;
     imageFailures?: Array<{ assetId: string; code: string; error: string }>;
+    /** 合成色卡图时没用上中文字体的原因（图上只有 HEX 和英文名）。 */
+    fontNote?: string;
     /** 写完后服务端按集依次接着起的提取资产（这里是第一集；remaining 是后面还排着的集数）；error 是没建成的原因。 */
     chained?: DramaChainedAssets;
 };

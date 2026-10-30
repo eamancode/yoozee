@@ -237,6 +237,9 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 		if locked.ImageError != "" {
 			_ = s.log(task.UserID, task.ID, "warn", "主色卡图没有绑上", locked.ImageError)
 		}
+		if locked.FontNote != "" {
+			_ = s.log(task.UserID, task.ID, "warn", "主色卡图没有中文字体，只画了 HEX 和英文名", locked.FontNote)
+		}
 		outcome.Status, outcome.Locked = DramaStyleLockOutcomeLocked, &locked.StyleLock
 	}
 	return outcome, nil
@@ -356,7 +359,7 @@ func (s *Service) applyDramaStyleLock(userID string, project *model.Project, in 
 	}
 	now := time.Now()
 	record := in.Record
-	record.ResourceID, record.LockedAt, record.LockedBy = resource.ID, now.Format(time.RFC3339), userID
+	record.ResourceID, record.LockedAt, record.LockedBy, record.FontNote = resource.ID, now.Format(time.RFC3339), userID, fontNote
 	write, versionID, err := s.masterPaletteWrite(userID, project, in, palette, now)
 	if err != nil {
 		return DramaStyleLockResult{}, err
