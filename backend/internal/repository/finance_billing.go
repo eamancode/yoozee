@@ -176,22 +176,116 @@ const (
 	billingUsageSourceVideoFormula = "video_formula"
 )
 
-func tokenSettlementUsage(db *gorm.DB, order model.BillingOrder) (*BillingUsage, string, error) {
+// textBillingCallUsages 返回文本订单下每一次成功的计费上游调用的 usage（按调用先后）。逐轮续写的任务（剧本优化、按小节生成分镜等）
+// 一个订单里一轮一次调用，结算按全部调用累加；某一轮解析失败重试时，失败的那次上游已成功返回并上报用量，同样计费。
+// HTTP 失败、超时、被取消的调用没有 usage，不计费；缓存创建等非计费请求不算。
+func textBillingCallUsages(db *gorm.DB, orderID string) ([]BillingUsage, error) {
+	var logs []model.ApiCallLog
+	err := db.Select("id", "input_tokens", "output_tokens", "cached_tokens").
+		Where("billing_order_id = ? AND billable = ? AND status = ? AND usage_available = ?", orderID, true, model.ApiCallStatusSucceeded, true).
+		Order("created_at asc").Order("id asc").Find(&logs).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(logs) == 0 {
+		return nil, ErrBillingUsageUnavailable
+	}
+	calls := make([]BillingUsage, 0, len(logs))
+	for _, log := range logs {
+		calls = append(calls, BillingUsage{InputTokens: log.InputTokens, OutputTokens: log.OutputTokens, CachedTokens: log.CachedTokens})
+	}
+	return calls, nil
+}
+
+// tokenSettlementUsage 返回 Token 订单的结算依据：合计用量（写进订单）和逐次用量（逐次计价后相加，见 tokenSettlementAmount）。
+// 文本按订单下全部成功调用；视频只有一次生成，按同订单最新的成功 usage（来自轮询）或提交时的公式快照。
+func tokenSettlementUsage(db *gorm.DB, order model.BillingOrder) (*BillingUsage, []BillingUsage, string, error) {
+	if order.Capability == "text" {
+		calls, err := textBillingCallUsages(db, order.ID)
+		if err != nil {
+			return nil, nil, billingUsageSourceProvider, err
+		}
+		total := BillingUsage{}
+		for _, call := range calls {
+			total.InputTokens += call.InputTokens
+			total.OutputTokens += call.OutputTokens
+			total.CachedTokens += call.CachedTokens
+		}
+		return &total, calls, billingUsageSourceProvider, nil
+	}
 	usage, err := billingUsage(db, order.ID)
 	if err != nil && !errors.Is(err, ErrBillingUsageUnavailable) {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	if order.Capability != "video" {
-		return usage, billingUsageSourceProvider, err
+		return usage, singleBillingCall(usage), billingUsageSourceProvider, err
 	}
 	if err == nil && usage.OutputTokens > 0 && usage.InputTokens >= 0 && usage.CachedTokens >= 0 {
-		return &BillingUsage{OutputTokens: usage.OutputTokens}, billingUsageSourceProvider, nil
+		usage = &BillingUsage{OutputTokens: usage.OutputTokens}
+		return usage, singleBillingCall(usage), billingUsageSourceProvider, nil
 	}
 	// 只有提交时明确记录的公式用量可以结算，预授权 Quantity 含余量，不能用作最终用量。
 	if order.VideoFormulaTokens > 0 {
-		return &BillingUsage{OutputTokens: order.VideoFormulaTokens}, billingUsageSourceVideoFormula, nil
+		usage = &BillingUsage{OutputTokens: order.VideoFormulaTokens}
+		return usage, singleBillingCall(usage), billingUsageSourceVideoFormula, nil
 	}
-	return usage, billingUsageSourceProvider, err
+	return usage, singleBillingCall(usage), billingUsageSourceProvider, err
+}
+
+func singleBillingCall(usage *BillingUsage) []BillingUsage {
+	if usage == nil {
+		return nil
+	}
+	return []BillingUsage{*usage}
+}
+
+// tokenSettlementAmount 逐次调用按订单单价计价（各自向上取整，和单轮任务的算法一致）再相加。
+func tokenSettlementAmount(order model.BillingOrder, calls []BillingUsage) (int64, error) {
+	if len(calls) == 0 {
+		return 0, ErrBillingUsageUnavailable
+	}
+	const maxInt64 = int64(^uint64(0) >> 1)
+	total := int64(0)
+	for index := range calls {
+		amount, err := tokenUsageAmount(order, &calls[index])
+		if err != nil {
+			return 0, err
+		}
+		if amount > maxInt64-total {
+			return 0, errors.New("invalid token usage amount")
+		}
+		total += amount
+	}
+	return total, nil
+}
+
+// fixedRequestCalls 是按次计费的文本订单下成功的计费上游调用次数；其他订单返回 0（不按次数结算）。
+func fixedRequestCalls(db *gorm.DB, order model.BillingOrder) (int64, error) {
+	if order.BillingMode != "fixed_request" || order.Capability != "text" {
+		return 0, nil
+	}
+	var count int64
+	err := db.Model(&model.ApiCallLog{}).
+		Where("billing_order_id = ? AND billable = ? AND status = ?", order.ID, true, model.ApiCallStatusSucceeded).
+		Count(&count).Error
+	return count, err
+}
+
+// fixedRequestCallsAmount 是按次计费的多轮文本订单按 calls 次结算的金额：每次的价格是建单时的单次金额
+// （逐轮续写建单时按预计轮数放大了预授权，Quantity 是预计次数，AmountMicrocredits 是 Quantity 次的金额）。
+func fixedRequestCallsAmount(order model.BillingOrder, calls int64) (int64, error) {
+	perCall := order.AmountMicrocredits
+	if order.Quantity > 1 {
+		perCall = order.AmountMicrocredits / order.Quantity
+	}
+	if perCall < 0 || calls <= 0 {
+		return 0, errors.New("积分计费参数无效")
+	}
+	const maxInt64 = int64(^uint64(0) >> 1)
+	if perCall > maxInt64/calls {
+		return 0, errors.New("积分计费金额溢出")
+	}
+	return perCall * calls, nil
 }
 
 func (r *Repository) RecordBillingResolution(id string, actorUserID string, note string) error {
@@ -270,17 +364,13 @@ func (r *Repository) settleBillingOrder(id string, providerRequestID string, aud
 			}
 		}
 		if order.BillingMode == "token" && !zeroPricedTokenOrder(order) {
-			usage, usageSource, err := tokenSettlementUsage(tx, order)
+			usage, calls, usageSource, err := tokenSettlementUsage(tx, order)
 			if err != nil {
 				return err
 			}
 			observedUsage = usage
 			observedUsageSource = usageSource
-			reserved := order.ReservedAmountMicrocredits
-			if reserved <= 0 {
-				reserved = order.AmountMicrocredits
-			}
-			actual, err := tokenUsageAmount(order, usage)
+			actual, err := tokenSettlementAmount(order, calls)
 			if err != nil {
 				return err
 			}
@@ -290,60 +380,47 @@ func (r *Repository) settleBillingOrder(id string, providerRequestID string, aud
 			}
 			observedActual = actual
 			observedActualAvailable = true
-			refund := max(reserved-actual, int64(0))
-			supplement := max(actual-reserved, int64(0))
-			updated := tx.Model(&model.CreditAccount{}).
-				Where("user_id = ? AND reserved_microcredits >= ?", order.UserID, reserved).
-				Updates(map[string]any{
-					"available_microcredits": gorm.Expr("available_microcredits + ?", refund-supplement),
-					"reserved_microcredits":  gorm.Expr("reserved_microcredits - ?", reserved),
-					"version":                gorm.Expr("version + 1"), "updated_at": time.Now(),
-				})
-			if updated.Error != nil {
-				return updated.Error
-			}
-			if updated.RowsAffected != 1 {
-				return errors.New("reserved credit balance is inconsistent")
-			}
-			var account model.CreditAccount
-			if err := tx.First(&account, "user_id = ?", order.UserID).Error; err != nil {
-				return err
-			}
-			now := time.Now()
-			updates := map[string]any{"status": model.BillingStatusSettled, "settled_at": &now, "updated_at": now,
-				"actual_amount_microcredits": actual, "refunded_amount_microcredits": refund,
-				"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens, "cached_tokens": usage.CachedTokens,
+			updates := map[string]any{"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens, "cached_tokens": usage.CachedTokens,
 				"usage_available": usageSource == billingUsageSourceProvider, "usage_source": usageSource}
-			if providerRequestID != "" {
-				updates["provider_request_id"] = providerRequestID
-			}
-			if err := tx.Model(&order).Updates(updates).Error; err != nil {
-				return err
-			}
 			consumeNote := ""
 			if chargeCapped {
 				consumeNote = "Token 实际用量超过 Agent 报价，已按本轮硬上限结算"
-			} else if supplement > 0 {
+			} else if actual > billingReservedAmount(order) {
 				consumeNote = "Token 实际用量超过预授权，已补扣差额"
 			}
 			if usageSource == billingUsageSourceVideoFormula {
 				consumeNote = strings.TrimSpace("按提交时的视频 Token 公式快照结算；" + consumeNote)
 			}
-			if err := tx.Create(&model.CreditLedgerEntry{ID: newRepositoryID(), UserID: order.UserID, Type: model.CreditLedgerConsume,
-				AmountMicrocredits: -actual, AvailableDeltaMicrocredits: -supplement, ReservedDeltaMicrocredits: -reserved,
-				AvailableAfterMicrocredits: account.AvailableMicrocredits, ReservedAfterMicrocredits: account.ReservedMicrocredits,
-				BillingOrderID: order.ID, Model: order.Model, ChannelID: order.ChannelID, Scene: order.Scene, Note: consumeNote}).Error; err != nil {
+			if len(calls) > 1 {
+				consumeNote = strings.TrimSuffix(fmt.Sprintf("按 %d 次上游调用的用量合计结算；%s", len(calls), consumeNote), "；")
+			}
+			return settleReservedBilling(tx, order, actual, providerRequestID, updates, consumeNote, "Token 预授权差额退回")
+		}
+		calls, err := fixedRequestCalls(tx, order)
+		if err != nil {
+			return err
+		}
+		if calls > 1 {
+			// 按次计费的多轮文本任务（逐轮续写）按成功调用次数结算；只有一次调用时走下面的原路径，金额不变。
+			actual, err := fixedRequestCallsAmount(order, calls)
+			if err != nil {
 				return err
 			}
-			if refund > 0 {
-				if err := tx.Create(&model.CreditLedgerEntry{ID: newRepositoryID(), UserID: order.UserID, Type: model.CreditLedgerRefund,
-					AmountMicrocredits: refund, AvailableDeltaMicrocredits: refund,
-					AvailableAfterMicrocredits: account.AvailableMicrocredits, ReservedAfterMicrocredits: account.ReservedMicrocredits,
-					BillingOrderID: order.ID, Model: order.Model, ChannelID: order.ChannelID, Scene: order.Scene, Note: "Token 预授权差额退回"}).Error; err != nil {
-					return err
-				}
+			chargeCapped := billingChargeLimitApplies(order) && actual > order.ChargeLimitMicrocredits
+			if chargeCapped {
+				actual = order.ChargeLimitMicrocredits
 			}
-			return nil
+			updates := map[string]any{"quantity": calls}
+			if order.CostBillingMode == "fixed_request" {
+				updates["cost_quantity"] = calls
+			}
+			consumeNote := fmt.Sprintf("按 %d 次上游调用结算", calls)
+			if chargeCapped {
+				consumeNote += "；已按本轮硬上限结算"
+			} else if actual > billingReservedAmount(order) {
+				consumeNote += "，已补扣超过预授权的差额"
+			}
+			return settleReservedBilling(tx, order, actual, providerRequestID, updates, consumeNote, "按次预授权差额退回")
 		}
 		actual := order.AmountMicrocredits
 		quantity := order.Quantity
@@ -486,6 +563,65 @@ func (r *Repository) settleBillingOrder(id string, providerRequestID string, aud
 	return err
 }
 
+func billingReservedAmount(order model.BillingOrder) int64 {
+	if order.ReservedAmountMicrocredits > 0 {
+		return order.ReservedAmountMicrocredits
+	}
+	return order.AmountMicrocredits
+}
+
+// settleReservedBilling 按实扣 actual 结算订单的预留：多退少补。补扣不看可用余额（可用余额可以变成负数，之后新任务预授权会被拦下，
+// 充值先抵欠款），所以实际用量超过预授权不会让结算失败、订单不会因此停在待核对。updates 是订单要另写的字段（用量、次数）。
+func settleReservedBilling(tx *gorm.DB, order model.BillingOrder, actual int64, providerRequestID string, updates map[string]any, consumeNote string, refundNote string) error {
+	reserved := billingReservedAmount(order)
+	refund := max(reserved-actual, int64(0))
+	supplement := max(actual-reserved, int64(0))
+	updated := tx.Model(&model.CreditAccount{}).
+		Where("user_id = ? AND reserved_microcredits >= ?", order.UserID, reserved).
+		Updates(map[string]any{
+			"available_microcredits": gorm.Expr("available_microcredits + ?", refund-supplement),
+			"reserved_microcredits":  gorm.Expr("reserved_microcredits - ?", reserved),
+			"version":                gorm.Expr("version + 1"), "updated_at": time.Now(),
+		})
+	if updated.Error != nil {
+		return updated.Error
+	}
+	if updated.RowsAffected != 1 {
+		return errors.New("reserved credit balance is inconsistent")
+	}
+	var account model.CreditAccount
+	if err := tx.First(&account, "user_id = ?", order.UserID).Error; err != nil {
+		return err
+	}
+	now := time.Now()
+	orderUpdates := map[string]any{"status": model.BillingStatusSettled, "settled_at": &now, "updated_at": now,
+		"actual_amount_microcredits": actual, "refunded_amount_microcredits": refund}
+	for key, value := range updates {
+		orderUpdates[key] = value
+	}
+	if providerRequestID != "" {
+		orderUpdates["provider_request_id"] = providerRequestID
+	}
+	if err := tx.Model(&order).Updates(orderUpdates).Error; err != nil {
+		return err
+	}
+	if err := tx.Create(&model.CreditLedgerEntry{ID: newRepositoryID(), UserID: order.UserID, Type: model.CreditLedgerConsume,
+		AmountMicrocredits: -actual, AvailableDeltaMicrocredits: -supplement, ReservedDeltaMicrocredits: -reserved,
+		AvailableAfterMicrocredits: account.AvailableMicrocredits, ReservedAfterMicrocredits: account.ReservedMicrocredits,
+		BillingOrderID: order.ID, Model: order.Model, ChannelID: order.ChannelID, Scene: order.Scene, Note: consumeNote}).Error; err != nil {
+		return err
+	}
+	if refund > 0 {
+		if err := tx.Create(&model.CreditLedgerEntry{ID: newRepositoryID(), UserID: order.UserID, Type: model.CreditLedgerRefund,
+			AmountMicrocredits: refund, AvailableDeltaMicrocredits: refund,
+			AvailableAfterMicrocredits: account.AvailableMicrocredits, ReservedAfterMicrocredits: account.ReservedMicrocredits,
+			BillingOrderID: order.ID, Model: order.Model, ChannelID: order.ChannelID, Scene: order.Scene, Note: refundNote}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func audioBillingAmount(unitPrice int64, quantity int64, multiplierBPS int64) (int64, error) {
 	if unitPrice < 0 || quantity <= 0 || multiplierBPS <= 0 {
 		return 0, errors.New("积分计费参数无效")
@@ -529,17 +665,29 @@ func (r *Repository) RestoreRefundedBillingOrder(id string, providerRequestID st
 		actual := order.AmountMicrocredits
 		var usage *BillingUsage
 		var usageSource string
+		calls := int64(0)
 		if order.BillingMode == "token" {
 			if zeroPricedTokenOrder(order) {
 				actual = 0
 			} else {
+				var usageCalls []BillingUsage
 				var err error
-				usage, usageSource, err = tokenSettlementUsage(tx, order)
+				usage, usageCalls, usageSource, err = tokenSettlementUsage(tx, order)
 				if err != nil {
 					return err
 				}
-				actual, err = tokenUsageAmount(order, usage)
+				actual, err = tokenSettlementAmount(order, usageCalls)
 				if err != nil {
+					return err
+				}
+			}
+		} else {
+			var err error
+			if calls, err = fixedRequestCalls(tx, order); err != nil {
+				return err
+			}
+			if calls > 1 {
+				if actual, err = fixedRequestCallsAmount(order, calls); err != nil {
 					return err
 				}
 			}
@@ -589,6 +737,12 @@ func (r *Repository) RestoreRefundedBillingOrder(id string, providerRequestID st
 			orderUpdates["cached_tokens"] = usage.CachedTokens
 			orderUpdates["usage_available"] = usageSource == billingUsageSourceProvider
 			orderUpdates["usage_source"] = usageSource
+		}
+		if calls > 1 {
+			orderUpdates["quantity"] = calls
+			if order.CostBillingMode == "fixed_request" {
+				orderUpdates["cost_quantity"] = calls
+			}
 		}
 		orderUpdate := tx.Model(&model.BillingOrder{}).
 			Where("id = ? AND status = ?", order.ID, model.BillingStatusRefunded).

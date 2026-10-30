@@ -5,6 +5,15 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 多轮文本任务按全部调用计费
+
+- 已修复（M8 线上验收第 4 条）：多轮文本任务（剧本优化、场次色卡、提取资产、按小节生成分镜、改戏类）原先按订单只读最新一条调用日志，只收最后一轮（14 个任务实收 1.35、应收 5.69 积分）。现在按这张单下全部成功的计费调用累加：Token 逐次计价再相加，按次计费按成功次数；单次调用的任务金额不变。口径见 `backend/http-api.mdx`「多轮文本任务的计费口径」。
+- 已实现：逐轮续写建单时预授权按预计轮数放大（单轮估算 × 轮数），多冻结的结算时退回；仍不够时补扣（余额可为负），不会因冻结不足进待核对。
+- [x] 专项测试：`TestDramaRunBillingSettlesEveryCall`（4 节、第 2 次 502 重试：Token 结算 = 4 次成功调用逐次之和 34,800 µ，按次 = 4 次；钱包一笔 consume = 任务摘要实扣）、`TestDramaRunBillingReservesEveryTurn`、`TestDramaRunUpstreamCalls`、`TestSettleTextTokenOrderSumsEveryCall`（失败调用、缓存创建不算，重复结算幂等）、`TestSettleTextTokenOrderSingleCallUnchanged`（风格分析 7758/3088 → 69,670 µ 不变）、`TestSettleTextFixedRequestOrderChargesEveryCall`、`TestRestoreRefundedTextTokenOrderSumsEveryCall`；`TestRefinalizeRunIsNotBilled` 仍通过。
+- [ ] 线上：跑一次按小节生成（如 9 节文戏 15 + opus），订单实扣 ≈ 各节调用日志按单价相加；钱包流水一笔 consume 等于任务详情显示的费用，备注「按 N 次上游调用的用量合计结算」；冻结额约为节数 × 单轮估算。
+- [ ] 线上：单轮的风格分析金额与修复前同类任务一致；「用已写好的 N 节重新写入」仍不建单、不扣费。
+- 已知未改：管理员请求明细里同一订单的每条调用日志都显示整张单的金额（`billingAmountMicrocredits` 取订单），多轮任务各行看起来像重复，实际只扣一次；历史少收不追缴。
+
 ## 生成分段整章超过 200 镜收尾失败
 
 - 已修复：按小节生成一章镜头数多（文戏 15 一节 4～6 镜），整章收尾时「分镜行数量必须在 1 到 200 之间」把已写完的各节全部丢掉。一章镜头上限改为 2000（也是一章段数上限，依据：最密的武戏一秒一镜，2000 镜约合 33 分钟一章）；分镜卡一次最多改 200 个镜头不变；Agent 整章写入另限分镜行合计 32 MB。建任务前按各节估时预估超上限的直接拒绝、不调模型；整章段的版本和参考分批插入（2000 段一条 INSERT 会超过数据库绑定参数上限）。
