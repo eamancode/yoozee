@@ -403,12 +403,24 @@ export function shotlistCheckFailure(error: unknown): DramaCheckReport | undefin
     return check && Array.isArray(check.items) ? check : undefined;
 }
 
+/** 装段会删掉的一段和它已有的产物（按类型计数：storyboard 分镜图、action_board 预演、video 视频）。 */
+export type DramaSegmentDiscard = { shotId: string; segment: string; section?: string; label: string; artifacts: Partial<Record<"storyboard" | "action_board" | "video", number>> };
+
+/** 装段 / 整章重新生成会删掉已有产物、要用户确认的拒绝（reason=drama_segments_discard_required）：返回会丢的段，别的错误返回 undefined。 */
+export function segmentsDiscardRequired(error: unknown): DramaSegmentDiscard[] | undefined {
+    if (!(error instanceof ApiError) || error.reason !== API_ERROR_REASON.DramaSegmentsDiscard) return undefined;
+    const discards = error.details?.discards as DramaSegmentDiscard[] | undefined;
+    return Array.isArray(discards) ? discards : undefined;
+}
+
 /**
- * 用这一章已存的分镜行原文按当前生效的编译档案重新装段（不调模型），整章替换段，旧段的候选视频与证据一并删除。
+ * 用这一章已存的分镜行原文按当前生效的编译档案重新装段（不调模型）。按小节生成的镜头表（含草稿上的「先装段」）走保留装段：
+ * 节没变的段沿用原段和产物，内容变了的按指纹过期，对不上任何节的旧段才删；旧镜头表整章替换。要删的段有产物时不带 discard 会被拒
+ * （ApiError.reason=drama_segments_discard_required，details.discards 列出），确认后带 discard 再调。
  * 镜头表是检查没过的草稿时仍要过检查：还有 error 就抛 ApiError（reason=shotlist_check_failed，details.check 是检查结果），草稿不变。
  * acceptIssues 是「先装段，到分镜制作改」：带着 error 装段，问题挂到段和镜头上；会让装段做不成的问题（镜头时长不是正数、整场超单段上限）仍拒绝。
  */
-export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: DramaSegmentRule; acceptIssues?: boolean } = {}) {
+export function repackDramaShotlist(projectId: string, unitId: string, input: { rule?: DramaSegmentRule; acceptIssues?: boolean; discard?: boolean } = {}) {
     return http.post<DramaShotlistWriteResult>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/shotlist/repack`, input);
 }
 
@@ -537,13 +549,14 @@ export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?:
  * 对这一章跑这一步：提示词由服务端组装，这里只带文本模型选择。服务端在一个任务里按场续写，任务成功前写库（结果摘要在任务 result.dramaStep）：
  * 生成分段解析、绑资产、写镜头表并装段，rule 是视频渠道实际能提交的段长（只收紧）；资产设计写已确认资产，带了 imageTask 时接着给新资产排出图。
  * resumeTaskId 是「从第 N 节继续」的上一次任务；onlySections 是生成分段的「重新生成问题小节」：只重写这几节，其余节用镜头表里已有的镜头行、
- * 原样输出进对话历史；onlyScenes 等于重写这几场的全部小节。
+ * 原样输出进对话历史；onlyScenes 等于重写这几场的全部小节。整章生成分段收尾时整章替换段：本章段上已有产物时要带 discard（用户确认过），
+ * 否则 409 drama_segments_discard_required。
  */
 export function runDramaStep(
     projectId: string,
     unitId: string,
     step: "chapter.shots" | "assets.extract",
-    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule; resumeTaskId?: string; onlyScenes?: string[]; onlySections?: string[]; imageTask?: DramaImageTaskTemplate },
+    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule; resumeTaskId?: string; onlyScenes?: string[]; onlySections?: string[]; discard?: boolean; imageTask?: DramaImageTaskTemplate },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
 }

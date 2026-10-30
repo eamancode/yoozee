@@ -70,13 +70,14 @@ import {
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { dramaEpisodesKey, dramaScenesKey, dramaRunProgressOf, dramaShotGenreLabel, dramaStepOutcomeOf, getDramaBrief, getDramaEpisodes, getDramaScenes, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, shotlistCheckFailure, type DramaScriptAdaptOutcome } from "@/services/api/drama";
+import { dramaEpisodesKey, dramaScenesKey, dramaRunProgressOf, dramaShotGenreLabel, dramaStepOutcomeOf, getDramaBrief, getDramaEpisodes, getDramaScenes, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, segmentsDiscardRequired, shotlistCheckFailure, type DramaScriptAdaptOutcome, type DramaSegmentDiscard } from "@/services/api/drama";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
+import { chapterSegmentDiscards, segmentDiscardLine } from "./segment-discard";
 import { chapterDialogueCoverage, segmentDurationRule, segmentTargetLabel } from "./chapter-segments";
 import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
-import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardRunStop } from "./chapter-shot-stream";
+import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardRunPartial, storyboardRunStop } from "./chapter-shot-stream";
 import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
@@ -264,7 +265,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     });
     const storyboardTaskDetail = storyboardTaskDetailQuery.data;
     const storyboardOutcome = storyboardTaskDetail?.status === "succeeded" ? dramaStepOutcomeOf(storyboardTaskDetail) : undefined;
-    const storyboardStop = useMemo(() => (storyboardTaskDetail ? storyboardRunStop(storyboardTaskDetail, dramaRunProgressOf(storyboardTaskDetail), lastStoryboardWrite, { refinalize: true }) : undefined), [lastStoryboardWrite, storyboardTaskDetail]);
+    const storyboardStop = useMemo(() => (storyboardTaskDetail ? storyboardRunStop(storyboardTaskDetail, dramaRunProgressOf(storyboardTaskDetail), lastStoryboardWrite, { refinalize: true, partial: storyboardRunPartial(storyboardTaskDetail.inputJson) }) : undefined), [lastStoryboardWrite, storyboardTaskDetail]);
     // 「从第 N 节继续」和各节都写完后的「重新写入」都是接着上一次任务建新任务（后者不再调模型，只收尾）。
     const storyboardResume = storyboardStop?.kind === "resume" || storyboardStop?.kind === "refinalize" ? storyboardStop : undefined;
     const liveStoryboardStream = selectedUnitId ? storyboardStreams[selectedUnitId] : undefined;
@@ -500,7 +501,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         return { ...current, [unitId]: { taskId: taskId || previous?.taskId || "", text: text ?? (sameTask ? previous.text : "") } };
     });
     const repackMutation = useMutation({
-        mutationFn: ({ unitId, accept }: { unitId: string; before: number; draft: boolean; accept?: boolean }) => repackDramaShotlist(detail.project.id, unitId, { rule: dramaRule, ...(accept ? { acceptIssues: true } : {}) }),
+        mutationFn: ({ unitId, accept, discard }: { unitId: string; before: number; draft: boolean; accept?: boolean; discard?: boolean }) => repackDramaShotlist(detail.project.id, unitId, { rule: dramaRule, ...(accept ? { acceptIssues: true } : {}), ...(discard ? { discard: true } : {}) }),
         onSuccess: async (result, { unitId, before, accept }) => {
             await refreshStoryboardResult(unitId);
             const scenes = new Set(result.segments.map((segment) => segment.spec.scene)).size;
@@ -513,7 +514,16 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             }
             message.success(before && before !== result.segments.length ? `已重新装段：${before} 段 → ${result.segments.length} 段（按 ${scenes} 场）` : `已重新装段：按 ${scenes} 场装成 ${result.segments.length} 段`);
         },
-        onError: (error, { draft, accept }) => {
+        onError: (error, variables) => {
+            const { draft, accept } = variables;
+            // 装段要删掉的段上有分镜图 / 预演 / 视频：服务端什么都没动，列出来让用户确认后再装。
+            const discards = segmentsDiscardRequired(error);
+            if (discards) {
+                void confirmSegmentsDiscard(discards, accept ? "先装段" : "重新装段").then((ok) => {
+                    if (ok) repackMutation.mutate({ ...variables, discard: true });
+                });
+                return;
+            }
             const check = shotlistCheckFailure(error);
             message.error(accept ? `没能带着问题装段：${error instanceof Error ? error.message : "未知错误"}` : check ? `重新装段仍有 ${check.errors} 个问题，${draft ? "草稿" : "现有的段"}没变；需要的话重新生成` : error instanceof Error ? error.message : "重新装段失败");
             void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "drama-shotlist"] });
@@ -535,14 +545,16 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             navigateToSettings({ continueCreation: true });
             return;
         }
-        if (!options.resumeTaskId && storyboardImpact.shotCount && !options.replaceConfirmed && !(await confirmStoryboardReplacement(storyboardImpact))) return;
+        // 整章重新生成收尾时整章替换段：先确认（列出会丢产物的段），服务端也只认带了 discard 的请求。
+        const whole = !options.resumeTaskId && !options.onlySections?.length;
+        if (whole && storyboardImpact.shotCount && !options.replaceConfirmed && !(await confirmStoryboardReplacement(storyboardImpact, chapterSegmentDiscards(detail.shots, detail.shotArtifacts, unit.id)))) return;
         setStoryboardOpen(false);
         beginChapterOperation(unit.id, "storyboard");
         setStoryboardStreams((current) => ({ ...current, [unit.id]: { taskId: "", text: "" } }));
         setRunPanelOpen(true);
         message.info(options.refinalize ? "用上一次写好的各节重新写入镜头表，不再调模型" : options.resumeTaskId ? "从中断的那一节接着写，可继续编辑或切换章节" : options.onlySections?.length ? `只重写 ${options.onlySections.map((section) => projectSceneCode(section, unitEpisodeNumber(detail.units, unit.id))).join("、")}，其余小节的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
         try {
-            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: dramaRule, resumeTaskId: options.resumeTaskId, onlySections: options.onlySections }, {
+            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: dramaRule, resumeTaskId: options.resumeTaskId, onlySections: options.onlySections, discard: whole }, {
                 onTaskUpdate: (task) => {
                     followedStoryboardTasksRef.current.add(task.id);
                     updateChapterOperation(unit.id, "storyboard", task);
@@ -568,37 +580,49 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             finishChapterOperation(unit.id, "storyboard");
         }
     };
-    // 草稿重装是处理检查问题；镜头表已写入时重装会整章替换现有的段，先确认。
-    const repackStoryboard = async (accept = false) => {
+    // 重新装段 / 先装段：按小节生成的镜头表走保留装段（没变的段和产物都留着）；要删的段上有产物时服务端拒绝，onError 里确认后再装。
+    const repackStoryboard = (accept = false) => {
         if (!selectedUnit) return;
         if (segmentRule.problem) return message.warning(`${segmentRule.problem}，先在项目设置里换默认视频模型或生成模型`);
-        if (!shotlist?.draft && storyboardImpact.shotCount && !(await confirmStoryboardRepack(storyboardImpact))) return;
         repackMutation.mutate({ unitId: selectedUnit.id, before: storyboardImpact.shotCount, draft: Boolean(shotlist?.draft), accept });
     };
-    const confirmStoryboardRepack = (impact: ReturnType<typeof chapterStoryboardReplaceImpact>) => new Promise<boolean>((resolve) => {
+    const discardList = (discards: DramaSegmentDiscard[]) => (
+        <ul className="max-h-48 space-y-0.5 overflow-y-auto pl-4" aria-label="会删掉的产物">
+            {discards.map((d) => (
+                <li key={d.shotId}>{segmentDiscardLine(d, (text) => projectSceneCode(text, selectedEpisode))}</li>
+            ))}
+        </ul>
+    );
+    const confirmSegmentsDiscard = (discards: DramaSegmentDiscard[], action: string) => new Promise<boolean>((resolve) => {
         modal.confirm({
-            title: `按当前设置重新装段，替换本章 ${impact.shotCount} 段？`,
+            title: `${action}会删掉 ${discards.length} 段已有的产物`,
             content: (
                 <div className="space-y-2 text-sm leading-6 text-foreground/62">
-                    <p>用已存的镜头表按项目单段时长、资产和编译档案重新装段，不调模型；装段仍要过检查，有问题时现有的段不变。</p>
-                    <p>替换会移除 {impact.shotCount} 个镜头、{impact.revisionCount} 个脚本版本、{impact.referenceCount} 个资产引用、{impact.artifactCount} 个生成产物{impact.candidateCount ? `及 ${impact.candidateCount} 个相关候选资产` : ""}，此操作无法撤销。</p>
+                    <p>这些段在新的分段里对不上任何小节，装段时连同下面的产物一起删除，此操作无法撤销；其余段的分镜图、预演、视频都保留（内容变了的标过期）。</p>
+                    {discardList(discards)}
                 </div>
             ),
-            okText: "重新装段",
+            okText: `删除并${action}`,
             okButtonProps: { danger: true },
-            cancelText: "保留现有的段",
+            cancelText: "先不装",
             centered: true,
             onOk: () => resolve(true),
             onCancel: () => resolve(false),
         });
     });
-    const confirmStoryboardReplacement = (impact: ReturnType<typeof chapterStoryboardReplaceImpact>) => new Promise<boolean>((resolve) => {
+    const confirmStoryboardReplacement = (impact: ReturnType<typeof chapterStoryboardReplaceImpact>, discards: DramaSegmentDiscard[]) => new Promise<boolean>((resolve) => {
         modal.confirm({
             title: `替换本章已有的 ${impact.shotCount} 个分镜？`,
             content: (
                 <div className="space-y-2 text-sm leading-6 text-foreground/62">
                     <p>新分镜生成成功后，系统才会整体替换本章数据；如果生成失败，现有分镜不会受到影响。</p>
                     <p>替换会移除 {impact.shotCount} 个镜头、{impact.revisionCount} 个脚本版本、{impact.referenceCount} 个资产引用、{impact.artifactCount} 个生成产物{impact.candidateCount ? `及 ${impact.candidateCount} 个相关候选资产` : ""}，此操作无法撤销。</p>
+                    {discards.length ? (
+                        <>
+                            <p>会一起删掉这些段的产物：</p>
+                            {discardList(discards)}
+                        </>
+                    ) : null}
                 </div>
             ),
             okText: "生成成功后替换",

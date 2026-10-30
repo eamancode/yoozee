@@ -51,6 +51,8 @@ type ChapterStoryboardGenerationInput = {
     resumeTaskId?: string;
     /** 「重新生成问题小节」：只重写这几节（小节编号），其余小节的镜头行取镜头表里已有的。 */
     onlySections?: string[];
+    /** 用户已确认整章重新生成会删掉本章段上已有的分镜图、预演、视频。 */
+    discard?: boolean;
 };
 
 // 逐轮续写的任务在服务端按轮计时（一轮一节，每轮一次分镜超时），总时长随节数变；页面只是订阅，不替后端判超时。
@@ -70,6 +72,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         ...(input.rule ? { rule: input.rule } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
         ...(input.onlySections?.length ? { onlySections: input.onlySections } : {}),
+        ...(input.discard ? { discard: true } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);

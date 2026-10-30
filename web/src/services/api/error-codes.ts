@@ -32,6 +32,8 @@ export const API_ERROR_REASON = {
     PackageEvalNotPassed: "package_eval_not_passed",
     /** 剧本优化会替换已有剧集（或改写有镜头表的剧集），请求没带 `replace: true`；`ApiError.details.episodes` 列出影响面。 */
     DramaEpisodesReplace: "drama_episodes_replace_required",
+    /** 装段（重新装段、先装段）或整章重新生成会删掉已有的分镜图 / 预演 / 视频，请求没带 `discard: true`；`ApiError.details.discards` 按段列出。 */
+    DramaSegmentsDiscard: "drama_segments_discard_required",
     /** 预演闸门生效时给镜头建视频任务，这一段还没有选中的黑白预演（action_board）。 */
     PrevizRequired: "previz_required",
     /** 这一集（章）还没有场次色卡就提取资产：资产按色卡约束，要先在章节页「生成场次色卡」。 */
