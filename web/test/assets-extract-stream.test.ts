@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { assetsExtractStreamFromResult, parseAssetsExtractStream } from "../src/pages/projects/detail/assets-extract-stream";
+import { assetsExtractStreamFromResult, parseAssetsExtractStream } from "../src/pages/projects/workbench/detail/assets-extract-stream";
 
 const marker = (index: number, attempt = 1) => JSON.stringify({ "@turn": { index, total: 2, heading: index === 1 ? "内·病房走廊·夜" : "内·电梯口·夜", attempt } });
 const zhou = JSON.stringify({ category: "character", name: "周岸", aliases: ["周哥"], appearance: "三十岁男性，\n条纹病号服", prompt_en: "x", first_scene: 2 });

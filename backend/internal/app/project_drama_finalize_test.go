@@ -68,7 +68,7 @@ func dramaStepTask(project model.Project, unit model.ProjectUnit, extra map[stri
 
 // 收尾解析一镜一行的输出、按名字绑资产、写镜头表和段：与把同一批分镜行（@2 整段 JSON 解析、同一套绑定）直接写镜头表逐字段一致。
 func TestFinalizeDramaStepTaskWritesShotlistLikeDirectWrite(t *testing.T) {
-	direct, directDB, directProject, directUnit := newDramaTestService(t, "seedance-2.5")
+	direct, directDB, directProject, directUnit := newProjectDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuang(t, directDB, directProject, directUnit)
 	rows, err := drama.StoryboardRowsFromResult(testJSON(t, map[string]any{"text": readTestdata(t, "model-output.txt")}))
 	if err != nil {
@@ -88,7 +88,7 @@ func TestFinalizeDramaStepTaskWritesShotlistLikeDirectWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuang(t, db, project, unit)
 	original, text := onlineOutputLines(t)
 	result := map[string]any{"mode": "text", "text": text}
@@ -139,7 +139,7 @@ func TestFinalizeDramaStepTaskWritesShotlistLikeDirectWrite(t *testing.T) {
 
 // 检查有 error：行和检查结果存成草稿，不装段、本章原有的段不动；重装仍要过检查。
 func TestFinalizeDramaStepTaskKeepsDraftOnCheckErrors(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuang(t, db, project, unit)
 	original, text := onlineOutputLines(t)
 	if _, err := service.finalizeDramaStepTask(dramaStepTask(project, unit, nil), map[string]any{"text": text}); err != nil {
@@ -184,7 +184,7 @@ func TestFinalizeDramaStepTaskKeepsDraftOnCheckErrors(t *testing.T) {
 
 // 需求文档的单段秒数（brief_json.segment_seconds）收紧装段上限；起任务时带的渠道规则一起生效，取更严的。
 func TestFinalizeDramaStepTaskUsesBriefSegmentSeconds(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuang(t, db, project, unit)
 	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("brief_json", `{"segment_seconds":10}`).Error; err != nil {
 		t.Fatal(err)

@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import type { VideoCapabilityConfig } from "../src/lib/model-capabilities";
 import { generationErrorMessage } from "../src/lib/generation-error";
-import { shotTaskRunningLabel, shotVideoSeconds } from "../src/pages/projects/detail/shot-generation";
+import { shotTaskRunningLabel, shotVideoSeconds } from "../src/pages/projects/workbench/detail/shot-generation";
 
 function profile(duration: VideoCapabilityConfig["duration"]) {
     return { duration } as VideoCapabilityConfig;
 }
 
-const workbenchSource = () => Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+const workbenchSource = () => Bun.file(new URL("../src/pages/projects/workbench/detail/workflow-production-workbench.tsx", import.meta.url)).text();
 
 describe("镜头视频段时长", () => {
     test("默认取镜头时长，不退回渠道默认的 15 秒", () => {
@@ -49,7 +49,7 @@ describe("镜头生成状态", () => {
     });
 
     test("章节分镜按钮排队时显示排队中，打开对话框不再清空技能", async () => {
-        const source = await Bun.file(new URL("../src/pages/projects/detail/chapters.tsx", import.meta.url)).text();
+        const source = await Bun.file(new URL("../src/pages/projects/workbench/detail/chapters.tsx", import.meta.url)).text();
         expect(source).toContain('return operation.queued ? "排队中" : `已运行${formatOperationElapsed(operation.startedAt, now)}`;');
         expect(source).not.toContain("setSelectedSkillIds([])");
     });

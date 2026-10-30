@@ -11,7 +11,7 @@ import { exportTimelineToMp4, type TimelineExportProgress } from "@/lib/timeline
 import { resourceFileUrl } from "@/services/api/resources";
 import { waitForGenerationTask } from "@/services/api/task-center";
 import { createTimelineRenderTask, type TimelineRenderResult } from "@/services/api/timeline-tasks";
-import { runDramaGate, type DramaGateResult } from "@/services/api/drama";
+import { runDramaGate, type DramaGateResult } from "@/services/api/project-drama";
 import type { TimelineProject } from "@/types/timeline";
 
 type ExportState = {

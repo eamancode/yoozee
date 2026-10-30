@@ -24,7 +24,7 @@ describe("workspace route loading", () => {
         for (const route of ["projects", "canvas", "assets", "create"]) {
             expect(modules).toContain(`${route}: () => import`);
         }
-        expect(modules).toContain('projectDetail: () => import("@/pages/projects/detail")');
+        expect(modules).toContain('projectDetail: () => import("@/pages/projects/workbench/detail")');
         expect(modules).toContain('slug === "projects" && segments.length > 1');
         expect(navigation).toContain("onPointerEnter={() => preloadWorkspaceRoute(linkTo)}");
         expect(navigation).toContain("onPointerDown={() => preloadWorkspaceRoute(linkTo)}");
@@ -62,7 +62,7 @@ describe("workspace route loading", () => {
     });
 
     test("loads only the active project detail view and keeps canvas-only state out of the global layout", () => {
-        const detail = source("../src/pages/projects/detail.tsx");
+        const detail = source("../src/pages/projects/workbench/detail.tsx");
         const layout = source("../src/layouts/user-layout.tsx");
         const canvas = source("../src/pages/canvas/index.tsx");
 
@@ -78,7 +78,7 @@ describe("workspace route loading", () => {
     });
 
     test("keeps project asset refresh scoped to the latest user and project", () => {
-        const editor = source("../src/pages/projects/detail/editor.tsx");
+        const editor = source("../src/pages/projects/workbench/detail/editor.tsx");
 
         expect(editor).toContain("const assetOwnerKey = JSON.stringify([scope, projectId])");
         expect(editor).toContain("activeAssetOwnerKeyRef.current !== requestedOwnerKey");
@@ -98,8 +98,8 @@ describe("workspace route loading", () => {
     test("defers modal-only markdown and canvas creation runtimes until interaction", () => {
         const changelogButton = source("../src/components/layout/app-changelog-modal.tsx");
         const announcements = source("../src/components/layout/system-announcement-center.tsx");
-        const projectDetail = source("../src/pages/projects/detail.tsx");
-        const workflow = source("../src/pages/projects/detail/workflow-production-workbench.tsx");
+        const projectDetail = source("../src/pages/projects/workbench/detail.tsx");
+        const workflow = source("../src/pages/projects/workbench/detail/workflow-production-workbench.tsx");
 
         expect(changelogButton).toContain('lazy(() => import("@/components/layout/app-changelog-dialog")');
         expect(changelogButton).not.toContain('from "react-markdown"');

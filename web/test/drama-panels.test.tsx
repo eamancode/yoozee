@@ -4,7 +4,7 @@ import { App } from "antd";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { segmentDurationRule } from "@/pages/projects/detail/chapter-segments";
+import { segmentDurationRule } from "@/pages/projects/workbench/detail/chapter-segments";
 import {
     DramaAssetChecklist,
     DramaDeliveryPanel,
@@ -20,8 +20,8 @@ import {
     dramaSegmentsKey,
     dramaShotlistKey,
     takeEvidenceStatus,
-} from "@/pages/projects/detail/drama-panels";
-import type { DramaBible, DramaEvidence, DramaProgress, DramaSegment, DramaSegmentProgress, DramaSegmentView, DramaShotlistView } from "@/services/api/drama";
+} from "@/pages/projects/workbench/detail/drama-panels";
+import type { DramaBible, DramaEvidence, DramaProgress, DramaSegment, DramaSegmentProgress, DramaSegmentView, DramaShotlistView } from "@/services/api/project-drama";
 import type { ProjectAsset, ShotArtifact } from "@/services/api/projects";
 
 const model = {

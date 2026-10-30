@@ -2,8 +2,8 @@ const workspaceRouteLoaders = {
     assets: () => import("@/pages/assets"),
     canvas: () => import("@/pages/canvas"),
     create: () => import("@/pages/create"),
-    projects: () => import("@/pages/projects"),
-    projectDetail: () => import("@/pages/projects/detail"),
+    projects: () => import("@/pages/projects/workbench"),
+    projectDetail: () => import("@/pages/projects/workbench/detail"),
 };
 
 export const loadAssetsPage = workspaceRouteLoaders.assets;

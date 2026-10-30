@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked } from "@/pages/projects/detail/drama-asset-checklist";
-import type { DramaBible } from "@/services/api/drama";
+import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked } from "@/pages/projects/workbench/detail/drama-asset-checklist";
+import type { DramaBible } from "@/services/api/project-drama";
 import type { ProjectAsset } from "@/services/api/projects";
 
 function asset(patch: Partial<ProjectAsset> & { id: string; title: string; category: ProjectAsset["category"] }): ProjectAsset {

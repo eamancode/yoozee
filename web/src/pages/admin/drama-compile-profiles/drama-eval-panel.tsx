@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { Select } from "@/components/ui/base/select";
 import { listAdminDramaEvalRuns, runAdminDramaEval, type DramaCompileProfileVersion, type DramaEvalRow, type DramaEvalRun } from "@/services/api/admin-drama-compile-profiles";
-import { listDramaModels, type DramaModel } from "@/services/api/drama";
+import { listDramaModels, type DramaModel } from "@/services/api/project-drama";
 import { AdminStatusBadge } from "../components/admin-ui";
 
 /** 评测重跑（视频提示词阶段）：已存镜头表 → 装段 → 编译，对比候选与基线编译档案，不调模型、不改项目。 */

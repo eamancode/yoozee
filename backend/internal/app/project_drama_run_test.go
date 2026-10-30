@@ -83,7 +83,7 @@ func newDramaRunTestService(t *testing.T) (*Service, *gorm.DB, func(id string, r
 	previous := dramaTurnBackoffBase
 	dramaTurnBackoffBase = time.Millisecond
 	t.Cleanup(func() { dramaTurnBackoffBase = previous })
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	if err := db.AutoMigrate(&model.SystemSetting{}, &model.TaskTextDelta{}, &model.TaskLog{}); err != nil {
 		t.Fatal(err)
 	}

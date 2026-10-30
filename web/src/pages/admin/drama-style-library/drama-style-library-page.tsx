@@ -8,7 +8,7 @@ import { PromptCodeEditor } from "@/components/prompt/prompt-code-editor";
 import { Select } from "@/components/ui/base/select";
 import { Callout } from "@/pages/admin/ui/controls";
 import { AdminDrawer } from "@/pages/admin/ui/overlays";
-import { masterPaletteColors, type DramaMasterPalette } from "@/services/api/drama";
+import { masterPaletteColors, type DramaMasterPalette } from "@/services/api/project-drama";
 import { deleteDramaStyleLibraryEntry, dramaStyleLibraryCoverUrl, listDramaStyleLibrary, updateDramaStyleLibraryEntry, type DramaStyleLibraryItem, type DramaStyleLibraryList } from "@/services/api/drama-style-library";
 import { AdminPageFrame } from "../components/admin-shell";
 import { AdminDataTable, AdminRowActions, AdminStatusBadge, AdminTableEmpty } from "../components/admin-ui";

@@ -11,7 +11,7 @@ import (
 )
 
 func TestAdminDramaEvalComparesCompileProfilesOnStoredShotlist(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuangAssets(t, db, project, unit)
 	admin := &model.User{ID: "admin-1", Role: model.UserRoleAdmin}
 	if _, err := service.AdminDramaEval(admin, DramaEvalRequest{ProjectID: project.ID}); err == nil {
@@ -81,7 +81,7 @@ func TestAdminDramaEvalComparesCompileProfilesOnStoredShotlist(t *testing.T) {
 }
 
 func TestRepackDramaShotlistUsesActiveCompileProfile(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuangAssets(t, db, project, unit)
 	admin := &model.User{ID: "admin-1", Role: model.UserRoleAdmin}
 	written, err := service.WriteDramaShotlist("user-1", project.ID, unit.ID, DramaShotlistWriteRequest{Rows: loadOnlineRowsRaw(t), LegacyScenes: true})

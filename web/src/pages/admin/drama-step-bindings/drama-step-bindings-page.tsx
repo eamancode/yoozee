@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Select } from "@/components/ui/base/select";
 import { Callout } from "@/pages/admin/ui/controls";
 import { getAdminDramaStepBindings, putAdminDramaStepBindings, type DramaStepBindingMatrix } from "@/services/api/admin-drama-step-bindings";
-import type { DramaStyleProfile } from "@/services/api/drama";
+import type { DramaStyleProfile } from "@/services/api/project-drama";
 import { AdminPageFrame } from "../components/admin-shell";
 import { AdminDataTable, AdminTableEmpty } from "../components/admin-ui";
 import { DramaPackagesPanel } from "./drama-packages-panel";

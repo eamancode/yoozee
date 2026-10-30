@@ -34,7 +34,7 @@ func seedOnlineQichuangAssets(t *testing.T, db *gorm.DB, project model.Project, 
 	}
 }
 
-func segmentsText(t *testing.T, views []DramaSegmentView) string {
+func segmentsText(t *testing.T, views []ProjectDramaSegmentView) string {
 	t.Helper()
 	raw, err := json.Marshal(views)
 	if err != nil {
@@ -44,7 +44,7 @@ func segmentsText(t *testing.T, views []DramaSegmentView) string {
 }
 
 func TestDramaCompileProfileVersionsDriveShotlistAndCompile(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.5")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.5")
 	seedOnlineQichuangAssets(t, db, project, unit)
 	admin := &model.User{ID: "admin-1", Role: model.UserRoleAdmin}
 	member := &model.User{ID: "user-1", Role: model.UserRoleUser}

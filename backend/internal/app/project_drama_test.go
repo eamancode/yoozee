@@ -17,7 +17,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func newDramaTestService(t *testing.T, generationModel string) (*Service, *gorm.DB, model.Project, model.ProjectUnit) {
+func newProjectDramaTestService(t *testing.T, generationModel string) (*Service, *gorm.DB, model.Project, model.ProjectUnit) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
@@ -62,7 +62,7 @@ func appReason(err error) string {
 }
 
 func TestSegmentLengthFollowsProjectGenerationModel(t *testing.T) {
-	service, _, project, unit := newDramaTestService(t, "seedance-2.0")
+	service, _, project, unit := newProjectDramaTestService(t, "seedance-2.0")
 	_, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "S01", Description: "长段", DurationMs: 20000})
 	if appReason(err) != string(ReasonSegmentTooLong) {
 		t.Fatalf("Seedance 2.0 项目里 20 秒的段应被拒绝，得到 %v", err)
@@ -74,7 +74,7 @@ func TestSegmentLengthFollowsProjectGenerationModel(t *testing.T) {
 		t.Fatalf("15 秒应允许: %v", err)
 	}
 
-	long, _, longProject, longUnit := newDramaTestService(t, "seedance-2.5")
+	long, _, longProject, longUnit := newProjectDramaTestService(t, "seedance-2.5")
 	if _, err := long.CreateProjectShot("user-1", longProject.ID, CreateProjectShotRequest{UnitID: longUnit.ID, Title: "S01", Revision: ShotRevisionInput{Spec: dramaSpec("S01", 28, "")}}); err != nil {
 		t.Fatalf("Seedance 2.5 项目里 28 秒的段应允许: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestSegmentLengthFollowsProjectGenerationModel(t *testing.T) {
 }
 
 func TestVideoTaskDurationGuardUsesProjectModel(t *testing.T) {
-	service, _, project, _ := newDramaTestService(t, "minimax-h3")
+	service, _, project, _ := newProjectDramaTestService(t, "minimax-h3")
 	input := map[string]any{"mode": "video", "config": map[string]any{"videoSeconds": "20"}, "metadata": map[string]any{"domainProjectId": project.ID, "shotId": "shot-x"}}
 	if err := service.enforceDramaSegmentTaskDuration("user-1", input); appReason(err) != string(ReasonSegmentTooLong) {
 		t.Fatalf("MiniMax-H3 项目的 20 秒视频任务应被拒绝，得到 %v", err)
@@ -100,7 +100,7 @@ func TestVideoTaskDurationGuardUsesProjectModel(t *testing.T) {
 }
 
 func TestNewRevisionOnlyStalesArtifactsWhoseInputsChanged(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.0")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.0")
 	shot, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "S01", Revision: ShotRevisionInput{Spec: dramaSpec("S01", 8, "七床的人呢？")}})
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestNewRevisionOnlyStalesArtifactsWhoseInputsChanged(t *testing.T) {
 }
 
 func TestPickRequiresEvidenceAndProgressFollowsIt(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.0")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.0")
 	shot, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "S01", Revision: ShotRevisionInput{Spec: dramaSpec("S01", 8, "七床的人呢？")}})
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestPickRequiresEvidenceAndProgressFollowsIt(t *testing.T) {
 }
 
 func TestBriefWriteSyncsProjectModelAndSegmentsUpsertByID(t *testing.T) {
-	service, _, project, unit := newDramaTestService(t, "seedance-2.0")
+	service, _, project, unit := newProjectDramaTestService(t, "seedance-2.0")
 	doc := json.RawMessage(`{"title":"夜班","video_model":"seedance-2.5","auth_mode":"step","purpose":{"value":"投放","status":"已确认"}}`)
 	brief, err := service.UpdateProjectBrief("user-1", project.ID, doc)
 	if err != nil {
@@ -245,7 +245,7 @@ func TestBriefWriteSyncsProjectModelAndSegmentsUpsertByID(t *testing.T) {
 }
 
 func TestDeliveryPackageContainsContractsAndRecordsDelivery(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.0")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.0")
 	if _, err := service.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "S01", Revision: ShotRevisionInput{Spec: dramaSpec("S01", 8, "七床的人呢？")}}); err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestCloudAgentExposesDramaToolsOnlyForProjectCanvases(t *testing.T) {
 }
 
 func TestDramaVideoTaskRejectsOtherModelFamily(t *testing.T) {
-	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
+	service, _, project, _ := newProjectDramaTestService(t, "seedance-2.0")
 	input := map[string]any{"mode": "video", "config": map[string]any{"videoSeconds": "10"}, "metadata": map[string]any{"domainProjectId": project.ID, "shotId": "shot-x"}}
 	if err := service.enforceDramaModelFamily("user-1", input, "doubao-seedance-2-5-pro"); err == nil || !strings.Contains(err.Error(), "Seedance 2.5") {
 		t.Fatalf("Seedance 2.0 项目用 2.5 模型应被拒绝，得到 %v", err)
@@ -311,7 +311,7 @@ func TestDramaVideoTaskRejectsOtherModelFamily(t *testing.T) {
 }
 
 func TestDramaChaptersReadPagesSourceText(t *testing.T) {
-	service, db, project, unit := newDramaTestService(t, "seedance-2.0")
+	service, db, project, unit := newProjectDramaTestService(t, "seedance-2.0")
 	text := strings.Repeat("七床", dramaChapterPageRunes)
 	if err := db.Model(&model.ProjectUnit{}).Where("id = ?", unit.ID).Updates(map[string]any{"source_text": text, "word_count": len([]rune(text))}).Error; err != nil {
 		t.Fatal(err)
@@ -349,7 +349,7 @@ func TestDramaCanvasGetsSkillReadersWithoutPickedSkills(t *testing.T) {
 }
 
 func TestBriefWriteFollowsContract(t *testing.T) {
-	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
+	service, _, project, _ := newProjectDramaTestService(t, "seedance-2.0")
 	// 线上 Agent 写过的形状：事实写成字符串、自造字段名。必须拒绝并说清楚怎么写。
 	bad := json.RawMessage(`{"purpose":"第一集验收","duration_seconds":40,"aspect_ratio":"9:16"}`)
 	_, err := service.UpdateProjectBrief("user-1", project.ID, bad)
@@ -377,7 +377,7 @@ func TestBriefWriteFollowsContract(t *testing.T) {
 }
 
 func TestTextOnlySegmentNeedsReferencesWhenSomeoneSpeaks(t *testing.T) {
-	service, _, project, unit := newDramaTestService(t, "seedance-2.0")
+	service, _, project, unit := newProjectDramaTestService(t, "seedance-2.0")
 	if _, err := service.WriteDramaSegments("user-1", project.ID, DramaSegmentsWriteRequest{UnitID: unit.ID, Segments: []json.RawMessage{dramaSpec("S01", 6, ""), dramaSpec("S02", 8, "七床的人呢？")}}); err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +395,7 @@ func TestTextOnlySegmentNeedsReferencesWhenSomeoneSpeaks(t *testing.T) {
 }
 
 func TestDramaGateWithoutFilmAsksForExport(t *testing.T) {
-	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
+	service, _, project, _ := newProjectDramaTestService(t, "seedance-2.0")
 	_, err := service.DramaGate("user-1", project.ID, DramaGateRequest{})
 	if err == nil || !strings.Contains(err.Error(), "还没有导出的成片") {
 		t.Fatalf("gate without film err = %v", err)
@@ -435,7 +435,7 @@ func TestDramaCanvasInstallsBuiltinSuiteAndDropsLegacySkill(t *testing.T) {
 
 // 两章同一个 position（接口建章节没给位置）时，进度表也按章节分组、章内按段顺序，不按段号交错。
 func TestDramaProgressGroupsSegmentsByUnitEvenWhenPositionsTie(t *testing.T) {
-	service, db, project, first := newDramaTestService(t, "seedance-2.0")
+	service, db, project, first := newProjectDramaTestService(t, "seedance-2.0")
 	second := model.ProjectUnit{ID: "unit-2", ProjectID: project.ID, Kind: model.ProjectUnitKindChapter, Title: "第二章", Status: model.ProjectUnitStatusDraft, CreatedAt: first.CreatedAt.Add(time.Second), UpdatedAt: first.UpdatedAt}
 	if err := db.Create(&second).Error; err != nil {
 		t.Fatal(err)

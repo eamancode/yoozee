@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ProjectAsset, ProjectAssetCandidatePage, ProjectUnit, ProjectUnitWorkspace, ShotAssetReference } from "../src/services/api/projects";
-import { appendProjectUnits, applyShotReferenceChange, removeConfirmedCandidate } from "../src/pages/projects/detail/project-cache";
+import { appendProjectUnits, applyShotReferenceChange, removeConfirmedCandidate } from "../src/pages/projects/workbench/detail/project-cache";
 
 const unit = (id: string) => ({ id, title: id, position: 0 }) as ProjectUnit;
 const reference = (id: string, patch: Partial<ShotAssetReference> = {}) => ({ id, shotId: "shot-1", assetVersionId: `${id}-v1`, role: "reference", status: "linked", createdAt: "2026-10-19T00:00:00Z", ...patch }) as ShotAssetReference;
@@ -32,7 +32,7 @@ describe("项目页缓存即时更新", () => {
     });
 
     test("三个写路径都接上了即时缓存", async () => {
-        const read = (name: string) => Bun.file(new URL(`../src/pages/projects/detail/${name}`, import.meta.url)).text();
+        const read = (name: string) => Bun.file(new URL(`../src/pages/projects/workbench/detail/${name}`, import.meta.url)).text();
         expect(await read("chapters.tsx")).toContain("appendProjectUnits(current, [unit])");
         expect(await read("assets.tsx")).toContain("removeConfirmedCandidate(current, variables.candidateId)");
         expect(await read("workflow-production-workbench.tsx")).toContain("applyShotReferenceChange(current,");

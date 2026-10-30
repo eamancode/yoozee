@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import type { VideoCapabilityConfig } from "@/lib/model-capabilities";
-import { formatDialogue, parseDialogue, segmentDurationRule, segmentTargetLabel } from "@/pages/projects/detail/chapter-segments";
-import { editSubShot, mergeWithNext, moveEdgeShot, nextSegmentId, segmentLacksReferences, splitSegment, withSegmentRef } from "@/pages/projects/detail/segment-edit";
-import type { DramaSegment, DramaSegmentView } from "@/services/api/drama";
+import { formatDialogue, parseDialogue, segmentDurationRule, segmentTargetLabel } from "@/pages/projects/workbench/detail/chapter-segments";
+import { editSubShot, mergeWithNext, moveEdgeShot, nextSegmentId, segmentLacksReferences, splitSegment, withSegmentRef } from "@/pages/projects/workbench/detail/segment-edit";
+import type { DramaSegment, DramaSegmentView } from "@/services/api/project-drama";
 
 // SLL 上 MD 型渠道只能 15/30 秒；HAYA 型按秒、最少 5 秒。
 const MD_DURATION: VideoCapabilityConfig["duration"] = { selection: "enum", values: [15, 30], default: 15 };
