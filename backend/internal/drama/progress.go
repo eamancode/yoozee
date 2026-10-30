@@ -30,14 +30,6 @@ func ValidEvidenceKind(kind string) bool {
 	return false
 }
 
-// 授权档位。
-const (
-	AuthStep = "step"
-	AuthFull = "full"
-)
-
-func ValidAuthMode(mode string) bool { return mode == AuthStep || mode == AuthFull }
-
 // ShotInput / ArtifactState / EvidenceState 是推导进度需要的最小字段集。
 type ShotInput struct {
 	ID         string
@@ -114,8 +106,8 @@ type ProgressCounts struct {
 }
 
 type Progress struct {
-	Model    Model  `json:"model"`
-	AuthMode string `json:"authMode"`
+	Model   Model  `json:"model"`
+	RunMode string `json:"runMode"`
 	// PrevizGate 是视频前的预演闸门是否生效；PrevizGateSetting 是需求文档里的设置（auto / on / off）。由 app 按项目填。
 	PrevizGate        bool              `json:"previzGate"`
 	PrevizGateSetting string            `json:"previzGateSetting"`
@@ -124,12 +116,14 @@ type Progress struct {
 	Line              string            `json:"line"`
 	EndStates         []EndState        `json:"endStates"`
 	Next              *EndState         `json:"next,omitempty"`
+	// Pipeline 是建项后的流水线（停在哪、等你做什么），由 app 按产物、任务和资产状态填。
+	Pipeline *Pipeline `json:"pipeline,omitempty"`
 }
 
 // ProgressInput 汇总一个项目的生产数据。
 type ProgressInput struct {
 	Model     Model
-	AuthMode  string
+	RunMode   string
 	BriefJSON string
 	BibleJSON string
 	Shots     []ShotInput
@@ -283,7 +277,7 @@ func bibleState(raw string) (hasCharacters bool, allChecked bool, unchecked int)
 
 // Derive 从生产数据推导进度表和十个终态（不读也不写任何状态机）。
 func Derive(in ProgressInput) Progress {
-	out := Progress{Model: in.Model, AuthMode: in.AuthMode, Segments: []SegmentProgress{}}
+	out := Progress{Model: in.Model, RunMode: in.RunMode, Segments: []SegmentProgress{}}
 	var filmGate, filmDelivery, filmAcceptance *EvidenceState
 	for i := range in.Evidence {
 		e := &in.Evidence[i]
@@ -377,8 +371,8 @@ func Derive(in ProgressInput) Progress {
 		return true
 	}
 	briefOK, briefDetail := briefConfirmed(in.BriefJSON)
-	if !ValidAuthMode(in.AuthMode) {
-		briefOK, briefDetail = false, "还没定授权档位"
+	if !ValidRunMode(in.RunMode) {
+		briefOK, briefDetail = false, "还没定生成模式"
 	}
 	hasCharacters, bibleChecked, unchecked := bibleState(in.BibleJSON)
 	scriptOK, scriptDetail := episodesWritten(in.Episodes)
@@ -453,7 +447,7 @@ func styleBibleState(bibleJSON string, palettes []PaletteInput, scenes []SceneRe
 	styleDetail := "还没有锁定项目风格：建项目时选风格库或写风格、传参考图，也可以在章节页点「分析项目风格」"
 	switch {
 	case locked:
-		source := map[string]string{StyleLockSourceLibrary: "取自平台风格库", StyleLockSourceAnalysis: "风格分析后锁定", StyleLockSourcePreset: "按画风生成后锁定"}
+		source := map[string]string{StyleLockSourceLibrary: "取自平台风格库", StyleLockSourceAnalysis: "风格分析后锁定", StyleLockSourcePreset: "按画风生成后锁定", StyleLockSourceDirector: "导演分析后锁定"}
 		how := ""
 		if doc.StyleLock != nil {
 			how = source[doc.StyleLock.Source]

@@ -123,7 +123,7 @@ func TestStyleLockAnalysisLockAndLibrary(t *testing.T) {
 	defer server.Close()
 
 	refs := []string{uploadTestImage(t, svc, "user-1", color.RGBA{0x5B, 0x7F, 0xA3, 0xFF}), uploadTestImage(t, svc, "user-1", color.RGBA{0xE8, 0xEC, 0xEF, 0xFF})}
-	queueStyleLockTask(t, svc, db, project.ID, server.URL, DramaProjectStepRunRequest{ProjectType: "live-action", StyleText: "都市冷调悬疑，少用霓虹", ReferenceImages: refs})
+	queueStyleLockTask(t, svc, db, project.ID, server.URL, DramaProjectStepRunRequest{StyleText: "都市冷调悬疑，少用霓虹", ReferenceImages: refs})
 	done, err := runQueuedTask(t, svc)
 	if err != nil || done.Status != model.TaskStatusSucceeded {
 		t.Fatalf("风格分析：%v %s %q", err, done.Status, done.Error)
@@ -143,7 +143,7 @@ func TestStyleLockAnalysisLockAndLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome := result.DramaStep
-	if outcome.Status != DramaStyleLockOutcomeCandidate || outcome.Source != drama.StyleLockSourceAnalysis || outcome.ProjectType != "live-action" || len(outcome.MasterPalette.Colors()) != 10 || len(outcome.MasterPalette.Groups) != 4 || outcome.StyleAnchor.Medium != "真人实拍" {
+	if outcome.Status != DramaStyleLockOutcomeCandidate || outcome.Source != drama.StyleLockSourceAnalysis || outcome.ProjectType != drama.VisualLiveAction || len(outcome.MasterPalette.Colors()) != 10 || len(outcome.MasterPalette.Groups) != 4 || outcome.StyleAnchor.Medium != "真人实拍" {
 		t.Fatalf("候选：%+v", outcome)
 	}
 	if stored, _ := svc.repo.ProjectForUser("user-1", project.ID); strings.Contains(stored.BibleJSON, "master_palette") {
@@ -168,7 +168,7 @@ func TestStyleLockAnalysisLockAndLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bible["style_anchor"].(map[string]any)["art_style"] != "都市冷调悬疑" || len(bible["master_palette"].(map[string]any)["groups"].([]any)) != 4 || bible["style_lock"].(map[string]any)["project_type"] != "live-action" {
+	if bible["style_anchor"].(map[string]any)["art_style"] != "都市冷调悬疑" || len(bible["master_palette"].(map[string]any)["groups"].([]any)) != 4 || bible["style_lock"].(map[string]any)["project_type"] != drama.VisualLiveAction {
 		t.Fatalf("bible：%+v", bible)
 	}
 	progress, err := svc.DramaProgress("user-1", project.ID)
@@ -198,7 +198,7 @@ func TestStyleLockAnalysisLockAndLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item.Name != "都市冷调悬疑" || item.ProjectType != "live-action" || item.ColorCount != 10 || item.CoverURL == "" || !item.CanEdit || item.Source != DramaStyleLibrarySourceAnalysis {
+	if item.Name != "都市冷调悬疑" || item.ProjectType != drama.VisualLiveAction || item.ColorCount != 10 || item.CoverURL == "" || !item.CanEdit || item.Source != DramaStyleLibrarySourceAnalysis {
 		t.Fatalf("存进风格库：%+v", item)
 	}
 	if _, err := svc.SaveDramaStyleToLibrary(owner, DramaStyleLibrarySaveRequest{ProjectID: project.ID, Name: "都市冷调悬疑"}); err == nil || !strings.Contains(err.Error(), "已经有叫") {
@@ -210,7 +210,7 @@ func TestStyleLockAnalysisLockAndLibrary(t *testing.T) {
 
 	// 另一个账号：风格库里看得到（不能改删），建项目选它直接带上风格锚和主色卡，不跑分析。
 	other := &model.User{ID: "user-2", Role: "user"}
-	list, err := svc.DramaStyleLibrary(other, "live-action")
+	list, err := svc.DramaStyleLibrary(other, drama.VisualLiveAction)
 	if err != nil || len(list.Items) != 1 || list.Items[0].CanEdit || len(list.ProjectTypes) != 4 {
 		t.Fatalf("团队共享：%v %+v", err, list)
 	}
@@ -224,7 +224,7 @@ func TestStyleLockAnalysisLockAndLibrary(t *testing.T) {
 	if delivery.Stream != nil {
 		_ = delivery.Stream.Body.Close()
 	}
-	theirs, err := svc.CreateProject("user-2", CreateProjectRequest{Name: "另一部", GenerationModel: "seedance-2.5"})
+	theirs, err := svc.CreateProject("user-2", CreateProjectRequest{VisualType: drama.VisualLiveAction, Name: "另一部", GenerationModel: "seedance-2.5"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,32 +283,34 @@ func TestPlanStyleLockValidates(t *testing.T) {
 	plan := func(p *model.Project, req DramaProjectStepRunRequest) (*dramaStepPlan, error) {
 		return svc.planStyleLock("user-1", p, step, req)
 	}
-	if _, err := plan(&project, DramaProjectStepRunRequest{ProjectType: "anime"}); err == nil || !strings.Contains(err.Error(), "项目类型") {
+	untyped := project
+	untyped.VisualType = "anime"
+	if _, err := plan(&untyped, DramaProjectStepRunRequest{}); err == nil || !strings.Contains(err.Error(), "画面类型") {
 		t.Fatalf("类型：%v", err)
 	}
 	theirs := uploadTestImage(t, svc, "user-2", color.White)
-	if _, err := plan(&project, DramaProjectStepRunRequest{ProjectType: "live-action", ReferenceImages: []string{theirs}}); err == nil || !strings.Contains(err.Error(), "不属于当前账号") {
+	if _, err := plan(&project, DramaProjectStepRunRequest{ReferenceImages: []string{theirs}}); err == nil || !strings.Contains(err.Error(), "不属于当前账号") {
 		t.Fatalf("别人的图：%v", err)
 	}
 	var many []string
 	for i := 0; i < drama.StyleLockMaxImages+1; i++ {
 		many = append(many, fmt.Sprintf("r%d", i))
 	}
-	if _, err := plan(&project, DramaProjectStepRunRequest{ProjectType: "live-action", ReferenceImages: many}); err == nil || !strings.Contains(err.Error(), "最多") {
+	if _, err := plan(&project, DramaProjectStepRunRequest{ReferenceImages: many}); err == nil || !strings.Contains(err.Error(), "最多") {
 		t.Fatalf("张数：%v", err)
 	}
-	preset, err := plan(&project, DramaProjectStepRunRequest{ProjectType: "live-action"})
-	if err != nil || preset.lock.Source != drama.StyleLockSourcePreset || !strings.Contains(preset.prompt.Text, "按【项目画风】") {
+	preset, err := plan(&project, DramaProjectStepRunRequest{})
+	if err != nil || preset.lock.Source != drama.StyleLockSourcePreset || !strings.Contains(preset.prompt.Text, "按【故事】") {
 		t.Fatalf("只按画风：%v %+v", err, preset)
 	}
-	if auto, err := plan(&project, DramaProjectStepRunRequest{ProjectType: "live-action", LockOnFinish: true}); err != nil || !auto.lock.AutoLock {
+	if auto, err := plan(&project, DramaProjectStepRunRequest{LockOnFinish: true}); err != nil || !auto.lock.AutoLock {
 		t.Fatalf("建项目只选画风时收尾直接锁定：%v", err)
 	}
-	blank, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "空白", GenerationModel: "seedance-2.5"})
+	blank, err := svc.CreateProject("user-1", CreateProjectRequest{VisualType: drama.VisualLiveAction, Name: "空白", GenerationModel: "seedance-2.5"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := plan(&blank, DramaProjectStepRunRequest{ProjectType: "live-action"}); err == nil || !strings.Contains(err.Error(), "风格描述") {
+	if _, err := plan(&blank, DramaProjectStepRunRequest{}); err == nil || !strings.Contains(err.Error(), "风格描述") {
 		t.Fatalf("什么都没有：%v", err)
 	}
 }
@@ -320,7 +322,7 @@ func TestStyleLockPresetAutoLocks(t *testing.T) {
 	upstream := &visionUpstream{reply: styleLockReply}
 	server := httptest.NewServer(upstream)
 	defer server.Close()
-	queueStyleLockTask(t, svc, db, project.ID, server.URL, DramaProjectStepRunRequest{ProjectType: "live-action", LockOnFinish: true})
+	queueStyleLockTask(t, svc, db, project.ID, server.URL, DramaProjectStepRunRequest{LockOnFinish: true})
 	done, err := runQueuedTask(t, svc)
 	if err != nil || done.Status != model.TaskStatusSucceeded {
 		t.Fatalf("按画风生成：%v %s %q", err, done.Status, done.Error)

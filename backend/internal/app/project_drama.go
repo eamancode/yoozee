@@ -159,13 +159,16 @@ func normalizeProjectGenerationModel(value string) (string, error) {
 	return m.ID, nil
 }
 
-func normalizeProjectAuthMode(value string) (string, error) {
+// normalizeProjectRunMode 校验生成模式；空则是跑到出视频前（默认）。
+func normalizeProjectRunMode(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return drama.AuthStep, nil
+		return drama.RunUntilVideo, nil
 	}
-	if !drama.ValidAuthMode(value) {
-		return "", BadAuthRequest("授权档位只能是每步确认（step）或全权（full）")
+	if !drama.ValidRunMode(value) {
+		err := BadAuthRequest("生成模式只能是跑到出视频前（until_video）、资产我要过目（review_from_assets）或每步都问我（every_step）")
+		err.Reason = ReasonProjectProductionInvalid
+		return "", err
 	}
 	return value, nil
 }
@@ -293,7 +296,7 @@ func decodeDramaDocument(raw json.RawMessage) (map[string]any, error) {
 	return doc, nil
 }
 
-// ProjectBrief 读取需求文档；生成模型和授权档位总以项目字段为准。
+// ProjectBrief 读取需求文档；生成模型和生成模式总以项目字段为准。
 func (s *Service) ProjectBrief(userID string, projectID string) (map[string]any, error) {
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
@@ -312,12 +315,12 @@ func (s *Service) ProjectBrief(userID string, projectID string) (map[string]any,
 		return nil, err
 	}
 	doc["video_model"] = m.ID
-	authMode, _ := normalizeProjectAuthMode(project.AuthMode)
-	doc["auth_mode"] = authMode
+	runMode, _ := normalizeProjectRunMode(project.RunMode)
+	doc["run_mode"] = runMode
 	return doc, nil
 }
 
-// UpdateProjectBrief 写需求文档；文档里改了生成模型或授权档位时同步到项目字段。
+// UpdateProjectBrief 写需求文档；文档里改了生成模型或生成模式时同步到项目字段。
 func (s *Service) UpdateProjectBrief(userID string, projectID string, raw json.RawMessage) (map[string]any, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
@@ -339,16 +342,16 @@ func (s *Service) UpdateProjectBrief(userID string, projectID string, raw json.R
 	if value, ok := doc["video_model"].(string); ok && strings.TrimSpace(value) != "" && value != project.GenerationModel {
 		update.GenerationModel = &value
 	}
-	if value, ok := doc["auth_mode"].(string); ok && strings.TrimSpace(value) != "" && value != project.AuthMode {
-		update.AuthMode = &value
+	if value, ok := doc["run_mode"].(string); ok && strings.TrimSpace(value) != "" && value != project.RunMode {
+		update.RunMode = &value
 	}
-	if update.GenerationModel != nil || update.AuthMode != nil {
+	if update.GenerationModel != nil || update.RunMode != nil {
 		if _, err := s.UpdateProject(userID, projectID, update); err != nil {
 			return nil, err
 		}
 	}
 	delete(doc, "video_model")
-	delete(doc, "auth_mode")
+	delete(doc, "run_mode")
 	encoded, _ := json.Marshal(doc)
 	if err := s.repo.UpdateProjectDramaDocument(userID, projectID, "brief_json", string(encoded), time.Now()); err != nil {
 		return nil, err
@@ -1110,7 +1113,7 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 		}
 		return shots[i].Position < shots[j].Position
 	})
-	input := drama.ProgressInput{Model: m, AuthMode: project.AuthMode, BriefJSON: project.BriefJSON, BibleJSON: project.BibleJSON}
+	input := drama.ProgressInput{Model: m, RunMode: project.RunMode, BriefJSON: project.BriefJSON, BibleJSON: project.BibleJSON}
 	if input.Palettes, err = s.projectPaletteProgress(userID, projectID, styleSceneTable(units)); err != nil {
 		return drama.Progress{}, err
 	}
@@ -1168,7 +1171,12 @@ func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress
 		return drama.Progress{}, err
 	}
 	progress.PrevizGateSetting = briefPrevizGate(project.BriefJSON)
-	progress.PrevizGate = drama.PrevizGateEnabled(progress.PrevizGateSetting, project.AuthMode)
+	progress.PrevizGate = drama.PrevizGateEnabled(progress.PrevizGateSetting, project.RunMode)
+	pipeline, err := s.projectPipeline(userID, project, progress)
+	if err != nil {
+		return drama.Progress{}, err
+	}
+	progress.Pipeline = &pipeline
 	return progress, nil
 }
 
@@ -1405,7 +1413,7 @@ func (s *Service) enforceDramaModelFamily(userID string, input map[string]any, n
 	return nil
 }
 
-// enforceDramaPrevizGate 是视频前的预演闸门（brief_json.previz_gate，auto 跟授权档位）：闸门生效时，给镜头建视频任务要求这一段
+// enforceDramaPrevizGate 是视频前的预演闸门（brief_json.previz_gate，auto 跟生成模式）：闸门生效时，给镜头建视频任务要求这一段
 // 有选中、没过期的黑白预演（action_board），否则拒绝（reason previz_required）。不是带项目和镜头的视频任务、项目读不到时放行。
 func (s *Service) enforceDramaPrevizGate(userID string, input map[string]any) error {
 	projectID, shotID := dramaTaskTarget(input)

@@ -136,6 +136,32 @@ func registerDramaStepRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, result)
 	})
+	// 流水线「继续」：从当前停下的环节开始做，之后按项目的生成模式接续；出视频、剪辑不接（pipeline_video_manual）。
+	r.POST("/projects/:id/drama/pipeline/next", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		policy, available := loadRuntimePolicy(c, svc)
+		if !available || !enforceRateLimit(c, "tasks:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req service.DramaPipelineNextRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("流水线继续的请求格式无效"))
+			return
+		}
+		req.TraceID = TraceID(c)
+		req.RequestID = RequestID(c)
+		result, err := svc.DramaPipelineNext(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
 	// 资产页「重新合成」场次色卡：按色卡当前版本的色板由代码重画图、绑成新版本，不调模型。
 	r.POST("/projects/:id/drama/palettes/resynthesize", func(c *gin.Context) {
 		user, err := currentUser(c, svc)

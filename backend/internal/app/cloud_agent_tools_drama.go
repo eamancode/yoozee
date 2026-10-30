@@ -47,7 +47,7 @@ func (s *Service) cloudAgentDramaTool(userID string, state *cloudAgentRuntime, c
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"projectId": projectID, "model": map[string]any{"id": progress.Model.ID, "label": progress.Model.Label, "maxSegmentSeconds": progress.Model.Duration.Max, "calibrated": progress.Model.Calibrated}, "authMode": progress.AuthMode, "line": progress.Line, "next": progress.Next, "endStates": progress.EndStates, "segments": progress.Segments}, nil
+		return map[string]any{"projectId": projectID, "model": map[string]any{"id": progress.Model.ID, "label": progress.Model.Label, "maxSegmentSeconds": progress.Model.Duration.Max, "calibrated": progress.Model.Calibrated}, "runMode": progress.RunMode, "pipeline": progress.Pipeline, "line": progress.Line, "next": progress.Next, "endStates": progress.EndStates, "segments": progress.Segments}, nil
 	case "drama_chapters_read":
 		var args struct {
 			UnitID string `json:"unitId"`

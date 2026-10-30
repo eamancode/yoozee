@@ -36,4 +36,8 @@ type (
 	DramaStyleLibraryList          = app.DramaStyleLibraryList
 	DramaStyleLibrarySaveRequest   = app.DramaStyleLibrarySaveRequest
 	DramaStyleLibraryUpdateRequest = app.DramaStyleLibraryUpdateRequest
+
+	DramaPipelineNextRequest = app.DramaPipelineNextRequest
+	DramaPipelineNextResult  = app.DramaPipelineNextResult
+	DramaPipelineText        = app.DramaPipelineText
 )

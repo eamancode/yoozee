@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"errors"
-	"net/http"
 	"strings"
 	"time"
 
@@ -14,25 +13,52 @@ import (
 	"gorm.io/gorm"
 )
 
+// CreateProjectRequest 是建项目（首页一页四段）：要拍什么（sourceAs + source）、画面类型、画风从哪来、怎么做（画幅、每段时长、视频模型、生成模式）。
 type CreateProjectRequest struct {
-	Name              string `json:"name"`
-	Type              string `json:"type"`
-	AspectRatio       string `json:"aspectRatio"`
-	SourceType        string `json:"sourceType"`
-	Description       string `json:"description"`
-	StylePresetID     string `json:"stylePresetId"`
-	StyleProfileJSON  string `json:"styleProfileJson"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	// SourceAs 是来源类型：idea（一句创意，建项后由 AI 生成章节）/ novel（小说，导入原文章节）/ script（剧本，导入剧集）/ blank（空项目）。
+	SourceAs string               `json:"sourceAs"`
+	Source   ProjectSourceRequest `json:"source"`
+	// IdeaPlan 只在 sourceAs=idea 时给：生成几集、每集约几秒，写进需求文档（episodes、episode_seconds）。
+	IdeaPlan *ProjectIdeaPlan `json:"ideaPlan,omitempty"`
+	// VisualType 是画面类型（必填，建项后不可改）：live_action / cg_real / anime_3d / anime_2d。
+	VisualType string `json:"visualType"`
+	// Style 是画风从哪来：{mode: director, brief?, refImageIds?} 交给导演分析；{mode: library, styleId} 从风格中心挑（建项时直接锁定）。
+	Style model.ProjectStyleSource `json:"style"`
+	// AspectRatio 是画幅（建项后不可改），空则 9:16。
+	AspectRatio string `json:"aspectRatio"`
+	// SegmentSeconds 是每段时长（15 / 30 秒），写进 brief_json.segment_seconds，不能超过视频模型一段的上限；空则 15。
+	SegmentSeconds int `json:"segmentSeconds"`
+	// GenerationModel 是视频生成模型族（seedance-2.0 …），决定一段最长几秒；空则用默认。没有视频渠道也能建项。
+	GenerationModel string `json:"generationModel"`
+	// RunMode 是生成模式：until_video（默认）/ review_from_assets / every_step。
+	RunMode           string `json:"runMode"`
 	DefaultImageModel string `json:"defaultImageModel"`
 	DefaultVideoModel string `json:"defaultVideoModel"`
-	// GenerationModel 是视频生成模型族（seedance-2.0 / seedance-2.5 / minimax-h3），决定一段最长几秒；空则用默认。
-	GenerationModel string `json:"generationModel"`
-	// AuthMode：step 每步确认；full 全权。空则为每步确认。
-	AuthMode string `json:"authMode"`
-	// StyleProfile 是 yoozee 风格档案（五选一）；空则按画风对照表推荐。
-	StyleProfile string `json:"styleProfile"`
-	// SegmentSeconds 是单段最长秒数（建项目选 15 / 30），写进 brief_json.segment_seconds；0 表示不限（按生成模型上限）。
-	SegmentSeconds int `json:"segmentSeconds"`
 }
+
+// ProjectSourceRequest 是要拍什么的正文：创意是 Text（原话，存进项目简介）；小说、剧本是 Units——前端用章节页导入的同一套解析
+// 切好的章（novel）或集（script），服务端不另写切分。
+type ProjectSourceRequest struct {
+	Text  string                     `json:"text,omitempty"`
+	Units []CreateProjectUnitRequest `json:"units,omitempty"`
+}
+
+// ProjectIdeaPlan 是创意的规模：生成几集、每集约几秒。
+type ProjectIdeaPlan struct {
+	Episodes       int `json:"episodes"`
+	EpisodeSeconds int `json:"episodeSeconds"`
+}
+
+// 来源类型（projects.source_type）。
+const (
+	ProjectSourceIdea   = "idea"
+	ProjectSourceNovel  = "novel"
+	ProjectSourceScript = "script"
+	ProjectSourceBlank  = "blank"
+)
 
 type UpdateProjectRequest struct {
 	Name              string  `json:"name"`
@@ -46,11 +72,12 @@ type UpdateProjectRequest struct {
 	DefaultImageModel *string `json:"defaultImageModel"`
 	DefaultVideoModel *string `json:"defaultVideoModel"`
 	GenerationModel   *string `json:"generationModel"`
-	AuthMode          *string `json:"authMode"`
-	StyleProfile      *string `json:"styleProfile"`
+	// RunMode 改生成模式：只影响之后的接续，已经停住的环节不追补。
+	RunMode      *string `json:"runMode"`
+	StyleProfile *string `json:"styleProfile"`
 	// SegmentSeconds 改单段最长秒数（brief_json.segment_seconds）；0 去掉这一项。
 	SegmentSeconds *int `json:"segmentSeconds"`
-	// PrevizGate 改视频前的预演闸门（brief_json.previz_gate：auto / on / off）；auto 去掉这一项（跟授权档位）。
+	// PrevizGate 改视频前的预演闸门（brief_json.previz_gate：auto / on / off）；auto 去掉这一项（跟生成模式）。
 	PrevizGate *string `json:"previzGate"`
 	Status     string  `json:"status"`
 }
@@ -231,86 +258,6 @@ func (s *Service) ProjectDetail(userID string, id string) (ProjectDetail, error)
 	return ProjectDetail{Project: *project, Units: units, Canvases: canvases, CanvasUnitLinks: canvasUnitLinks, Assets: assets, AssetFolders: assetFolders, Workflows: workflows, Shots: shots, ShotRevisions: shotRevisions, ShotArtifacts: shotArtifacts, ShotReferences: shotReferences, AssetCandidates: candidates, Tasks: tasks}, nil
 }
 
-func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.Project, error) {
-	if err := s.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
-		return model.Project{}, err
-	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return model.Project{}, BadAuthRequest("项目名称不能为空")
-	}
-	projectType := strings.TrimSpace(req.Type)
-	if projectType == "" {
-		projectType = "short-drama"
-	}
-	aspectRatio := strings.TrimSpace(req.AspectRatio)
-	if aspectRatio == "" {
-		aspectRatio = "9:16"
-	}
-	if err := validateProjectAspectRatio(aspectRatio); err != nil {
-		return model.Project{}, err
-	}
-	sourceType := strings.TrimSpace(req.SourceType)
-	if sourceType == "" {
-		sourceType = "blank"
-	}
-	styleProfileJSON, err := validateStyleProfileJSON(req.StyleProfileJSON)
-	if err != nil {
-		return model.Project{}, BadAuthRequest(err.Error())
-	}
-	stylePresetID := strings.TrimSpace(req.StylePresetID)
-	if err := validateStyleProfilePreset(stylePresetID, styleProfileJSON); err != nil {
-		return model.Project{}, BadAuthRequest(err.Error())
-	}
-	now := time.Now()
-	defaultImageModel, err := normalizeProjectDefaultModel(req.DefaultImageModel)
-	if err != nil {
-		return model.Project{}, err
-	}
-	defaultVideoModel, err := normalizeProjectDefaultModel(req.DefaultVideoModel)
-	if err != nil {
-		return model.Project{}, err
-	}
-	generationModel, err := normalizeProjectGenerationModel(req.GenerationModel)
-	if err != nil {
-		return model.Project{}, err
-	}
-	authMode, err := normalizeProjectAuthMode(req.AuthMode)
-	if err != nil {
-		return model.Project{}, err
-	}
-	if err := checkProjectVideoModelFamily(generationModel, defaultVideoModel); err != nil {
-		return model.Project{}, err
-	}
-	briefJSON := ""
-	if req.SegmentSeconds != 0 {
-		if err := checkSegmentSecondsForModel(req.SegmentSeconds, generationModel); err != nil {
-			return model.Project{}, err
-		}
-		if briefJSON, err = withBriefSegmentSeconds("", req.SegmentSeconds); err != nil {
-			return model.Project{}, err
-		}
-	}
-	styleProfile := strings.TrimSpace(req.StyleProfile)
-	if styleProfile == "" {
-		styleProfile, _ = drama.RecommendProfile(stylePresetID, styleProfileJSON, "")
-	} else if !drama.ValidProfileID(styleProfile) {
-		return model.Project{}, BadAuthRequest("不支持的风格档案")
-	}
-	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel, GenerationModel: generationModel, AuthMode: authMode, StyleProfile: styleProfile, BriefJSON: briefJSON, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
-	if err := s.repo.CreateProject(&project); err != nil {
-		if errors.Is(err, repository.ErrProjectNameConflict) {
-			// 项目名称冲突需要明确返回 409，页面才能按已有逻辑换一个名称重试。
-			conflict := NewAppError(http.StatusConflict, "项目名称已存在")
-			conflict.Reason = ReasonProjectNameConflict
-			return model.Project{}, conflict
-		}
-		return model.Project{}, err
-	}
-	// 新项目不再建旧六步流程实例：进度按段、产物和证据推导。
-	return project, nil
-}
-
 func (s *Service) UpdateProject(userID string, id string, req UpdateProjectRequest) (model.Project, error) {
 	project, err := s.repo.ProjectForUser(userID, id)
 	if err != nil {
@@ -323,10 +270,8 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 		project.Type = value
 	}
 	if value := strings.TrimSpace(req.AspectRatio); value != "" && value != project.AspectRatio {
-		if err := validateProjectAspectRatio(value); err != nil {
-			return model.Project{}, err
-		}
-		project.AspectRatio = value
+		// 画幅建项后不可改：已经出的资产、分镜、视频都按它的画幅做。
+		return model.Project{}, BadAuthRequest("画幅建项后不可改")
 	}
 	if value := strings.TrimSpace(req.SourceType); value != "" {
 		project.SourceType = value
@@ -381,12 +326,12 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 		}
 		project.GenerationModel = generationModel
 	}
-	if req.AuthMode != nil {
-		authMode, modeErr := normalizeProjectAuthMode(*req.AuthMode)
+	if req.RunMode != nil {
+		runMode, modeErr := normalizeProjectRunMode(*req.RunMode)
 		if modeErr != nil {
 			return model.Project{}, modeErr
 		}
-		project.AuthMode = authMode
+		project.RunMode = runMode
 	}
 	if req.StyleProfile != nil {
 		styleProfile := strings.TrimSpace(*req.StyleProfile)

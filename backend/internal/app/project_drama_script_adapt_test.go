@@ -25,10 +25,7 @@ func seedNovelProject(t *testing.T, svc *Service, db *gorm.DB) (model.Project, [
 	if err := json.Unmarshal(files.Project, &seed); err != nil {
 		t.Fatal(err)
 	}
-	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "小说改编", SourceType: "novel", StylePresetID: seed.StylePresetID, StyleProfileJSON: seed.StyleProfileJSON, GenerationModel: "seedance-2.5"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	project := newTestProject(t, svc, db, "user-1", CreateProjectRequest{Name: "小说改编", GenerationModel: "seedance-2.5"}, ProjectSourceNovel, seed.StylePresetID, seed.StyleProfileJSON)
 	brief := `{"title": "小说改编", "episode_seconds": 90, "segment_seconds": 15}`
 	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("brief_json", brief).Error; err != nil {
 		t.Fatal(err)
@@ -93,9 +90,10 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome := result.DramaStep
-	// 写完剧集自动接着建场次色卡任务；项目还没锁定风格时不建，原因记在 chained 上，剧集照写。
-	if outcome.Chained == nil || outcome.Chained.Step != drama.StepScenePalette || outcome.Chained.TaskID != "" || !strings.Contains(outcome.Chained.Error, "还没有锁定风格") {
-		t.Fatalf("没锁定风格时不接场次色卡：%+v", outcome.Chained)
+	// 写完剧集按生成模式（跑到出视频前）接下一步：画风交给导演分析、项目还没锁定风格时接导演定画风，不接场次色卡；
+	// 测试里开着计费、没有计费用的渠道模型，任务没建成，原因记在 chained 上，剧集照写。
+	if outcome.Chained == nil || outcome.Chained.Step != drama.StepStyleLock || outcome.Chained.TaskID != "" || outcome.Chained.Error == "" {
+		t.Fatalf("没锁定风格时接导演定画风：%+v", outcome.Chained)
 	}
 	var tasks int64
 	if err := db.Model(&model.Task{}).Where("id <> ?", queued.ID).Count(&tasks).Error; err != nil || tasks != 0 {
@@ -157,7 +155,7 @@ func TestScriptAdaptWritesEpisodesThroughWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	lockTestProjectStyle(t, db, project.ID)
-	chained := svc.chainScenePaletteAfterAdapt(*queued, project.ID)
+	chained := svc.continueAfterScript(*queued, project.ID)
 	if chained == nil || chained.TaskID == "" {
 		t.Fatalf("接着建场次色卡任务：%+v", chained)
 	}

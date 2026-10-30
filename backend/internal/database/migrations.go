@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 70
+const CurrentSchemaVersion int64 = 71
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -213,7 +213,7 @@ var schemaMigrations = []migration{
 	}},
 	{version: 56, name: "sql_perf_indexes", checksum: "sha256:sql-perf-indexes-v56-20261016", apply: migrateSchemaV56},
 	{version: 57, name: "canvas_multi_session_sync", checksum: "sha256:canvas-multi-session-sync-v57", apply: migrateCanvasCollaboration},
-	// yoozee 1.0 skills：项目生成模型、授权档位、需求文档与连戏表；段的中性分段；产物依赖指纹；证据表。
+	// yoozee 1.0 skills：项目生成模型、授权档位（v71 起换成生成模式）、需求文档与连戏表；段的中性分段；产物依赖指纹；证据表。
 	{version: dramaSegmentsEvidenceMigrationVersion, name: dramaSegmentsEvidenceMigrationName, checksum: dramaSegmentsEvidenceMigrationChecksum, apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.Project{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotEvidence{})
 	}},
@@ -254,6 +254,61 @@ var schemaMigrations = []migration{
 	}},
 	// M8 卡 D：角色子卡（服装 / 状态）是独立的角色资产，assets 加 parent_asset_id（指向主卡，带索引）和 variant_label（变体名）。
 	{version: 70, name: "asset_character_variants", checksum: "sha256:asset-character-variants-v70-20261028", apply: migrateAssetCharacterVariants},
+	// 建项目改版：projects 加 visual_type（画面类型）、run_mode（生成模式，取代 auth_mode：step→every_step、full→until_video）、
+	// style_source（画风来源）；平台风格库的类型改成和 visual_type 同值。
+	{version: 71, name: "project_create_redesign", checksum: "sha256:project-create-redesign-v71-20261029", apply: migrateProjectCreateRedesign},
+}
+
+// legacyProjectTypes 是改版前的项目类型取值 → 画面类型。
+var legacyProjectTypes = map[string]string{"live-action": drama.VisualLiveAction, "realistic-cg": drama.VisualCGReal, "3d-anime": drama.VisualAnime3D, "2d-anime": drama.VisualAnime2D}
+
+// migrateProjectCreateRedesign 加三列并回填：run_mode 按 auth_mode 换算后删掉 auth_mode；锁过风格的项目按锁定记录的类型回填 visual_type；
+// 风格库条目的类型换成新取值（一一对应，不会撞 (project_type, name) 唯一索引）。
+func migrateProjectCreateRedesign(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.Project{}); err != nil {
+		return err
+	}
+	if tx.Migrator().HasColumn(&model.Project{}, "auth_mode") {
+		if err := tx.Exec("UPDATE projects SET run_mode = CASE WHEN auth_mode = 'full' THEN ? ELSE ? END WHERE run_mode IS NULL OR run_mode = ''", drama.RunUntilVideo, drama.RunEveryStep).Error; err != nil {
+			return err
+		}
+		if err := tx.Migrator().DropColumn(&model.Project{}, "auth_mode"); err != nil {
+			return err
+		}
+	}
+	if err := tx.Exec("UPDATE projects SET run_mode = ? WHERE run_mode IS NULL OR run_mode = ''", drama.RunEveryStep).Error; err != nil {
+		return err
+	}
+	var rows []struct {
+		ID        string
+		BibleJSON string
+	}
+	if err := tx.Table("projects").Select("id, bible_json").Where("(visual_type IS NULL OR visual_type = '') AND bible_json LIKE ?", `%"project_type"%`).Scan(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		var doc struct {
+			StyleLock struct {
+				ProjectType string `json:"project_type"`
+			} `json:"style_lock"`
+		}
+		if json.Unmarshal([]byte(row.BibleJSON), &doc) != nil {
+			continue
+		}
+		if visual := legacyProjectTypes[doc.StyleLock.ProjectType]; visual != "" {
+			if err := tx.Table("projects").Where("id = ?", row.ID).Update("visual_type", visual).Error; err != nil {
+				return err
+			}
+		}
+	}
+	if tx.Migrator().HasTable(&model.DramaStyleLibraryEntry{}) {
+		for old, visual := range legacyProjectTypes {
+			if err := tx.Model(&model.DramaStyleLibraryEntry{}).Where("project_type = ?", old).Update("project_type", visual).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // migrateAssetCharacterVariants 给 assets 加子卡的两列（已有行是空串，即主卡或普通资产）和 parent_asset_id 索引。

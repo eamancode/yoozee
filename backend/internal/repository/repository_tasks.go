@@ -442,3 +442,14 @@ func (r *Repository) TaskLogs(userID string, taskID string) ([]model.TaskLog, er
 	err := r.db.Order("created_at asc").Find(&logs, "user_id = ? AND task_id = ?", userID, taskID).Error
 	return logs, err
 }
+
+// ProjectPipelineTasks 是项目流水线判状态要看的任务（短剧流程步骤、资产出图、视频），只取判状态用的列，新的在前。
+func (r *Repository) ProjectPipelineTasks(userID string, projectID string) ([]model.Task, error) {
+	var tasks []model.Task
+	err := r.db.Model(&model.Task{}).
+		Select("id", "user_id", "project_id", "type", "status", "error", "input_json", "created_at", "updated_at").
+		Where("user_id = ? AND project_id = ?", userID, projectID).
+		Where("input_json LIKE ? OR input_json LIKE ? OR type = ?", `%"dramaStep"%`, `%"dramaAsset"%`, "canvas_video").
+		Order("created_at DESC").Limit(2000).Find(&tasks).Error
+	return tasks, err
+}

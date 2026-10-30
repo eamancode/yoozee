@@ -34,6 +34,9 @@ type dramaStyleLockMeta struct {
 	Source string `json:"source"`
 	// AutoLock 是收尾直接锁定（建项目时只选了画风预设：按画风当场生成主色卡存在项目上，不用再点锁定）。
 	AutoLock bool `json:"autoLock,omitempty"`
+	// Pipeline 是流水线跑的导演定画风（建项选了「交给导演分析」）：收尾直接锁定、存进平台风格库（来源 director），
+	// 再按生成模式接着跑场次色卡。
+	Pipeline bool `json:"pipeline,omitempty"`
 }
 
 // DramaStyleLockOutcome 是风格锁定收尾写进 result.dramaStep 的候选：用户点「锁定此风格」时取它写进项目。
@@ -50,6 +53,10 @@ type DramaStyleLockOutcome struct {
 	Items         []drama.CheckItem         `json:"items,omitempty"`
 	// Locked 是收尾直接锁定（AutoLock）写进项目的锁定记录。
 	Locked *drama.StyleLockRecord `json:"locked,omitempty"`
+	// LibraryID 是导演定画风锁定后存进平台风格库的条目（存不进只记日志，为空）。
+	LibraryID string `json:"libraryId,omitempty"`
+	// Chained 是锁定后按生成模式接着建的场次色卡任务。
+	Chained *DramaChainedTask `json:"chained,omitempty"`
 }
 
 // 风格锁定任务结果的状态：candidate 是候选，等用户锁定；locked 是收尾已直接锁定。
@@ -109,13 +116,9 @@ func projectLockedAnchor(bibleJSON string) *drama.StyleAnchor {
 
 // planStyleLock 校验项目类型、风格文字和参考图（要是本人已就绪的图片资源），组装提示词。
 func (s *Service) planStyleLock(userID string, project *model.Project, step drama.Step, req DramaProjectStepRunRequest) (*dramaStepPlan, error) {
-	projectType := strings.TrimSpace(req.ProjectType)
-	if projectType == "" {
-		_, _, record, _ := projectLockedStyle(project.BibleJSON)
-		projectType = record.ProjectType
-	}
+	projectType := project.VisualType
 	if drama.ProjectTypeLabel(projectType) == "" {
-		return nil, BadAuthRequest("请先选项目类型（仿真人、3D 动漫、写实 CG、2D 动漫）")
+		return nil, BadAuthRequest("项目没有画面类型（仿真人、写实 CG、3D 动漫、2D 动漫），不能分析风格")
 	}
 	text := strings.TrimSpace(req.StyleText)
 	if drama.JSLen(text) > drama.StyleLockTextChars {
@@ -146,18 +149,31 @@ func (s *Service) planStyleLock(userID string, project *model.Project, step dram
 		}
 		refs = append(refs, map[string]any{"id": resource.ID, "type": "image", "storageKey": "resource:" + resource.ID, "mimeType": resource.MimeType, "width": resource.Width, "height": resource.Height})
 	}
+	// 导演按故事定风格：带上剧本节选（流水线跑的、或描述和参考图都没给时）。
+	story := ""
+	if req.pipeline || (text == "" && len(ids) == 0) {
+		excerpt, err := s.projectStoryExcerpt(project.ID)
+		if err != nil {
+			return nil, err
+		}
+		story = excerpt
+	}
 	source := drama.StyleLockSourceAnalysis
-	if text == "" && len(ids) == 0 {
+	switch {
+	case req.pipeline:
+		source = drama.StyleLockSourceDirector
+	case text == "" && len(ids) == 0:
 		source = drama.StyleLockSourcePreset
-		if style := projectStyleSnapshot(project); style.Prompt == "" && len(style.Selection) == 0 {
-			return nil, BadAuthRequest("写一段风格描述、传参考图，或先选项目画风，再分析项目风格")
+		if style := projectStyleSnapshot(project); style.Prompt == "" && len(style.Selection) == 0 && story == "" {
+			return nil, BadAuthRequest("写一段风格描述、传参考图，或先写好剧本，再分析项目风格")
 		}
 	}
 	usage, skill, err := s.dramaStepSkill(project, step, nil)
 	if err != nil {
 		return nil, err
 	}
-	plan, err := styleLockPlan(project, &dramaStyleLockMeta{ProjectType: projectType, Text: text, Images: ids, Source: source, AutoLock: req.LockOnFinish}, usage, skill)
+	lock := &dramaStyleLockMeta{ProjectType: projectType, Text: text, Images: ids, Source: source, AutoLock: req.LockOnFinish || req.pipeline, Pipeline: req.pipeline}
+	plan, err := styleLockPlan(project, lock, story, usage, skill)
 	if err != nil {
 		return nil, err
 	}
@@ -165,11 +181,42 @@ func (s *Service) planStyleLock(userID string, project *model.Project, step dram
 	return plan, nil
 }
 
+// projectStoryExcerpt 是导演定画风带的剧本节选：剧集正文（还没有剧集时取原文章节）按顺序拼起来，够 StyleLockStoryChars 就停。
+func (s *Service) projectStoryExcerpt(projectID string) (string, error) {
+	units, err := s.repo.ProjectUnits(projectID)
+	if err != nil {
+		return "", err
+	}
+	pick := make([]model.ProjectUnit, 0, len(units))
+	for _, kind := range []model.ProjectUnitKind{model.ProjectUnitKindEpisode, model.ProjectUnitKindChapter} {
+		for _, unit := range units {
+			if unit.Kind == kind {
+				pick = append(pick, unit)
+			}
+		}
+		if len(pick) > 0 {
+			break
+		}
+	}
+	var b strings.Builder
+	for _, unit := range pick {
+		text := chapterEditorText(unit.SourceText)
+		if text == "" {
+			continue
+		}
+		b.WriteString("【" + unit.Title + "】\n" + text + "\n\n")
+		if drama.JSLen(b.String()) >= drama.StyleLockStoryChars {
+			break
+		}
+	}
+	return drama.JSTrim(b.String()), nil
+}
+
 // styleLockPlan 组装风格锁定的提示词与运行参数（不读库，评测直接拿评测集的项目喂进来）。一轮，不切轮次。
-func styleLockPlan(project *model.Project, lock *dramaStyleLockMeta, usage DramaStepUsage, skill drama.StepSkill) (*dramaStepPlan, error) {
+func styleLockPlan(project *model.Project, lock *dramaStyleLockMeta, story string, usage DramaStepUsage, skill drama.StepSkill) (*dramaStepPlan, error) {
 	style := projectStyleSnapshot(project)
 	in := drama.StyleLockInput{
-		ProjectType: lock.ProjectType, Text: lock.Text, Images: len(lock.Images), BriefJSON: project.BriefJSON,
+		ProjectType: lock.ProjectType, Text: lock.Text, Images: len(lock.Images), Story: story, BriefJSON: project.BriefJSON,
 		Style: drama.StepStyle{Title: style.Title, Prompt: style.Prompt, Selection: style.Selection}, Skill: skill,
 	}
 	if p, err := drama.BuiltinProfile(projectDramaContext(project).profileID()); err == nil {
@@ -238,6 +285,16 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 			_ = s.log(task.UserID, task.ID, "warn", "主色卡图没有绑上", locked.ImageError)
 		}
 		outcome.Status, outcome.Locked = DramaStyleLockOutcomeLocked, &locked.StyleLock
+		if lock.Pipeline {
+			// 导演定的风格存进平台风格库（来源导演分析、说明写项目名），团队以后建项可以直接挑。存不进不影响已锁定的风格。
+			if project, err = s.activeProjectForUser(task.UserID, projectID); err == nil {
+				if item, err := s.saveDirectorStyleToLibrary(task.UserID, project); err != nil {
+					_ = s.log(task.UserID, task.ID, "warn", "导演定的风格没有存进风格库", err.Error())
+				} else {
+					outcome.LibraryID = item.ID
+				}
+			}
+		}
 	}
 	return outcome, nil
 }

@@ -71,7 +71,7 @@ func TestStyleLockWholePaletteLineAndChecks(t *testing.T) {
 func TestBuildStyleLockPrompt(t *testing.T) {
 	skill := StepSkill{ID: "yz-style-lock", Files: []StepSkillFile{{Path: "SKILL.md", Kind: "markdown", Content: "# 风格锁定\n先锁风格。"}}}
 	prompt, err := BuildStyleLockPrompt(StyleLockInput{
-		ProjectType: "live-action", Text: "都市冷调悬疑，雨夜霓虹少用", Images: 3,
+		ProjectType: VisualLiveAction, Text: "都市冷调悬疑，雨夜霓虹少用", Images: 3,
 		Style:   StepStyle{Title: "悬疑犯罪 · 真人实拍", Prompt: "【色彩与光影】冷色调", Selection: map[string]string{"medium": "live-action"}},
 		Profile: StyleBibleProfile{Label: "真人剧（默认）", StyleBlock: "实拍质感", LightPolicy: "practicals_only"},
 		Skill:   skill,
@@ -84,7 +84,7 @@ func TestBuildStyleLockPrompt(t *testing.T) {
 			t.Errorf("提示词缺「%s」", want)
 		}
 	}
-	bare, err := BuildStyleLockPrompt(StyleLockInput{ProjectType: "2d-anime", Skill: skill})
+	bare, err := BuildStyleLockPrompt(StyleLockInput{ProjectType: VisualAnime2D, Skill: skill})
 	if err != nil || !strings.Contains(bare.Text, "用户没有写风格描述，也没有上传参考图") || strings.Contains(bare.Text, "【项目画风：") {
 		t.Fatalf("只按画风定时应写明，没有画风不写画风段：%v\n%s", err, bare.Text)
 	}

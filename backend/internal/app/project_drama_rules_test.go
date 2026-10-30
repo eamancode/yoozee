@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -88,33 +89,33 @@ func TestProjectVideoModelFamilyMustMatchGenerationModel(t *testing.T) {
 	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
 
 	// 建项目：生成模型是 Seedance 2.0，默认视频模型却选了 H3 族的渠道模型 → 拒绝。
-	if _, err := service.CreateProject("user-1", CreateProjectRequest{
+	if _, err := service.CreateProject("user-1", CreateProjectRequest{VisualType: drama.VisualLiveAction,
 		Name: "夜班", Type: "short-drama", GenerationModel: "seedance-2.0", DefaultVideoModel: "MiniMax-H3",
 	}); err == nil || !strings.Contains(err.Error(), "不一致") {
 		t.Fatalf("跨族的默认视频模型应被拒绝，得到 %v", err)
 	}
 	// 同族放行。
-	created, err := service.CreateProject("user-1", CreateProjectRequest{
+	created, err := service.CreateProject("user-1", CreateProjectRequest{VisualType: drama.VisualLiveAction,
 		Name: "夜班（同族）", Type: "short-drama", GenerationModel: "seedance-2.0", DefaultVideoModel: "doubao-seedance-2-0-260128",
 	})
 	if err != nil {
 		t.Fatalf("同族模型应放行：%v", err)
 	}
-	if created.GenerationModel != "seedance-2.0" || created.AuthMode != drama.AuthStep {
-		t.Fatalf("生成模型与默认授权档位没落库：%+v", created)
+	if created.GenerationModel != "seedance-2.0" || created.RunMode != drama.RunUntilVideo {
+		t.Fatalf("生成模型与默认生成模式没落库：%+v", created)
 	}
 	// 不认识的渠道模型名不拦（不能因为命名规则挡住没见过的供应商）。
-	if _, err := service.CreateProject("user-1", CreateProjectRequest{
+	if _, err := service.CreateProject("user-1", CreateProjectRequest{VisualType: drama.VisualLiveAction,
 		Name: "别的", Type: "short-drama", GenerationModel: "seedance-2.0", DefaultVideoModel: "kling-v2-master",
 	}); err != nil {
 		t.Fatalf("不认识的模型名应放行：%v", err)
 	}
 	// 不填默认视频模型也不拦。
-	if _, err := service.CreateProject("user-1", CreateProjectRequest{Name: "只选生成模型", Type: "short-drama", GenerationModel: "seedance-2.5"}); err != nil {
+	if _, err := service.CreateProject("user-1", CreateProjectRequest{VisualType: drama.VisualLiveAction, Name: "只选生成模型", Type: "short-drama", GenerationModel: "seedance-2.5"}); err != nil {
 		t.Fatalf("没填默认视频模型应放行：%v", err)
 	}
 	// 未知生成模型直接拒绝。
-	if _, err := service.CreateProject("user-1", CreateProjectRequest{Name: "未知模型", Type: "short-drama", GenerationModel: "kling"}); err == nil {
+	if _, err := service.CreateProject("user-1", CreateProjectRequest{VisualType: drama.VisualLiveAction, Name: "未知模型", Type: "short-drama", GenerationModel: "kling"}); err == nil {
 		t.Fatal("未知生成模型应被拒绝")
 	}
 
@@ -142,47 +143,41 @@ func TestProjectVideoModelFamilyMustMatchGenerationModel(t *testing.T) {
 	}
 }
 
-func TestProjectAuthModeOnlyAcceptsTwoTiers(t *testing.T) {
+func TestProjectRunModeOnlyAcceptsThreeModes(t *testing.T) {
 	service, _, project, _ := newDramaTestService(t, "seedance-2.0")
 
-	// 空值按每步确认落库。
-	created, err := service.CreateProject("user-1", CreateProjectRequest{Name: "默认档位", Type: "short-drama"})
+	// 空值按跑到出视频前落库。
+	created, err := service.CreateProject("user-1", CreateProjectRequest{VisualType: drama.VisualLiveAction, Name: "默认模式", Type: "short-drama"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.AuthMode != drama.AuthStep {
-		t.Fatalf("空授权档位应落成 step：%q", created.AuthMode)
+	if created.RunMode != drama.RunUntilVideo {
+		t.Fatalf("空生成模式应落成 until_video：%q", created.RunMode)
 	}
-	// 两档都能存。
-	full := "full"
-	updated, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{AuthMode: &full})
-	if err != nil || updated.AuthMode != drama.AuthFull {
-		t.Fatalf("full 档位应保存成功：%v %+v", err, updated)
+	// 三档都能存。
+	for _, mode := range drama.RunModes {
+		value := mode
+		updated, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{RunMode: &value})
+		if err != nil || updated.RunMode != mode {
+			t.Fatalf("%s 应保存成功：%v %+v", mode, err, updated)
+		}
 	}
-	step := "step"
-	if updated, err = service.UpdateProject("user-1", project.ID, UpdateProjectRequest{AuthMode: &step}); err != nil || updated.AuthMode != drama.AuthStep {
-		t.Fatalf("step 档位应保存成功：%v %+v", err, updated)
-	}
-	// 大小写和取值都要严格匹配，拼错的档位一律拒绝。
-	for _, bad := range []string{"auto", "read_only", "全权", "STEP", "full/step", "full,step"} {
+	// 旧的授权档位取值、大小写拼错一律拒绝，原因落在「怎么做」这一段。
+	for _, bad := range []string{"step", "full", "auto", "UNTIL_VIDEO", "until_video/every_step"} {
 		value := bad
-		if _, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{AuthMode: &value}); err == nil {
-			t.Fatalf("非法授权档位 %q 应被拒绝", bad)
+		if _, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{RunMode: &value}); err == nil {
+			t.Fatalf("非法生成模式 %q 应被拒绝", bad)
 		}
-		if _, err := service.CreateProject("user-1", CreateProjectRequest{Name: "非法档位 " + bad, Type: "short-drama", AuthMode: bad}); err == nil {
-			t.Fatalf("建项目时非法授权档位 %q 应被拒绝", bad)
+		_, err := service.CreateProject("user-1", CreateProjectRequest{VisualType: drama.VisualLiveAction, Name: "非法模式 " + bad, Type: "short-drama", RunMode: bad})
+		var appErr *AppError
+		if !errors.As(err, &appErr) || appErr.Reason != ReasonProjectProductionInvalid {
+			t.Fatalf("建项目时非法生成模式 %q 应按 project_production_invalid 拒绝：%v", bad, err)
 		}
 	}
-	// 前后空白按归一化处理，不当成非法值（表单/接口传参常见）。
-	for _, padded := range []string{" step", "step ", " full	", "	full "} {
-		value := padded
-		updated, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{AuthMode: &value})
-		if err != nil {
-			t.Fatalf("带空白的档位 %q 应归一化后保存：%v", padded, err)
-		}
-		if updated.AuthMode != strings.TrimSpace(padded) {
-			t.Fatalf("带空白的档位 %q 归一化结果 = %q", padded, updated.AuthMode)
-		}
+	// 前后空白按归一化处理。
+	value := " every_step "
+	if updated, err := service.UpdateProject("user-1", project.ID, UpdateProjectRequest{RunMode: &value}); err != nil || updated.RunMode != drama.RunEveryStep {
+		t.Fatalf("带空白的生成模式应归一化后保存：%v", err)
 	}
 }
 

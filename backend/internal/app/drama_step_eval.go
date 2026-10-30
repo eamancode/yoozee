@@ -249,7 +249,7 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 		plan, err = assetsExtractPlan(in.project, in.unit, []model.ProjectUnit{*in.unit}, in.assets, usage, skillRef)
 	case drama.StepStyleLock:
 		// 风格锁定的评测：评测项目的类型按风格档案推，不写风格文字、不带参考图，只按画风定（只出风格锚和主基调色卡，不锁定）。
-		plan, err = styleLockPlan(in.project, &dramaStyleLockMeta{ProjectType: dramaEvalProjectType(c.Profile), Source: drama.StyleLockSourcePreset}, usage, skillRef)
+		plan, err = styleLockPlan(in.project, &dramaStyleLockMeta{ProjectType: dramaEvalProjectType(c.Profile), Source: drama.StyleLockSourcePreset}, "", usage, skillRef)
 	case drama.StepScenePalette:
 		// 场次色卡的评测：这一章当第 1 集写色彩脚本（只出色彩脚本，不建色卡、不合成图）；评测项目锁定了风格时带上风格锚和主色卡。
 		plan, err = scenePalettePlan(in.project, []model.ProjectUnit{*in.unit}, map[string]int{in.unit.ID: 1}, false, nil, usage, skillRef)
@@ -806,9 +806,9 @@ func scenePaletteEvalResult(r drama.StepEvalChapterResult, in dramaEvalChapterIn
 // dramaEvalProjectType 是评测项目的类型（风格锁定要）：动漫档案取 3D 动漫，其余按仿真人。
 func dramaEvalProjectType(profile string) string {
 	if profile == "anime-3d" {
-		return "3d-anime"
+		return drama.VisualAnime3D
 	}
-	return "live-action"
+	return drama.VisualLiveAction
 }
 
 // styleLockEvalResult 是风格锁定的指标：有风格锚、主基调色卡至少 4 色、检查没有 error 才算解析成功；Rows 是颜色数，Shots 是色数下限。

@@ -78,10 +78,10 @@ func briefPrevizGate(briefJSON string) string {
 	return drama.PrevizGateAuto
 }
 
-// withBriefPrevizGate 把预演闸门写进需求文档，其他字段原样保留；auto 时去掉这一项（跟授权档位）。
+// withBriefPrevizGate 把预演闸门写进需求文档，其他字段原样保留；auto 时去掉这一项（跟生成模式）。
 func withBriefPrevizGate(briefJSON string, gate string) (string, error) {
 	if !drama.ValidPrevizGate(gate) {
-		return "", BadAuthRequest("预演闸门只能是 auto（跟授权档位）、on 或 off")
+		return "", BadAuthRequest("预演闸门只能是 auto（跟生成模式）、on 或 off")
 	}
 	doc := map[string]any{}
 	if raw := strings.TrimSpace(briefJSON); raw != "" {
@@ -104,7 +104,7 @@ func withBriefPrevizGate(briefJSON string, gate string) (string, error) {
 	return string(encoded), nil
 }
 
-// projectPrevizGate 是项目的预演闸门是否生效（previz_gate 覆盖，auto 跟授权档位）。
+// projectPrevizGate 是项目的预演闸门是否生效（previz_gate 覆盖，auto 跟生成模式）。
 func projectPrevizGate(project *model.Project) bool {
-	return drama.PrevizGateEnabled(briefPrevizGate(project.BriefJSON), project.AuthMode)
+	return drama.PrevizGateEnabled(briefPrevizGate(project.BriefJSON), project.RunMode)
 }

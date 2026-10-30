@@ -36,6 +36,8 @@ type DramaStepTaskOutcome struct {
 	Sections     int           `json:"sections,omitempty"`
 	WuxiSections int           `json:"wuxiSections,omitempty"`
 	Regenre      *dramaRegenre `json:"regenre,omitempty"`
+	// Chained 是流水线按集依次生成分镜时接着建的下一集。
+	Chained *DramaChainedTask `json:"chained,omitempty"`
 }
 
 const (
@@ -91,6 +93,10 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 		if err != nil {
 			return false, err
 		}
+		// 流水线按集依次生成分镜：接着下一集（装段已在收尾里做完；出视频不接）。
+		if target := taskProjectID(task); target != "" {
+			outcome.Chained = s.continueShotsQueue(task, target)
+		}
 		result["dramaStep"] = outcome
 		return true, nil
 	case drama.StepScriptAdapt:
@@ -98,9 +104,9 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 		if err != nil {
 			return false, err
 		}
-		// 剧集写好之后自动接着跑场次色卡；没建成只记原因，已写的剧集不动。
+		// 剧集写好之后按生成模式接着跑导演定画风或场次色卡；没建成只记原因，已写的剧集不动。
 		if target := taskProjectID(task); target != "" {
-			outcome.Chained = s.chainScenePaletteAfterAdapt(task, target)
+			outcome.Chained = s.continueAfterScript(task, target)
 		}
 		result["dramaStep"] = outcome
 		return true, nil
@@ -108,6 +114,10 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 		outcome, err := s.applyStyleLockTask(task, meta, result)
 		if err != nil {
 			return false, err
+		}
+		// 流水线跑的导演定画风锁定后，按生成模式接着跑场次色卡。
+		if lock := taskDramaStyleLock(task.InputJSON); lock != nil && lock.Pipeline && outcome.Locked != nil {
+			outcome.Chained = s.continueAfterStyle(task, taskProjectID(task))
 		}
 		result["dramaStep"] = outcome
 		return true, nil
@@ -128,10 +138,17 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 			return false, err
 		}
 		// 先接着建下一集的提取（占一个空位），再按剩下的空位给这一集的新资产排出图。
-		if target := taskProjectID(task); target != "" {
+		target := taskProjectID(task)
+		if target != "" {
 			outcome.Chained = s.chainAfterAssetsExtract(task, target, taskDramaAssets(task.InputJSON))
 		}
 		s.queueAssetsExtractImages(task, &outcome)
+		// 最后一集提取完、没有要出的图时，按生成模式接着生成分镜（有图要出时等出图任务结束再问）。
+		if target != "" && (outcome.Chained == nil || outcome.Chained.TaskID == "") {
+			if text, _, err := s.dramaTaskText(task); err == nil {
+				outcome.Next = s.continueAfterAssets(task.UserID, target, text, &task)
+			}
+		}
 		result["dramaStep"] = outcome
 		return true, nil
 	default:

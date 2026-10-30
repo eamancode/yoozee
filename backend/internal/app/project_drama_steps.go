@@ -79,6 +79,8 @@ type DramaStepRunRequest struct {
 	// chainedFrom / chain 是场次色卡或上一集提取收尾时自动接着建的提取资产（metadata.chainedFrom、metadata.dramaAssets.chain）。
 	chainedFrom string
 	chain       *dramaAssetChain
+	// pipelineQueue 是流水线按集依次生成分镜时还要接着做的剧集（metadata.dramaPipeline.queue）。
+	pipelineQueue []string
 }
 
 type DramaStepRunResult struct {
@@ -272,6 +274,9 @@ func (s *Service) runDramaStepFor(userID string, project *model.Project, unitID 
 	taskReq.dramaRun = &run
 	if req.chainedFrom != "" {
 		taskReq.Input["metadata"].(map[string]any)["chainedFrom"] = req.chainedFrom
+	}
+	if req.pipelineQueue != nil {
+		taskReq.Input["metadata"].(map[string]any)["dramaPipeline"] = dramaPipelineMeta{Queue: req.pipelineQueue}
 	}
 	if plan.assets != nil && plan.assets.Images {
 		// 模板带着渠道配置，和其余任务输入一样加密存，任务结束随密钥一起去掉。
@@ -495,9 +500,9 @@ func (s *Service) planDramaStepWith(userID string, project *model.Project, unitI
 	if chapterEditorText(unit.SourceText) == "" {
 		return nil, BadAuthRequest("当前章节没有可用于分镜的正文")
 	}
-	// 只存了预设 ID 的老项目没有画风原文：服务端不带前端的画风目录，请用户在项目设置里重新保存一次画风。
-	if projectStyleSnapshot(project).Prompt == "" {
-		return nil, BadAuthRequest("请先在项目设置中选择项目画风，再生成分镜")
+	// 分镜按项目风格写画面：要先锁定项目风格（风格锚 + 主基调色卡，导演定画风或从风格中心挑）；改版前带画风原文的老项目照旧可用。
+	if _, _, _, locked := projectLockedStyle(project.BibleJSON); !locked && projectStyleSnapshot(project).Prompt == "" {
+		return nil, BadAuthRequest("项目还没锁定风格：先让导演定画风，或从风格中心挑一个，再生成分镜")
 	}
 	usage, skill, err := s.dramaStepSkill(project, step, rule)
 	if err != nil {

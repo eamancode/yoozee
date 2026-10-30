@@ -248,6 +248,7 @@ func (s *Service) afterDramaImageTaskEnded(task model.Task) {
 		}
 	}
 	s.continueDramaImages(task, projectID, decrypted)
+	s.continueAfterImages(task, projectID, decrypted)
 }
 
 // continueDramaImages 是一个资产出图任务结束后用它带的模板接着排「等空位」的资产。
@@ -268,6 +269,8 @@ type DramaImageTaskTemplate struct {
 	Provider           string         `json:"provider,omitempty"`
 	Input              map[string]any `json:"input"`
 	MaxReferenceImages *int           `json:"maxReferenceImages,omitempty"`
+	// Next 是资产都出完图后接着生成分镜要用的文本模型配置（流水线带上，随模板一起加密存在每个出图任务里）。
+	Next *DramaPipelineText `json:"next,omitempty"`
 }
 
 func (t *DramaImageTaskTemplate) usable() bool {

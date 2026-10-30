@@ -50,7 +50,7 @@ func TestPrevizGateEnabledAndBrief(t *testing.T) {
 	for _, c := range []struct {
 		setting, auth string
 		want          bool
-	}{{"", AuthStep, true}, {"", "", true}, {PrevizGateAuto, AuthFull, false}, {PrevizGateOn, AuthFull, true}, {PrevizGateOff, AuthStep, false}} {
+	}{{"", RunEveryStep, true}, {"", "", true}, {PrevizGateAuto, RunUntilVideo, false}, {PrevizGateAuto, RunReviewFromAssets, true}, {PrevizGateOn, RunUntilVideo, true}, {PrevizGateOff, RunEveryStep, false}} {
 		if got := PrevizGateEnabled(c.setting, c.auth); got != c.want {
 			t.Fatalf("%q × %q：%v", c.setting, c.auth, got)
 		}
