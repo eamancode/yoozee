@@ -75,14 +75,16 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
                 {resume && !running ? (
                     <Callout
                         tone="warning"
-                        title={`上一次写到第 ${resume.from} ${unit}停了`}
+                        title={resume.rerun ? `上一次重跑写到第 ${resume.from} ${unit}停了` : `上一次写到第 ${resume.from} ${unit}停了`}
                         action={
                             <Button size="small" type="primary" onClick={onResume}>
                                 从第 {resume.from} {unit}继续
                             </Button>
                         }
                     >
-                        前 {resume.from - 1} {unit}（共 {resume.total} {unit}）已保存，接着写会带上它们的对话，不用重跑。{resume.error ? `原因：${sentence(resume.error)}` : ""}
+                        前 {resume.from - 1} {unit}（共 {resume.total} {unit}）已保存，接着写会带上它们的对话，不用重跑。
+                        {resume.rerun ? `本章现有的段和产物还没变；接着写只重写剩下的${unit}、照常计费，写完和一次跑完一样只换被重写的${unit}。` : ""}
+                        {resume.error ? `原因：${sentence(resume.error)}` : ""}
                     </Callout>
                 ) : null}
 

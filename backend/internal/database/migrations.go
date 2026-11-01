@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 71
+const CurrentSchemaVersion int64 = 72
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -257,6 +257,7 @@ var schemaMigrations = []migration{
 	// 建项目改版：projects 加 visual_type（画面类型）、run_mode（生成模式，取代 auth_mode：step→every_step、full→until_video）、
 	// style_source（画风来源）；平台风格库的类型改成和 visual_type 同值。
 	{version: 71, name: "project_create_redesign", checksum: "sha256:project-create-redesign-v71-20261029", apply: migrateProjectCreateRedesign},
+	{version: 72, name: "drama_shotlist_packed_sections", checksum: "sha256:drama-shotlist-packed-sections-v72-recovery", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.DramaShotlist{}) }},
 }
 
 // legacyProjectTypes 是改版前的项目类型取值 → 画面类型。

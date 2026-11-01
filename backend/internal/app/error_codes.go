@@ -47,6 +47,8 @@ const (
 	ReasonPackageEvalNotPassed = kernel.ReasonPackageEvalNotPassed
 	// ReasonDramaEpisodesReplace 见 kernel。
 	ReasonDramaEpisodesReplace = kernel.ReasonDramaEpisodesReplace
+	// ReasonDramaSegmentsDiscard 见 kernel。
+	ReasonDramaSegmentsDiscard = kernel.ReasonDramaSegmentsDiscard
 	// ReasonPrevizRequired 见 kernel。
 	ReasonPrevizRequired = kernel.ReasonPrevizRequired
 	// ReasonPaletteRequired 见 kernel。

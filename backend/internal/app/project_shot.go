@@ -22,6 +22,17 @@ type CreateProjectShotRequest struct {
 	Revision    ShotRevisionInput `json:"revision"`
 }
 
+func projectShotReferenceLimit(project *model.Project) (int, error) {
+	m, err := projectDramaModel(project)
+	if err != nil {
+		return 0, err
+	}
+	if m.Refs.Images != nil {
+		return *m.Refs.Images, nil
+	}
+	return 6, nil
+}
+
 type ShotRevisionInput struct {
 	PlotDescription string           `json:"plotDescription"`
 	Action          string           `json:"action"`
@@ -173,14 +184,18 @@ func (s *Service) replaceProjectUnitShots(userID string, projectID string, unitI
 		revision.Version = 1
 		shots = append(shots, model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, CurrentRevisionID: revision.ID, Title: title, Description: revision.PlotDescription, Position: position, DurationMs: revision.DurationMs, Status: "draft", CreatedAt: now, UpdatedAt: now})
 		revisions = append(revisions, revision)
+		limit, err := projectShotReferenceLimit(project)
+		if err != nil {
+			return nil, err
+		}
 		seenVersions := make(map[string]bool, len(input.AssetVersionIDs))
 		for _, rawVersionID := range input.AssetVersionIDs {
 			versionID := strings.TrimSpace(rawVersionID)
 			if versionID == "" || seenVersions[versionID] {
 				continue
 			}
-			if len(seenVersions) >= 6 {
-				return nil, BadAuthRequest("单个分镜最多引用 6 个资产版本")
+			if len(seenVersions) >= limit {
+				return nil, BadAuthRequest(fmt.Sprintf("单个分镜最多引用 %d 个资产版本", limit))
 			}
 			if _, err := s.repo.AssetVersionForProject(projectID, versionID); err != nil {
 				return nil, err

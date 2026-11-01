@@ -953,6 +953,88 @@ func findRefs(sh *Shot, bible *Bible, scene *ScriptScene, lines scriptLines) ([]
 	return refs, voices
 }
 
+// refRank 是参考图名额不够时的留用优先级（数字小的先留）：人物 > 场景（含机位底图）> 道具 > 其他。本场色卡不在段 refs 里，
+// 编译时排在最后一张、放不下就把色值写进提示词（WithScenePalette），所以色卡最低。
+func refRank(r Ref) int {
+	switch r.Role {
+	case "identity":
+		return 0
+	case "location", "plate":
+		return 1
+	case "prop":
+		return 2
+	}
+	return 3
+}
+
+// segmentImageLimit 是一段最多挂几张参考图，与保存时的校验（Issues）同一套上限：图片上限；有合计 / 混合上限时再扣掉参考音频。
+// 模型没写上限时 ok 为 false（不截）。
+func segmentImageLimit(m Model, voices int) (int, bool) {
+	limit, ok := 0, false
+	for _, c := range []*int{m.Refs.Images, m.Refs.Total, m.FilesTotal} {
+		if c == nil {
+			continue
+		}
+		n := *c
+		if c != m.Refs.Images {
+			n -= voices
+		}
+		if !ok || n < limit {
+			limit, ok = max(0, n), true
+		}
+	}
+	return limit, ok
+}
+
+// capRefs 把参考图截到 limit 张：按 refRank 留，同级先留 own 认的（本段镜头自己查出的；nil 时都算），再按原来的先后；
+// 同一个人已经有本段自己的那张时，前一段沿用来的另一张排到最后。留下的保持原顺序。motion（参考视频）不占图片名额。
+func capRefs(refs []Ref, limit int, own func(Ref) bool) []Ref {
+	images := 0
+	for _, r := range refs {
+		if r.Role != "motion" {
+			images++
+		}
+	}
+	if images <= limit {
+		return refs
+	}
+	mine := func(r Ref) bool { return own == nil || own(r) }
+	ownPeople := map[string]bool{}
+	for _, r := range refs {
+		if r.Role == "identity" && mine(r) {
+			ownPeople[refPerson(r)] = true
+		}
+	}
+	rank := func(r Ref) int {
+		n := refRank(r) * 2
+		if !mine(r) {
+			n++
+			if r.Role == "identity" && ownPeople[refPerson(r)] {
+				n = 99
+			}
+		}
+		return n
+	}
+	order := make([]int, 0, len(refs))
+	for i, r := range refs {
+		if r.Role != "motion" {
+			order = append(order, i)
+		}
+	}
+	sort.SliceStable(order, func(a, b int) bool { return rank(refs[order[a]]) < rank(refs[order[b]]) })
+	keep := map[int]bool{}
+	for _, i := range order[:limit] {
+		keep[i] = true
+	}
+	out := make([]Ref, 0, limit)
+	for i, r := range refs {
+		if r.Role == "motion" || keep[i] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func refPerson(r Ref) string {
 	name := strings.SplitN(r.Note, "，", 2)[0]
 	return strings.SplitN(name, "（", 2)[0]
@@ -1421,19 +1503,12 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		}
 	}
 	voices = dedupVoices
-	if lim := m.Refs.Images; lim != nil && len(refs) > *lim {
-		var ident, other []Ref
-		for _, r := range refs {
-			if r.Role == "identity" {
-				ident = append(ident, r)
-			} else {
-				other = append(other, r)
-			}
-		}
-		refs = append(ident, other...)[:*lim]
-	}
 	if lim := m.Refs.Audios; lim != nil && len(voices) > *lim {
 		voices = voices[:*lim]
+	}
+	imageLimit, capped := segmentImageLimit(m, len(voices))
+	if capped {
+		refs = capRefs(refs, imageLimit, nil)
 	}
 	for i := range segShots {
 		segShots[i].Refs = shotRefFiles(shotRefs[i], refs)
@@ -1513,6 +1588,25 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 				if !slices.Contains(shared, r.File) {
 					merged = append(merged, r)
 				}
+			}
+			if capped && len(merged) > imageLimit {
+				// 前一段的参考加上本段新增的超过名额：按同一套优先级再截一次，同级先留本段镜头自己用到的；
+				// 每镜 refs、演员表和共用参考都只记最后留下的。
+				ownFiles := map[string]bool{}
+				for _, r := range refs {
+					ownFiles[r.File] = true
+				}
+				merged = capRefs(merged, imageLimit, func(r Ref) bool { return ownFiles[r.File] })
+				kept := map[string]bool{}
+				for _, r := range merged {
+					kept[r.File] = true
+				}
+				refs = slices.DeleteFunc(slices.Clone(refs), func(r Ref) bool { return !kept[r.File] })
+				shared = slices.DeleteFunc(shared, func(f string) bool { return !kept[f] })
+				for i := range seg.Shots {
+					seg.Shots[i].Refs = shotRefFiles(shotRefs[i], refs)
+				}
+				seg.Cast = castLines(shots, refs, p.in.Bible, p.in.FileExists, cp.Cast.LockMax)
 			}
 			seg.Refs = merged
 		}

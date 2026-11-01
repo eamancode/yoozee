@@ -494,6 +494,37 @@ def dedupe_identity(refs):
     return out
 
 
+REF_RANK = {"identity": 0, "location": 1, "plate": 1, "prop": 2}
+
+
+def image_ref_limit(model, voices):
+    """一段最多挂几张参考图（与保存时的校验同一套上限）：图片上限；有合计 / 混合上限时再扣掉参考音频。没写上限时返回 None。"""
+    lim = model.get("refs", {})
+    caps = [lim.get("images")] + [None if c is None else c - voices for c in (lim.get("total"), model.get("files_total"))]
+    caps = [max(0, c) for c in caps if c is not None]
+    return min(caps) if caps else None
+
+
+def cap_refs(refs, limit, own=None):
+    """把参考图截到 limit 张：人物 > 场景 > 道具 > 其他，同级先留 own 里的（本段镜头自己查出的），同一个人已有本段自己的那张时
+    前一段沿用来的另一张排到最后；留下的保持原顺序。motion 不占图片名额。"""
+    images = [i for i, r in enumerate(refs) if r.get("role") != "motion"]
+    if len(images) <= limit:
+        return refs
+    mine = (lambda r: True) if own is None else (lambda r: r["file"] in own)
+    own_people = {r["note"].split("，")[0].split("（")[0] for r in refs if r["role"] == "identity" and mine(r)}
+
+    def rank(r):
+        n = REF_RANK.get(r["role"], 3) * 2
+        if not mine(r):
+            n += 1
+            if r["role"] == "identity" and r["note"].split("，")[0].split("（")[0] in own_people:
+                n = 99
+        return n
+    keep = set(sorted(images, key=lambda i: rank(refs[i]))[:limit])
+    return [r for i, r in enumerate(refs) if r.get("role") == "motion" or i in keep]
+
+
 def dedupe(items, key):
     seen, out = set(), []
     for it in items:
@@ -713,12 +744,11 @@ def build_segment(seg_id, scene_id, scene, shots, ests, bible, lines_by_id, mode
     refs = dedupe_identity(refs)
     voices = dedupe(voices, lambda v: v["file"])
     lim = model.get("refs", {})
-    if lim.get("images") is not None and len(refs) > lim["images"]:
-        ident = [r for r in refs if r["role"] == "identity"]
-        other = [r for r in refs if r["role"] != "identity"]
-        refs = (ident + other)[:lim["images"]]
     if lim.get("audios") is not None:
         voices = voices[:lim["audios"]]
+    image_limit = image_ref_limit(model, len(voices))
+    if image_limit is not None:
+        refs = cap_refs(refs, image_limit)
     last = shots[-1]
     rules = (last.get("end_state") or "").strip().rstrip("。；;，,！!？? ")  # 末尾标点去掉再接视线，收句由下面统一加
     gaze = "；".join(f"{b['who']}{b['facing']}" if re.search(r"^(面向|背对|转|看|正面|被|退|面朝|朝|侧)", b["facing"]) else f"{b['who']}看向{b['facing']}" for b in last.get("blocking", []) if b.get("facing"))
@@ -755,6 +785,17 @@ def build_segment(seg_id, scene_id, scene, shots, ests, bible, lines_by_id, mode
         # 后段参考与前段同一套、同顺序：前段有的放前面，本段新增的接在后面
         own = [r for r in refs if r["file"] not in shared]
         seg["refs"] = [next(r for r in prev["refs"] if r["file"] == f) for f in shared] + own if shared else refs
+        if image_limit is not None and len(seg["refs"]) > image_limit:
+            # 前一段的参考加上本段新增的超过名额：同一套优先级再截一次，同级先留本段自己用到的；演员表、共用参考只记留下的
+            seg["refs"] = cap_refs(seg["refs"], image_limit, {r["file"] for r in refs})
+            kept = {r["file"] for r in seg["refs"]}
+            refs = [r for r in refs if r["file"] in kept]
+            shared = [f for f in shared if f in kept]
+            cast = cast_lines(shots, refs, bible)
+            if cast:
+                seg["cast"] = cast
+            else:
+                seg.pop("cast", None)
         if not seg["refs"]:
             seg.pop("refs")
             seg["mode"] = "text_only"
