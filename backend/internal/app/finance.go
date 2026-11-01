@@ -433,6 +433,40 @@ func (s *Service) AdminDisableRedeemCode(actor *model.User, batchID string, code
 }
 
 func (s *Service) taskBillingOrder(userID string, task *model.Task, input map[string]any) (*model.BillingOrder, error) {
+	order, err := s.singleCallTaskBillingOrder(userID, task, input)
+	if err != nil || order == nil {
+		return order, err
+	}
+	metadata, _ := input["metadata"].(map[string]any)
+	if err := scaleBillingOrderForCalls(order, dramaRunUpstreamCalls(metadataDramaRun(metadata))); err != nil {
+		return nil, err
+	}
+	return order, nil
+}
+
+// scaleBillingOrderForCalls 把预计要调 calls 次模型的文本任务（逐轮续写；metadata.dramaRun 只能由服务端写入，见 setServerDramaRun）
+// 的预授权放大到 calls 次单轮估算。结算按全部调用的实际用量累加（repository.tokenSettlementUsage / fixedRequestCalls），
+// 只冻结一轮会让多轮任务大额补扣；放大后多冻结的部分结算时退回，仍不够时按补扣规则处理（可用余额可以为负）。
+func scaleBillingOrderForCalls(order *model.BillingOrder, calls int64) error {
+	if order == nil || calls <= 1 || order.Capability != "text" || (order.BillingMode != "token" && order.BillingMode != "fixed_request") {
+		return nil
+	}
+	const maxInt64 = int64(^uint64(0) >> 1)
+	if order.AmountMicrocredits > maxInt64/calls || order.Quantity > maxInt64/calls {
+		return BadAuthRequest("预估积分金额溢出")
+	}
+	order.AmountMicrocredits *= calls
+	order.ReservedAmountMicrocredits = order.AmountMicrocredits
+	if order.BillingMode == "fixed_request" {
+		// 按次结算时每次的价格 = AmountMicrocredits / Quantity，见 repository.fixedRequestCallsAmount。
+		order.Quantity = calls
+	} else {
+		order.Quantity *= calls
+	}
+	return nil
+}
+
+func (s *Service) singleCallTaskBillingOrder(userID string, task *model.Task, input map[string]any) (*model.BillingOrder, error) {
 	enabled, err := s.FeatureEnabled(FeatureCredits)
 	if err != nil {
 		return nil, err

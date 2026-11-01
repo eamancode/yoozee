@@ -56,6 +56,8 @@ type streamingShotsUpstream struct {
 	histories []int
 	prompts   []string
 	fail      func(call int, scene int) int
+	// usage 是流式回复末尾上报的用量（空时 100 输入 / 50 输出）。
+	usage map[string]any
 }
 
 func (u *streamingShotsUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +107,11 @@ func (u *streamingShotsUpstream) reply(w http.ResponseWriter, stream bool, lines
 		fmt.Fprintf(w, "data: %s\n\n", chunk)
 		w.(http.Flusher).Flush()
 	}
-	done, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 50}})
+	usage := u.usage
+	if usage == nil {
+		usage = map[string]any{"prompt_tokens": 100, "completion_tokens": 50}
+	}
+	done, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{}, "finish_reason": "stop"}}, "usage": usage})
 	fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", done)
 }
 

@@ -130,6 +130,22 @@ func dramaRunCallsNoUpstream(run *dramaRunMeta) bool {
 	return run != nil && run.Turns > 0 && run.ResumeFrom > run.Turns
 }
 
+// dramaRunUpstreamCalls 是这次运行预计调几次模型（不算失败重试）：从第 ResumeFrom 轮写到第 Turns 轮，「重新生成问题小节」时
+// 不重写的节不调。不是逐轮续写时为 1。只用来放大预授权（见 scaleBillingOrderForCalls），结算按实际调用。
+func dramaRunUpstreamCalls(run *dramaRunMeta) int64 {
+	if run == nil || run.Turns <= 1 {
+		return 1
+	}
+	calls := int64(0)
+	for k := max(1, run.ResumeFrom); k <= run.Turns; k++ {
+		if len(run.OnlySections) > 0 && k <= len(run.Scenes) && !slices.Contains(run.OnlySections, run.Scenes[k-1].Section) {
+			continue
+		}
+		calls++
+	}
+	return max(1, calls)
+}
+
 // taskDramaRun 从任务输入读 metadata.dramaRun；没有返回 nil。
 func taskDramaRun(inputJSON string) *dramaRunMeta {
 	if !strings.Contains(inputJSON, `"dramaRun"`) {

@@ -29,6 +29,8 @@ type sectionShotsUpstream struct {
 	fail      func(call int, section string) int
 	// rewrite 改写这一节的回复（模拟模型按提示把人物名写成子卡「名·变体」）。
 	rewrite func(section string, out string) string
+	// usage 是第 call 次调用（从 1 数，含失败的）回复里上报的用量；为空时用默认值。
+	usage func(call int) map[string]any
 }
 
 var (
@@ -89,7 +91,11 @@ func (u *sectionShotsUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	if u.rewrite != nil {
 		out = u.rewrite(section, out)
 	}
-	(&streamingShotsUpstream{}).reply(w, body.Stream, strings.Split(out, "\n"))
+	replier := &streamingShotsUpstream{}
+	if u.usage != nil {
+		replier.usage = u.usage(call)
+	}
+	replier.reply(w, body.Stream, strings.Split(out, "\n"))
 }
 
 func fakeSpeakers(lines [][]string) []string {
