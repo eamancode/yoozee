@@ -421,13 +421,14 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         },
         onError: failed("资产图片生成失败"),
     });
-    // 场次色卡「重新合成」：服务端按当前色板由代码重画图、绑成新版本（镜头上的色卡跟过去），不调模型。
+    // 色卡「重新合成」：服务端按当前色板由代码重画图、绑成新版本（场次色卡镜头上的引用跟过去；主基调色卡同时更新锁定记录），不调模型。
     const paletteResynthesizeMutation = useMutation({
         mutationKey: ["project-palette-resynthesize", detail.project.id],
         mutationFn: (asset: ProjectAsset) => resynthesizeDramaPalettes(detail.project.id, { assetIds: [asset.id] }),
         onSuccess: async (result) => {
             await Promise.all([queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }), queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] })]);
             if (result.failed.length) message.warning(`色卡图没合成上：${result.failed.map((item) => item.error).join("；")}`);
+            else if (result.fontNote) message.warning(`色卡图已重新合成，但服务器没读到中文字体，只画了 HEX 和英文名：${result.fontNote}`);
             else message.success("色卡图已重新合成，镜头上的色卡跟到新版本");
         },
         onError: failed("重新合成色卡失败"),

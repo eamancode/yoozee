@@ -180,8 +180,24 @@ func convertWenxi15(raw string, ctx SectionContext) SectionShots {
 func wenxi15ShotOf(body string, characters []string, station string, ctx SectionContext) (sectionShot, int) {
 	var sh sectionShot
 	spec := &sh.spec
-	for _, m := range wenxi15Speech.FindAllStringSubmatch(body, -1) {
+	// 台词从正文里摘掉；画面文字（「手机屏幕显示画面文字：“…”」）不是台词，原样留在画面动作里，内容另记进 extras。
+	var kept strings.Builder
+	var screens []string
+	last := 0
+	for _, idx := range wenxi15Speech.FindAllStringSubmatchIndex(body, -1) {
+		m := make([]string, len(idx)/2)
+		for i := range m {
+			if idx[2*i] >= 0 {
+				m[i] = body[idx[2*i]:idx[2*i+1]]
+			}
+		}
 		speaker, tag, text := strings.TrimSpace(m[1]), strings.TrimSpace(m[2]), strings.TrimSpace(m[3])
+		if screenTextSpeaker(speaker, ctx.Characters) {
+			screens = append(screens, text)
+			continue
+		}
+		kept.WriteString(body[last:idx[0]])
+		last = idx[1]
 		if voiceSpeakers[speaker] {
 			if speaker == "电话声" && tag != "" {
 				speaker = tag
@@ -194,8 +210,8 @@ func wenxi15ShotOf(body string, characters []string, station string, ctx Section
 		}
 		sh.lines = append(sh.lines, ln)
 	}
-	rest := wenxi15Speech.ReplaceAllString(body, "")
-	rest = wenxi15NoLines.ReplaceAllString(rest, "")
+	kept.WriteString(body[last:])
+	rest := wenxi15NoLines.ReplaceAllString(kept.String(), "")
 	extras := map[string]string{}
 	for _, m := range wenxi15Tag.FindAllStringSubmatch(rest, -1) {
 		extras[m[1]] = strings.TrimSpace(m[2])
@@ -204,6 +220,7 @@ func wenxi15ShotOf(body string, characters []string, station string, ctx Section
 	if len(extras) > 0 {
 		spec.Extras = extras
 	}
+	addScreenText(spec, screens)
 	camera, action, _ := strings.Cut(rest, "。")
 	if !containsAny(camera, sectionSizeWords...) && sectionMoves(camera) == nil {
 		// 第一句不是镜头语言（只写了画面）：整句当动作。

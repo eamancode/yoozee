@@ -414,7 +414,7 @@ func pyRepr(s string) string {
 	return b.String()
 }
 
-// pyList 与 Python 的 str(list[str]) 一致；空字符串项按 None 打印（Python 里 .get() 拿不到的值）。
+// pyList 与 Python 的 str(list[str]) 一致。
 func pyList(items []string) string {
 	parts := make([]string, len(items))
 	for i, s := range items {
@@ -423,16 +423,17 @@ func pyList(items []string) string {
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
-func pyListOrNone(items []string) string {
-	if items == nil {
-		return "None"
+// listOr / textOr 是报错文案里的值，没写时换成 fallback（不打 Python 的 None）。
+func listOr(items []string, fallback string) string {
+	if len(items) == 0 {
+		return fallback
 	}
 	return pyList(items)
 }
 
-func pyStrOrNone(s string) string {
+func textOr(s string, fallback string) string {
 	if s == "" {
-		return "None"
+		return fallback
 	}
 	return s
 }
