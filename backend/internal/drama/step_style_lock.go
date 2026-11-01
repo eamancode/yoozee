@@ -178,6 +178,11 @@ const (
 	StyleLockSourceLibrary = "library"
 	// StyleLockSourcePreset 是只按画风预设当场生成的（没有文字也没有参考图），不回写风格库。
 	StyleLockSourcePreset = "preset"
+	// StyleLockSourceDirector 是建项时交给导演分析：拆完剧本后流水线自动跑，按故事（和可选的描述、参考图）定风格，
+	// 收尾直接锁定并存进平台风格库（来源 director，说明里写项目名）。
+	StyleLockSourceDirector = "director"
+	// StyleLockStoryChars 是导演定画风时带进提示词的剧本节选上限（JS 字符串长度）。
+	StyleLockStoryChars = 6000
 )
 
 // StyleLockRecord 是项目锁定风格的来源（bible_json.style_lock，服务端写）。
@@ -196,18 +201,35 @@ type StyleLockRecord struct {
 
 // ---------------------------------------------------------------- 项目类型
 
-// ProjectTypeDef 是建项目第一步的类型（与前端 PROJECT_CONTENT_TYPES 同值），平台风格库按它归档。
+// ProjectTypeDef 是画面类型（项目 visual_type，与前端 PROJECT_VISUAL_TYPES 同值），平台风格库按它归档。
 type ProjectTypeDef struct {
 	Value string `json:"value"`
 	Label string `json:"label"`
 }
 
-// ProjectTypes 是项目类型。
+// 画面类型的取值。
+const (
+	VisualLiveAction = "live_action"
+	VisualCGReal     = "cg_real"
+	VisualAnime3D    = "anime_3d"
+	VisualAnime2D    = "anime_2d"
+)
+
+// ProjectTypes 是画面类型（建项页样张卡的顺序）。
 var ProjectTypes = []ProjectTypeDef{
-	{"live-action", "仿真人"},
-	{"3d-anime", "3D 动漫"},
-	{"realistic-cg", "写实 CG"},
-	{"2d-anime", "2D 动漫"},
+	{VisualLiveAction, "仿真人"},
+	{VisualCGReal, "写实 CG"},
+	{VisualAnime3D, "3D 动漫"},
+	{VisualAnime2D, "2D 动漫"},
+}
+
+// VisualTypeProfile 是画面类型默认的 yoozee 风格档案：仿真人、写实 CG 走 live-realism，3D、2D 动漫走 anime-3d（2D 档案待补）。
+func VisualTypeProfile(visualType string) string {
+	switch visualType {
+	case VisualAnime3D, VisualAnime2D:
+		return "anime-3d"
+	}
+	return DefaultProfileID
 }
 
 // ProjectTypeLabel 是项目类型的中文名；不认识返回空串。
@@ -224,14 +246,16 @@ func ProjectTypeLabel(value string) string {
 
 // StyleLockInput 是组装风格锁定提示词的全部输入。
 type StyleLockInput struct {
-	// ProjectType 是项目类型（live-action …）；Text 是用户写的风格文字；Images 是随任务带的参考图张数。
+	// ProjectType 是画面类型（live_action …）；Text 是用户写的风格文字；Images 是随任务带的参考图张数。
 	ProjectType string
 	Text        string
 	Images      int
-	BriefJSON   string
-	Style       StepStyle
-	Profile     StyleBibleProfile
-	Skill       StepSkill
+	// Story 是剧本节选（导演定画风时带，按故事定风格）；空则不带。
+	Story     string
+	BriefJSON string
+	Style     StepStyle
+	Profile   StyleBibleProfile
+	Skill     StepSkill
 }
 
 // StyleLockTask 是交给技能的【用户任务】。
@@ -249,8 +273,15 @@ func StyleLockTask(in StyleLockInput) string {
 	if in.Images > 0 {
 		fmt.Fprintf(&b, "\n\n【参考图】这条消息附了 %d 张参考图：按图反推风格锁定卡（媒介、人物与场景审美、画面质感、光影），主基调色卡的颜色取图里真实出现的主色。", in.Images)
 	}
+	if story := jsTrim(in.Story); story != "" {
+		b.WriteString("\n\n【故事】以下是这部戏的剧本节选：按题材、年代、地域、人物身份和情绪走向定风格和色板，主角组的颜色要贴着主角的身份和处境：\n" + jsTruncate(story, StyleLockStoryChars))
+	}
 	if jsTrim(in.Text) == "" && in.Images == 0 {
-		b.WriteString("\n\n用户没有写风格描述，也没有上传参考图：按【项目画风】和【风格档案】定风格和色板。")
+		if jsTrim(in.Story) != "" {
+			b.WriteString("\n\n用户没有写风格描述，也没有上传参考图：由你当导演，按【故事】、【项目类型】和【风格档案】自己定风格和色板。")
+		} else {
+			b.WriteString("\n\n用户没有写风格描述，也没有上传参考图：按【项目画风】和【风格档案】定风格和色板。")
+		}
 	}
 	return b.String()
 }

@@ -51,10 +51,10 @@ const statusLabels: Record<string, string> = {
 };
 
 const sourceTypeLabels: Record<string, string> = {
-    blank: "空白开始",
-    novel: "导入小说",
-    script: "导入剧本",
-    text: "粘贴文本",
+    blank: "空项目",
+    idea: "一句创意",
+    novel: "小说",
+    script: "剧本",
 };
 
 export function categoryLabel(value: string) {

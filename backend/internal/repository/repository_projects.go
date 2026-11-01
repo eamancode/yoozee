@@ -65,13 +65,25 @@ func (r *Repository) UpdateProject(project *model.Project, briefChanged bool) er
 		"description": project.Description, "cover_resource_id": project.CoverResourceID,
 		"style_preset_id": project.StylePresetID, "style_profile_json": project.StyleProfileJSON,
 		"default_image_model": project.DefaultImageModel, "default_video_model": project.DefaultVideoModel,
-		"generation_model": project.GenerationModel, "auth_mode": project.AuthMode, "style_profile": project.StyleProfile,
+		"generation_model": project.GenerationModel, "run_mode": project.RunMode, "style_profile": project.StyleProfile,
 		"status": project.Status, "revision": project.Revision, "updated_at": project.UpdatedAt,
 	}
 	if briefChanged {
 		values["brief_json"] = project.BriefJSON
 	}
-	return r.db.Model(&model.Project{}).Where("id = ? AND user_id = ?", project.ID, project.UserID).Updates(values).Error
+	query := r.db.Model(&model.Project{}).Where("id = ? AND user_id = ?", project.ID, project.UserID)
+	if project.VisualType != "" {
+		values["visual_type"] = project.VisualType
+		query = query.Where("visual_type IS NULL OR visual_type = '' OR visual_type = ?", project.VisualType)
+	}
+	result := query.Updates(values)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // UpdateProjectDramaDocument 写需求文档或连戏表（field 只能是 brief_json / bible_json）。

@@ -180,7 +180,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const segmentSpecJson = revision?.specJson || "";
     const segmentSpecShots = useMemo(() => segmentShotCount(segmentSpecJson), [segmentSpecJson]);
     const invalidateDrama = useInvalidateDrama(projectId);
-    // 预演闸门（项目设置，auto 跟授权档位）：生效时这一段要先有选中、没过期的黑白预演才能生成视频；后端同样拦（previz_required）。
+    // 预演闸门（项目设置，auto 跟生成模式）：生效时这一段要先有选中、没过期的黑白预演才能生成视频；后端同样拦（previz_required）。
     const dramaProgressQuery = useDramaProgress(projectId);
     const segmentIssueCounts = useMemo(() => Object.fromEntries((dramaProgressQuery.data?.segments || []).filter((segment) => segment.issues).map((segment) => [segment.shotId, segment.issues || 0])), [dramaProgressQuery.data?.segments]);
     const previzReady = useMemo(() => (detail.shotArtifacts || []).some((item) => item.shotId === selectedShot?.id && item.type === "action_board" && item.selected && item.status !== "stale" && item.status !== "failed"), [detail.shotArtifacts, selectedShot?.id]);

@@ -25,6 +25,7 @@ var dramaRoutes = []string{
 	"GET /api/projects/:id/units/:unitId/drama/shotlist",
 	"POST /api/projects/:id/units/:unitId/drama/shotlist/repack",
 	"GET /api/projects/:id/drama/progress",
+	"POST /api/projects/:id/drama/pipeline/next",
 	"GET /api/projects/:id/drama/evidence",
 	"POST /api/projects/:id/drama/evidence",
 	"GET /api/projects/:id/drama/delivery",
@@ -71,6 +72,7 @@ func TestDramaRoutesRejectAnonymousRequests(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/drama/models"},
 		{http.MethodGet, "/api/projects/project-1/drama/progress"},
+		{http.MethodPost, "/api/projects/project-1/drama/pipeline/next"},
 		{http.MethodGet, "/api/projects/project-1/drama/brief"},
 		{http.MethodPut, "/api/projects/project-1/drama/brief"},
 		{http.MethodGet, "/api/projects/project-1/drama/bible"},

@@ -289,6 +289,8 @@ type DramaAssetsExtractOutcome struct {
 	Variants int                   `json:"variants"`
 	Scenes   int                   `json:"scenes"`
 	Chained  *DramaChainedTask     `json:"chained,omitempty"`
+	// Next 是各集都提取完、资产都有图时按生成模式接着建的生成分镜任务。
+	Next *DramaChainedTask `json:"next,omitempty"`
 }
 
 // dramaAssetEntry 是项目里的一个角色、场景或道具（合并用）：主版本和它的设定、有没有图。
@@ -550,6 +552,10 @@ func (s *Service) queueAssetsExtractImages(task model.Task, outcome *DramaAssets
 	template := taskAssetImageTemplate(decrypted)
 	if template == nil {
 		return
+	}
+	// 出完图接着生成分镜要用这次提取的文本模型配置：放在模板上，随每个出图任务带下去。
+	if text, _, err := s.dramaTaskText(task); err == nil {
+		template.Next = text
 	}
 	if outcome.Images, err = s.queueDramaAssetImages(task.UserID, taskProjectID(task), *template, task.ID, nil); err != nil {
 		_ = s.log(task.UserID, task.ID, "warn", "资产出图没有排上", err.Error())
@@ -1074,6 +1080,7 @@ func (s *Service) afterDramaAssetImageTask(task model.Task, inputJSON string) {
 		_ = s.log(task.UserID, task.ID, "warn", "资产出图状态没有写上", err.Error())
 	}
 	s.continueDramaImages(task, projectID, decrypted)
+	s.continueAfterImages(task, projectID, decrypted)
 }
 
 // ProjectAssetImageSummary 是资产设计建的资产在资产清单里的出图状态（none / waiting / queued / bound / stale / failed）。

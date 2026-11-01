@@ -51,6 +51,12 @@ const (
 	ReasonPrevizRequired = kernel.ReasonPrevizRequired
 	// ReasonPaletteRequired 见 kernel。
 	ReasonPaletteRequired = kernel.ReasonPaletteRequired
+	// 建项改版：建项各段的错误原因、流水线不接出视频。见 kernel。
+	ReasonProjectSourceInvalid      = kernel.ReasonProjectSourceInvalid
+	ReasonProjectVisualTypeRequired = kernel.ReasonProjectVisualTypeRequired
+	ReasonProjectStyleInvalid       = kernel.ReasonProjectStyleInvalid
+	ReasonProjectProductionInvalid  = kernel.ReasonProjectProductionInvalid
+	ReasonPipelineVideoManual       = kernel.ReasonPipelineVideoManual
 )
 
 func ReasonForStatus(status int) ErrorReason {

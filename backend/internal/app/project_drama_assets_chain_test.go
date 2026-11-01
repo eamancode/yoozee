@@ -22,7 +22,6 @@ func startAssetsChain(t *testing.T, svc *Service, db *gorm.DB, project model.Pro
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.palette.ChainAssets = true
 	taskReq := dramaStepTaskRequest(project.ID, "", plan, dramaStepTaskOptions{Model: "test", Config: map[string]any{"baseUrl": upstream, "apiKey": "test-key", "model": "test", "interfaceType": "chat-completion"}})
 	taskReq.Input["metadata"].(map[string]any)["dramaRun"] = newDramaRunMeta(plan, "")
 	if template != nil {
@@ -176,7 +175,7 @@ func TestScriptAdaptImageSwitchCarriesTemplate(t *testing.T) {
 			t.Fatalf("出图开关 %v 记进 metadata.dramaAdapt：%v", on, got)
 		}
 		lockTestProjectStyle(t, db, project.ID)
-		chained := svc.chainScenePaletteAfterAdapt(*adapt, project.ID)
+		chained := svc.continueAfterScript(*adapt, project.ID)
 		if chained == nil || chained.TaskID == "" {
 			t.Fatalf("接着建场次色卡：%+v", chained)
 		}

@@ -78,10 +78,10 @@ func TestDramaScenePaletteMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries := []model.DramaStyleLibraryEntry{
-		{ID: "a", ProjectType: "live-action", Name: "冷调悬疑", CreatedAt: now},
-		{ID: "b", ProjectType: "live-action", Name: "冷调悬疑", CreatedAt: now.Add(time.Second)},
-		{ID: "c", ProjectType: "live-action", Name: "冷调悬疑（2）", CreatedAt: now.Add(2 * time.Second)},
-		{ID: "d", ProjectType: "3d-anime", Name: "冷调悬疑", CreatedAt: now.Add(3 * time.Second)},
+		{ID: "a", ProjectType: "live_action", Name: "冷调悬疑", CreatedAt: now},
+		{ID: "b", ProjectType: "live_action", Name: "冷调悬疑", CreatedAt: now.Add(time.Second)},
+		{ID: "c", ProjectType: "live_action", Name: "冷调悬疑（2）", CreatedAt: now.Add(2 * time.Second)},
+		{ID: "d", ProjectType: "anime_3d", Name: "冷调悬疑", CreatedAt: now.Add(3 * time.Second)},
 	}
 	if err := db.Create(&entries).Error; err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestDramaScenePaletteMigration(t *testing.T) {
 	if !db.Migrator().HasIndex(&model.DramaStyleLibraryEntry{}, "idx_drama_style_library_name") {
 		t.Fatal("唯一索引没建")
 	}
-	if err := db.Create(&model.DramaStyleLibraryEntry{ID: "e", ProjectType: "live-action", Name: "冷调悬疑", CreatedAt: now}).Error; err == nil {
+	if err := db.Create(&model.DramaStyleLibraryEntry{ID: "e", ProjectType: "live_action", Name: "冷调悬疑", CreatedAt: now}).Error; err == nil {
 		t.Fatal("同类型重名应被唯一索引拦下")
 	}
 }

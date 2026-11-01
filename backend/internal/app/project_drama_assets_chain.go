@@ -37,7 +37,10 @@ func (s *Service) dramaChainInputOf(task model.Task) (dramaChainInput, error) {
 // chainAssetsAfterScenePalette 在场次色卡写完后接着给这次覆盖的第一集建提取任务；没开接续时返回 nil。
 func (s *Service) chainAssetsAfterScenePalette(task model.Task, projectID string) *DramaChainedTask {
 	run := taskDramaScenePalette(task.InputJSON)
-	if run == nil || !run.ChainAssets {
+	if run == nil {
+		return nil
+	}
+	if project, err := s.activeProjectForUser(task.UserID, projectID); err != nil || !s.shouldAutoContinue(project, drama.StageAssets) {
 		return nil
 	}
 	episodes := slices.Clone(run.Episodes)

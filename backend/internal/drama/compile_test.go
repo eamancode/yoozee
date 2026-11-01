@@ -162,7 +162,7 @@ func TestVisualHashIgnoresMissingEndState(t *testing.T) {
 }
 
 func TestNormalizeBriefKeepsLegacyContentInContractShape(t *testing.T) {
-	doc := map[string]any{"title": "夜班", "video_model": "seedance-2.0", "auth_mode": "step", "purpose": "第一集验收", "duration_seconds": 40, "aspect_ratio": "9:16", "questions": []any{"真人还是动画？"}}
+	doc := map[string]any{"title": "夜班", "video_model": "seedance-2.0", "run_mode": "every_step", "purpose": "第一集验收", "duration_seconds": 40, "aspect_ratio": "9:16", "questions": []any{"真人还是动画？"}}
 	normalized := NormalizeBrief(doc)
 	raw, _ := json.Marshal(normalized)
 	if _, err := ParseBrief(raw); err != nil {

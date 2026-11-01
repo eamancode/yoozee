@@ -4,7 +4,7 @@
   "title": "需求文档",
   "description": "只有 status 为「已确认」或「默认，已授权」的条目才能拿去花钱。用户原话原样记、带日期。",
   "type": "object",
-  "required": ["title", "video_model", "auth_mode"],
+  "required": ["title", "video_model", "run_mode"],
   "additionalProperties": false,
   "$defs": {
     "status": {"type": "string", "enum": ["已确认", "默认，待确认", "默认，已授权", "待答"]},
@@ -23,7 +23,7 @@
   "properties": {
     "title": {"type": "string", "minLength": 1},
     "video_model": {"type": "string", "description": "生成模型 ID，取自 models.json，如 seedance-2.0 / seedance-2.5 / minimax-h3；决定单段时长上限"},
-    "auth_mode": {"type": "string", "enum": ["step", "full"], "description": "step 每步确认；full 全权（只在超预算、删文件、对外发布、用账号时找人）"},
+    "run_mode": {"type": "string", "enum": ["until_video", "review_from_assets", "every_step"], "description": "生成模式：until_video 跑到出视频前；review_from_assets 资产我要过目；every_step 每步都问我"},
     "style_profile": {"type": "string", "description": "yoozee 风格档案 id（live-realism、duanju-shiga、anime-3d、action-epic、game-ip）；不写按项目画风对照"},
     "episode_seconds": {"type": "number", "minimum": 5, "maximum": 3600, "description": "每集目标时长（秒），项目设置里填；生成分镜的提示词和 R-SEG-008 读它（episodes[].target_seconds 优先）"},
     "episodes": {

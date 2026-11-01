@@ -1,11 +1,10 @@
 /* 鼠标点击后 Chrome 仍可能给按钮 :focus-visible。统一按钮只在键盘导航时显示焦点。 */
-:where(button, .ant-btn):focus:not(:focus-visible),
-:where(button, .ant-btn):focus-visible:not([data-input-modality="keyboard"]) {
+:where(button, .ant-btn):focus:not(:focus-visible) {
     outline: none !important;
     box-shadow: none !important;
 }
 
-:where(button, .ant-btn):focus-visible[data-input-modality="keyboard"] {
+:where(button, .ant-btn):focus-visible {
     outline: 1px solid color-mix(in srgb, var(--foreground) 36%, transparent) !important;
     outline-offset: 1px !important;
     box-shadow: none !important;

@@ -225,8 +225,13 @@ type Project struct {
 	DefaultVideoModel string `json:"defaultVideoModel,omitempty" gorm:"size:500"`
 	// GenerationModel 是建项目时选定的视频生成模型族（kb-dialects/models.json 的 id），决定一段最长几秒。
 	GenerationModel string `json:"generationModel" gorm:"size:40"`
-	// AuthMode 是授权档位：step 每步确认；full 全权（只在超预算、删文件、对外发布、用账号时找人）。
-	AuthMode string `json:"authMode" gorm:"size:16"`
+	// VisualType 是画面类型：live_action / cg_real / anime_3d / anime_2d。建项必选，之后不可改；平台风格库按它归档。
+	VisualType string `json:"visualType" gorm:"size:24"`
+	// RunMode 是生成模式：until_video 跑到出视频前；review_from_assets 资产我要过目；every_step 每步都问我。
+	// 一步做完后服务端按它决定要不要自动接下一步，出视频在任何模式下都要人点（drama.ShouldAutoContinue）。
+	RunMode string `json:"runMode" gorm:"size:24"`
+	// StyleSource 是建项时选的画风来源：交给导演分析（可带一句描述和参考图）或从风格中心挑一条。导演定画风那一步按它跑。
+	StyleSource ProjectStyleSource `json:"style" gorm:"column:style_source;serializer:json;type:text"`
 	// StyleProfile 是 yoozee 风格档案（live-realism、anime-3d …，五选一，与 StyleProfileJSON 的画风快照不是一回事）：
 	// 检查、装段用它的配额与规则，短剧流程每一步按它查 drama_step_bindings 取技能。
 	StyleProfile string `json:"styleProfile" gorm:"size:32"`
@@ -237,6 +242,21 @@ type Project struct {
 	Revision  int64         `json:"revision"`
 	CreatedAt time.Time     `json:"createdAt"`
 	UpdatedAt time.Time     `json:"updatedAt" gorm:"index"`
+}
+
+// 画风来源（projects.style_source 的 mode）。
+const (
+	ProjectStyleDirector = "director"
+	ProjectStyleLibrary  = "library"
+)
+
+// ProjectStyleSource 是项目的画风来源：mode=director 时 Brief / RefImageIDs 是导演分析的输入（都可以不填，导演按故事自己定）；
+// mode=library 时 StyleID 是平台风格库的条目（建项时直接锁定，不跑风格分析）。
+type ProjectStyleSource struct {
+	Mode        string   `json:"mode"`
+	Brief       string   `json:"brief,omitempty"`
+	RefImageIDs []string `json:"refImageIds,omitempty"`
+	StyleID     string   `json:"styleId,omitempty"`
 }
 
 // StyleProfile 是用户可持续编辑的风格源；项目只保存应用当时的 JSON 快照，避免源对象更新污染历史生成。
@@ -438,7 +458,7 @@ type DramaStepBinding struct {
 // 登录用户都能看、能新增；改名、改色板、删除限管理员或创建者。项目选用时把风格锚和色板复制进自己的 bible_json，条目之后改了或删了不影响已选的项目。
 type DramaStyleLibraryEntry struct {
 	ID string `json:"id" gorm:"primaryKey;size:36"`
-	// ProjectType 是项目类型：live-action / 3d-anime / realistic-cg / 2d-anime（与建项目的类型同值）。
+	// ProjectType 是画面类型：live_action / cg_real / anime_3d / anime_2d（与项目 visual_type 同值）。
 	ProjectType string `json:"projectType" gorm:"size:32;not null;index:idx_drama_style_library_type,priority:1;uniqueIndex:idx_drama_style_library_name,priority:1"`
 	// Name 在同一项目类型里不重名（唯一索引 idx_drama_style_library_name）。
 	Name        string `json:"name" gorm:"size:120;not null;uniqueIndex:idx_drama_style_library_name,priority:2"`
@@ -448,7 +468,7 @@ type DramaStyleLibraryEntry struct {
 	MasterPaletteJSON string `json:"masterPaletteJson" gorm:"type:text"`
 	// CoverResourceID 是合成的主色卡图（资源属于合成它的账号；所有登录用户经 /drama/style-library/:id/cover 读）。
 	CoverResourceID string `json:"coverResourceId" gorm:"size:36"`
-	// Source 是 analysis（风格分析后存入）/ manual（后台手工建）/ seed（预置）。
+	// Source 是 director（建项时交给导演分析、锁定后自动存入，说明里写项目名）/ analysis（风格分析后手动存入）/ manual（后台手工建）/ seed（预置）。
 	Source    string    `json:"source" gorm:"size:16"`
 	CreatedBy string    `json:"createdBy" gorm:"size:36;index"`
 	UpdatedBy string    `json:"updatedBy" gorm:"size:36"`

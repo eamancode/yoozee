@@ -36,6 +36,16 @@ export const API_ERROR_REASON = {
     PrevizRequired: "previz_required",
     /** 这一集（章）还没有场次色卡就提取资产：资产按色卡约束，要先在章节页「生成场次色卡」。 */
     PaletteRequired: "palette_required",
+    /** 建项「要拍什么」不对：来源类型不认识、正文为空、创意的集数时长超范围。 */
+    ProjectSourceInvalid: "project_source_invalid",
+    /** 建项没选画面类型。 */
+    ProjectVisualTypeRequired: "project_visual_type_required",
+    /** 建项「画风从哪来」不对：风格不存在或不属于所选画面类型、参考图不是本人已就绪的图片、描述超长。 */
+    ProjectStyleInvalid: "project_style_invalid",
+    /** 建项「怎么做」不对：画幅、每段时长、视频模型或生成模式的取值不认识或冲突（如 30 秒配一段最长 15 秒的模型）。 */
+    ProjectProductionInvalid: "project_production_invalid",
+    /** 流水线不接出视频、剪辑：出视频要花钱，只能在制作台带着预估花费由人点。 */
+    PipelineVideoManual: "pipeline_video_manual",
 } as const;
 
 export type ApiErrorReason = (typeof API_ERROR_REASON)[keyof typeof API_ERROR_REASON];

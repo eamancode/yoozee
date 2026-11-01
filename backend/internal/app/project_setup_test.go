@@ -22,13 +22,13 @@ func newProjectSetupTestService(t *testing.T) (*Service, *gorm.DB) {
 
 func TestProjectSetupAspectRatioAndSegmentSeconds(t *testing.T) {
 	svc, db := newProjectSetupTestService(t)
-	if _, err := svc.CreateProject("user-a", CreateProjectRequest{Name: "宽银幕", AspectRatio: "21:9"}); err == nil {
+	if _, err := svc.CreateProject("user-a", CreateProjectRequest{VisualType: "live_action", Name: "宽银幕", AspectRatio: "21:9"}); err == nil {
 		t.Fatal("不支持的画幅应被拒绝")
 	}
-	if _, err := svc.CreateProject("user-a", CreateProjectRequest{Name: "三十秒", GenerationModel: "seedance-2.0", SegmentSeconds: 30}); err == nil || !strings.Contains(err.Error(), "15") {
+	if _, err := svc.CreateProject("user-a", CreateProjectRequest{VisualType: "live_action", Name: "三十秒", GenerationModel: "seedance-2.0", SegmentSeconds: 30}); err == nil || !strings.Contains(err.Error(), "15") {
 		t.Fatalf("单段 30 秒超过 Seedance 2.0 的上限应被拒绝，得到 %v", err)
 	}
-	project, err := svc.CreateProject("user-a", CreateProjectRequest{Name: "四比三", AspectRatio: "4:3", GenerationModel: "seedance-2.5", SegmentSeconds: 30})
+	project, err := svc.CreateProject("user-a", CreateProjectRequest{VisualType: "live_action", Name: "四比三", AspectRatio: "4:3", GenerationModel: "seedance-2.5", SegmentSeconds: 30})
 	if err != nil {
 		t.Fatal(err)
 	}

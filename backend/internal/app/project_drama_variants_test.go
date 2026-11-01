@@ -129,7 +129,6 @@ func TestScenePaletteChainsAssetsExtractWithVariants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.palette.ChainAssets = true
 	taskReq := dramaStepTaskRequest(project.ID, "", plan, dramaStepTaskOptions{Model: "test", Config: map[string]any{"baseUrl": server.URL, "apiKey": "test-key", "model": "test", "interfaceType": "chat-completion"}})
 	taskReq.Input["metadata"].(map[string]any)["dramaRun"] = newDramaRunMeta(plan, "")
 	queued := insertDramaTestTask(t, svc, db, project.ID, taskReq)

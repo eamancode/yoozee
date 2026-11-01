@@ -29,8 +29,6 @@ type dramaScenePaletteMeta struct {
 	// ExcerptChars 是每场摘录的字数（总字数超预算时缩短，记下来便于排查）。
 	ExcerptChars int    `json:"excerptChars"`
 	ChainedFrom  string `json:"chainedFrom,omitempty"`
-	// ChainAssets 是写完后按集依次接着提取资产（M8 卡 D，默认接）；接着提取时要不要出图看任务输入里有没有 assetImageTask。
-	ChainAssets bool `json:"chainAssets,omitempty"`
 }
 
 type dramaScenePaletteEpisodeMeta struct {
@@ -474,51 +472,4 @@ type DramaChainedTask struct {
 	UnitID    string `json:"unitId,omitempty"`
 	Remaining int    `json:"remaining,omitempty"`
 	Error     string `json:"error,omitempty"`
-}
-
-// chainScenePaletteAfterAdapt 在剧本优化写完剧集后，用同一文本模型直接建场次色卡任务（metadata.chainedFrom = 剧本优化任务）。
-// 项目没锁定风格时不建，Error 写明要先锁定风格；项目的风格档案拿不到场次色卡的技能（没绑定、默认技能也不在）时不接。
-func (s *Service) chainScenePaletteAfterAdapt(task model.Task, projectID string) *DramaChainedTask {
-	step, ok := drama.StepByID(drama.StepScenePalette)
-	if !ok {
-		return nil
-	}
-	chained := &DramaChainedTask{Step: step.ID}
-	project, err := s.activeProjectForUser(task.UserID, projectID)
-	if err != nil {
-		chained.Error = err.Error()
-		return chained
-	}
-	if _, _, _, locked := projectLockedStyle(project.BibleJSON); !locked {
-		chained.Error = errStyleNotLocked
-		return chained
-	}
-	if _, _, err := s.dramaStepSkill(project, step, nil); err != nil {
-		return nil
-	}
-	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)
-	if err != nil {
-		chained.Error = err.Error()
-		return chained
-	}
-	var input struct {
-		Config         map[string]any          `json:"config"`
-		AssetImageTask *DramaImageTaskTemplate `json:"assetImageTask"`
-		Metadata       struct {
-			DramaAdapt *dramaAdaptMeta `json:"dramaAdapt"`
-		} `json:"metadata"`
-	}
-	_ = json.Unmarshal([]byte(decrypted), &input)
-	req := DramaProjectStepRunRequest{Model: task.Model, LogicalModelID: task.LogicalModelID, Config: input.Config, TraceID: task.TraceID, chainedFrom: task.ID, AssetImageTask: input.AssetImageTask}
-	// 剧本优化对话框关掉了「接着提取资产」时，接着跑的场次色卡也不接。
-	if adapt := input.Metadata.DramaAdapt; adapt != nil && adapt.ChainAssets != nil {
-		req.ChainAssets = adapt.ChainAssets
-	}
-	result, err := s.RunDramaProjectStep(task.UserID, projectID, step.ID, req)
-	if err != nil {
-		chained.Error = userFacingTaskError(err.Error())
-		return chained
-	}
-	chained.TaskID = result.Task.ID
-	return chained
 }

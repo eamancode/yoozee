@@ -7,8 +7,9 @@ import type { ProjectOverview, ProjectOverviewMetrics } from "@/services/api/pro
 
 import { formatTime, type ProjectDetailViewProps } from "./shared";
 import { DramaOverviewPanel } from "./drama-panels";
+import { ProjectPipelinePanel } from "./project-pipeline-panel";
 
-export default function ProjectOverviewView({ detail, overview }: ProjectDetailViewProps & { overview: ProjectOverview }) {
+export default function ProjectOverviewView({ detail, overview, refreshProject }: ProjectDetailViewProps & { overview: ProjectOverview }) {
     const { project } = detail;
     const metrics = overview.metrics;
     const completedUnits = metrics.completedUnitCount;
@@ -30,6 +31,8 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
 
     return (
         <div className="space-y-8">
+            <ProjectPipelinePanel project={project} firstUnitId={firstUnitId} onProjectChange={refreshProject} />
+
             <section className="project-overview-focus">
                 <div className="grid lg:grid-cols-[minmax(0,1fr)_308px]">
                     <div className="project-overview-primary">

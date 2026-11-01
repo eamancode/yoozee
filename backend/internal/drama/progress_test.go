@@ -33,7 +33,7 @@ func TestDeriveMarksSegmentsOverTheProjectModelLimit(t *testing.T) {
 
 	// 建项目时选的是 Seedance 2.5（一段 30 秒）：20 秒的段合法。
 	long := mustModel(t, "seedance-2.5")
-	before := Derive(ProgressInput{Model: long, AuthMode: AuthStep, Shots: shots})
+	before := Derive(ProgressInput{Model: long, RunMode: RunEveryStep, Shots: shots})
 	if before.Counts.OverLimit != 0 {
 		t.Fatalf("Seedance 2.5 下 20 秒的段不应超长：%+v", before.Counts)
 	}
@@ -43,7 +43,7 @@ func TestDeriveMarksSegmentsOverTheProjectModelLimit(t *testing.T) {
 
 	// 设置页把生成模型改小到 Seedance 2.0（一段 15 秒）：同一批段里 20 秒那条变超长。
 	short := mustModel(t, "seedance-2.0")
-	after := Derive(ProgressInput{Model: short, AuthMode: AuthStep, Shots: shots})
+	after := Derive(ProgressInput{Model: short, RunMode: RunEveryStep, Shots: shots})
 	if after.Counts.OverLimit != 1 {
 		t.Fatalf("改小模型后应有 1 段超长：%+v", after.Counts)
 	}
@@ -66,7 +66,7 @@ func TestDeriveMarksSegmentsOverTheProjectModelLimit(t *testing.T) {
 }
 
 func TestDeriveKeepsTenEndStates(t *testing.T) {
-	states := Derive(ProgressInput{Model: mustModel(t, "seedance-2.0"), AuthMode: AuthFull}).EndStates
+	states := Derive(ProgressInput{Model: mustModel(t, "seedance-2.0"), RunMode: RunUntilVideo}).EndStates
 	if len(states) != 10 {
 		t.Fatalf("终态应有 10 个，得到 %d", len(states))
 	}
@@ -133,15 +133,15 @@ func TestMissingEvidenceReportsOnlyUnpassedKinds(t *testing.T) {
 	}
 }
 
-func TestValidAuthModeAndEvidenceKind(t *testing.T) {
-	for _, ok := range []string{AuthStep, AuthFull} {
-		if !ValidAuthMode(ok) {
-			t.Fatalf("%s 应是合法档位", ok)
+func TestValidRunModeAndEvidenceKind(t *testing.T) {
+	for _, ok := range RunModes {
+		if !ValidRunMode(ok) {
+			t.Fatalf("%s 应是合法生成模式", ok)
 		}
 	}
-	for _, bad := range []string{"", "auto", "read_only", "全权", "STEP", " step"} {
-		if ValidAuthMode(bad) {
-			t.Fatalf("%q 不该是合法档位", bad)
+	for _, bad := range []string{"", "step", "full", "auto", "UNTIL_VIDEO", " until_video"} {
+		if ValidRunMode(bad) {
+			t.Fatalf("%q 不该是合法生成模式", bad)
 		}
 	}
 	for _, kind := range []string{EvidenceTranscript, EvidenceFrames, EvidenceFaces, EvidenceLevels, EvidenceVoice, EvidencePick, EvidenceGate, EvidenceReview, EvidenceDelivery, EvidenceAcceptance} {
@@ -201,28 +201,28 @@ func TestDeriveStyleAndPaletteStates(t *testing.T) {
 		}
 		return out
 	}
-	empty := state(ProgressInput{Model: m, AuthMode: AuthStep})
+	empty := state(ProgressInput{Model: m, RunMode: RunEveryStep})
 	if empty["style"].Done || empty["palette"].Done {
 		t.Fatalf("空项目不该风格定了、色卡齐了：%+v %+v", empty["style"], empty["palette"])
 	}
-	partial := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: bible, StyleScenes: scenes, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02"}}})
+	partial := state(ProgressInput{Model: m, RunMode: RunEveryStep, BibleJSON: bible, StyleScenes: scenes, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02"}}})
 	if !partial["style"].Done || !strings.Contains(partial["style"].Detail, "取自平台风格库，风格锚与 1 色主基调色卡") || partial["palette"].Done || !strings.Contains(partial["palette"].Detail, "1/2") {
 		t.Fatalf("风格锚写了、一张色卡没图：%+v %+v", partial["style"], partial["palette"])
 	}
-	full := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: bible, StyleScenes: scenes, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02", Imaged: true}}})
+	full := state(ProgressInput{Model: m, RunMode: RunEveryStep, BibleJSON: bible, StyleScenes: scenes, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02", Imaged: true}}})
 	if !full["palette"].Done || !full["style"].Done {
 		t.Fatalf("每场都有出了图的色卡应算色卡齐了：%+v %+v", full["style"], full["palette"])
 	}
-	noAnchor := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: `{"style_anchor":{}}`, StyleScenes: scenes})
+	noAnchor := state(ProgressInput{Model: m, RunMode: RunEveryStep, BibleJSON: `{"style_anchor":{}}`, StyleScenes: scenes})
 	if noAnchor["style"].Done {
 		t.Fatal("空的风格锚不算风格定了")
 	}
-	anchorOnly := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: `{"style_anchor":{"medium":"真人实拍"}}`, StyleScenes: scenes})
+	anchorOnly := state(ProgressInput{Model: m, RunMode: RunEveryStep, BibleJSON: `{"style_anchor":{"medium":"真人实拍"}}`, StyleScenes: scenes})
 	if anchorOnly["style"].Done || !strings.Contains(anchorOnly["style"].Detail, "没有主基调色卡") {
 		t.Fatalf("只有风格锚、没有主基调色卡不算锁定：%+v", anchorOnly["style"])
 	}
 	// 风格在建项目时就锁定：还没导入原文时「风格定了」已经成立，色卡（场次）还没有。
-	noUnits := state(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: bible, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02", Imaged: true}}})
+	noUnits := state(ProgressInput{Model: m, RunMode: RunEveryStep, BibleJSON: bible, Palettes: []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E01S02", Imaged: true}}})
 	if !noUnits["style"].Done || noUnits["palette"].Done {
 		t.Fatalf("没有剧集或章节时风格已锁定、色卡不算齐：%+v %+v", noUnits["style"], noUnits["palette"])
 	}
@@ -236,7 +236,7 @@ func TestDeriveStyleStatesFollowCurrentScenes(t *testing.T) {
 	palettes := []PaletteInput{{Code: "E01S01", Imaged: true}, {Code: "E02S01", Imaged: true}, {Code: "E03S01", Imaged: true}}
 	derive := func(scenes []SceneRef, fromChapters bool, palettes []PaletteInput) map[string]EndState {
 		out := map[string]EndState{}
-		for _, s := range Derive(ProgressInput{Model: m, AuthMode: AuthStep, BibleJSON: bible, Palettes: palettes, StyleScenes: scenes, StyleFromChapters: fromChapters}).EndStates {
+		for _, s := range Derive(ProgressInput{Model: m, RunMode: RunEveryStep, BibleJSON: bible, Palettes: palettes, StyleScenes: scenes, StyleFromChapters: fromChapters}).EndStates {
 			out[s.Key] = s
 		}
 		return out
