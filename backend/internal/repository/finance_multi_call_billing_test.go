@@ -151,6 +151,8 @@ func TestSettleTextFixedRequestOrderChargesEveryCall(t *testing.T) {
 		want     int64
 	}{
 		{"按 4 轮预授权、4 次", 4, 1_200_000, 4, 1_200_000},
+		{"按 4 轮预授权、1 次", 4, 1_200_000, 1, 300_000},
+		{"按 4 轮预授权、2 次", 4, 1_200_000, 2, 600_000},
 		{"按 1 次预授权、4 次补扣", 1, 300_000, 4, 1_200_000},
 		{"单次", 1, 300_000, 1, 300_000},
 	} {
@@ -230,5 +232,68 @@ func TestRestoreRefundedTextTokenOrderSumsEveryCall(t *testing.T) {
 	}
 	if account.AvailableMicrocredits != 100_000-15_100 {
 		t.Fatalf("account = %+v", account)
+	}
+}
+
+func TestScaledFixedRequestSettlementRequiresSuccessfulCalls(t *testing.T) {
+	for _, restore := range []bool{false, true} {
+		for _, calls := range []int{0, 1, 2, 4} {
+			t.Run(fmt.Sprintf("restore-%t-calls-%d", restore, calls), func(t *testing.T) {
+				db := newMultiCallBillingDB(t, fmt.Sprintf("scaled-fixed-%t-%d", restore, calls))
+				reserved := int64(1_200_000)
+				status := model.BillingStatusUncertain
+				if restore {
+					reserved = 0
+					status = model.BillingStatusRefunded
+				}
+				account := model.CreditAccount{UserID: "user-1", AvailableMicrocredits: 5_000_000, ReservedMicrocredits: reserved}
+				if err := db.Create(&account).Error; err != nil {
+					t.Fatal(err)
+				}
+				order := model.BillingOrder{ID: "order-1", UserID: "user-1", IdempotencyKey: "task:scaled", Capability: "text", BillingMode: "fixed_request", Quantity: 4, UnitPriceMicrocredits: 300_000, MultiplierBasisPoints: 10_000, AmountMicrocredits: 1_200_000, ReservedAmountMicrocredits: 1_200_000, Status: status}
+				if err := db.Create(&order).Error; err != nil {
+					t.Fatal(err)
+				}
+				logs := []model.ApiCallLog{{Billable: true, Status: model.ApiCallStatusFailed, StatusCode: 502}}
+				for i := 0; i < calls; i++ {
+					logs = append(logs, model.ApiCallLog{Billable: true, Status: model.ApiCallStatusSucceeded})
+				}
+				createCallLogs(t, db, logs)
+				repo := &Repository{db: db}
+				settle := func() error { return repo.SettleBillingOrder(order.ID, "") }
+				if restore {
+					settle = func() error { return repo.RestoreRefundedBillingOrder(order.ID, "") }
+				}
+				err := settle()
+				var got model.BillingOrder
+				if loadErr := db.First(&got, "id = ?", order.ID).Error; loadErr != nil {
+					t.Fatal(loadErr)
+				}
+				var after model.CreditAccount
+				if loadErr := db.First(&after, "user_id = ?", account.UserID).Error; loadErr != nil {
+					t.Fatal(loadErr)
+				}
+				if calls == 0 {
+					if err == nil || got.Status != status || after.AvailableMicrocredits != account.AvailableMicrocredits || after.ReservedMicrocredits != reserved {
+						t.Fatalf("missing evidence changed funds: err=%v order=%+v account=%+v", err, got, after)
+					}
+					return
+				}
+				want := int64(calls) * 300_000
+				if err != nil || got.ActualAmountMicrocredits != want || got.Quantity != int64(calls) || after.AvailableMicrocredits != account.AvailableMicrocredits+reserved-want || after.ReservedMicrocredits != 0 {
+					t.Fatalf("settle: err=%v order=%+v account=%+v", err, got, after)
+				}
+				if err := settle(); err != nil {
+					t.Fatal(err)
+				}
+				var repeated model.CreditAccount
+				if err := db.First(&repeated, "user_id = ?", account.UserID).Error; err != nil {
+					t.Fatal(err)
+				}
+				if repeated.AvailableMicrocredits != after.AvailableMicrocredits || repeated.ReservedMicrocredits != after.ReservedMicrocredits {
+					t.Fatal("repeated settlement charged twice")
+				}
+			})
+		}
 	}
 }

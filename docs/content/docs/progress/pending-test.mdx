@@ -7,6 +7,9 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 ## 多轮文本任务按全部调用计费
 
+- 恢复修复：多轮按次订单仅成功一轮时不再按整笔预授权扣费；结算与退款恢复共用成功调用计数，零次成功保留待核对，不推断免费。
+- [ ] 复核四轮预授权下成功 0/1/2/4 次的人工结算、退款恢复、余额和重复操作幂等；零次成功时原订单与余额均不变。
+
 - 已修复（M8 线上验收第 4 条）：多轮文本任务（剧本优化、场次色卡、提取资产、按小节生成分镜、改戏类）原先按订单只读最新一条调用日志，只收最后一轮（14 个任务实收 1.35、应收 5.69 积分）。现在按这张单下全部成功的计费调用累加：Token 逐次计价再相加，按次计费按成功次数；单次调用的任务金额不变。口径见 `backend/http-api.mdx`「多轮文本任务的计费口径」。
 - 已实现：逐轮续写建单时预授权按预计轮数放大（单轮估算 × 轮数），多冻结的结算时退回；仍不够时补扣（余额可为负），不会因冻结不足进待核对。
 - [x] 专项测试：`TestDramaRunBillingSettlesEveryCall`（4 节、第 2 次 502 重试：Token 结算 = 4 次成功调用逐次之和 34,800 µ，按次 = 4 次；钱包一笔 consume = 任务摘要实扣）、`TestDramaRunBillingReservesEveryTurn`、`TestDramaRunUpstreamCalls`、`TestSettleTextTokenOrderSumsEveryCall`（失败调用、缓存创建不算，重复结算幂等）、`TestSettleTextTokenOrderSingleCallUnchanged`（风格分析 7758/3088 → 69,670 µ 不变）、`TestSettleTextFixedRequestOrderChargesEveryCall`、`TestRestoreRefundedTextTokenOrderSumsEveryCall`；`TestRefinalizeRunIsNotBilled` 仍通过。

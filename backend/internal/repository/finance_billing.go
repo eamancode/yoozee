@@ -274,6 +274,9 @@ func fixedRequestCalls(db *gorm.DB, order model.BillingOrder) (int64, error) {
 // fixedRequestCallsAmount 是按次计费的多轮文本订单按 calls 次结算的金额：每次的价格是建单时的单次金额
 // （逐轮续写建单时按预计轮数放大了预授权，Quantity 是预计次数，AmountMicrocredits 是 Quantity 次的金额）。
 func fixedRequestCallsAmount(order model.BillingOrder, calls int64) (int64, error) {
+	if calls == 0 {
+		return 0, ErrBillingUsageUnavailable
+	}
 	perCall := order.AmountMicrocredits
 	if order.Quantity > 1 {
 		perCall = order.AmountMicrocredits / order.Quantity
@@ -400,8 +403,8 @@ func (r *Repository) settleBillingOrder(id string, providerRequestID string, aud
 		if err != nil {
 			return err
 		}
-		if calls > 1 {
-			// 按次计费的多轮文本任务（逐轮续写）按成功调用次数结算；只有一次调用时走下面的原路径，金额不变。
+		if calls > 1 || (order.Capability == "text" && order.BillingMode == "fixed_request" && order.Quantity > 1) {
+			// 多轮预授权不是实扣依据；即使只成功一轮，也必须退回未使用的预授权。
 			actual, err := fixedRequestCallsAmount(order, calls)
 			if err != nil {
 				return err
@@ -686,7 +689,7 @@ func (r *Repository) RestoreRefundedBillingOrder(id string, providerRequestID st
 			if calls, err = fixedRequestCalls(tx, order); err != nil {
 				return err
 			}
-			if calls > 1 {
+			if calls > 1 || (order.Capability == "text" && order.BillingMode == "fixed_request" && order.Quantity > 1) {
 				if actual, err = fixedRequestCallsAmount(order, calls); err != nil {
 					return err
 				}
@@ -738,7 +741,7 @@ func (r *Repository) RestoreRefundedBillingOrder(id string, providerRequestID st
 			orderUpdates["usage_available"] = usageSource == billingUsageSourceProvider
 			orderUpdates["usage_source"] = usageSource
 		}
-		if calls > 1 {
+		if calls > 0 && order.Capability == "text" && order.BillingMode == "fixed_request" {
 			orderUpdates["quantity"] = calls
 			if order.CostBillingMode == "fixed_request" {
 				orderUpdates["cost_quantity"] = calls
