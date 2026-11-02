@@ -259,7 +259,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
         setOpen(false);
         setStarting(unit.id);
         setStream({ taskId: "", unitId: unit.id, text: "" });
-        setResumeView(options.resumeTaskId && resume ? { from: resume.from, total: resume.total, previous: assetsExtractStreamFromResult(taskDetail?.resultJson) } : undefined);
+        setResumeView(options.resumeTaskId && resume ? { from: resume.from, total: resume.total, previous: assetsExtractStreamFromResult(checkpoint?.resultJson) } : undefined);
         setPanelOpen(true);
         try {
             const result = await runAssetsExtract(
