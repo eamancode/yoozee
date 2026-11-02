@@ -7,6 +7,7 @@ import { decodeNovelText, splitTextIntoChapters } from "@/lib/canvas/canvas-docu
 import { detectProjectSource, formatSourceChars, sourceCharCount } from "@/lib/project-source";
 
 import { MAX_NOVEL_IMPORT_CHAPTERS } from "../import-chapter-preview";
+import { ChoiceGroup } from "./composer-sections";
 
 /** 导入确认后的正文：类型（小说导入成原文章节，剧本导入成剧集）和按章节页同一套解析切好的章 / 集。 */
 export type ImportedProjectSource = { text: string; fileName: string; kind: "novel" | "script"; split: boolean };
@@ -31,6 +32,8 @@ export function importedUnits(text: string, kind: "novel" | "script", split: boo
  */
 export function SourceImportModal({ open, initialFile, onClose, onConfirm }: { open: boolean; initialFile?: File; onClose: () => void; onConfirm: (source: ImportedProjectSource) => void }) {
     const inputRef = useRef<HTMLInputElement>(null);
+    const readId = useRef(0);
+    const [reading, setReading] = useState(false);
     const [step, setStep] = useState<Step>("upload");
     const [text, setText] = useState("");
     const [fileName, setFileName] = useState("");
@@ -40,26 +43,38 @@ export function SourceImportModal({ open, initialFile, onClose, onConfirm }: { o
     const [dragging, setDragging] = useState(false);
 
     const read = async (file: File) => {
+        const id = ++readId.current;
         setError("");
-        if (!/\.(txt|md)$/i.test(file.name) && file.type && !file.type.startsWith("text/")) {
+        setReading(false);
+        if (!/\.(txt|md)$/i.test(file.name)) {
             setError("只支持 TXT 或 Markdown 文本文件");
             return;
         }
-        const decoded = decodeNovelText(await file.arrayBuffer());
-        if (!decoded.trim()) {
-            setError("文件是空的");
-            return;
+        setReading(true);
+        try {
+            const decoded = decodeNovelText(await file.arrayBuffer());
+            if (id !== readId.current) return;
+            if (!decoded.trim()) {
+                setError("文件是空的");
+                return;
+            }
+            const detected = detectProjectSource(decoded);
+            setText(decoded);
+            setFileName(file.name);
+            setKind(detected.kind === "script" ? "script" : "novel");
+            setSplit(true);
+            setStep("preview");
+        } catch {
+            if (id === readId.current) setError("文件读取失败，请重新选择 TXT 或 Markdown 文件");
+        } finally {
+            if (id === readId.current) setReading(false);
         }
-        const detected = detectProjectSource(decoded);
-        setText(decoded);
-        setFileName(file.name);
-        setKind(detected.kind === "script" ? "script" : "novel");
-        setSplit(true);
-        setStep("preview");
     };
 
     useEffect(() => {
         if (!open) {
+            readId.current += 1;
+            setReading(false);
             setStep("upload");
             setText("");
             setFileName("");
@@ -67,6 +82,9 @@ export function SourceImportModal({ open, initialFile, onClose, onConfirm }: { o
             return;
         }
         if (initialFile) void read(initialFile);
+        return () => {
+            readId.current += 1;
+        };
     }, [initialFile, open]);
 
     const units = useMemo(() => (text ? importedUnits(text, kind, split) : []), [kind, split, text]);
@@ -157,29 +175,46 @@ export function SourceImportModal({ open, initialFile, onClose, onConfirm }: { o
                         <div className="project-import-confirm">
                             <fieldset>
                                 <legend>这是</legend>
-                                <div role="radiogroup" aria-label="正文类型" className="project-choice-row">
-                                    {(["novel", "script"] as const).map((value) => (
-                                        <button key={value} type="button" role="radio" aria-checked={kind === value} className={`project-choice${kind === value ? " is-selected" : ""}`} onClick={() => setKind(value)}>
+                                <ChoiceGroup
+                                    label="正文类型"
+                                    value={kind}
+                                    options={[{ value: "novel" }, { value: "script" }]}
+                                    onChange={setKind}
+                                    className="project-choice-row"
+                                    optionClassName="project-choice"
+                                    render={(value) => (
+                                        <>
                                             <strong>{value === "script" ? "剧本" : "小说"}</strong>
                                             <span>{value === "script" ? "导入成剧集，建项后只调节奏" : "导入成原文章节，建项后改编成剧集"}</span>
-                                        </button>
-                                    ))}
-                                </div>
+                                        </>
+                                    )}
+                                />
                             </fieldset>
                             <fieldset>
                                 <legend>怎么切</legend>
-                                <div role="radiogroup" aria-label="切分方式" className="project-choice-row">
-                                    <button type="button" role="radio" aria-checked={split} className={`project-choice${split ? " is-selected" : ""}`} onClick={() => setSplit(true)}>
-                                        <strong>按「第 N {noun}」标题切</strong>
-                                        <span>
-                                            切成 {importedUnits(text, kind, true).length} {noun}
-                                        </span>
-                                    </button>
-                                    <button type="button" role="radio" aria-checked={!split} className={`project-choice${!split ? " is-selected" : ""}`} onClick={() => setSplit(false)}>
-                                        <strong>整篇算一{noun}</strong>
-                                        <span>不切分</span>
-                                    </button>
-                                </div>
+                                <ChoiceGroup
+                                    label="切分方式"
+                                    value={split ? "titles" : "single"}
+                                    options={[{ value: "titles" }, { value: "single" }]}
+                                    onChange={(value) => setSplit(value === "titles")}
+                                    className="project-choice-row"
+                                    optionClassName="project-choice"
+                                    render={(value) =>
+                                        value === "titles" ? (
+                                            <>
+                                                <strong>按「第 N {noun}」标题切</strong>
+                                                <span>
+                                                    切成 {importedUnits(text, kind, true).length} {noun}
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <strong>整篇算一{noun}</strong>
+                                                <span>不切分</span>
+                                            </>
+                                        )
+                                    }
+                                />
                             </fieldset>
                             {tooMany ? (
                                 <p className="project-import-error" role="alert">
@@ -190,14 +225,15 @@ export function SourceImportModal({ open, initialFile, onClose, onConfirm }: { o
                     ) : null}
                 </div>
                 <footer className="project-import-foot">
+                    {reading ? <span role="status">正在读取文件…</span> : null}
                     <Button onClick={step === "upload" ? onClose : () => setStep(step === "confirm" ? "preview" : "upload")}>{step === "upload" ? "取消" : "上一步"}</Button>
                     {step === "preview" ? (
-                        <Button type="primary" onClick={() => setStep("confirm")}>
+                        <Button type="primary" disabled={reading} onClick={() => setStep("confirm")}>
                             下一步
                         </Button>
                     ) : null}
                     {step === "confirm" ? (
-                        <Button type="primary" disabled={!units.length || tooMany} onClick={() => onConfirm({ text, fileName, kind, split })}>
+                        <Button type="primary" disabled={reading || !units.length || tooMany} onClick={() => onConfirm({ text, fileName, kind, split })}>
                             用这份正文（{units.length} {noun}）
                         </Button>
                     ) : null}

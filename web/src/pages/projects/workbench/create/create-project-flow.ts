@@ -27,11 +27,12 @@ export function composerSectionOfError(error: unknown): ComposerSection | undefi
 }
 
 /** 建项：同名时在名字后面加「（2）」「（3）」重试（和原先一样）。 */
-export async function createProjectWithUniqueName(input: CreateProjectInput) {
+export async function createProjectWithUniqueName(input: CreateProjectInput, signal?: AbortSignal) {
     const base = input.name.trim();
     for (let attempt = 0; ; attempt += 1) {
+        signal?.throwIfAborted();
         try {
-            return await createProject({ ...input, name: attempt === 0 ? base : `${base}（${attempt + 1}）` });
+            return await createProject({ ...input, name: attempt === 0 ? base : `${base}（${attempt + 1}）` }, signal);
         } catch (error) {
             if (!shouldRetryProjectNameConflict(error, attempt)) throw error;
         }
@@ -47,9 +48,10 @@ export function ideaWordCount(episodeSeconds: number) {
  * 创意建项后走「AI 生成章节」：按集数生成大纲和章节，导入成原文章节；拆剧本那一步再按集数改编成剧集。
  * onDelta 是模型输出到目前为止的全文（页面显示进度）。
  */
-export async function generateIdeaChapters(input: { projectId: string; idea: string; episodes: number; episodeSeconds: number; config: AiConfig; textModel: string; onDelta?: (text: string) => void }) {
+export async function generateIdeaChapters(input: { projectId: string; idea: string; episodes: number; episodeSeconds: number; config: AiConfig; textModel: string; onDelta?: (text: string) => void; signal?: AbortSignal }) {
     const result = await runBackendGenerationTask({
         projectId: input.projectId,
+        signal: input.signal,
         mode: "text",
         prompt: promptTemplateTaskPlaceholder("短剧大纲"),
         config: { ...input.config, model: input.textModel, imageModel: input.textModel, videoModel: input.textModel, textModel: input.textModel },
@@ -70,11 +72,13 @@ export async function generateIdeaChapters(input: { projectId: string; idea: str
         },
         onTextDelta: input.onDelta,
     });
+    input.signal?.throwIfAborted();
     const parsed = parseGeneratedStory(result.text || "");
     if (!parsed.chapters.length) throw new Error("AI 没有返回有效的章节内容，项目已建好：到章节页导入正文，或删掉项目重新建");
     await importProjectUnits(
         input.projectId,
         parsed.chapters.map((chapter: { title: string; content: string }) => ({ kind: "chapter", title: chapter.title, sourceText: plainTextToHtml(chapter.content) })),
+        input.signal,
     );
     return parsed.chapters.length;
 }

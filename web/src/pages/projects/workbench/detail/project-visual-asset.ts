@@ -27,7 +27,7 @@ export function projectVisualImageRequest({ projectId, asset, config, projectSty
     const generationConfig = { ...config, model: config.imageModel || config.model, count: "1" };
     const requestConfig = resolveModelRequestConfig(generationConfig, generationConfig.model);
     const styleExecutionPlan = projectStyle?.profile ? resolveStyleExecutionPlan(projectStyle.profile, { mode: "image", model: requestConfig.model, interfaceType: requestConfig.interfaceType || requestConfig.apiFormat }) : undefined;
-    if (styleExecutionPlan?.status === "blocked" && !logicalModelIDForConfig(generationConfig)) throw new Error(`当前图片模型无法完整执行项目画风：${styleExecutionPlan.warnings.join("；")}。请切换图片模型，或在项目设置中停用对应画风资产`);
+    if (styleExecutionPlan?.status === "blocked" && !logicalModelIDForConfig(generationConfig)) throw new Error(`当前图片模型无法完整执行项目风格：${styleExecutionPlan.warnings.join("；")}。请切换到支持所需参考素材的图片模型`);
     return {
         projectId,
         nodeId: `project-asset-image:${asset.id}`,

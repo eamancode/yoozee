@@ -543,8 +543,8 @@ function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
  * 建项目（首页一页四段）。校验失败按段给 reason：project_source_invalid / project_visual_type_required / project_style_invalid /
  * project_production_invalid，页面把错误落到对应的段；同名返回 project_name_conflict。
  */
-export function createProject(input: CreateProjectInput) {
-    return http.post<{ project: Project }>("/projects", { type: "short-drama", ...input });
+export function createProject(input: CreateProjectInput, signal?: AbortSignal) {
+    return http.post<{ project: Project }>("/projects", { type: "short-drama", ...input }, signal ? { signal } : undefined);
 }
 
 /** segmentSeconds 改单段最长秒数（0 去掉这一项），与生成模型一起按模型上限校验；previzGate 改视频前的预演闸门（写进 brief_json.previz_gate）。 */
@@ -564,8 +564,8 @@ export function getProjectUnit(projectId: string, unitId: string) {
     return http.get<{ unit: ProjectUnit }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`);
 }
 
-export function importProjectUnits(projectId: string, units: Array<{ kind: string; title: string; sourceText?: string }>) {
-    return http.post<{ units: ProjectUnit[] }>(`/projects/${encodeURIComponent(projectId)}/units/import`, { units });
+export function importProjectUnits(projectId: string, units: Array<{ kind: string; title: string; sourceText?: string }>, signal?: AbortSignal) {
+    return http.post<{ units: ProjectUnit[] }>(`/projects/${encodeURIComponent(projectId)}/units/import`, { units }, signal ? { signal } : undefined);
 }
 
 export function reorderProjectUnits(projectId: string, unitIds: string[]) {

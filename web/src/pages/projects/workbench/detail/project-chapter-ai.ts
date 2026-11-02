@@ -302,7 +302,8 @@ function generationTaskMetadata(inputJson?: string): Record<string, unknown> {
  * 流水线「继续」（建项后首屏、概览）：从停下的环节开始做，之后由服务端按生成模式接续，出视频不接。文本模型用当前设置；
  * 配好了图片模型（项目默认优先）时带上资产出图模板，提取完自动给新资产出图。
  */
-export async function continueProjectPipeline(projectId: string, config: AiConfig, defaultImageModel?: string) {
+export async function continueProjectPipeline(projectId: string, config: AiConfig, defaultImageModel?: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     const model = config.textModel || config.model;
     if (!model) throw new Error("先在设置里配一个文本模型，再继续");
     const textConfig = { ...config, model };
@@ -316,12 +317,13 @@ export async function continueProjectPipeline(projectId: string, config: AiConfi
             imageTask = undefined;
         }
     }
+    signal?.throwIfAborted();
     const result = await continueDramaPipeline(projectId, {
         model,
         ...(logicalModelIDForConfig(textConfig) ? { logicalModelId: logicalModelIDForConfig(textConfig) } : {}),
         config: backendProviderConfig(textConfig, "text") as Record<string, unknown>,
         ...(imageTask ? { imageTask } : {}),
-    });
+    }, signal);
     if (result.task) announceCreatedGenerationTask(result.task);
     return result;
 }

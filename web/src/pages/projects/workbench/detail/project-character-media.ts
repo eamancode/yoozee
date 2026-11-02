@@ -34,14 +34,23 @@ export async function generateCharacterTurnaround(input: { projectId: string; as
     const generationConfig = { ...input.config, model: input.config.imageModel || input.config.model, count: "1" };
     const requestConfig = resolveModelRequestConfig(generationConfig, generationConfig.model);
     const styleExecutionPlan = input.projectStyle?.profile ? resolveStyleExecutionPlan(input.projectStyle.profile, { mode: "image", model: requestConfig.model, interfaceType: requestConfig.interfaceType || requestConfig.apiFormat }) : undefined;
-    if (styleExecutionPlan?.status === "blocked" && !logicalModelIDForConfig(generationConfig)) throw new Error(`当前图片模型无法完整执行项目画风：${styleExecutionPlan.warnings.join("；")}。请切换图片模型，或在项目设置中停用对应画风资产`);
+    if (styleExecutionPlan?.status === "blocked" && !logicalModelIDForConfig(generationConfig)) throw new Error(`当前图片模型无法完整执行项目风格：${styleExecutionPlan.warnings.join("；")}。请切换到支持所需参考素材的图片模型`);
     await runBackendCanvasGenerationTask({
         projectId: input.projectId,
         nodeId: `${CHARACTER_TURNAROUND_NODE_PREFIX}${input.assetId}`,
         mode: "image",
         prompt: promptTemplateTaskPlaceholder("角色三视图"),
         config: generationConfig,
-        metadata: { operation: PromptTemplateOperation.CharacterTurnaround, promptTemplateOperation: PromptTemplateOperation.CharacterTurnaround, promptTemplateVariables, characterAssetId: input.assetId, stylePresetId: input.projectStyle?.id, styleProfileJson: input.projectStyle?.profile ? serializeStyleProfile(input.projectStyle.profile) : undefined, styleExecutionPlan, resolvedCharacterVersions: [{ assetId: input.assetId, versionId: input.versionId }] },
+        metadata: {
+            operation: PromptTemplateOperation.CharacterTurnaround,
+            promptTemplateOperation: PromptTemplateOperation.CharacterTurnaround,
+            promptTemplateVariables,
+            characterAssetId: input.assetId,
+            stylePresetId: input.projectStyle?.id,
+            styleProfileJson: input.projectStyle?.profile ? serializeStyleProfile(input.projectStyle.profile) : undefined,
+            styleExecutionPlan,
+            resolvedCharacterVersions: [{ assetId: input.assetId, versionId: input.versionId }],
+        },
     });
 }
 
@@ -62,8 +71,5 @@ function characterStyleConstraint(projectStyle?: ProjectStylePrompt) {
         const title = line.match(/^【([^】]+)】/)?.[1];
         return title ? characterSections.has(title) : false;
     });
-    return [
-        `项目画风：${projectStyle.title}。角色造型、配色、服装材质与最终渲染媒介必须遵循以下规范：`,
-        ...rules,
-    ].join("\n");
+    return [`项目画风：${projectStyle.title}。角色造型、配色、服装材质与最终渲染媒介必须遵循以下规范：`, ...rules].join("\n");
 }

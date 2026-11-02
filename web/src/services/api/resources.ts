@@ -262,13 +262,15 @@ export function isResourceUrl(url?: string) {
 const CHUNK_UPLOAD_THRESHOLD = 50 << 20;
 const CHUNK_UPLOAD_RETRIES = 2;
 
-export async function uploadResourceFile(file: Blob, kind: "image" | "video" | "audio" | "file", meta?: ResourceUploadMeta, onProgress?: (uploadedBytes: number, totalBytes: number) => void): Promise<RemoteResource> {
+export async function uploadResourceFile(file: Blob, kind: "image" | "video" | "audio" | "file", meta?: ResourceUploadMeta, onProgress?: (uploadedBytes: number, totalBytes: number) => void, signal?: AbortSignal): Promise<RemoteResource> {
+    signal?.throwIfAborted();
     const name = meta?.fileName || (file instanceof File ? file.name : `${kind}.${extensionFromMime(file.type, kind)}`);
     // 分片与 multipart 两条路径的失败都要归一成 ResourceUploadError，
     // 否则调用方只能靠文案猜测该重试还是该报错。
     try {
         if (file.size > CHUNK_UPLOAD_THRESHOLD) {
-            const resource = await uploadFileInChunks(file, name, kind, meta, onProgress);
+            const resource = await uploadFileInChunks(file, name, kind, meta, onProgress, signal);
+            signal?.throwIfAborted();
             resourceCache.set(resourceCacheKey(resource.id), resource);
             return resource;
         }
@@ -280,53 +282,62 @@ export async function uploadResourceFile(file: Blob, kind: "image" | "video" | "
         if (meta?.durationMs) formData.append("durationMs", String(Math.round(meta.durationMs)));
         const data = await http.post<{ resource: RemoteResource }>("/resources", formData, {
             ...uploadRequestConfig(meta?.idempotencyKey, file.size),
+            ...(signal ? { signal } : {}),
             onUploadProgress: onProgress
                 ? ({ loaded, total }) => {
                       if (total && total > 0) onProgress(Math.min(file.size, (file.size * loaded) / total), file.size);
                   }
                 : undefined,
         });
+        signal?.throwIfAborted();
         resourceCache.set(resourceCacheKey(data.resource.id), data.resource);
         return data.resource;
     } catch (error) {
+        signal?.throwIfAborted();
         throw normalizeUploadError(error);
     }
 }
 
 // 分片上传：POST 开始会话 → 逐片 PUT 原始二进制（每片 8MB）→ POST 合并落库。
 // 单请求体积小、可断点续传/失败重试；单文件不再受 50MB 限制（仅日/总量配额约束）。
-async function uploadFileInChunks(file: Blob, name: string, kind: "image" | "video" | "audio" | "file", meta: ResourceUploadMeta | undefined, onProgress?: (uploadedBytes: number, totalBytes: number) => void) {
+async function uploadFileInChunks(file: Blob, name: string, kind: "image" | "video" | "audio" | "file", meta: ResourceUploadMeta | undefined, onProgress?: (uploadedBytes: number, totalBytes: number) => void, signal?: AbortSignal) {
     // 片级失败通常意味着会话过期/网络抖动：整体重开一次会话重传（整传重试）。
     for (let attempt = 0; attempt < CHUNK_UPLOAD_RETRIES; attempt++) {
+        signal?.throwIfAborted();
         try {
-            return await runChunkedUpload(file, name, kind, meta, onProgress);
+            return await runChunkedUpload(file, name, kind, meta, onProgress, signal);
         } catch (error) {
+            signal?.throwIfAborted();
             if (attempt === CHUNK_UPLOAD_RETRIES - 1) throw error;
         }
     }
     throw new Error("上传失败");
 }
 
-async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video" | "audio" | "file", meta: ResourceUploadMeta | undefined, onProgress?: (uploadedBytes: number, totalBytes: number) => void) {
+async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video" | "audio" | "file", meta: ResourceUploadMeta | undefined, onProgress?: (uploadedBytes: number, totalBytes: number) => void, signal?: AbortSignal) {
     const session = await http.post<{ uploadId: string; chunkSize: number; chunkCount: number }>(
         "/resources/uploads",
         { fileName: name, kind, size: file.size, width: meta?.width, height: meta?.height, durationMs: meta?.durationMs },
-        uploadRequestConfig(meta?.idempotencyKey),
+        { ...uploadRequestConfig(meta?.idempotencyKey), ...(signal ? { signal } : {}) },
     );
     for (let index = 0; index < session.chunkCount; index++) {
+        signal?.throwIfAborted();
         const start = index * session.chunkSize;
         const end = Math.min(file.size, start + session.chunkSize);
         const blob = file.slice(start, end);
         // raw 二进制直传，与后端按裸 body 逐片落盘对齐。
         await http.put<{ index: number }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/chunks/${index}`, blob, {
             timeout: uploadTimeoutMs(blob.size),
+            ...(signal ? { signal } : {}),
             headers: { "Content-Type": "application/octet-stream" },
             onUploadProgress: onProgress ? ({ loaded }) => onProgress(start + Math.min(loaded, blob.size), file.size) : undefined,
         });
         onProgress?.(Math.min(end, file.size), file.size);
     }
     // 合并时后端要把整份文件写入存储（对象存储为同步上传），超时按整份大小计算。
-    const complete = await http.post<{ resource: RemoteResource }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/complete`, undefined, { timeout: uploadTimeoutMs(file.size) });
+    signal?.throwIfAborted();
+    const complete = await http.post<{ resource: RemoteResource }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/complete`, undefined, { timeout: uploadTimeoutMs(file.size), ...(signal ? { signal } : {}) });
+    signal?.throwIfAborted();
     return complete.resource;
 }
 

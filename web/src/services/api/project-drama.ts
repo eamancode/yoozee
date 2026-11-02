@@ -598,8 +598,8 @@ export type DramaScriptAdaptMode = "adapt" | "rhythm";
 export type DramaImageTaskTemplate = { model: string; logicalModelId?: string; provider?: string; input: Record<string, unknown>; maxReferenceImages?: number };
 
 /** 流水线「继续」：从停下的环节开始做，之后按生成模式接续（出视频不接，reason pipeline_video_manual）。imageTask 给了时提取后给新资产出图。 */
-export function continueDramaPipeline(projectId: string, input: { model: string; logicalModelId?: string; config: Record<string, unknown>; imageTask?: DramaImageTaskTemplate }) {
-    return http.post<{ stage: DramaPipelineStageKey; task?: GenerationTask; images?: DramaImageQueueResult; pipeline: DramaPipeline }>(`/projects/${encodeURIComponent(projectId)}/drama/pipeline/next`, input);
+export function continueDramaPipeline(projectId: string, input: { model: string; logicalModelId?: string; config: Record<string, unknown>; imageTask?: DramaImageTaskTemplate }, signal?: AbortSignal) {
+    return http.post<{ stage: DramaPipelineStageKey; task?: GenerationTask; images?: DramaImageQueueResult; pipeline: DramaPipeline }>(`/projects/${encodeURIComponent(projectId)}/drama/pipeline/next`, input, signal ? { signal } : undefined);
 }
 
 /**

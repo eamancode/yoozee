@@ -1,4 +1,4 @@
-import { localForageStorage } from "@/lib/localforage-storage";
+import { localForageStorageForScope } from "@/lib/localforage-storage";
 import type { ProjectSourceKind } from "@/lib/project-source";
 import type { DramaRunMode } from "@/services/api/project-drama";
 import type { ProjectVisualType } from "@/services/api/projects";
@@ -41,8 +41,8 @@ export const EMPTY_PROJECT_DRAFT: ProjectCreateDraft = {
     runMode: "until_video",
 };
 
-export async function loadProjectDraft(): Promise<ProjectCreateDraft | undefined> {
-    const raw = await localForageStorage.getItem(DRAFT_KEY);
+export async function loadProjectDraft(scope: string): Promise<ProjectCreateDraft | undefined> {
+    const raw = await localForageStorageForScope(scope).getItem(DRAFT_KEY);
     if (typeof raw !== "string" || !raw) return undefined;
     try {
         const draft = JSON.parse(raw) as Partial<ProjectCreateDraft>;
@@ -52,12 +52,12 @@ export async function loadProjectDraft(): Promise<ProjectCreateDraft | undefined
     }
 }
 
-export async function saveProjectDraft(draft: ProjectCreateDraft) {
-    await localForageStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+export async function saveProjectDraft(scope: string, draft: ProjectCreateDraft) {
+    await localForageStorageForScope(scope).setItem(DRAFT_KEY, JSON.stringify(draft));
 }
 
-export async function clearProjectDraft() {
-    await localForageStorage.removeItem(DRAFT_KEY);
+export async function clearProjectDraft(scope: string) {
+    await localForageStorageForScope(scope).removeItem(DRAFT_KEY);
 }
 
 /** 草稿有没有用户填过的内容（只有默认值时不算草稿）。 */

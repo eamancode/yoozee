@@ -40,15 +40,24 @@ type Notice = { text: string; undo?: () => void };
  * 底部摘要栏一句话复述全部选择，唯一主按钮「开始制作」（Ctrl/⌘+Enter）。建项后由服务端流水线按生成模式往下做。
  */
 export function ProjectComposer() {
+    const userId = useUserStore((state) => state.user?.id || "guest");
+    return <AccountProjectComposer key={userId} userId={userId} />;
+}
+
+function AccountProjectComposer({ userId }: { userId: string }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { message } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
-    const userId = useUserStore((state) => state.user?.id || "");
     const [draft, setDraft] = useState<ProjectCreateDraft>(EMPTY_PROJECT_DRAFT);
     const [draftLoaded, setDraftLoaded] = useState(false);
     const [draftSaved, setDraftSaved] = useState(false);
+    const [draftNotice, setDraftNotice] = useState("");
+    const active = useRef(true);
+    const edited = useRef(false);
+    const submittingRef = useRef(false);
+    const lifetime = useRef<AbortController | null>(null);
     const [images, setImages] = useState<File[]>([]);
     const [importOpen, setImportOpen] = useState(false);
     const [importFile, setImportFile] = useState<File>();
@@ -62,27 +71,59 @@ export function ProjectComposer() {
     // 草稿按账号 scope 存在 localforage：挂载时读回，之后每次改动存一份。
     useEffect(() => {
         let cancelled = false;
-        void loadProjectDraft().then((saved) => {
-            if (cancelled) return;
-            setDraft(saved || EMPTY_PROJECT_DRAFT);
-            setDraftLoaded(true);
-        });
+        active.current = true;
+        const controller = new AbortController();
+        lifetime.current = controller;
+        void loadProjectDraft(userId)
+            .then((saved) => {
+                if (cancelled) return;
+                if (!edited.current) setDraft(saved || EMPTY_PROJECT_DRAFT);
+                setDraftLoaded(true);
+            })
+            .catch(() => {
+                if (!cancelled) setDraftNotice("草稿读取失败，请刷新后重试；当前内容尚未保存");
+            });
         return () => {
             cancelled = true;
+            active.current = false;
+            controller.abort();
         };
     }, [userId]);
     useEffect(() => {
         if (!draftLoaded || submitting) return;
         if (!projectDraftHasContent(draft)) {
-            void clearProjectDraft();
+            void clearProjectDraft(userId).catch(() => {
+                if (active.current) setDraftNotice("草稿清理失败，请刷新后重试");
+            });
             setDraftSaved(false);
             return;
         }
-        const timer = window.setTimeout(() => void saveProjectDraft(draft).then(() => setDraftSaved(true)), 400);
-        return () => window.clearTimeout(timer);
-    }, [draft, draftLoaded, submitting]);
+        let cancelled = false;
+        const timer = window.setTimeout(
+            () =>
+                void saveProjectDraft(userId, draft)
+                    .then(() => {
+                        if (active.current && !cancelled) {
+                            setDraftSaved(true);
+                            setDraftNotice("");
+                        }
+                    })
+                    .catch(() => {
+                        if (active.current && !cancelled) setDraftNotice("草稿保存失败，请保留正文后重试");
+                    }),
+            400,
+        );
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [draft, draftLoaded, submitting, userId]);
 
-    const update = useCallback((patch: Partial<ProjectCreateDraft>) => setDraft((current) => ({ ...current, ...patch })), []);
+    const update = useCallback((patch: Partial<ProjectCreateDraft>) => {
+        edited.current = true;
+        setDraftSaved(false);
+        setDraft((current) => ({ ...current, ...patch }));
+    }, []);
     const clearError = (section: ComposerSection) => setErrors((current) => (current[section] || current.summary ? { ...current, [section]: undefined, summary: undefined } : current));
 
     const detection = useMemo(() => (draft.text.trim() ? detectProjectSource(draft.text) : undefined), [draft.text]);
@@ -126,7 +167,11 @@ export function ProjectComposer() {
     const scrollTo = (section: ComposerSection) => {
         const node = document.getElementById(`project-create-${section}`);
         node?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-        node?.querySelector<HTMLElement>("[tabindex='0'], textarea, input, button")?.focus({ preventScroll: true });
+        const target =
+            node?.querySelector<HTMLElement>("[role='radio'][aria-checked='true']:not(:disabled)") ||
+            node?.querySelector<HTMLElement>("[tabindex='0']:not(:disabled)") ||
+            node?.querySelector<HTMLElement>("textarea:not(:disabled), input:not(:disabled), button:not(:disabled)");
+        target?.focus({ preventScroll: true });
     };
 
     // 换了画面类型：已选的风格不属于新类型就清空，原地提示并给「撤销」。
@@ -185,7 +230,9 @@ export function ProjectComposer() {
     }, [importOpen]);
 
     const submit = async () => {
-        if (submitting) return;
+        const isCurrentUser = () => active.current && useUserStore.getState().user?.id === userId;
+        if (submittingRef.current || !draftLoaded || !isCurrentUser()) return;
+        const signal = lifetime.current?.signal;
         const next: Partial<Record<ComposerSection, string>> = {};
         if (!draft.blank && !draft.text.trim()) next.source = "粘贴剧本、小说或一句创意，或导入文件";
         if (!draft.visualType) next.visual = "先选画面类型";
@@ -201,60 +248,78 @@ export function ProjectComposer() {
             return;
         }
         const sourceAs: CreateProjectInput["sourceAs"] = !draft.text.trim() ? "blank" : kind === "idea" ? "idea" : kind === "script" ? "script" : "novel";
+        submittingRef.current = true;
         try {
             let refImageIds: string[] = [];
             if (draft.styleMode === "director" && images.length) {
                 setStatus("正在上传参考图…");
                 try {
-                    refImageIds = await uploadStyleReferenceImages(images);
+                    refImageIds = await uploadStyleReferenceImages(images, signal);
+                    if (!isCurrentUser()) return;
                 } catch (error) {
+                    if (!isCurrentUser()) return;
                     setErrors({ style: `参考图上传失败：${error instanceof Error ? error.message : "请重试"}` });
                     scrollTo("style");
                     return;
                 }
             }
             setStatus("正在建项目…");
-            const { project } = await createProjectWithUniqueName({
-                name: projectName,
-                sourceAs,
-                source: sourceAs === "idea" ? { text: draft.text.trim() } : sourceAs === "blank" ? {} : { units: sourceUnits.map((unit) => ({ title: unit.title, sourceText: plainTextToHtml(unit.plainText) })) },
-                ...(sourceAs === "idea" ? { ideaPlan: { episodes: draft.ideaEpisodes, episodeSeconds: draft.ideaEpisodeSeconds } } : {}),
-                visualType: draft.visualType!,
-                style: draft.styleMode === "library" ? { mode: "library", styleId: draft.styleId! } : { mode: "director", ...(draft.styleBrief.trim() ? { brief: draft.styleBrief.trim() } : {}), ...(refImageIds.length ? { refImageIds } : {}) },
-                aspectRatio: draft.aspectRatio,
-                segmentSeconds: draft.segmentSeconds,
-                generationModel: model?.id || recommendedModel,
-                runMode: draft.runMode,
-            });
+            const { project } = await createProjectWithUniqueName(
+                {
+                    name: projectName,
+                    sourceAs,
+                    source: sourceAs === "idea" ? { text: draft.text.trim() } : sourceAs === "blank" ? {} : { units: sourceUnits.map((unit) => ({ title: unit.title, sourceText: plainTextToHtml(unit.plainText) })) },
+                    ...(sourceAs === "idea" ? { ideaPlan: { episodes: draft.ideaEpisodes, episodeSeconds: draft.ideaEpisodeSeconds } } : {}),
+                    visualType: draft.visualType!,
+                    style: draft.styleMode === "library" ? { mode: "library", styleId: draft.styleId! } : { mode: "director", ...(draft.styleBrief.trim() ? { brief: draft.styleBrief.trim() } : {}), ...(refImageIds.length ? { refImageIds } : {}) },
+                    aspectRatio: draft.aspectRatio,
+                    segmentSeconds: draft.segmentSeconds,
+                    generationModel: model?.id || recommendedModel,
+                    runMode: draft.runMode,
+                },
+                signal,
+            );
+            if (!isCurrentUser()) return;
             // 项目已经建好：后面的生成章节、开始流水线失败只提示，进项目页由流水线写明停在哪。
             if (sourceAs === "idea") {
                 setStatus("AI 正在生成章节…");
                 try {
-                    await generateIdeaChapters({ projectId: project.id, idea: draft.text.trim(), episodes: draft.ideaEpisodes, episodeSeconds: draft.ideaEpisodeSeconds, config: effectiveConfig, textModel });
+                    await generateIdeaChapters({ projectId: project.id, idea: draft.text.trim(), episodes: draft.ideaEpisodes, episodeSeconds: draft.ideaEpisodeSeconds, config: effectiveConfig, textModel, signal });
+                    if (!isCurrentUser()) return;
                 } catch (error) {
+                    if (!isCurrentUser()) return;
                     message.warning(`项目已建好，章节没生成：${error instanceof Error ? error.message : "请重试"}`);
                 }
             }
             if (sourceAs !== "blank" && textReady) {
                 setStatus("正在开始制作…");
                 try {
-                    await continueProjectPipeline(project.id, { ...effectiveConfig, model: textModel, textModel });
+                    await continueProjectPipeline(project.id, { ...effectiveConfig, model: textModel, textModel }, undefined, signal);
+                    if (!isCurrentUser()) return;
                 } catch (error) {
+                    if (!isCurrentUser()) return;
                     message.warning(`项目已建好，第一步没开始：${error instanceof Error ? error.message : "到项目页点继续"}`);
                 }
             }
-            await clearProjectDraft();
+            try {
+                await clearProjectDraft(userId);
+            } catch {
+                if (isCurrentUser()) message.warning("项目已创建，但本机草稿未能清除；下次建项前请检查正文");
+            }
+            if (!isCurrentUser()) return;
             setDraft(EMPTY_PROJECT_DRAFT);
             setImages([]);
             void queryClient.invalidateQueries({ queryKey: ["projects"] });
             navigate(`/projects/${project.id}/overview`);
         } catch (error) {
+            if (!isCurrentUser()) return;
             const section = composerSectionOfError(error);
             const text = error instanceof Error ? error.message : "项目创建失败";
             setErrors(section ? { [section]: text } : { summary: text });
             if (section) scrollTo(section);
         } finally {
-            setStatus("");
+            submittingRef.current = false;
+            if (isCurrentUser()) setStatus("");
         }
     };
     const submitRef = useRef(submit);
@@ -371,6 +436,7 @@ export function ProjectComposer() {
                                     defaultValue={projectName}
                                     maxLength={60}
                                     aria-label="项目名"
+                                    onChange={(event) => update({ name: event.target.value })}
                                     onBlur={(event) => {
                                         update({ name: event.target.value.trim() || undefined });
                                         setEditingName(false);
@@ -485,7 +551,7 @@ export function ProjectComposer() {
                         </p>
                         <div className="project-create-summary-actions">
                             <span className="project-create-summary-status" aria-live="polite">
-                                {status || errors.summary || (draftSaved ? "草稿已保存在本机" : "")}
+                                {status || errors.summary || draftNotice || (draftSaved ? "草稿已保存在本机" : "")}
                             </span>
                             <Button type="primary" loading={submitting} onClick={() => void submit()}>
                                 开始制作

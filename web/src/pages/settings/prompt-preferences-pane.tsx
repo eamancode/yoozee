@@ -238,7 +238,7 @@ export function PromptPreferencesPane() {
                             {
                                 key: "preview",
                                 label: "最终结构",
-                                children: <div className="space-y-5 text-xs leading-6"><section><div className="mb-2 font-medium text-foreground/80">创作策略</div><pre className="thin-scrollbar max-h-64 overflow-auto whitespace-pre-wrap text-foreground/65">{previewCreative || "尚未填写"}</pre></section><section><div className="mb-2 font-medium text-foreground/80">运行时强制追加</div><p className="text-foreground/55">当前剧情、项目画风、当前角色版本、画布资产与受保护输出契约。</p></section></div>,
+                                children: <div className="space-y-5 text-xs leading-6"><section><div className="mb-2 font-medium text-foreground/80">创作策略</div><pre className="thin-scrollbar max-h-64 overflow-auto whitespace-pre-wrap text-foreground/65">{previewCreative || "尚未填写"}</pre></section><section><div className="mb-2 font-medium text-foreground/80">运行时强制追加</div><p className="text-foreground/55">当前剧情、项目风格、当前角色版本、画布资产与受保护输出契约。</p></section></div>,
                             },
                         ]}
                     />

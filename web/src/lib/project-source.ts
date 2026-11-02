@@ -97,6 +97,16 @@ export function suggestProjectName(text: string, fileName?: string) {
         .map((line) => line.trim())
         .filter(Boolean);
     const first = lines[0] || "";
+    const numberedTitle = first.match(/^第\s*[0-9一二三四五六七八九十百零〇两]+\s*[章集回场]\s*(.*)$/)?.[1];
+    if (numberedTitle !== undefined) {
+        return (
+            numberedTitle
+                .replace(/^[内外](?:景)?\s*[·・.]\s*/, "")
+                .replace(/[·・.]\s*(?:日|夜|晨|昏)\s*$/, "")
+                .trim()
+                .slice(0, 24) || "未命名项目"
+        );
+    }
     const title = first.match(/^[《【「]?([^》】」]{1,24})[》】」]?$/);
     if (title && first.length <= 26 && !DIALOGUE_LINE.test(first) && !SCENE_HEADING.test(first)) return title[1].trim();
     const sentence = first.split(/[。！？!?；;，,]/)[0] || first;

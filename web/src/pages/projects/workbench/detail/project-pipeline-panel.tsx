@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button } from "antd";
 import { ArrowRight, Play } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { getDramaProgress, type DramaRunMode } from "@/services/api/project-drama";
@@ -40,6 +40,11 @@ export function ProjectPipelinePanel({ project, firstUnitId, onProjectChange }: 
         },
     });
     const pipeline = query.data?.pipeline;
+    useEffect(() => {
+        if (!query.dataUpdatedAt) return;
+        void queryClient.invalidateQueries({ queryKey: ["project", project.id, "overview"] });
+        void queryClient.invalidateQueries({ queryKey: ["project", project.id, "units"] });
+    }, [project.id, query.dataUpdatedAt, queryClient]);
     const stop = pipeline?.stop;
     const running = pipeline && !stop && pipeline.current ? pipeline.stages.find((stage) => stage.key === pipeline.current) : undefined;
     const runMode = (project.runMode || pipeline?.runMode || "until_video") as DramaRunMode;

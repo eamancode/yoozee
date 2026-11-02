@@ -39,6 +39,23 @@ async function uploadFailure(result: AdapterResult | Error) {
 }
 
 describe("资源直传失败分类", () => {
+    test("取消分片上传后不重开会话或继续写入", async () => {
+        const previous = apiClient.defaults.adapter;
+        const controller = new AbortController();
+        let calls = 0;
+        apiClient.defaults.adapter = async () => {
+            calls++;
+            controller.abort();
+            throw new Error("request interrupted");
+        };
+        try {
+            const file = new Blob([new Uint8Array(51 << 20)], { type: "video/mp4" });
+            await expect(uploadResourceFile(file, "video", { fileName: "cancelled.mp4" }, undefined, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+            expect(calls).toBe(1);
+        } finally {
+            apiClient.defaults.adapter = previous;
+        }
+    });
     test("鉴权、越权与体积超限属于重试不会自愈的永久失败", async () => {
         for (const status of [400, 401, 403, 404, 413, 415]) {
             const error = await uploadFailure({ status, body: { code: status, data: null, msg: "" } });

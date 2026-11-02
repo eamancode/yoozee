@@ -63,10 +63,12 @@ export function StyleReferenceImagesPicker({ value, onChange, disabled }: { valu
 }
 
 /** 把参考图上传成本人的图片资源，返回资源 ID（按顺序）。 */
-export async function uploadStyleReferenceImages(files: File[]) {
+export async function uploadStyleReferenceImages(files: File[], signal?: AbortSignal) {
     const ids: string[] = [];
     for (const file of files.slice(0, STYLE_LOCK_MAX_IMAGES)) {
-        const resource = await uploadResourceFile(file, "image", { fileName: file.name });
+        signal?.throwIfAborted();
+        const resource = await uploadResourceFile(file, "image", { fileName: file.name }, undefined, signal);
+        signal?.throwIfAborted();
         ids.push(resource.id);
     }
     return ids;

@@ -587,6 +587,9 @@
 
 .project-create-summary-actions {
     display: flex;
+    flex-basis: 100%;
+    flex-direction: row-reverse;
+    justify-content: flex-end;
     align-items: center;
     gap: var(--space-3);
 }
