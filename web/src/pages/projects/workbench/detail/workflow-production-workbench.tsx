@@ -397,12 +397,12 @@ export default function WorkflowProductionWorkbench(props: Props) {
             if (!reference && !asset?.primaryVersionId) throw new Error("该资产还没有可绑定版本");
             const result = reference
                 ? await unlinkShotAsset(projectId, selectedShot.id, reference.id)
-                : await linkShotAsset(projectId, selectedShot.id, { assetVersionId: asset!.primaryVersionId!, role: "reference" });
+                : await linkShotAsset(projectId, selectedShot.id, { assetVersionId: asset!.primaryVersionId!, role: asset!.category === "palette" ? "style" : "reference" });
             // 分段表里的段生成视频只认段的 refs：镜头资产变了，段的参考跟着改，否则编译出来仍然没有参考。
             const spec = parseSegmentSpec(segmentSpecJson) as DramaSegment | undefined;
             const nextSpec = spec && (reference
                 ? withSegmentRef(spec, { removeFiles: [reference.assetVersionId, reference.asset?.primaryVersionId || ""].filter(Boolean) })
-                : withSegmentRef(spec, { add: { file: asset!.primaryVersionId!, role: segmentRefRole(asset!.category), note: asset!.title } }));
+                : asset!.category === "palette" ? undefined : withSegmentRef(spec, { add: { file: asset!.primaryVersionId!, role: segmentRefRole(asset!.category), note: asset!.title } }));
             let segmentError = "";
             if (nextSpec) {
                 try {

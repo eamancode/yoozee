@@ -31,7 +31,7 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
         // 色卡（role=style）只管画面色彩和产物过期，不作视频参考图。
         if (reference.shotId !== shotId || reference.status !== "linked" || reference.role === "style") return [];
         const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
-        if (!asset || seenAssetIds.has(asset.id)) return [];
+        if (!asset || asset.category === "palette" || seenAssetIds.has(asset.id)) return [];
         const image = projectAssetReferenceImage(asset, reference);
         if (!image) return [];
         seenAssetIds.add(asset.id);
