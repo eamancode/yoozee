@@ -79,6 +79,8 @@ import { chapterDialogueCoverage, segmentDurationRule, segmentTargetLabel } from
 import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardRunPartial, storyboardRunStop } from "./chapter-shot-stream";
 import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
+import { DramaCheckpointHistory } from "./drama-checkpoint-history";
+import { dramaRunCheckpoint } from "./drama-run-checkpoint";
 import { findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { appendProjectUnits } from "./project-cache";
 import { ImportChapterPreview, MAX_NOVEL_IMPORT_CHAPTERS } from "../import-chapter-preview";
@@ -254,13 +256,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         return identity?.kind === "storyboard" && identity.chapterId === selectedUnitId;
     }), [chapterTasksQuery.data, selectedUnitId]);
     const latestStoryboardTask = chapterStoryboardTasks[0];
+    const [historyTaskId, setHistoryTaskId] = useState("");
+    useEffect(() => setHistoryTaskId(""), [selectedUnitId, latestStoryboardTask?.id]);
     // 最近一次成功写入：之后的重跑停下了不给续写，侧栏说明当前结果来自那次运行。
     const lastStoryboardWrite = useMemo(() => latestStoryboardWrite(chapterStoryboardTasks), [chapterStoryboardTasks]);
     const latestStoryboardTerminal = latestStoryboardTask && latestStoryboardTask.status !== "queued" && latestStoryboardTask.status !== "running" ? latestStoryboardTask : undefined;
     // 结束了的任务读详情（带结果）：成功的取写库摘要，失败的取已写完几场给「从第 N 场继续」，一场没写完的给失败原因。
     const storyboardTaskDetailQuery = useQuery({
-        queryKey: ["generation-task", latestStoryboardTerminal?.id, latestStoryboardTerminal?.status],
-        queryFn: () => queryGenerationTask(latestStoryboardTerminal!.id),
+        queryKey: ["generation-task", historyTaskId || latestStoryboardTerminal?.id, latestStoryboardTerminal?.status, "checkpoint"],
+        queryFn: async () => dramaRunCheckpoint(await queryGenerationTask(historyTaskId || latestStoryboardTerminal!.id), queryGenerationTask),
         enabled: Boolean(latestStoryboardTerminal),
         staleTime: Infinity,
     });
@@ -842,11 +846,14 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 onClose={() => setRunPanelOpen(false)}
                 chapterTitle={selectedUnit?.title || ""}
                 running={Boolean(storyboardOperation)}
+                task={latestStoryboardTask}
+                receivedChars={liveStoryboardStream?.text.length || 0}
                 stage={latestStoryboardTask && (latestStoryboardTask.status === "running" || latestStoryboardTask.status === "queued") ? latestStoryboardTask.stage : undefined}
                 stream={storyboardStreamState}
                 outcome={storyboardOutcome}
                 shotlist={shotlist}
                 stop={storyboardStop}
+                history={<DramaCheckpointHistory projectId={detail.project.id} unitId={selectedUnitId} step="chapter.shots" open={runPanelOpen} running={storyboardRunning} value={historyTaskId} onChange={setHistoryTaskId} />}
                 segmentCount={storyboardImpact.shotCount}
                 onResume={() => { if (storyboardResume) void createStoryboard({ resumeTaskId: storyboardResume.taskId, refinalize: storyboardResume.kind === "refinalize" }); }}
                 onRepack={() => void repackStoryboard()}

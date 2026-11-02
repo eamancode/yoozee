@@ -21,6 +21,7 @@ import { assetImageTaskTemplate } from "./drama-image-task";
 import { dramaImageSummaryText, useDramaImageStatuses } from "./drama-image-summary";
 import { DramaRunPanel } from "./drama-run-panel";
 import { dramaRunCheckpoint } from "./drama-run-checkpoint";
+import { DramaCheckpointHistory } from "./drama-checkpoint-history";
 import { chainedFromOf, chapterTaskIdentity, followDramaRunTask, runAssetsExtract } from "./project-chapter-ai";
 import { turnaroundImageModel } from "./project-character-media";
 
@@ -157,6 +158,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [open, setOpen] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
+    const [historyTaskId, setHistoryTaskId] = useState("");
     const [starting, setStarting] = useState("");
     const [preparing, setPreparing] = useState(false);
     const [precheckError, setPrecheckError] = useState("");
@@ -178,10 +180,11 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
     // 当前这一集上一次提取失败（自动接续时失败的那集会跳过、接着提下一集）：按钮写明，悬停看原因，点开对话框重新提取。
     const selectedFailed = !selectedRunning && selectedTask?.status === "failed" ? selectedTask : undefined;
     const terminal = latestTask && latestTask.status !== "queued" && latestTask.status !== "running" ? latestTask : undefined;
+    useEffect(() => setHistoryTaskId(""), [unitId, latestTask?.id]);
     const detailQuery = useQuery({
-        queryKey: ["generation-task", terminal?.id, terminal?.status, "checkpoint"],
+        queryKey: ["generation-task", historyTaskId || terminal?.id, terminal?.status, "checkpoint"],
         queryFn: async () => {
-            const task = await queryGenerationTask(terminal!.id);
+            const task = await queryGenerationTask(historyTaskId || terminal!.id);
             return { task, checkpoint: await dramaRunCheckpoint(task, queryGenerationTask) };
         },
         enabled: Boolean(terminal),
@@ -502,6 +505,8 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 onClose={() => setPanelOpen(false)}
                 title={`提取资产 · ${unit?.title || ""}`}
                 running={running}
+                task={latestTask}
+                receivedChars={liveStream?.text.length || 0}
                 status={status}
                 unit="场"
                 stepLabel="提取资产"
@@ -537,6 +542,18 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 listLabel="流式资产"
                 groups={AssetsRunGroups(streamState)}
             >
+                <DramaCheckpointHistory
+                    projectId={projectId}
+                    unitId={unitId}
+                    step="assets.extract"
+                    open={panelOpen}
+                    running={running}
+                    value={historyTaskId}
+                    onChange={(id) => {
+                        setHistoryTaskId(id);
+                        setStream({ taskId: "", unitId, text: "" });
+                    }}
+                />
                 {outcome && !running ? (
                     <Callout
                         tone="success"

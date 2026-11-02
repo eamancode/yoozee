@@ -3,6 +3,7 @@ import { defaultModelCapabilityConfig } from "../src/lib/model-capabilities";
 import type { ModelProtocolDefinition } from "../src/lib/model-protocols";
 import {
     changeChannelModelCapability,
+    changeChannelModelProtocol,
     duplicateChannelModelValues,
     editorSectionForField,
     initialChannelModelValues,
@@ -18,6 +19,16 @@ const protocols = [definition("disabled-text", "text", false), definition("text"
 const protocolsWithAudio = [...protocols, definition("audio", "audio")];
 
 describe("channel model editor drafts", () => {
+    test("switching text wire protocols preserves declared model limits and pricing without mutating the draft", () => {
+        const draft = initialChannelModelValues(null, protocols);
+        draft.capabilityConfig = defaultModelCapabilityConfig("openai-chat", "gpt-5");
+        const before = structuredClone(draft);
+        const next = changeChannelModelProtocol(draft, "openai-responses", protocols);
+        expect(next.capabilityConfig?.text).toEqual(before.capabilityConfig?.text);
+        expect(next.capabilityConfig?.text).not.toBe(draft.capabilityConfig?.text);
+        expect(next.priceTiers).toEqual(before.priceTiers);
+        expect(draft).toEqual(before);
+    });
     test("new drafts use 未分类 and imported drafts display the upstream ID without overwriting custom names", () => {
         expect(initialChannelModelValues(null, protocols).displayName).toBe("未分类");
         const imported = { modelKey: "product-id", providerModelKey: "upstream-id", displayName: "未分类", channelLabel: "", priceTiers: [] } as unknown as ChannelModel;

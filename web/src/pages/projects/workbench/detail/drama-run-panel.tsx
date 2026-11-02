@@ -1,5 +1,6 @@
 import { Button } from "antd";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { GenerationTask } from "@/services/api/task-center";
 
 import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { Callout } from "@/components/ui/product/callout";
@@ -23,6 +24,8 @@ type DramaRunPanelProps = {
     onClose: () => void;
     title: string;
     running: boolean;
+    task?: GenerationTask;
+    receivedChars?: number;
     /** 顶部一行状态（正在写第几轮、结果摘要）。 */
     status: ReactNode;
     /** 一轮叫什么（场、集）和这一步叫什么（生成分段、剧本优化），用在续写与失败提示里。 */
@@ -55,9 +58,38 @@ function sentence(text: string) {
  * 逐轮续写的进度侧栏（生成分段、剧本优化共用）：按轮分组实时显示模型输出；任务中途失败时「从第 N 场 / 集继续」，
  * 第 1 轮就失败时显示原因、重新生成。写库结果和检查问题由各步骤作为 children 传进来。
  */
-export function DramaRunPanel({ open, onClose, title, running, status, unit, stepLabel, stop, onResume, resumeOptions, onRegenerate, regenerateLabel = "重新生成", failedNote, children, groups, followKey, emptyText, listLabel }: DramaRunPanelProps) {
+export function DramaRunPanel({
+    open,
+    onClose,
+    title,
+    running,
+    task,
+    receivedChars = 0,
+    status,
+    unit,
+    stepLabel,
+    stop,
+    onResume,
+    resumeOptions,
+    onRegenerate,
+    regenerateLabel = "重新生成",
+    failedNote,
+    children,
+    groups,
+    followKey,
+    emptyText,
+    listLabel,
+}: DramaRunPanelProps) {
     const listRef = useRef<HTMLDivElement>(null);
     const followRef = useRef(true);
+    const [lastReceived, setLastReceived] = useState(() => Date.now());
+    const [clock, setClock] = useState(() => Date.now());
+    useEffect(() => setLastReceived(Date.now()), [receivedChars, task?.id, task?.updatedAt, followKey]);
+    useEffect(() => {
+        if (!open || !running) return;
+        const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+        return () => clearInterval(timer);
+    }, [open, running]);
     useEffect(() => {
         const list = listRef.current;
         if (list && running && followRef.current) list.scrollTop = list.scrollHeight;
@@ -73,7 +105,14 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
                     {status}
                 </div>
 
-                {resume && !running ? resumeOptions : null}
+                {running ? (
+                    <div className="text-xs leading-5 text-foreground/55" role="status">
+                        {task?.status === "queued" ? "任务正在排队，尚未开始调用模型。" : receivedChars ? `已接收 ${receivedChars.toLocaleString("zh-CN")} 字符；` : "正在等待模型首字；"}
+                        {task?.status !== "queued" ? `${Math.max(0, Math.floor((clock - lastReceived) / 1000))} 秒未收到新活动。已完成内容会按${unit}保存；无需重复提交。` : ""}
+                    </div>
+                ) : null}
+
+                {!running ? resumeOptions : null}
                 {resume && !running ? (
                     <Callout
                         tone="warning"

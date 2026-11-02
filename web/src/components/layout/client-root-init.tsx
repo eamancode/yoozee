@@ -9,6 +9,7 @@ import { fetchPluginRuntimeState, setUserPluginEnabled } from "@/services/api/pl
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { appQueryClient } from "@/lib/query-client";
+import { BuildUpdateNotice } from "./build-update-notice";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const config = useConfigStore((state) => state.config);
@@ -117,5 +118,10 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         else message.success("已导入本地直连地址");
     }, [config.channels, message, updateConfig]);
 
-    return <>{children}</>;
+    return (
+        <>
+            <BuildUpdateNotice />
+            {children}
+        </>
+    );
 }

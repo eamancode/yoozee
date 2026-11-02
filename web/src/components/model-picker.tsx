@@ -669,10 +669,10 @@ function ModelAvailabilityBadge({ availability, available, showAvailability }: {
     const trend = availability?.trend7d || [];
     const trendSamples = trend.reduce((total, item) => total + item.sampleCount, 0);
     const summary = hasRuns
-        ? `最近${recentResults.length}次调用：${successCount}成功、${failCount}失败；当前${available ? "可用" : "不可用"}`
+        ? `最近${recentResults.length}次调用：${successCount}成功、${failCount}失败；配置${available ? "已启用" : "不可用"}，不代表实时健康`
         : availability
-            ? `当前${available ? "可用" : "不可用"}；近24小时${label}，暂无近期调用记录`
-            : `当前${available ? "可用" : "不可用"}；历史成功率暂不可用`;
+            ? `配置${available ? "已启用" : "不可用"}；近24小时${label}，暂无近期调用记录`
+            : `配置${available ? "已启用" : "不可用"}；历史成功率暂不可用`;
 
     const content = availability ? (
         <div className="model-picker-availability-popover">

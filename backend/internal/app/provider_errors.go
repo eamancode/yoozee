@@ -208,11 +208,20 @@ func providerUserFacingErrorMessage(err error) string {
 // 不要因为归类失败就把正文本身当作错误信息。
 // 正文可能包含密钥或内部诊断信息，只能参与归类，不得回传用户或写入日志。
 func providerPayloadErrorCategory(raw string) (string, bool) {
-	normalized := strings.ToLower(strings.TrimSpace(raw))
+	// Only classify error fields when JSON is available; a response may echo the prompt.
+	classified := raw
+	var payload map[string]any
+	if json.Unmarshal([]byte(raw), &payload) == nil {
+		code, _ := providerFailureDetails(payload)
+		classified = code + " " + providerErrorMessageField(payload)
+	}
+	normalized := strings.ToLower(strings.TrimSpace(classified))
 	if normalized == "" {
 		return "", false
 	}
 	switch {
+	case strings.Contains(normalized, "concurrency_limit"), strings.Contains(normalized, "too many concurrent"), strings.Contains(normalized, "concurrent request limit"), strings.Contains(normalized, "并发已满"), strings.Contains(normalized, "并发数已达"), strings.Contains(normalized, "并发限制"):
+		return "模型服务当前并发已满，请等待已有请求完成，或选择其他渠道；不会自动重新提交", true
 	// 真人肖像类目只匹配供应商错误码里的稳定标识，不扫描自然语言。
 	// 正文常常回显用户提示词，"likeness"、"肖像"这类词单独出现并不能证明
 	// 上游是因为真人形象拒绝，按词判断会把普通参数错误误报成肖像问题。

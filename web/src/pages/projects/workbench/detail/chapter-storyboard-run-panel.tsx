@@ -1,4 +1,6 @@
 import { Button } from "antd";
+import type { ReactNode } from "react";
+import type { GenerationTask } from "@/services/api/task-center";
 
 import { Callout } from "@/components/ui/product/callout";
 import type { DramaSceneRuleNotice, DramaShotIssue, DramaShotlistView, DramaStepOutcome } from "@/services/api/project-drama";
@@ -13,6 +15,8 @@ type ChapterStoryboardRunPanelProps = {
     onClose: () => void;
     chapterTitle: string;
     running: boolean;
+    task?: GenerationTask;
+    receivedChars?: number;
     stage?: string;
     stream: ShotStreamState;
     outcome?: DramaStepOutcome;
@@ -22,6 +26,7 @@ type ChapterStoryboardRunPanelProps = {
     /** 本章当前的段数：摘要行按它说段数（重新装段后任务结果里的数字就旧了），「重新装段」也用它提示改动范围。 */
     segmentCount: number;
     onResume: () => void;
+    history?: ReactNode;
     onRepack: () => void;
     repacking: boolean;
     onRegenerate: () => void;
@@ -49,6 +54,8 @@ export function ChapterStoryboardRunPanel({
     onClose,
     chapterTitle,
     running,
+    task,
+    receivedChars,
     stage,
     stream,
     outcome,
@@ -56,6 +63,7 @@ export function ChapterStoryboardRunPanel({
     stop,
     segmentCount,
     onResume,
+    history,
     onRepack,
     repacking,
     onRegenerate,
@@ -121,10 +129,13 @@ export function ChapterStoryboardRunPanel({
             onClose={onClose}
             title={`生成分段 · ${chapterTitle}`}
             running={running}
+            task={task}
+            receivedChars={receivedChars}
             status={status}
             unit="节"
             stepLabel="生成分段"
             stop={stop}
+            resumeOptions={history}
             onResume={onResume}
             onRegenerate={onRegenerate}
             failedNote={repackable ? "本章现有的段不受影响。" : undefined}

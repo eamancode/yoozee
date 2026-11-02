@@ -25,7 +25,15 @@ const stripBrowserOrigin: NonNullable<ProxyOptions["configure"]> = (proxy) => {
 };
 
 export default defineConfig({
-    plugins: [react()],
+    plugins: [
+        react(),
+        {
+            name: "build-info",
+            generateBundle() {
+                this.emitFile({ type: "asset", fileName: "build-info.json", source: JSON.stringify({ commit: buildCommit }) });
+            },
+        },
+    ],
     define: {
         __APP_VERSION__: JSON.stringify(appVersion),
         __APP_CHANGELOG__: JSON.stringify(appChangelog),

@@ -372,7 +372,9 @@ export function ChannelModelEditor({
                             forceRender: true,
                             children: (
                                 <div className="admin-model-editor-tab-content">
-                                    {configurationChanged && <Alert type="warning" showIcon title="能力或协议已变更" description="引用与参数已恢复为新协议默认值，旧规格条件已在切换能力时清除。价格与计费方式保留，请在保存前核对。" />}{" "}
+                                    {configurationChanged && (
+                                        <Alert type="warning" showIcon title="能力或协议已变更" description="文本协议间切换会保留模型声明的上下文、输出及引用限制；切换能力或其他媒体协议会重建相关参数。价格与计费方式保留，请在保存前核对。" />
+                                    )}{" "}
                                     {modelCapability === "text" || modelCapability === "image" || modelCapability === "video" ? (
                                         <section className="admin-model-editor-section admin-model-editor-section-stacked admin-model-editor-references">
                                             <SectionHeading title="引用与限制" description="按媒体类型纵向配置数量、大小、时长及通用约束。" />

@@ -2,10 +2,11 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { App, Button } from "antd";
 import { EmptyState } from "@/components/ui/product/empty-state";
+import { WorkspaceLoadingState } from "@/components/layout/workspace-state";
 import { Link, useSearchParams } from "react-router";
 
 import { formatShotOrdinal } from "@/lib/shot-label";
-import { saveProjectShot, type ProjectDetail } from "@/services/api/projects";
+import { saveProjectShot, type ProjectDetail, type ProjectShot } from "@/services/api/projects";
 
 import { AssetsStage, DeliveryStage, StoryStage } from "./workflow-stage-views";
 import { type ShortDramaWorkflowStage, workflowStages } from "./workflow-shared";
@@ -32,11 +33,17 @@ export default function ProjectWorkflowView({ detail, projectId, unitId, stage }
     const requestedShotId = searchParams.get("shot") || "";
     const rememberedShotId = requestedShotId || sessionStorage.getItem(`project-workflow-selected-shot:${projectId}`) || "";
     const [selectedShotId, setSelectedShotId] = useState(rememberedShotId);
+    const [createdShot, setCreatedShot] = useState<ProjectShot>();
     useEffect(() => {
         if (requestedShotId) setSelectedShotId(requestedShotId);
     }, [requestedShotId]);
-    const selectedShot = shots.find((item) => item.id === selectedShotId) || shots[0];
+    const awaitingCreatedShot = createdShot?.id === selectedShotId && createdShot.unitId === unit?.id && !shots.some((item) => item.id === createdShot.id);
+    const selectedShot = shots.find((item) => item.id === selectedShotId) || (awaitingCreatedShot ? createdShot : shots[0]);
     const productionStage = activeStage === "storyboard" || activeStage === "previz" || activeStage === "video";
+
+    useEffect(() => {
+        if (createdShot && (createdShot.unitId !== unit?.id || shots.some((item) => item.id === createdShot.id))) setCreatedShot(undefined);
+    }, [createdShot, shots, unit?.id]);
 
     useEffect(() => {
         if (!selectedShot) return;
@@ -63,10 +70,16 @@ export default function ProjectWorkflowView({ detail, projectId, unitId, stage }
             });
         },
         onSuccess: async ({ shot }) => {
+            // 新镜头已落库，但工作区还可能是旧列表；期间不能回退并编辑上一镜。
+            setCreatedShot(shot);
             setSelectedShotId(shot.id);
             sessionStorage.setItem(`project-workflow-selected-shot:${projectId}`, shot.id);
-            await refresh();
-            message.success("已新增分镜");
+            try {
+                await refresh();
+                message.success("已新增分镜");
+            } catch {
+                message.warning("新分镜已创建，列表刷新失败，请刷新页面继续");
+            }
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "新增分镜失败"),
     });
@@ -79,7 +92,7 @@ export default function ProjectWorkflowView({ detail, projectId, unitId, stage }
             <main className={`workflow-stage-content ${productionStage ? "is-production" : ""}`}>
                 {activeStage === "story" ? <div className="workflow-overview-scroll thin-scrollbar"><StoryStage detail={detail} projectId={projectId} unitId={unit.id} /></div> : null}
                 {activeStage === "assets" ? <div className="workflow-overview-scroll thin-scrollbar"><AssetsStage detail={detail} projectId={projectId} unitId={unit.id} /></div> : null}
-                {productionStage ? <Suspense fallback={<div className="workflow-workbench-loading">正在准备分镜工作台…</div>}><WorkflowProductionWorkbench activeStage={activeStage} detail={detail} projectId={projectId} unitId={unit.id} selectedShot={selectedShot} onSelectShot={setSelectedShotId} onRefresh={refresh} onAddShot={() => addShot.mutate()} addingShot={addShot.isPending} /></Suspense> : null}
+                {productionStage ? awaitingCreatedShot ? <WorkspaceLoadingState label="正在载入新分镜" detail="新分镜已创建，正在同步脚本与资产；同步完成后会选中新镜头。" /> : <Suspense fallback={<div className="workflow-workbench-loading">正在准备分镜工作台…</div>}><WorkflowProductionWorkbench activeStage={activeStage} detail={detail} projectId={projectId} unitId={unit.id} selectedShot={selectedShot} onSelectShot={setSelectedShotId} onRefresh={refresh} onAddShot={() => addShot.mutate()} addingShot={addShot.isPending} /></Suspense> : null}
                 {activeStage === "delivery" ? <div className="workflow-overview-scroll thin-scrollbar"><DeliveryStage detail={detail} unitId={unit.id} /></div> : null}
             </main>
         </div>

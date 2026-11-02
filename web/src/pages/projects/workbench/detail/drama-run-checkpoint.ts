@@ -9,6 +9,15 @@ function runMeta(task: GenerationTask) {
     }
 }
 
+export function checkpointHistoryCandidates(tasks: GenerationTask[], projectId: string, unitId: string, step: string) {
+    return tasks.filter((task) => {
+        const meta = runMeta(task);
+        const operation = step === "assets.extract" ? "assets" : step === "chapter.shots" ? "storyboard" : undefined;
+        const sameStep = meta ? meta.unitId === unitId && meta.step === step : Boolean(operation && task.clientContext?.chapterId === unitId && task.clientContext.chapterOperation === operation);
+        return task.projectId === projectId && sameStep && (task.status === "failed" || task.status === "cancelled");
+    });
+}
+
 /** A failed resume may inherit completed turns without having written a result of its own. */
 export async function dramaRunCheckpoint(task: GenerationTask, load: (id: string) => Promise<GenerationTask>): Promise<GenerationTask> {
     const origin = runMeta(task);

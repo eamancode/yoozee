@@ -22,15 +22,20 @@ describe("镜头视频段时长", () => {
         const enumProfile = profile({ selection: "enum", values: [15, 5, 10], default: 15 });
         expect(shotVideoSeconds({ shotSeconds: 5, profile: enumProfile })).toBe(5);
         expect(shotVideoSeconds({ shotSeconds: 5.5, profile: enumProfile })).toBe(10);
-        expect(shotVideoSeconds({ shotSeconds: 30, profile: enumProfile })).toBe(15);
+        expect(shotVideoSeconds({ shotSeconds: 30, profile: enumProfile })).toBe(30);
     });
 
     test("受项目生成模型一段上限约束，分段表的 dur 不被档位改写", () => {
         const range = profile({ selection: "range", min: 4, max: 15, step: 1, default: 15 });
         const enumProfile = profile({ selection: "enum", values: [5, 10, 15], default: 15 });
-        expect(shotVideoSeconds({ shotSeconds: 14, profile: range, segmentMaxSeconds: 12 })).toBe(12);
-        expect(shotVideoSeconds({ shotSeconds: 12, profile: enumProfile, segmentMaxSeconds: 12 })).toBe(10);
+        expect(shotVideoSeconds({ shotSeconds: 14, profile: range, segmentMaxSeconds: 12 })).toBe(14);
+        expect(shotVideoSeconds({ shotSeconds: 12, profile: enumProfile, segmentMaxSeconds: 12 })).toBe(12);
         expect(shotVideoSeconds({ specSeconds: 7, shotSeconds: 5, profile: enumProfile })).toBe(7);
+    });
+
+    test("4/30 秒渠道叠加项目 15 秒上限时，不把 15 秒内容悄悄缩成 4 秒", () => {
+        const xb = profile({ selection: "enum", values: [4, 30], default: 4 });
+        expect(shotVideoSeconds({ shotSeconds: 15, profile: xb, segmentMaxSeconds: 15 })).toBe(15);
     });
 
     test("工作台不再用渠道默认时长覆盖段时长", async () => {

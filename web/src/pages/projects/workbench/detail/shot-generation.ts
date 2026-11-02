@@ -10,20 +10,18 @@ export function shotVideoSeconds(input: { specSeconds?: number; shotSeconds: num
     const wanted = Math.max(1, Number.isFinite(input.shotSeconds) ? input.shotSeconds : 1);
     const cap = input.segmentMaxSeconds && input.segmentMaxSeconds > 0 ? input.segmentMaxSeconds : Number.POSITIVE_INFINITY;
     const duration = input.profile?.duration;
-    if (!duration) return Math.min(Math.ceil(wanted), cap);
+    if (!duration) return Math.ceil(wanted);
     if (duration.selection === "enum") {
         const values = (duration.values || []).filter((value) => value > 0).sort((left, right) => left - right);
         const allowed = values.filter((value) => value <= cap);
-        const candidates = allowed.length ? allowed : values;
-        if (!candidates.length) return Math.min(Math.ceil(wanted), cap);
-        return candidates.find((value) => value >= wanted) ?? candidates[candidates.length - 1];
+        return allowed.find((value) => value >= wanted) ?? wanted;
     }
     const min = duration.min || 1;
     const step = duration.step || 1;
     const max = Math.max(min, Math.min(duration.max || min, cap));
     const maxAligned = min + Math.floor((max - min) / step) * step;
     const stepped = min + Math.max(0, Math.ceil((wanted - min) / step)) * step;
-    return Math.min(maxAligned, Math.max(min, stepped));
+    return stepped <= maxAligned ? Math.max(min, stepped) : wanted;
 }
 
 /** 生成按钮上的运行计时：排队时还没开始跑，不能把排队时间算成「已运行」。 */

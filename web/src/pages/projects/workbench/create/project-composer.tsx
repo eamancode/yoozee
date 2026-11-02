@@ -119,6 +119,16 @@ function AccountProjectComposer({ userId }: { userId: string }) {
         };
     }, [draft, draftLoaded, submitting, userId]);
 
+    useEffect(() => {
+        if (draftSaved || !projectDraftHasContent(draft)) return;
+        const guard = (event: BeforeUnloadEvent) => {
+            event.preventDefault();
+            event.returnValue = "";
+        };
+        window.addEventListener("beforeunload", guard);
+        return () => window.removeEventListener("beforeunload", guard);
+    }, [draftSaved, draft]);
+
     const update = useCallback((patch: Partial<ProjectCreateDraft>) => {
         edited.current = true;
         setDraftSaved(false);

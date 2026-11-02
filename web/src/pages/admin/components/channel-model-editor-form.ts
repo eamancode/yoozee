@@ -115,6 +115,8 @@ export function changeChannelModelCapability(values: ChannelModelFormValues, pro
 
 export function changeChannelModelProtocol(values: ChannelModelFormValues, protocol: string, protocols: ModelProtocolDefinition[] = []): ChannelModelFormValues {
     const capabilityConfig = values.capability === "audio" ? undefined : defaultModelCapabilityConfig(protocol, values.providerModelKey?.trim() || values.modelKey.trim());
+    // Text limits describe the model, not the Chat Completions / Responses wire format.
+    if (values.capability === "text" && capabilityConfig && values.capabilityConfig?.text) capabilityConfig.text = structuredClone(values.capabilityConfig.text);
     if (capabilityConfig?.image && protocols.find((p) => p.value === protocol)?.imageParameters) {
         capabilityConfig.image.parameters = [];
         if (!capabilityConfig.image.resolution.supported || !protocols.find((p) => p.value === protocol)?.imageParameters?.some((p) => p.name === "size" && p.encoding === "pixels" && !p.values?.length)) capabilityConfig.image.size.presets = undefined;

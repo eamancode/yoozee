@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // 场次切分（M8）：全系统只有 SplitScenes 一个切场入口——台词表（ScriptFromText）、生成分段的逐场续写（ChapterShotsScenes）、
@@ -109,13 +110,15 @@ func ParseSceneHeading(line string) SceneHeading {
 		return h
 	}
 	var location []string
-	for _, token := range sceneFieldSep.Split(body, -1) {
+	var timeNote string
+	for _, token := range sceneHeadingFields(body) {
 		token = jsTrim(token)
 		if token == "" {
 			continue
 		}
-		if v, ok := sceneInOutWords[strings.ToUpper(token)]; ok && h.InOut == "" {
+		if v, note := sceneInOutToken(token); v != "" && h.InOut == "" {
 			h.InOut = v
+			timeNote = note
 			continue
 		}
 		if sceneTimeWord(token) && h.Time == "" {
@@ -129,7 +132,53 @@ func ParseSceneHeading(line string) SceneHeading {
 	if m := sceneTimeParen.FindStringSubmatch(h.Location); m != nil && h.Time == "" && sceneTimeWords[strings.ToUpper(jsTrim(m[2]))] {
 		h.Location, h.Time = jsTrim(m[1]), jsTrim(m[2])
 	}
+	if timeNote != "" {
+		if h.Time == "" {
+			h.Time = timeNote
+		} else {
+			h.Time += "（" + timeNote + "）"
+		}
+	}
 	return h
+}
+
+func sceneInOutToken(token string) (string, string) {
+	if value := sceneInOutWords[strings.ToUpper(jsTrim(token))]; value != "" {
+		return value, ""
+	}
+	if match := sceneTimeParen.FindStringSubmatch(token); match != nil {
+		if value := sceneInOutWords[strings.ToUpper(jsTrim(match[1]))]; value != "" {
+			return value, jsTrim(match[2])
+		}
+	}
+	return "", ""
+}
+
+// 只拆连字符尾部已识别的时间和内外，保留 A-3 号楼等地点里的连字符。
+func sceneHeadingFields(body string) []string {
+	var fields []string
+	for _, token := range sceneFieldSep.Split(body, -1) {
+		var suffix []string
+		for {
+			index := strings.LastIndexAny(token, "-－–—")
+			if index < 0 {
+				break
+			}
+			_, width := utf8.DecodeRuneInString(token[index:])
+			field := jsTrim(token[index+width:])
+			inOut, _ := sceneInOutToken(field)
+			if inOut == "" && !sceneTimeWord(field) {
+				break
+			}
+			suffix = append(suffix, field)
+			token = jsTrim(token[:index])
+		}
+		fields = append(fields, token)
+		for index := len(suffix) - 1; index >= 0; index-- {
+			fields = append(fields, suffix[index])
+		}
+	}
+	return fields
 }
 
 // sceneTimeWord 是时间词，或时间词后面跟括号补充（「夜（雨）」）。

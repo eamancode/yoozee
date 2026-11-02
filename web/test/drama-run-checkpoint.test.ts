@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { dramaRunCheckpoint } from "@/pages/projects/workbench/detail/drama-run-checkpoint";
+import { checkpointHistoryCandidates, dramaRunCheckpoint } from "@/pages/projects/workbench/detail/drama-run-checkpoint";
 import type { GenerationTask } from "@/services/api/task-center";
 
 function task(id: string, parent?: string, completed = 0, projectId = "project-a", runId = "run-a") {
@@ -11,6 +11,19 @@ function task(id: string, parent?: string, completed = 0, projectId = "project-a
         resultJson: completed ? JSON.stringify({ dramaRun: { runId, total: 7, completed, turns: [] } }) : "",
     } as GenerationTask;
 }
+
+test("history includes independent failed runs but never another project, unit, step or active task", () => {
+    const old = task("old", undefined, 3, "project-a", "run-old");
+    const active = { ...task("running"), status: "running" } as GenerationTask;
+    const other = { ...task("other"), inputJson: JSON.stringify({ metadata: { dramaRun: { runId: "run-a", step: "chapter.shots", unitId: "unit-b" } } }) };
+    expect(checkpointHistoryCandidates([task("latest"), old, active, other, task("foreign", undefined, 3, "project-b")], "project-a", "unit-a", "assets.extract").map((item) => item.id)).toEqual(["latest", "old"]);
+});
+
+test("history resolves task summaries that omit inputJson through the typed chapter context", () => {
+    const summary = { ...task("summary"), inputJson: undefined, clientContext: { chapterId: "unit-a", chapterOperation: "assets" } } as GenerationTask;
+    expect(checkpointHistoryCandidates([summary], "project-a", "unit-a", "assets.extract")).toEqual([summary]);
+    expect(checkpointHistoryCandidates([summary], "project-a", "unit-a", "chapter.shots")).toEqual([]);
+});
 
 test("first resumed request failure keeps the original completed-turn checkpoint", async () => {
     const original = task("original", undefined, 3);
