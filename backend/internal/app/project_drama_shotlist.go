@@ -1149,6 +1149,10 @@ func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID st
 	// 已经带着问题装过段的，重装（改了时长、资产、编译档案）照样带着问题装，不用再选一次。
 	accept := req.AcceptIssues || previous.Accepted
 	keep := strings.TrimSpace(record.SectionsJSON) != ""
+	rows, err = repackDialogueText(rows, record.ScriptJSON)
+	if err != nil {
+		return DramaShotlistWriteResult{}, err
+	}
 	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, Parse: previous.Parse, LegacyScenes: legacy, AcceptIssues: accept, KeepSegments: keep, GuardDiscard: !req.Discard})
 }
 

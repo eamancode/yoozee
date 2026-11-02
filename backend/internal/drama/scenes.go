@@ -317,7 +317,7 @@ func sceneBeats(lines []string) ([]ScriptBeat, []string) {
 	characters := []string{}
 	for _, ln := range lines {
 		m := scriptLinePattern.FindStringSubmatch(ln)
-		if m != nil && !strings.HasPrefix(ln, "（") && !strings.HasPrefix(ln, "(") {
+		if m != nil && !strings.HasPrefix(ln, "（") && !strings.HasPrefix(ln, "(") && !strings.HasPrefix(ln, "△") && !strings.HasPrefix(ln, "▲") && !screenTextSpeaker(strings.TrimSpace(m[1]), nil) {
 			who, said := strings.TrimSpace(m[1]), strings.TrimSpace(m[3])
 			kind := "line"
 			if strings.Contains(m[2], "画外") || strings.Contains(m[2], "OS") {

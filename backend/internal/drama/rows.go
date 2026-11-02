@@ -70,7 +70,7 @@ var rowDialoguePattern = regexp.MustCompile(`^[\s\p{Z}]*([^：:]{1,16})[：:][\s
 // normLine 去掉空白和标点再比台词（rows_to_shotlist.py 的 norm）。
 func normLine(s string) string {
 	return strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) || strings.ContainsRune("，。！？、“”‘’…—,.!?:：;；~～-", r) {
+		if unicode.IsSpace(r) || strings.ContainsRune("，。！？、“”‘’…—,.!?:：;；~～-\"'「」『』", r) {
 			return -1
 		}
 		return r
