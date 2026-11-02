@@ -1,10 +1,10 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { App, Button } from "antd";
 import { ArrowRight, Play } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 
-import { getDramaProgress, type DramaRunMode } from "@/services/api/project-drama";
+import { type DramaRunMode } from "@/services/api/project-drama";
 import { updateProject, type Project } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { navigateToSettings } from "@/lib/settings-navigation";
@@ -14,6 +14,7 @@ import { DRAMA_RUN_MODES, DRAMA_VIDEO_STOP_NOTE } from "../drama-model";
 import { PipelineStrip } from "../pipeline-strip";
 import { dramaProgressKey } from "./drama-panels";
 import { continueProjectPipeline } from "./project-chapter-ai";
+import { useProjectPipeline } from "./use-project-pipeline";
 
 /**
  * 项目首屏的流水线：拆剧本 → 导演定画风 → 场次色卡 → 角色场景资产 → 分镜 → 装段 → 出视频 → 剪辑，写明停在哪、等你做什么。
@@ -27,24 +28,8 @@ export function ProjectPipelinePanel({ project, firstUnitId, onProjectChange }: 
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [continuing, setContinuing] = useState(false);
     const [savingMode, setSavingMode] = useState(false);
-    const query = useQuery({
-        queryKey: dramaProgressKey(project.id),
-        queryFn: async ({ signal }) => (await getDramaProgress(project.id, signal)).progress,
-        // 有环节在跑时 8 秒刷一次；停在能继续的环节时慢刷（出图任务落库后才接分镜，中间有一小段看着像停了），
-        // 停在出视频、剪辑或要用户自己处理时不刷。
-        refetchInterval: (current) => {
-            const pipeline = current.state.data?.pipeline;
-            if (!pipeline) return false;
-            if (!pipeline.stop) return pipeline.current ? 8000 : false;
-            return pipeline.stop.continuable ? 20000 : false;
-        },
-    });
+    const query = useProjectPipeline(project.id);
     const pipeline = query.data?.pipeline;
-    useEffect(() => {
-        if (!query.dataUpdatedAt) return;
-        void queryClient.invalidateQueries({ queryKey: ["project", project.id, "overview"] });
-        void queryClient.invalidateQueries({ queryKey: ["project", project.id, "units"] });
-    }, [project.id, query.dataUpdatedAt, queryClient]);
     const stop = pipeline?.stop;
     const running = pipeline && !stop && pipeline.current ? pipeline.stages.find((stage) => stage.key === pipeline.current) : undefined;
     const runMode = (project.runMode || pipeline?.runMode || "until_video") as DramaRunMode;

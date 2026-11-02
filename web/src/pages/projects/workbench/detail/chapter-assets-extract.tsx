@@ -20,6 +20,7 @@ import { storyboardRunStop } from "./chapter-shot-stream";
 import { assetImageTaskTemplate } from "./drama-image-task";
 import { dramaImageSummaryText, useDramaImageStatuses } from "./drama-image-summary";
 import { DramaRunPanel } from "./drama-run-panel";
+import { dramaRunCheckpoint } from "./drama-run-checkpoint";
 import { chainedFromOf, chapterTaskIdentity, followDramaRunTask, runAssetsExtract } from "./project-chapter-ai";
 import { turnaroundImageModel } from "./project-character-media";
 
@@ -177,12 +178,21 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
     // 当前这一集上一次提取失败（自动接续时失败的那集会跳过、接着提下一集）：按钮写明，悬停看原因，点开对话框重新提取。
     const selectedFailed = !selectedRunning && selectedTask?.status === "failed" ? selectedTask : undefined;
     const terminal = latestTask && latestTask.status !== "queued" && latestTask.status !== "running" ? latestTask : undefined;
-    const detailQuery = useQuery({ queryKey: ["generation-task", terminal?.id, terminal?.status], queryFn: () => queryGenerationTask(terminal!.id), enabled: Boolean(terminal), staleTime: Infinity });
-    const taskDetail = detailQuery.data;
+    const detailQuery = useQuery({
+        queryKey: ["generation-task", terminal?.id, terminal?.status, "checkpoint"],
+        queryFn: async () => {
+            const task = await queryGenerationTask(terminal!.id);
+            return { task, checkpoint: await dramaRunCheckpoint(task, queryGenerationTask) };
+        },
+        enabled: Boolean(terminal),
+        staleTime: Infinity,
+    });
+    const taskDetail = detailQuery.data?.task;
+    const checkpoint = detailQuery.data?.checkpoint;
     const outcome = taskDetail?.status === "succeeded" ? dramaAssetsExtractOutcomeOf(taskDetail) : undefined;
     // 任务列表不带失败原因：侧栏没在跟别的集时，当前这一集的任务详情就是它。
     const selectedFailedError = selectedFailed && (selectedFailed.error || (taskDetail?.id === selectedFailed.id ? taskDetail.error : ""));
-    const stop = useMemo(() => (taskDetail ? storyboardRunStop(taskDetail, dramaRunProgressOf(taskDetail)) : undefined), [taskDetail]);
+    const stop = useMemo(() => (taskDetail ? storyboardRunStop({ ...taskDetail, id: checkpoint?.id || taskDetail.id }, dramaRunProgressOf(checkpoint || taskDetail)) : undefined), [taskDetail, checkpoint]);
     const resume = stop?.kind === "resume" ? stop : undefined;
     const imageIds = imageAssetIds(outcome);
     // 侧栏打开时按资产当前的出图状态重算摘要：收尾之后接着排、出完、失败，资产页「继续出图」重出的都算进去。
@@ -190,8 +200,8 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
     const liveStream = stream.unitId === unitId ? stream : undefined;
     const streamState = useMemo(() => {
         if (liveStream && (running || (liveStream.text && (liveStream.taskId === taskDetail?.id || !taskDetail)))) return resumedAssetsExtractStream(parseAssetsExtractStream(liveStream.text), resumeView);
-        return taskDetail ? assetsExtractStreamFromResult(taskDetail.resultJson) : parseAssetsExtractStream("");
-    }, [liveStream, resumeView, running, taskDetail]);
+        return checkpoint ? assetsExtractStreamFromResult(checkpoint.resultJson) : parseAssetsExtractStream("");
+    }, [liveStream, resumeView, running, taskDetail, checkpoint]);
 
     const defaultImageModel = () => turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
     const openDialog = () => {
@@ -496,6 +506,23 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 unit="场"
                 stepLabel="提取资产"
                 stop={running ? undefined : stop}
+                resumeOptions={
+                    resume ? (
+                        <label className="block text-xs">
+                            继续使用的文本模型
+                            <ModelPicker
+                                config={effectiveConfig}
+                                capability="text"
+                                value={settings.textModel || effectiveConfig.textModel || effectiveConfig.model}
+                                onChange={(textModel) => setSettings((current) => ({ ...current, textModel }))}
+                                variant="creation"
+                                fullWidth
+                                showSelectedPrice
+                                onMissingConfig={() => navigateToSettings({ continueCreation: true })}
+                            />
+                        </label>
+                    ) : undefined
+                }
                 onResume={() => {
                     if (resume) void start({ resumeTaskId: resume.taskId });
                 }}

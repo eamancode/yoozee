@@ -31,6 +31,7 @@ type DramaRunPanelProps = {
     /** 上一次任务失败或取消：写完 ≥1 轮的给「从第 N 轮继续」，各轮都写完、收尾失败的给「重新写入」（onResume），否则给失败原因和「重新生成」。 */
     stop?: StoryboardRunStop;
     onResume: () => void;
+    resumeOptions?: ReactNode;
     onRegenerate: () => void;
     /** 失败时「重新生成」按钮的文字（资产设计写「重新提取」）。 */
     regenerateLabel?: string;
@@ -54,7 +55,7 @@ function sentence(text: string) {
  * 逐轮续写的进度侧栏（生成分段、剧本优化共用）：按轮分组实时显示模型输出；任务中途失败时「从第 N 场 / 集继续」，
  * 第 1 轮就失败时显示原因、重新生成。写库结果和检查问题由各步骤作为 children 传进来。
  */
-export function DramaRunPanel({ open, onClose, title, running, status, unit, stepLabel, stop, onResume, onRegenerate, regenerateLabel = "重新生成", failedNote, children, groups, followKey, emptyText, listLabel }: DramaRunPanelProps) {
+export function DramaRunPanel({ open, onClose, title, running, status, unit, stepLabel, stop, onResume, resumeOptions, onRegenerate, regenerateLabel = "重新生成", failedNote, children, groups, followKey, emptyText, listLabel }: DramaRunPanelProps) {
     const listRef = useRef<HTMLDivElement>(null);
     const followRef = useRef(true);
     useEffect(() => {
@@ -72,6 +73,7 @@ export function DramaRunPanel({ open, onClose, title, running, status, unit, ste
                     {status}
                 </div>
 
+                {resume && !running ? resumeOptions : null}
                 {resume && !running ? (
                     <Callout
                         tone="warning"

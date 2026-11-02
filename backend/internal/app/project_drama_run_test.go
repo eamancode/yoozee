@@ -190,8 +190,19 @@ func TestDramaRunResumesFromFailedScene(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	failedResume := create("task-b-failed", dramaRunMeta{RunID: "run-2", Step: drama.StepChapterShots, UnitID: "unit-1", Scenes: dramaRunTestScenes, Turns: 3, ResumeFrom: 3, ResumeTaskID: first.ID})
+	if _, err := service.runDramaRun(dramaRunCtx(failedResume), dramaRunInput(server.URL), taskDramaRunOrFail(t, failedResume)); err == nil {
+		t.Fatal("续写首轮仍应失败")
+	}
+	storedResume, err := service.repo.Task(failedResume.ID)
+	if err != nil || taskDramaRunProgress(storedResume.ResultJSON) == nil || taskDramaRunProgress(storedResume.ResultJSON).Completed != 2 {
+		t.Fatalf("续写产生新输出前失败仍保留两场检查点：%v %+v", err, storedResume)
+	}
+	if err := db.Model(&model.Task{}).Where("id = ?", failedResume.ID).Updates(map[string]any{"status": model.TaskStatusFailed, "lease_owner": ""}).Error; err != nil {
+		t.Fatal(err)
+	}
 	broken, upstream.calls, upstream.histories = false, 0, nil
-	resumed := create("task-b", dramaRunMeta{RunID: "run-2", Step: drama.StepChapterShots, UnitID: "unit-1", Scenes: dramaRunTestScenes, Turns: 3, ResumeFrom: 3, ResumeTaskID: first.ID})
+	resumed := create("task-b", dramaRunMeta{RunID: "run-2", Step: drama.StepChapterShots, UnitID: "unit-1", Scenes: dramaRunTestScenes, Turns: 3, ResumeFrom: 3, ResumeTaskID: failedResume.ID})
 	if timeout := storyboardTaskTimeout(&resumed, RuntimeTaskPolicy{StoryboardTimeoutMinutes: 20}); timeout != 60*time.Minute+2*dramaTurnBackoffCap {
 		t.Fatalf("续写任务的总时限只算剩下的一场：%s", timeout)
 	}

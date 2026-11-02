@@ -101,8 +101,10 @@ export function suggestProjectName(text: string, fileName?: string) {
     if (numberedTitle !== undefined) {
         return (
             numberedTitle
+                .replace(/^[｜|：:、\s]+/, "")
                 .replace(/^[内外](?:景)?\s*[·・.]\s*/, "")
                 .replace(/[·・.]\s*(?:日|夜|晨|昏)\s*$/, "")
+                .replace(/[-－—–]\s*(?:日|夜|晨|昏|黄昏)\s*[-－—–]\s*(?:内|外)(?:[（(][^）)]+[）)])?\s*$/, "")
                 .trim()
                 .slice(0, 24) || "未命名项目"
         );

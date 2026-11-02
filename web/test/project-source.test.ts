@@ -70,6 +70,7 @@ describe("suggestProjectName", () => {
         expect(suggestProjectName("第一章 七床空了\n正文")).toBe("七床空了");
         expect(suggestProjectName("第1场 内·病房走廊·夜\n林小满：七床？")).toBe("病房走廊");
         expect(suggestProjectName("第1集\n正文")).toBe("未命名项目");
+        expect(suggestProjectName("第一场｜大学城后街·小吃摊-夜-外\n△暴雨")).toBe("大学城后街·小吃摊");
     });
     test("文件名优先，其次剧本标题或首句", () => {
         expect(suggestProjectName("正文", "长安夜行.txt")).toBe("长安夜行");

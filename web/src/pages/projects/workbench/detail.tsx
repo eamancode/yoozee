@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App } from "antd";
 import { ArrowLeft, Plus } from "lucide-react";
@@ -10,6 +10,7 @@ import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/
 import type { ProjectDetail } from "@/services/api/projects";
 
 import { WorkflowChapterNavigator } from "./detail/workflow-chapter-navigator";
+import { useProjectPipeline } from "./detail/use-project-pipeline";
 
 const ProjectAssetsView = lazy(() => import("./detail/assets"));
 const ProjectCanvasesView = lazy(() => import("./detail/canvases"));
@@ -37,6 +38,13 @@ export default function ProjectDetailPage() {
     const queryClient = useQueryClient();
     const { message } = App.useApp();
     const activeView: DetailView = unitId || view === "workflow" ? "workflow" : chapterId ? "chapters" : views.some((item) => item.key === view) ? view as DetailView : "overview";
+    const pipelineQuery = useProjectPipeline(projectId);
+    const pipelineState = JSON.stringify(pipelineQuery.data?.pipeline);
+    useEffect(() => {
+        if (!projectId || !pipelineState) return;
+        // 自动任务可在任何子页完成；风格、色卡与工作区不能依赖用户重新打开概览才刷新。
+        void queryClient.invalidateQueries({ queryKey: ["project", projectId], predicate: (query) => query.queryKey[2] !== "drama" || query.queryKey[3] !== "progress" });
+    }, [projectId, pipelineState, queryClient]);
     const coreQuery = useQuery({
         queryKey: ["project", projectId, "core"],
         queryFn: () => getProjectCore(projectId),

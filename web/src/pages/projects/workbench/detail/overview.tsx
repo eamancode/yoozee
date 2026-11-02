@@ -8,6 +8,7 @@ import type { ProjectOverview, ProjectOverviewMetrics } from "@/services/api/pro
 import { formatTime, type ProjectDetailViewProps } from "./shared";
 import { DramaOverviewPanel } from "./drama-panels";
 import { ProjectPipelinePanel } from "./project-pipeline-panel";
+import { useProjectPipeline } from "./use-project-pipeline";
 
 export default function ProjectOverviewView({ detail, overview, refreshProject }: ProjectDetailViewProps & { overview: ProjectOverview }) {
     const { project } = detail;
@@ -17,8 +18,15 @@ export default function ProjectOverviewView({ detail, overview, refreshProject }
     const completion = metrics.unitCount ? Math.round((completedUnits / metrics.unitCount) * 100) : 0;
     const firstUnitId = detail.units.slice().sort((left, right) => left.position - right.position)[0]?.id || overview.units[0]?.unit.id;
     const workflowHref = (targetStage: string) => firstUnitId ? `/projects/${project.id}/workflow/${firstUnitId}/${targetStage}` : `/projects/${project.id}/chapters`;
-    const stage = overviewStage(metrics);
-    const actions = overviewActions(project.id, metrics, firstUnitId).slice(0, 3);
+    const pipeline = useProjectPipeline(project.id).data?.pipeline;
+    const currentStage = pipeline?.stages.find((item) => item.key === pipeline.current);
+    const stage = currentStage || overviewStage(metrics);
+    const actions: ProjectWorkbenchAction[] = currentStage ? [{
+        id: "pipeline-current", title: pipeline?.stop ? `处理${currentStage.label}` : `正在${currentStage.label}`,
+        description: pipeline?.stop?.reason || "任务正在后台执行，完成后按生成模式自动接续，无需重复提交。",
+        href: currentStage.key === "video" ? workflowHref("video") : currentStage.key === "cut" ? `/projects/${project.id}/editor` : `/projects/${project.id}/chapters${firstUnitId ? `/${firstUnitId}` : ""}`,
+        actionLabel: currentStage.key === "video" ? "去视频制作" : "查看制作进度", tone: pipeline?.stop ? "attention" : "default",
+    }] : overviewActions(project.id, metrics, firstUnitId).slice(0, 3);
     const primaryAction = actions[0];
     const secondaryActions = actions.slice(1);
     const unitStages = overview.units.map((item) => ({

@@ -335,14 +335,17 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		// 只收尾的任务没建计费单，绝不能在这里补调模型。
 		return nil, errors.New("上一次任务存下的各轮不完整，不能只重新收尾，请重新生成")
 	}
-	if len(turns) >= total {
-		// 各轮都在上一次任务里写完了（上一次收尾失败）：不调模型，直接拿存下的输出收尾。先把各轮存进本任务的结果，
-		// 这次收尾再失败时本任务也能「用已写好的 N 节重新写入」（续写同样只认上一次任务存下的轮次）。
+	if len(turns) > 0 {
+		// 先保存继承的轮次；下一轮在首次新输出前失败或取消时，仍能从本任务继续。
 		encoded, err := json.Marshal(map[string]any{"mode": "text", "dramaRun": progress})
 		if err != nil {
 			return nil, err
 		}
-		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, fmt.Sprintf("%d %s已写完，重新收尾", total, plan.Unit), 95, string(encoded)); err != nil {
+		stage, percent := fmt.Sprintf("已恢复 %d/%d %s", len(turns), total, plan.Unit), 35+60*len(turns)/total
+		if len(turns) >= total {
+			stage, percent = fmt.Sprintf("%d %s已写完，重新收尾", total, plan.Unit), 95
+		}
+		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, stage, percent, string(encoded)); err != nil {
 			return nil, fmt.Errorf("保存各%s进度失败：%w", plan.Unit, err)
 		}
 	}
