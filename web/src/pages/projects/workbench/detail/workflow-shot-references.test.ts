@@ -66,12 +66,21 @@ test("手动按普通参考绑定的色卡不占内容图片编号，也不混�
     const project = compiledDetail([locationAsset, paletteAsset]);
     project.shotReferences![1].role = "reference";
     const context = buildShotAssetReferenceContext(project, "shot-1");
-    assert.deepEqual(context.referenceImages.map((image) => image.storageKey), ["resource:res-loc"]);
-    assert.deepEqual(context.assetReferences.map((asset) => [asset.title, asset.imageIndex]), [["电梯口", 1]]);
+    assert.deepEqual(
+        context.referenceImages.map((image) => image.storageKey),
+        ["resource:res-loc"],
+    );
+    assert.deepEqual(
+        context.assetReferences.map((asset) => [asset.title, asset.imageIndex]),
+        [["电梯口", 1]],
+    );
     assert.equal(shotScenePalette(project, "shot-1"), undefined);
     project.shotReferences![1].role = "style";
     const video = withShotScenePalette(context.referenceImages, shotScenePalette(project, "shot-1"), 3);
-    assert.deepEqual(video.images.map((image) => image.storageKey), ["resource:res-loc", "resource:res-palette"]);
+    assert.deepEqual(
+        video.images.map((image) => image.storageKey),
+        ["resource:res-loc", "resource:res-palette"],
+    );
     assert.match(video.promptLine, /^图片2 是本场色卡/);
 });
 
