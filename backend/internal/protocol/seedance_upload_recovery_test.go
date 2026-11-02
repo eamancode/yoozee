@@ -33,9 +33,13 @@ func TestSeedanceUsesHostUpload(t *testing.T) {
 	if _, err := upload.ParseUpload(context.Background(), []byte(`{"url":""}`)); err == nil {
 		t.Fatal("accepted empty upload result")
 	}
-	media.Metadata = map[string]any{MediaUploadIDKey:id}
-	created,err:=adapter.BuildCreate(context.Background(),RequestContext{BaseURL:"https://provider.example",Request:GenerationRequest{Capability:CapabilityVideo,Model:"seedance-2.0",Prompt:"test",Images:[]MediaReference{media}}})
-	if err!=nil{t.Fatal(err)}
-	body,err:=json.Marshal(created.Body)
-	if err!=nil || !strings.Contains(string(body),id) || strings.Contains(string(body),media.DataURL){t.Fatalf("create did not use uploaded URL: %s %v",body,err)}
+	media.Metadata = map[string]any{MediaUploadIDKey: id}
+	created, err := adapter.BuildCreate(context.Background(), RequestContext{BaseURL: "https://provider.example", Request: GenerationRequest{Capability: CapabilityVideo, Model: "seedance-2.0", Prompt: "test", Images: []MediaReference{media}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(created.Body)
+	if err != nil || !strings.Contains(string(body), id) || strings.Contains(string(body), media.DataURL) {
+		t.Fatalf("create did not use uploaded URL: %s %v", body, err)
+	}
 }
