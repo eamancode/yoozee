@@ -5,6 +5,7 @@ import { lazyAdminPage } from "@/pages/admin/admin-page-loader";
 import { RequireAuth } from "@/components/auth/require-auth";
 import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceternity/full-screen-loader";
 import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadProjectDetailPage, loadProjectsPage, loadSkillWorkbenchPage } from "@/lib/workspace-route-modules";
+import { projectWorkbenchRoutePaths } from "@/lib/project-workbench-routes";
 import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
 import { AuthScene } from "@/pages/auth/auth-scene";
 import RouteErrorPage from "@/pages/route-error";
@@ -188,14 +189,14 @@ export const router = createBrowserRouter([
                     </RequireAuth>
                 ),
             },
-            {
-                path: "/projects/:projectId",
+            ...projectWorkbenchRoutePaths.map((path) => ({
+                path,
                 element: (
                     <RequireAuth>
                         <RequireFeature feature="shortDramaEnabled">{deferred(<ProjectDetailPage />)}</RequireFeature>
                     </RequireAuth>
                 ),
-            },
+            })),
             { path: "/projects/:projectId/*", element: <Navigate to=".." relative="path" replace /> },
             { path: "/canvas", element: <RequireAuth>{deferred(<CanvasPage />)}</RequireAuth> },
             {
