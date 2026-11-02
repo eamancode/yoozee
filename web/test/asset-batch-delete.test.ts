@@ -59,8 +59,7 @@ beforeEach(async () => {
             localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
         },
     });
-    // saveRemoteUserDataNow() 同步全部素材和画布；同进程先跑的测试文件可能残留画布项目，
-    // 不清空会让全量保存多发画布 PATCH，落到本文件只认素材请求的 adapter 里。
+    // 同一 bun 进程里其他测试文件可能留下画布；saveRemoteUserDataNow 会把它们当作待保存画布发出 PATCH。
     useCanvasStore.setState({ projects: [] });
     useAssetStore.setState({ assets: [] });
     await Promise.all([flushCanvasStorePersistence(), flushAssetStorePersistence()]);

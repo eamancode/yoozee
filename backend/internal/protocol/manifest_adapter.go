@@ -28,6 +28,36 @@ func (a manifestAdapter) AgentAvailable() bool {
 
 func (a manifestAdapter) ResultAvailable() bool { return a.manifest.ResultOperation != nil }
 
+func (a manifestAdapter) UploadKinds() []string {
+	if a.manifest.Upload == nil {
+		return nil
+	}
+	return a.manifest.Upload.Kinds
+}
+
+func (a manifestAdapter) BuildUpload(_ context.Context, c RequestContext, media MediaReference) (RequestSpec, error) {
+	if a.manifest.Upload == nil {
+		return RequestSpec{}, fmt.Errorf("protocol %s has no upload operation", a.manifest.Metadata.ID)
+	}
+	values := manifestMediaValues([]MediaReference{media})
+	return buildManifestOperationWithEnv(a.manifest.Upload.ManifestOperation, a.manifest.Auth, c.Request, "", map[string]any{"media": values[0]})
+}
+
+func (a manifestAdapter) ParseUpload(_ context.Context, body []byte) (string, error) {
+	if a.manifest.Upload == nil {
+		return "", fmt.Errorf("protocol %s has no upload operation", a.manifest.Metadata.ID)
+	}
+	payload, err := decodeObject(body)
+	if err != nil {
+		return "", err
+	}
+	id := manifestResponseString(a.manifest.Upload.ID, map[string]any{"response": payload})
+	if id == "" {
+		return "", fmt.Errorf("上游素材上传没有返回素材 ID")
+	}
+	return id, nil
+}
+
 func (a manifestAdapter) BuildCreate(_ context.Context, c RequestContext) (RequestSpec, error) {
 	if len(a.manifest.Contributes.Providers) == 0 {
 		return RequestSpec{}, fmt.Errorf("plugin %s does not provide a provider", a.manifest.Metadata.ID)
@@ -40,39 +70,6 @@ func (a manifestAdapter) BuildCreate(_ context.Context, c RequestContext) (Reque
 		return RequestSpec{}, err
 	}
 	return buildManifestOperation(a.manifest.Create, a.manifest.Auth, request, "")
-}
-
-func (a manifestAdapter) MediaUploadPlan() (MediaUploadPlan, bool) {
-	if a.manifest.MediaUpload == nil {
-		return MediaUploadPlan{}, false
-	}
-	return MediaUploadPlan{Kinds: a.manifest.MediaUpload.Kinds, URLPath: a.manifest.MediaUpload.URLPath}, true
-}
-
-// BuildMediaUpload 用单个内联媒体构造图床上传请求；环境里额外暴露 media，
-// 让清单可以把文件部件写成 {"$ref": "media"}。
-func (a manifestAdapter) BuildMediaUpload(c RequestContext, media MediaReference) (RequestSpec, error) {
-	if a.manifest.MediaUpload == nil {
-		return RequestSpec{}, fmt.Errorf("protocol %s has no media upload operation", a.manifest.Metadata.ID)
-	}
-	return buildManifestMediaUpload(*a.manifest.MediaUpload, a.manifest.Auth, c.Request, media)
-}
-
-// MediaUploadURL 按清单声明的 urlPath 从图床响应里取出地址。
-// 只接受 http(s)，避免把相对路径或空值当成可用的公网素材地址。
-func MediaUploadURL(body []byte, urlPath string) (string, error) {
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return "", fmt.Errorf("解析图床上传响应失败：%w", err)
-	}
-	value := strings.TrimSpace(manifestString(pathValue(payload, urlPath)))
-	if value == "" {
-		return "", fmt.Errorf("图床上传响应里没有 %s 字段", urlPath)
-	}
-	if !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
-		return "", fmt.Errorf("图床返回的素材地址不是 http(s)：%q", value)
-	}
-	return value, nil
 }
 
 func (a manifestAdapter) BuildAgent(_ context.Context, c AgentRequestContext) (RequestSpec, error) {
@@ -141,7 +138,8 @@ func (a manifestAdapter) ParseCreateWithRequest(_ context.Context, request Gener
 	if err != nil {
 		return CreateResult{}, err
 	}
-	return a.parse(payload, PollContext{}), nil
+	// 响应映射可读取 request.*（如以宿主幂等键作为上游任务 ID 的协议）。
+	return a.parse(payload, PollContext{Model: request.Model, Request: request}), nil
 }
 
 // streamedJSONAudioCreateResult decodes the chunked JSON response used by
@@ -300,7 +298,7 @@ func (a manifestAdapter) ParsePoll(_ context.Context, c PollContext, body []byte
 		return PollResult{}, err
 	}
 	result := a.parse(payload, c)
-	return PollResult{TaskID: result.TaskID, Status: result.Status, Result: result.Result, Message: result.Message}, nil
+	return PollResult{TaskID: result.TaskID, Status: result.Status, Result: result.Result, Message: result.Message, Stage: result.Stage, QueueAhead: result.QueueAhead}, nil
 }
 
 func (a manifestAdapter) BuildCancel(_ context.Context, c PollContext) (RequestSpec, error) {
@@ -346,6 +344,13 @@ func (a manifestAdapter) parse(payload map[string]any, c PollContext) CreateResu
 	if manifestError(payload, response.ErrorPaths...) {
 		status = StatusFailed
 	}
+	stage := manifestResponseString(response.Stage, env)
+	queueAhead := -1
+	if response.QueueAhead != nil {
+		if value, err := evaluateManifestValue(response.QueueAhead, env); err == nil && value != nil {
+			queueAhead = max(0, manifestInt(value))
+		}
+	}
 	result := &Result{
 		Text:      manifestResponseString(response.Text, env),
 		Reasoning: manifestResponseString(response.Reasoning, env),
@@ -385,7 +390,7 @@ func (a manifestAdapter) parse(payload map[string]any, c PollContext) CreateResu
 	if result.Text == "" && result.Reasoning == "" && len(result.Images) == 0 && len(result.Videos) == 0 && len(result.Audios) == 0 {
 		result = nil
 	}
-	return CreateResult{TaskID: id, Status: status, Result: result, Message: message}
+	return CreateResult{TaskID: id, Status: status, Result: result, Message: message, Stage: stage, QueueAhead: queueAhead}
 }
 
 func validateManifestRequest(rules []ManifestValidation, request GenerationRequest) error {

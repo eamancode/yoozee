@@ -182,7 +182,7 @@ func TestChapterShotsPromptQichuang(t *testing.T) {
 
 // legacyChapterShotsPrompt 是整章 JSON Lines 旧拼法（chapterShotsPlan）在七床上的提示词：按绑定表 chapter.shots 那一格取技能
 // （评测重放旧包走的就是这条组装路径）。
-func legacyChapterShotsPrompt(t *testing.T, svc *Service, project model.Project, unit model.ProjectUnit) DramaStepPrompt {
+func legacyChapterShotsPrompt(t *testing.T, svc *Service, project model.Project, unit model.ProjectUnit) ProjectDramaStepPrompt {
 	t.Helper()
 	step, _ := drama.StepByID(drama.StepChapterShots)
 	fresh, err := svc.repo.ProjectForUser("user-1", project.ID)
@@ -213,7 +213,7 @@ func legacyChapterShotsPrompt(t *testing.T, svc *Service, project model.Project,
 	if err != nil {
 		t.Fatal(err)
 	}
-	return DramaStepPrompt{Usage: plan.usage, Prompt: plan.prompt.Text, Files: plan.prompt.Files}
+	return ProjectDramaStepPrompt{Usage: plan.usage, Prompt: plan.prompt.Text, Files: plan.prompt.Files}
 }
 
 // normalizeStepPrompt 抹掉三处有意的差异：技能上下文的开场说明（技能由档案绑定，不是用户选的），
@@ -279,7 +279,7 @@ func firstDiff(want, got string) string {
 }
 
 // dumpQichuang 写出前端组装要用的接口数据（与浏览器拿到的同一份 JSON）。
-func dumpQichuang(t *testing.T, svc *Service, db *gorm.DB, project model.Project, unit model.ProjectUnit, got DramaStepPrompt) {
+func dumpQichuang(t *testing.T, svc *Service, db *gorm.DB, project model.Project, unit model.ProjectUnit, got ProjectDramaStepPrompt) {
 	t.Helper()
 	dir := *dumpChapterShots
 	if err := os.MkdirAll(dir, 0o755); err != nil {

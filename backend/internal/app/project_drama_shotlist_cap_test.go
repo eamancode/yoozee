@@ -208,6 +208,9 @@ func TestChapterShotsOverCapBeforeRun(t *testing.T) {
 // 没写完的「从第 N 节继续」要接着调模型，照常预授权。
 func TestRefinalizeRunIsNotBilled(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
+	if err := db.Create(&model.User{ID: "user-1", Username: "refinalize-recovery", Role: model.UserRoleUser, Status: model.UserStatusActive}).Error; err != nil {
+		t.Fatal(err)
+	}
 	project, unit := seedLongQichuang(t, svc, db, 2, 4)
 	for _, row := range []any{
 		&model.ModelChannel{ID: "ch-text", Scope: "system", Enabled: true, Name: "text", BaseURL: "https://upstream.example.com/v1", APIFormat: "openai"},

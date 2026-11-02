@@ -121,7 +121,8 @@ func validateCloudAgentRuntime(run *model.CloudAgentExecution, state *cloudAgent
 		// execution identity. Durable rows are always validated below.
 		return nil
 	}
-	if state.Request.CanvasID == "" || state.Request.Prompt == "" || state.Request.PermissionMode == "" {
+	// CanvasID 可为空（平台级对话），由 validateCloudAgentRequest 保证无画布时不带画布上下文。
+	if state.Request.Prompt == "" || state.Request.PermissionMode == "" {
 		return errors.New("Agent runtime request is incomplete")
 	}
 	if err := validateCloudAgentRequest(&state.Request); err != nil {
@@ -145,8 +146,19 @@ func validateCloudAgentRuntime(run *model.CloudAgentExecution, state *cloudAgent
 	if state.Step < 0 || state.Generations < 0 || state.VideoSeconds < 0 {
 		return errors.New("Agent runtime budget or step is invalid")
 	}
-	if state.LessonEligibleToolSuccesses < 0 || state.RememberLessonSuccesses < 0 {
-		return errors.New("Agent lesson success counters are invalid")
+	if state.MemoryWriteCalls < 0 || state.SkillRecommendations < 0 || len(state.MarketSuggestions) > cloudAgentMarketSuggestionsMax {
+		return errors.New("Agent memory or skill counters are invalid")
+	}
+	if len(state.SkillVersions) > cloudAgentSkillPoolMax+cloudAgentSkillPinnedMax {
+		return errors.New("Agent runtime skill pool is invalid")
+	}
+	if utf8.RuneCountInString(state.Memory.Text) > agentMemorySnapshotMaxRunes || utf8.RuneCountInString(state.SkillHints) > agentMemorySnapshotMaxRunes {
+		return errors.New("Agent runtime context snapshot is invalid")
+	}
+	switch state.Memory.Mode {
+	case "", model.AgentMemoryDocumentModeAuto, model.AgentMemoryDocumentModeReview, model.AgentMemoryDocumentModeOff:
+	default:
+		return errors.New("Agent runtime memory mode is invalid")
 	}
 	if state.ConfirmationRounds < 0 || state.ConfirmationRounds > cloudAgentMaxConfirmationRounds {
 		return errors.New("Agent runtime confirmation round is invalid")

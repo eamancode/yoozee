@@ -374,7 +374,7 @@ func TestResynthesizeMasterPalette(t *testing.T) {
 	upstream := &visionUpstream{reply: styleLockReply}
 	server := httptest.NewServer(upstream)
 	defer server.Close()
-	queueStyleLockTask(t, svc, db, project.ID, server.URL, DramaProjectStepRunRequest{ProjectType: "live-action", StyleText: "都市冷调悬疑"})
+	queueStyleLockTask(t, svc, db, project.ID, server.URL, DramaProjectStepRunRequest{StyleText: "都市冷调悬疑"})
 	done, err := runQueuedTask(t, svc)
 	if err != nil || done.Status != model.TaskStatusSucceeded {
 		t.Fatalf("风格分析：%v %s %q", err, done.Status, done.Error)

@@ -11,7 +11,7 @@ type (
 	DramaStepRunResult       = app.DramaStepRunResult
 	DramaSectionGenreRequest = app.DramaSectionGenreRequest
 	DramaSectionGenreResult  = app.DramaSectionGenreResult
-	DramaStepPrompt          = app.DramaStepPrompt
+	DramaStepPrompt          = app.ProjectDramaStepPrompt
 	DramaStepBindingCell     = app.DramaStepBindingCell
 	DramaStepBindingMatrix   = app.DramaStepBindingMatrix
 	DramaStepBindingsRequest = app.DramaStepBindingsRequest

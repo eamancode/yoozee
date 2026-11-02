@@ -407,11 +407,7 @@ func TestDramaCanvasInstallsBuiltinSuiteAndDropsLegacySkill(t *testing.T) {
 	if err := s.EnsureBuiltinSkills(); err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := s.cloudAgentSkills("user", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy = append(legacy, cloudAgentSkill{ID: legacyDramaSkillID})
+	legacy := []cloudAgentSkill{{ID: legacyDramaSkillID}}
 	// 新用户没往技能库加过 yoozee 技能：短剧项目画布也要带上，并把旧六步技能拿掉。
 	snapshots, err := s.withCloudAgentDramaSuite("user", legacy)
 	if err != nil {

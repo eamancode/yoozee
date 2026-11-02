@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,11 +36,24 @@ func declarativeProtocolPollPolicy(mode string) videoPollPolicy {
 		return defaultVideoPollPolicy()
 	}
 	return videoPollPolicy{
-		Interval:          2500 * time.Millisecond,
-		MaxNotFoundMisses: 1,
-		MaxDownloadTries:  3,
-		Sleep:             sleepContext,
+		Interval:            2500 * time.Millisecond,
+		MaxNotFoundMisses:   1,
+		MaxDownloadTries:    3,
+		TransientRetryLimit: asyncPollTransientRetries(),
+		Sleep:               sleepContext,
 	}
+}
+
+// asyncPollTransientRetriesEnv 是可选设置：非视频声明式异步任务（图片、音频）轮询遇到暂时性错误时，
+// 允许连续重试的次数，退避从轮询间隔起倍增、封顶 4 倍。默认 0，保持现有 fail-fast 行为。
+const asyncPollTransientRetriesEnv = "CANVAS_ASYNC_POLL_TRANSIENT_RETRIES"
+
+func asyncPollTransientRetries() int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(asyncPollTransientRetriesEnv)))
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return min(value, 10)
 }
 
 func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGenerationInput, adapter protocol.Adapter, policy videoPollPolicy) (map[string]interface{}, error) {
@@ -46,6 +61,7 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 	// 不把“已提交但结果未知”伪装成成功，也不把下载失败降级成空结果。
 	request := protocolRequestFromInput(input)
 	taskID := resumedProviderRequestID(ctx)
+	detached := protocolDetachedPolling(adapter, input.Mode)
 	var created protocol.CreateResult
 	if taskID == "" {
 		// 幂等键只存在于宿主请求元数据中，声明式插件可以把它映射到 Header，
@@ -55,15 +71,14 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 			key = uuid.NewString()
 		}
 		request.Extra["idempotencyKey"] = key
-		// 协议声明了图床能力时，先把内联媒体换成供应商可读取的地址，再构造创建请求。
-		if err := prepareDeclarativeProtocolMedia(ctx, input, &request, adapter); err != nil {
+		if err := uploadProtocolMedia(ctx, input, adapter, &request); err != nil {
 			return nil, err
 		}
 		spec, err := adapter.BuildCreate(ctx, protocol.RequestContext{BaseURL: input.Config.BaseURL, Request: request})
 		if err != nil {
 			return nil, err
 		}
-		body, streamedResult, err := executeProtocolCreateRequest(withProviderRequestKind(ctx, "create"), input, spec)
+		body, streamedResult, err := executeIdempotentProtocolCreate(ctx, input, spec, adapter.Metadata().IdempotentCreate)
 		if err != nil {
 			return nil, err
 		}
@@ -96,6 +111,16 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 		if taskID == "" {
 			return nil, errors.New("声明式协议创建请求没有返回任务 ID")
 		}
+		if detached {
+			if err := recordProtocolProviderTask(ctx, taskID); err != nil {
+				// 上游已收单但本地没记住任务 ID：不能退回调度，否则恢复时无法找到原任务。
+				return nil, fmt.Errorf("上游已接收任务，但保存任务 ID 失败：%w", err)
+			}
+			return nil, detachedProtocolPending(taskID, created.Stage, created.QueueAhead)
+		}
+	} else if detached {
+		// 恢复分离式任务：立即回查一次，未完成就再次退回调度，不在 worker 内等待。
+		policy.InitialDelay = 0
 	}
 
 	return runVideoPollLoop(ctx, taskID, policy, func(ctx context.Context) (videoPollOutcome, error) {
@@ -120,6 +145,9 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 			return videoPollOutcome{Done: err == nil, Result: result}, err
 		case protocol.StatusFailed, protocol.StatusCancelled:
 			return videoPollOutcome{}, protocolResultError(state.Message, taskID)
+		}
+		if detached {
+			return videoPollOutcome{}, detachedProtocolPending(taskID, state.Stage, state.QueueAhead)
 		}
 		return videoPollOutcome{}, nil
 	})

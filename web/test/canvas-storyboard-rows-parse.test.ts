@@ -55,7 +55,7 @@ describe("storyboardRowsFromTask", () => {
         expect(storyboardRowsFromTask(task).rows).toHaveLength(1);
     });
 
-    test("镜头文本字段不是字符串时仍可继续落库", () => {
+    test("镜头文本字段不是字符串时仍可解析出分镜行", () => {
         const task = storyboardTask(JSON.stringify({ rows: [{
             plotDescription: { text: "对象形式的剧情" },
             dialogue: ["台词一", "台词二"],

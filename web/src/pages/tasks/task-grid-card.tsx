@@ -10,6 +10,7 @@ import type { GenerationTask } from "@/services/api/task-center";
 import { isTaskFailed, statusDotClassName, taskAttentionReason, TaskDate } from "./task-shared";
 import { TaskCancelButton } from "./task-list-row";
 import { TaskVideoThumbnail } from "./task-video-thumbnail";
+import { progressFillStyle } from "@/lib/progress-fill";
 
 export function TaskGridCard({ task, actingId, onOpen, onRetry, onCancel }: { task: GenerationTask; actingId: string; onOpen: () => void; onRetry: () => void; onCancel: () => void }) {
     const isActive = task.status === "queued" || task.status === "running";
@@ -68,7 +69,7 @@ export function TaskGridCard({ task, actingId, onOpen, onRetry, onCancel }: { ta
                     <div className="task-grid-progress" role="progressbar" aria-label={stageLabel} aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress || 0}>
                         <span>{stageLabel}</span>
                         <strong>{task.progress || 0}%</strong>
-                        <i><b style={{ width: `${task.progress || 0}%` }} /></i>
+                        <i><b style={progressFillStyle(task.progress || 0)} /></i>
                     </div>
                 ) : null}
                 {isFailed ? <p className="task-grid-error" title={task.error || undefined}>{taskAttentionReason(task)}</p> : null}

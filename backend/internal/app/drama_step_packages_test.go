@@ -111,7 +111,7 @@ func TestFlowPackageUploadChangesAssembledPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	golden := readTestdata(t, "server-prompt.txt")
-	promptNow := func() DramaStepPrompt {
+	promptNow := func() ProjectDramaStepPrompt {
 		t.Helper()
 		return legacyChapterShotsPrompt(t, svc, project, unit)
 	}

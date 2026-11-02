@@ -347,7 +347,7 @@ async function connectCdp(cdpPort) {
         return true;
     };
 
-    return { send, evaluate, poll, click, clickText, navigateFresh, problems, close: () => ws.close() };
+    return { send, evaluate, poll, click, clickText, clickPoint, navigateFresh, problems, close: () => ws.close() };
 }
 
 /**
@@ -394,34 +394,19 @@ async function openUnifiedWorkbench(cdp, label) {
     if (!ready) throw new Error(`${label}: unified previs workbench did not enter layout context`);
 }
 
-/**
- * v1.6.8 起「添加」不再挂在视口 dock 上，改为场景面板里的「添加到场景」弹窗。
- * 窄屏下面板默认收起，所以先确认面板可见，必要时用 dock 的「打开场景面板」展开。
- */
-const sceneAddButtonVisible = `(() => {
-    const el = document.querySelector('[aria-label="添加到场景"]');
-    if (!el) return false;
-    const r = el.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0 || r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight) return false;
-    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    return !!hit && (hit === el || el.contains(hit));
-})()`;
+/** 使用当前产品流程从预设库加入一个真实道具，不依赖旧版快捷菜单。 */
+async function addProp(cdp, name, label) {
+    if (!(await cdp.click('[aria-label="添加到场景"]'))) throw new Error(`${label}: 添加到场景 button not clickable`);
+    if (!(await cdp.poll(`!!document.querySelector('.previs-add-dialog [role="tab"]')`, `${label} add dialog`, 10000))) throw new Error(`${label}: add dialog did not open`);
+    if (!(await cdp.clickText("道具", '[role="tab"]'))) throw new Error(`${label}: 道具 tab not clickable`);
 
-async function ensureScenePanel(cdp) {
-    if (await cdp.evaluate(sceneAddButtonVisible)) return true;
-    await cdp.click('[aria-label="打开场景面板"]');
-    return cdp.poll(sceneAddButtonVisible, "scene panel open", 10000);
-}
+    const card = `[...document.querySelectorAll('.previs-add-dialog__card')].find((button) => (button.textContent || '').includes(${JSON.stringify(name)}) && button.getClientRects().length > 0)`;
+    if (!(await cdp.poll(`!!(${card})`, `${label} prop card`, 10000))) throw new Error(`${label}: ${name} prop card not visible`);
+    if (!(await cdp.clickPoint(card, `${label}: prop ${name}`))) throw new Error(`${label}: ${name} prop card not clickable`);
 
-/** 打开「添加到场景」弹窗 → 切到页签 → 确认加入（弹窗默认选中该页签的第一项）。 */
-async function addPrevisObject(cdp, tabLabel, itemName) {
-    if (!(await cdp.click('[aria-label="添加到场景"]'))) return false;
-    if (!(await cdp.poll(`!!document.querySelector('.previs-add-dialog__footer')`, "add dialog", 15000))) return false;
-    const tabIndex = { 角色: 1, 道具: 2, 灯光: 3, 机位: 4 }[tabLabel] ?? 1;
-    if (!(await cdp.click(`.previs-add-dialog__tabs button:nth-of-type(${tabIndex})`))) return false;
-    const confirmMatches = `[...document.querySelectorAll('.previs-add-dialog__footer .pv-btn--accent')].some((b) => (b.textContent || "").includes(${JSON.stringify(itemName)}))`;
-    if (!(await cdp.poll(confirmMatches, "confirm label", 15000))) return false;
-    return cdp.click(".previs-add-dialog__footer .pv-btn--accent");
+    const confirmLabel = `加入「${name}」`;
+    if (!(await cdp.clickText(confirmLabel, ".previs-add-dialog__footer button"))) throw new Error(`${label}: ${confirmLabel} button not clickable`);
+    if (!(await cdp.poll(`!!document.querySelector(${JSON.stringify(`[aria-label="删除 ${name}"]`)})`, `${label} prop row`, 20000))) throw new Error(`${label}: ${name} row did not appear`);
 }
 
 async function smokeWorkbench(cdp, baseUrl) {
@@ -456,21 +441,39 @@ async function smokeWorkbench(cdp, baseUrl) {
     assert(await cdp.poll(`!!document.querySelector(${JSON.stringify(dockSelector)})`, "previs dock", 10000), "A5b 预演台视口工具条已渲染");
     assert(await cdp.evaluate(`!!document.querySelector('${dockSelector} [role="radiogroup"][aria-label="变换模式"] [role="radio"][aria-label="移动 (W)"]')`), "A5b 变换模式切换包含移动 (W)");
     const tooltipButton = `${dockSelector} button[aria-label="适配全部对象 (A)"]`;
-    const hoverPoint = await cdp.evaluate(`(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); if (!b) return null; const r = b.getBoundingClientRect(); return {x:r.x+r.width/2, y:r.y+r.height/2}; })()`);
-    if (!hoverPoint) throw new Error("A: 适配全部对象 dock button not found");
-    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...hoverPoint });
-    // Dock 重写后 tooltip 渲染在按钮的兄弟节点（同一工具条容器内），不再嵌套在 button 里。
-    const describedTooltip = `(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); if (!b) return false; const root = b.closest('[role="toolbar"]') || document; return [...root.querySelectorAll('.aceternity-dock-tooltip')].some((t) => (t.textContent || '').includes('适配全部对象')); })()`;
-    assert(await cdp.poll(describedTooltip, "tooltip on hover", 5000), "A5b Tooltip hover describes the actual control");
-    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
-    assert(await cdp.poll(`!(${describedTooltip})`, "tooltip dismiss", 5000), "A5b Tooltip dismisses when pointer leaves");
-    await cdp.evaluate(`document.querySelector(${JSON.stringify(tooltipButton)}).focus()`);
-    for (const modifiers of [8, 0]) {
-        await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers });
-        await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers });
+    const tooltipMode = await cdp.evaluate(`(() => {
+        const button = document.querySelector(${JSON.stringify(tooltipButton)});
+        return button ? {
+            nativeTitle: Boolean(button.title),
+            coarsePointer: matchMedia('(pointer: coarse)').matches,
+            narrow: innerWidth < 768,
+            title: button.title,
+            label: button.getAttribute('aria-label'),
+        } : null;
+    })()`);
+    if (!tooltipMode) throw new Error("A: 适配全部对象 dock button disappeared");
+    if (tooltipMode.nativeTitle) {
+        // 窄屏/触控模式下产品有意使用原生 title，避免自定义浮层被可滚动 dock 裁切。
+        assert(tooltipMode.title.includes("适配全部对象") && tooltipMode.label.includes("适配全部对象"), "A5b native Tooltip fallback names the actual control", JSON.stringify(tooltipMode));
+        await cdp.evaluate(`document.querySelector(${JSON.stringify(tooltipButton)}).focus()`);
+        assert(await cdp.poll(`document.activeElement === document.querySelector(${JSON.stringify(tooltipButton)})`, "native tooltip control focus", 5000), "A5c native Tooltip fallback keeps the control keyboard focusable");
+        await cdp.evaluate("document.activeElement?.blur()");
+    } else {
+        const hoverPoint = await cdp.evaluate(`(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); if (!b) return null; const r = b.getBoundingClientRect(); return {x:r.x+r.width/2, y:r.y+r.height/2}; })()`);
+        if (!hoverPoint) throw new Error("A: 适配全部对象 dock button not visible");
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...hoverPoint });
+        const describedTooltip = `(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); return !!b && [...(b.parentElement?.querySelectorAll('.aceternity-dock-tooltip') || [])].some((t) => (t.textContent || '').includes('适配全部对象')); })()`;
+        assert(await cdp.poll(describedTooltip, "tooltip on hover", 5000), "A5b Tooltip hover describes the actual control");
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+        assert(await cdp.poll(`!(${describedTooltip})`, "tooltip dismiss", 5000), "A5b Tooltip dismisses when pointer leaves");
+        await cdp.evaluate(`document.querySelector(${JSON.stringify(tooltipButton)}).focus()`);
+        for (const modifiers of [8, 0]) {
+            await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers });
+            await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers });
+        }
+        assert(await cdp.poll(`document.activeElement === document.querySelector(${JSON.stringify(tooltipButton)}) && (${describedTooltip})`, "tooltip on keyboard focus", 5000), "A5c Tab focus opens Tooltip without an extra wrapper stop");
+        await cdp.evaluate("document.activeElement?.blur()");
     }
-    assert(await cdp.poll(`document.activeElement === document.querySelector(${JSON.stringify(tooltipButton)}) && (${describedTooltip})`, "tooltip on keyboard focus", 5000), "A5c Tab focus opens Tooltip without an extra wrapper stop");
-    await cdp.evaluate("document.activeElement?.blur()");
 
     // 摆场模式不显示时间轴；切到动画模式才出现时间轴，且自动关键帧初始关闭。
     const readGating = `(() => ({
@@ -489,10 +492,7 @@ async function smokeWorkbench(cdp, baseUrl) {
     if (!(await cdp.click('button[data-mode="layout"]'))) throw new Error("A: 摆场模式按钮不可点击");
     assert(await cdp.poll(`document.querySelectorAll('.previs-sequencer').length === 0`, "layout hides sequencer", 10000), "A7b 回到摆场模式隐藏时间轴");
 
-    // v1.6.8 起添加对象走场景面板的「添加到场景」弹窗（选项 + 预览，确认后才写入场景）。
-    if (!(await ensureScenePanel(cdp))) throw new Error("A: 场景面板打不开");
-    const addedProp = await addPrevisObject(cdp, "道具", "单人沙发");
-    if (!addedProp) throw new Error("A: 添加到场景按钮不可点击");
+    await addProp(cdp, "单人沙发", "A");
     const propAppeared = await cdp.poll(`!!document.querySelector('[aria-label="删除 单人沙发"]')`, "prop row", 20000);
     assert(propAppeared, "A10 added prop appears in object list");
 
@@ -753,10 +753,7 @@ async function saveFailureCloseGuard(cdp, baseUrl) {
     const hasCanvas = await cdp.poll(`(() => { const c = document.querySelector('.previs-viewport-shell canvas'); return !!c && c.clientWidth > 0; })()`, "canvas", 40000);
     assert(hasCanvas, "F2 workbench open with real canvas");
 
-    // canonical 改动：经「添加到场景」弹窗加入对象会走 commit → coordinator.edit → flush（被强制失败）。
-    if (!(await ensureScenePanel(cdp))) throw new Error("F: 场景面板打不开");
-    const addedProp = await addPrevisObject(cdp, "道具", "单人沙发");
-    if (!addedProp) throw new Error("F: 添加到场景按钮不可点击");
+    await addProp(cdp, "单人沙发", "F");
 
     const errorState = await cdp.poll(`(document.body.innerText || "").includes('保存失败')`, "save failure header", 40000);
     assert(errorState, "F3 header surfaces 保存失败 after forced flush failure");
@@ -895,8 +892,9 @@ async function shotOutputs(cdp, baseUrl) {
     })()`);
     assert(recording.bytes > 0 && recording.width === 180 && recording.height === 320, "G6 recording is decodable at shot dimensions", JSON.stringify(recording));
     assert(recording.cancelled, "G7 recording cancellation rejects and releases session");
+    const monitorButton = 'button[title^="投放到第二屏幕"]';
     await cdp.evaluate(`(() => { const open=window.open.bind(window);window.open=(...args)=>{const popup=open(...args);window.__previsPopup=popup;return popup;}; })()`);
-    await cdp.click('button[title^="投放到第二屏幕"]');
+    if (!(await cdp.click(monitorButton))) throw new Error("G: 第二屏监看 button not clickable");
     assert(await cdp.poll(`window.__previsPopup?.document.querySelector('canvas')?.width === 1080`, "monitor frame", 20000), "G8 monitor displays full portrait shot");
     const reused = await cdp.evaluate(`(async () => {
         const {openPrevisMonitorWindow}=await import('/src/components/canvas/previs/previs-monitor-window.ts');
@@ -908,7 +906,7 @@ async function shotOutputs(cdp, baseUrl) {
         return {count,live,firstClosed,secondClosed};
     })()`);
     assert(reused.count === 1 && reused.live && reused.firstClosed === 1 && reused.secondClosed === 1, "G9 named monitor reuse cleans old session without closing new window", JSON.stringify(reused));
-    assert(await cdp.poll(`document.querySelector('button[title^="投放到第二屏幕"]')?.getAttribute('aria-pressed') === 'false'`, "monitor closed"), "G10 monitor UI resets on close");
+    assert(await cdp.poll(`document.querySelector(${JSON.stringify(monitorButton)})?.getAttribute('aria-pressed') === 'false'`, "monitor closed"), "G10 monitor UI resets on close");
     assert(cdp.problems.length === 0, "G11 no browser problems in output scenario", JSON.stringify(cdp.problems));
 }
 

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	agenttool "yingce/backend/internal/agent/tool"
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
 )
@@ -24,7 +25,7 @@ const dramaShotlistWriteDescription = "写一章的镜头表并整章重装段�
 	"每行一镜，spec 写 id（E01S01-01）、scene（E01S01）、purpose、subject、size、cam{z,y,x,f?}、move、action、start_state、end_state、lines[{text 原文一字不改, speaker, delivery?, pace?, tone?, emotion?}]，可选 emotion_arc、performance、light（灯光七项）、blocking、transition、refs_hint 等；绑定资产写在 assetBindings。warn 不挡保存，随结果返回。"
 
 func cloudAgentDramaTool(name string) bool {
-	return strings.HasPrefix(name, "drama_")
+	return agenttool.Of(name).RequiresProjectDrama
 }
 
 func (s *Service) cloudAgentDramaTool(userID string, state *cloudAgentRuntime, call cloudAgentCall) (any, error) {

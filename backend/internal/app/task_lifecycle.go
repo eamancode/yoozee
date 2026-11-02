@@ -138,10 +138,8 @@ func (w *taskLifecycleCoordinator) cancelTaskWithIntent(_ context.Context, userI
 	// 用户一旦看到任务进入上游提交/生成阶段，即使 request ID 尚未来得及写回，
 	// 也必须按“可能已经产生上游费用”处理。父任务失败和 worker context 属于
 	// 内部协调，仍需继续走下面的上游取消/对账流程，不能被这条 UI 规则截断。
-	// 逐轮续写的文本任务（metadata.dramaRun）例外：每写完一轮就把它存进任务结果，取消只丢正在写的那一轮，
-	// 之后可以「从第 N 场 / 集继续」。文本调用没有上游取消，费用按运行中取消冻结待核对。
 	dramaRun := task.MediaStage == "" && taskDramaRun(task.InputJSON) != nil
-	if intent.Source == model.TaskCancellationUserRequest && !dramaRun && (strings.TrimSpace(task.ProviderRequestID) != "" || task.MediaStage != "" || !taskStageAllowsUserCancellation(task.Status, task.Stage)) {
+	if intent.Source == model.TaskCancellationUserRequest && !dramaRun && taskUpstreamSubmitted(task) {
 		return nil, BadAuthRequest("第三方请求已提交，任务不可取消")
 	}
 	if dramaRun {
@@ -221,6 +219,12 @@ func (w *taskLifecycleCoordinator) cancelTaskWithIntent(_ context.Context, userI
 	}
 
 	return taskForOutput(*task), nil
+}
+
+// taskUpstreamSubmitted 表示任务已进入上游提交/生成阶段，可能已经产生上游费用。
+// 调用方应先 hydrateTaskProviderRequestID，避免 request ID 尚未写回时误判。
+func taskUpstreamSubmitted(task *model.Task) bool {
+	return strings.TrimSpace(task.ProviderRequestID) != "" || task.MediaStage != "" || !taskStageAllowsUserCancellation(task.Status, task.Stage)
 }
 
 func taskStageAllowsUserCancellation(status model.TaskStatus, stage string) bool {

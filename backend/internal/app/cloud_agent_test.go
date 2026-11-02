@@ -282,7 +282,8 @@ func TestCloudAgentActiveRunWithOlderCapabilityIsTerminatedWithoutResume(t *test
 func TestCloudAgentValidation(t *testing.T) {
 	for _, mutate := range []func(*CloudAgentRequest){
 		func(r *CloudAgentRequest) { r.PermissionMode = "unrestricted" },
-		func(r *CloudAgentRequest) { r.SkillIDs = []string{"skill", "skill"} },
+		func(r *CloudAgentRequest) { r.PinnedSkillIDs = []string{"skill", "skill"} },
+		func(r *CloudAgentRequest) { r.MemoryMode = "always" },
 		func(r *CloudAgentRequest) { r.ContextScope = []string{"resources"} },
 		func(r *CloudAgentRequest) { r.Budget.MaxCredits = 0 },
 		func(r *CloudAgentRequest) { r.Budget.MaxGenerationTasks = 1 },
@@ -304,6 +305,20 @@ func TestCloudAgentValidationNormalizesFocusNodeIDs(t *testing.T) {
 	}
 	if req.FocusNodeIDs[0] != "node-1" {
 		t.Fatalf("focus node ID was validated but not normalized: %#v", req.FocusNodeIDs)
+	}
+
+	req = agentTestRequest()
+	req.FocusNodeOmittedCount = 4
+	if err := validateCloudAgentRequest(&req); err != nil {
+		t.Fatalf("bounded omitted focus count should be accepted: %v", err)
+	}
+	req.FocusNodeOmittedCount = -1
+	if err := validateCloudAgentRequest(&req); err == nil {
+		t.Fatal("negative omitted focus count must be rejected")
+	}
+	req.FocusNodeOmittedCount = 10001
+	if err := validateCloudAgentRequest(&req); err == nil {
+		t.Fatal("unbounded omitted focus count must be rejected")
 	}
 
 	req = agentTestRequest()

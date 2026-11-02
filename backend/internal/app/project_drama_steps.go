@@ -91,8 +91,8 @@ type DramaStepRunResult struct {
 	Usage DramaStepUsage `json:"usage"`
 }
 
-// DramaStepPrompt 是服务端为一章组装出的提示词（不建任务，给对照与排查用）。
-type DramaStepPrompt struct {
+// ProjectDramaStepPrompt 是服务端为一章组装出的提示词（不建任务，给对照与排查用）。
+type ProjectDramaStepPrompt struct {
 	Usage  DramaStepUsage           `json:"usage"`
 	Prompt string                   `json:"prompt"`
 	Files  []drama.StepSkillFileUse `json:"files"`
@@ -244,17 +244,17 @@ func dramaProfileRef(id string) DramaProfileRef {
 	return ref
 }
 
-// DramaStepPrompt 组装一章这一步的提示词，不建任务。
-func (s *Service) DramaStepPrompt(userID string, projectID string, unitID string, stepID string) (DramaStepPrompt, error) {
+// ProjectDramaStepPrompt 组装一章这一步的提示词，不建任务。
+func (s *Service) DramaStepPrompt(userID string, projectID string, unitID string, stepID string) (ProjectDramaStepPrompt, error) {
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
-		return DramaStepPrompt{}, err
+		return ProjectDramaStepPrompt{}, err
 	}
 	plan, err := s.planDramaStep(userID, project, unitID, stepID, nil)
 	if err != nil {
-		return DramaStepPrompt{}, err
+		return ProjectDramaStepPrompt{}, err
 	}
-	return DramaStepPrompt{Usage: plan.usage, Prompt: plan.prompt.Text, Files: plan.prompt.Files}, nil
+	return ProjectDramaStepPrompt{Usage: plan.usage, Prompt: plan.prompt.Text, Files: plan.prompt.Files}, nil
 }
 
 // RunDramaStep 对一章跑这一步：服务端组装提示词并创建文本任务，任务 metadata 记下步骤、契约、风格档案、技能版本和内容哈希。

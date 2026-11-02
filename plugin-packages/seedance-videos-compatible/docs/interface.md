@@ -40,11 +40,11 @@
 
 | 上游位置 | 值或转换表达式 |
 | --- | --- |
-| `mediaUpload.method` | `"POST"` |
-| `mediaUpload.path` | `"/v1/media/upload"` |
-| `mediaUpload.contentType` | `"multipart/form-data"` |
-| `mediaUpload.kinds` | `["image"]` |
-| `mediaUpload.urlPath` | `"url"` |
+| `upload.method` | `"POST"` |
+| `upload.path` | `"/v1/media/upload"` |
+| `upload.contentType` | `"multipart/form-data"` |
+| `upload.kinds` | `["image"]` |
+| `upload.id` | `"url"` |
 
 ## 上游请求模板逐字段清单
 
@@ -87,6 +87,9 @@
 
 该协议的模型级字段变化快或依赖云资源配置。插件固定线协议入口和统一字段，完整厂商对象通过 providerOptions.seedance-videos-compatible 的 parameters/input/extra_body 传入；gateway-specific videos JSON。云签名型入口在未配置对应鉴权驱动时会明确失败，不会伪装成 Bearer 成功。
 
+
+上传使用宿主 `upload`：从 `response.url` 取上传结果，创建请求优先读取 `media.uploadId`，没有上传结果时才使用原媒体值。恢复已有任务不重复上传。
+
 <!-- YINGCE_MANIFEST_CONTRACT_START -->
 ## Manifest 完整接口定义
 
@@ -97,7 +100,7 @@
   "apiVersion": "yingce.plugin/v2",
   "id": "seedance-videos-compatible",
   "name": "Seedance Compatible /videos",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "author": "Gateway profile / 柚子",
   "description": "Seedance Compatible /videos 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
@@ -136,7 +139,7 @@
           "type": "bearer",
           "field": "apiKey"
         },
-        "mediaUpload": {
+        "upload": {
           "method": "POST",
           "path": "/v1/media/upload",
           "contentType": "multipart/form-data",
@@ -162,7 +165,9 @@
           "kinds": [
             "image"
           ],
-          "urlPath": "url"
+          "id": {
+            "$ref": "response.url"
+          }
         },
         "parameters": [
           {
@@ -264,7 +269,14 @@
                       },
                       "as": "media",
                       "in": {
-                        "$ref": "media.value"
+                        "$coalesce": [
+                          {
+                            "$ref": "media.uploadId"
+                          },
+                          {
+                            "$ref": "media.value"
+                          }
+                        ]
                       }
                     }
                   }
@@ -277,7 +289,14 @@
                       },
                       "as": "media",
                       "in": {
-                        "$ref": "media.value"
+                        "$coalesce": [
+                          {
+                            "$ref": "media.uploadId"
+                          },
+                          {
+                            "$ref": "media.value"
+                          }
+                        ]
                       }
                     }
                   }
@@ -290,7 +309,14 @@
                       },
                       "as": "media",
                       "in": {
-                        "$ref": "media.value"
+                        "$coalesce": [
+                          {
+                            "$ref": "media.uploadId"
+                          },
+                          {
+                            "$ref": "media.value"
+                          }
+                        ]
                       }
                     }
                   }
