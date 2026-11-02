@@ -366,7 +366,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         setEditorDirty(!revision || videoPrompt !== revision.videoPrompt);
         // 轮询和换模型不能覆盖尚未保存的脚本；只在镜头、版本或制作阶段变化时重置。
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [form, generationCapability, revision?.id, selectedShot?.id]);
+    }, [form, activeStage, revision?.id, selectedShot?.id]);
 
     const mentionSignature = JSON.stringify(shotAssetReferenceContext.mentionReferences.map((reference) => [reference.assetId, reference.kind, reference.label, reference.title]));
     useEffect(() => {
