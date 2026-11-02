@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -486,6 +487,10 @@ func publishSettingsKey(path string, key []byte, link func(string, string) error
 		if err := fallback.Close(); err != nil {
 			return err
 		}
+	}
+	// Windows cannot flush directory handles; the key file was already synced.
+	if runtime.GOOS == "windows" {
+		return nil
 	}
 	// Persist the published name, not only the inode's contents.
 	dir, err := os.Open(filepath.Dir(path))

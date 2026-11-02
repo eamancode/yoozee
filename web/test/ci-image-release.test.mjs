@@ -9,6 +9,7 @@ const scripts = fileURLToPath(new URL("../../.github/scripts/", import.meta.url)
 const temporaryDirectories = [];
 const sha = "a".repeat(40);
 const digest = "b".repeat(64);
+const bash = process.platform === "win32" ? path.resolve(spawnSync("git", ["--exec-path"], { encoding: "utf8" }).stdout.trim(), "../../../bin/bash.exe") : "bash";
 afterEach(() => {
     for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
@@ -28,8 +29,8 @@ function fixture(overrides = {}) {
     const output = path.join(root, "output");
     writeFileSync(output, "");
     const env = {
-        ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
+        ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "path")),
+        PATH: [bin, ...(process.platform === "win32" ? [path.resolve(path.dirname(bash), "../usr/bin")] : []), process.env.PATH].join(path.delimiter),
         GITHUB_OUTPUT: output,
         GITHUB_SHA: sha,
         GITHUB_REF: "refs/heads/main",
@@ -46,7 +47,7 @@ function fixture(overrides = {}) {
         ...overrides,
     };
     return {
-        run: (script, ...args) => spawnSync("bash", [path.join(scripts, script), ...args], { env, encoding: "utf8" }),
+        run: (script, ...args) => spawnSync(bash, [path.join(scripts, script), ...args], { env, encoding: "utf8" }),
         output: () => readFileSync(output, "utf8"),
         call: () => (existsSync(env.MOCK_CALL) ? readFileSync(env.MOCK_CALL, "utf8") : ""),
     };
@@ -55,7 +56,8 @@ function fixture(overrides = {}) {
 describe("commit image reuse", () => {
     test("reuses the exact existing digest", () => {
         const repo = fixture();
-        expect(repo.run("resolve-image.sh", "ghcr.io/fixture/image:sha-test").status).toBe(0);
+        const result = repo.run("resolve-image.sh", "ghcr.io/fixture/image:sha-test");
+        expect(result.status, result.stderr || String(result.error ?? "")).toBe(0);
         expect(repo.output()).toBe(`found=true\ndigest=sha256:${digest}\n`);
     });
     test("only a missing manifest permits a rebuild", () => {
