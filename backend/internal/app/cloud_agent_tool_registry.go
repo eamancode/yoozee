@@ -20,13 +20,15 @@ const (
 	cloudAgentToolDirect cloudAgentToolPipeline = iota
 	cloudAgentToolVision
 	cloudAgentToolMedia
+	cloudAgentToolProjectDrama
 )
 
 type cloudAgentToolHandler struct {
-	Read     cloudAgentReadHandler
-	Write    cloudAgentWriteHandler
-	Preview  cloudAgentPreviewHandler
-	Pipeline cloudAgentToolPipeline
+	Read         cloudAgentReadHandler
+	Write        cloudAgentWriteHandler
+	Preview      cloudAgentPreviewHandler
+	ProjectDrama cloudAgentReadHandler
+	Pipeline     cloudAgentToolPipeline
 }
 
 var cloudAgentRegistryCache struct {
@@ -51,12 +53,18 @@ func buildCloudAgentRegistry() *agenttool.Registry[cloudAgentToolHandler] {
 	definitions := cloudAgentAllToolSchemas()
 	for _, schema := range cloudAgentProjectDramaSchemas() {
 		name := schema["function"].(map[string]any)["name"].(string)
-		handlers[name] = cloudAgentToolHandler{Read: func(repo *repository.Repository, userID string, state *cloudAgentRuntime, call cloudAgentCall, services ...*Service) (any, error) {
+		handler := cloudAgentToolHandler{Pipeline: cloudAgentToolProjectDrama, ProjectDrama: func(repo *repository.Repository, userID string, state *cloudAgentRuntime, call cloudAgentCall, services ...*Service) (any, error) {
 			if len(services) == 0 || services[0] == nil {
 				return nil, fmt.Errorf("短剧服务未提供")
 			}
 			return services[0].cloudAgentDramaTool(userID, state, call)
 		}}
+		if agenttool.Of(name).Write() {
+			handler.Preview = cloudAgentPreviewProjectDrama
+		} else {
+			handler.Read = handler.ProjectDrama
+		}
+		handlers[name] = handler
 	}
 	bindings := make([]agenttool.Binding[cloudAgentToolHandler], 0, len(definitions))
 	for _, value := range definitions {

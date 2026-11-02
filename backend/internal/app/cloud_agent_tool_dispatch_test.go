@@ -26,6 +26,10 @@ func TestCloudAgentToolTableMatchesRuntimeDispatch(t *testing.T) {
 		h := binding.Handler
 		p := agenttool.Of(name)
 		switch {
+		case p.RequiresProjectDrama:
+			if h.Pipeline != cloudAgentToolProjectDrama || h.ProjectDrama == nil || (p.Write() && h.Preview == nil) || (!p.Write() && h.Read == nil) {
+				t.Errorf("%s requires project execution and its permission-specific handler", name)
+			}
 		case p.Media():
 			if h.Pipeline != cloudAgentToolMedia {
 				t.Errorf("%s must use media approval pipeline", name)

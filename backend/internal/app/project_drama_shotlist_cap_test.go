@@ -303,6 +303,7 @@ func TestCreateTaskIgnoresClientDramaRun(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	imageConfig := DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceOpenAIImage), "fake-image")
 	for _, row := range []any{
+		&model.User{ID: "user-1", Username: "task-admission-user", Status: model.UserStatusActive},
 		&model.ModelChannel{ID: "ch", Scope: "system", Enabled: true, Name: "ch", BaseURL: "https://upstream.example.com/v1", APIFormat: "openai"},
 		&model.ChannelModel{ID: "cm-text", ChannelID: "ch", ModelKey: "fake-text", Capability: "text", Protocol: "chat-completion", CapabilityConfigJSON: mustEncodeModelCapabilityConfig(t, DefaultModelCapabilityConfigForModel("chat-completion", "fake-text")), BillingMode: "fixed_request", UnitPriceMicrocredits: 300_000, PriceConfigured: true, Enabled: true},
 		&model.ChannelModelPriceTier{ID: "tier-text", ChannelModelID: "cm-text", SelectorKey: "{}", SelectorJSON: "{}", BillingMode: "fixed_request", UnitPriceMicrocredits: 300_000, PriceConfigured: true, Enabled: true},

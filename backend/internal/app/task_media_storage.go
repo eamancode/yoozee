@@ -153,6 +153,7 @@ func (s *Service) stageInlineMedia(data []byte) (string, error) {
 }
 
 func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, url, mode string) (name, mimeType string, err error) {
+	url = strings.TrimSpace(url)
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return "", "", err

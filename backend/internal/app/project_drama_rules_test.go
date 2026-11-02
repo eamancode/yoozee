@@ -373,7 +373,7 @@ func TestDramaSegmentsWriteToolAdvertisesOrder(t *testing.T) {
 	if !ok || order["type"] != "array" || order["items"].(map[string]any)["type"] != "string" {
 		t.Fatalf("order 应是字符串数组：%v", parameters["properties"])
 	}
-	for _, name := range parameters["required"].([]string) {
+	for _, name := range parameters["required"].([]any) {
 		if name == "order" {
 			t.Fatal("order 只在拆段、合段时给，不能是必填")
 		}

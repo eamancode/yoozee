@@ -595,11 +595,8 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 	// 短剧项目工具读写的是项目数据（不是画布），在检查点事务外执行，结果随后记入转录。
 	var dramaResult any
 	var dramaErr error
-	if allowed {
-		switch call.Function.Name {
-		case "drama_progress_read", "drama_chapters_read", "drama_brief_read", "drama_bible_read", "drama_segments_read", "drama_shotlist_read", "drama_compile_prompt", "drama_brief_write", "drama_bible_write", "drama_segments_write", "drama_shotlist_write", "drama_artifact_register", "drama_qa_transcribe", "drama_qa_frames", "drama_evidence_write", "drama_take_pick", "drama_gate_check", "drama_delivery_package":
-			dramaResult, dramaErr = s.cloudAgentDramaTool(run.UserID, state, call)
-		}
+	if allowed && binding.Handler.Pipeline == cloudAgentToolProjectDrama {
+		dramaResult, dramaErr = binding.Handler.ProjectDrama(s.repo, run.UserID, state, call, s)
 	}
 	// Service-backed reads may open resources or use domain repositories.
 	// Read before the checkpoint transaction to avoid nested DB reads on SQLite
@@ -650,7 +647,7 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 			}
 		case toolPolicy.OutsideTransaction:
 			result, toolErr = skillResult, skillErr
-		case cloudAgentDramaTool(call.Function.Name):
+		case binding.Handler.Pipeline == cloudAgentToolProjectDrama:
 			result, toolErr = dramaResult, dramaErr
 		default:
 			result, toolErr = cloudAgentReadToolCached(repo, run.UserID, state, call)

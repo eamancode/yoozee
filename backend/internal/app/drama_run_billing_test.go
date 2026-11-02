@@ -115,6 +115,7 @@ func TestDramaRunBillingReservesEveryTurn(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, unit := seedLongQichuang(t, svc, db, 2, 4)
 	for _, row := range []any{
+		&model.User{ID: "user-1", Username: "billing-reserve-user", Status: model.UserStatusActive},
 		&model.ModelChannel{ID: "ch-text", Scope: "system", Enabled: true, Name: "text", BaseURL: "https://upstream.example.com/v1", APIFormat: "openai"},
 		&model.ChannelModel{ID: "cm-text", ChannelID: "ch-text", ModelKey: "fake-shots", Capability: "text", Protocol: "chat-completion", CapabilityConfigJSON: mustEncodeModelCapabilityConfig(t, DefaultModelCapabilityConfigForModel("chat-completion", "fake-shots")), BillingMode: "fixed_request", UnitPriceMicrocredits: 300_000, PriceConfigured: true, Enabled: true},
 		&model.ChannelModelPriceTier{ID: "tier-text", ChannelModelID: "cm-text", SelectorKey: "{}", SelectorJSON: "{}", BillingMode: "fixed_request", UnitPriceMicrocredits: 300_000, PriceConfigured: true, Enabled: true},

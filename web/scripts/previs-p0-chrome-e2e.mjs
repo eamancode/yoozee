@@ -398,7 +398,7 @@ async function openUnifiedWorkbench(cdp, label) {
 async function addProp(cdp, name, label) {
     if (!(await cdp.click('[aria-label="添加到场景"]'))) throw new Error(`${label}: 添加到场景 button not clickable`);
     if (!(await cdp.poll(`!!document.querySelector('.previs-add-dialog [role="tab"]')`, `${label} add dialog`, 10000))) throw new Error(`${label}: add dialog did not open`);
-    if (!(await cdp.clickText("道具", '[role="tab"]'))) throw new Error(`${label}: 道具 tab not clickable`);
+    if (!(await cdp.clickText("道具", '.previs-add-dialog [role="tab"]'))) throw new Error(`${label}: 道具 tab not clickable`);
 
     const card = `[...document.querySelectorAll('.previs-add-dialog__card')].find((button) => (button.textContent || '').includes(${JSON.stringify(name)}) && button.getClientRects().length > 0)`;
     if (!(await cdp.poll(`!!(${card})`, `${label} prop card`, 10000))) throw new Error(`${label}: ${name} prop card not visible`);

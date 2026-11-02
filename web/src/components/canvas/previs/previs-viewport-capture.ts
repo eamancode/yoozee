@@ -194,6 +194,7 @@ export async function recordCanvas(source: PrevisCaptureSource, duration: number
         surface.render(mode, 0);
         if (!surface.canvas.captureStream) throw new Error("当前浏览器不支持画面录制");
         stream = surface.canvas.captureStream(fps);
+        const captureTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
         const mimeType = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/mp4", "video/webm"].find((type) => MediaRecorder.isTypeSupported(type));
         if (!mimeType) throw new Error("当前浏览器没有可用的视频编码器");
         recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
@@ -222,24 +223,35 @@ export async function recordCanvas(source: PrevisCaptureSource, duration: number
                 else if (!blob.size) reject(new Error("录制没有产生视频数据"));
                 else resolve(blob);
             };
-            options.signal?.addEventListener("abort", onAbort, { once: true });
-            document.addEventListener("visibilitychange", onHidden);
-            activeRecorder.start(250);
-            const start = performance.now();
-            const tick = () => {
-                try {
-                    const elapsed = (performance.now() - start) / 1000;
-                    if (elapsed >= duration) {
-                        stop();
-                        return;
+            // 首轮编码器启动可能超过短片时长，从 start 事件起计时，避免启动期间就停止。
+            activeRecorder.onstart = () => {
+                if (failure || activeRecorder.state === "inactive") return;
+                const start = performance.now();
+                const tick = () => {
+                    try {
+                        const elapsed = (performance.now() - start) / 1000;
+                        if (elapsed >= duration) {
+                            stop();
+                            return;
+                        }
+                        surface.render(mode, Math.floor(elapsed * fps) / fps);
+                        captureTrack.requestFrame?.();
+                        timer = window.setTimeout(tick, 1000 / fps);
+                    } catch (error) {
+                        stop(error instanceof Error ? error : new Error("录制期间渲染失败"));
                     }
-                    surface.render(mode, Math.floor(elapsed * fps) / fps);
+                };
+                try {
+                    surface.render(mode, 0);
+                    captureTrack.requestFrame?.();
                     timer = window.setTimeout(tick, 1000 / fps);
                 } catch (error) {
                     stop(error instanceof Error ? error : new Error("录制期间渲染失败"));
                 }
             };
-            timer = window.setTimeout(tick, 1000 / fps);
+            options.signal?.addEventListener("abort", onAbort, { once: true });
+            document.addEventListener("visibilitychange", onHidden);
+            activeRecorder.start(250);
             watchdog = window.setTimeout(
                 () => {
                     stop(new Error("视频编码超时"));
