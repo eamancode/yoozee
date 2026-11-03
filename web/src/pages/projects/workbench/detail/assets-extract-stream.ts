@@ -17,6 +17,7 @@ export type AssetsStreamRow = {
     firstScene: number;
     /** 角色这一行写的子卡变体名（服装 / 状态）。 */
     variants: string[];
+    designSummary: string;
 };
 
 export type AssetsStreamScene = {
@@ -54,6 +55,19 @@ function assetRow(parsed: Record<string, unknown>): AssetsStreamRow | undefined 
                 .toLowerCase()
         ] ?? "";
     const scene = Number(String(parsed.first_scene ?? "").match(/(\d+)\s*$/)?.[1]) || 0;
+    const design = record(parsed.design);
+    const designSummary = [
+        Array.isArray(design?.evidence) && design.evidence.length ? `${design.evidence.length} 条依据` : "",
+        Array.isArray(design?.states) && design.states.length ? `${design.states.length} 项状态` : "",
+        ["characters", "props", "environments"].some((key) => {
+            const refs = design?.[key];
+            return Array.isArray(refs) && refs.length > 0;
+        })
+            ? "资产关联"
+            : "",
+    ]
+        .filter(Boolean)
+        .join("、");
     return {
         category,
         name,
@@ -63,6 +77,7 @@ function assetRow(parsed: Record<string, unknown>): AssetsStreamRow | undefined 
             .trim(),
         firstScene: scene,
         variants: Array.isArray(parsed.variants) ? parsed.variants.map((item) => String(record(item)?.label ?? "").trim()).filter(Boolean) : [],
+        designSummary,
     };
 }
 

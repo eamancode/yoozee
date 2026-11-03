@@ -26,6 +26,7 @@ type DramaRunPanelProps = {
     running: boolean;
     task?: GenerationTask;
     receivedChars?: number;
+    checkpointNote?: string;
     /** 顶部一行状态（正在写第几轮、结果摘要）。 */
     status: ReactNode;
     /** 一轮叫什么（场、集）和这一步叫什么（生成分段、剧本优化），用在续写与失败提示里。 */
@@ -65,6 +66,7 @@ export function DramaRunPanel({
     running,
     task,
     receivedChars = 0,
+    checkpointNote,
     status,
     unit,
     stepLabel,
@@ -112,7 +114,7 @@ export function DramaRunPanel({
                 {running ? (
                     <div className="text-xs leading-5 text-foreground/55" role="status">
                         {task?.status === "queued" ? "任务正在排队，尚未开始调用模型。" : receivedChars ? `已接收 ${receivedChars.toLocaleString("zh-CN")} 字符；` : "正在等待模型首字；"}
-                        {task?.status !== "queued" ? `${Math.max(0, Math.floor((clock - lastReceived) / 1000))} 秒未收到新活动。已完成内容会按${unit}保存；无需重复提交。` : ""}
+                        {task?.status !== "queued" ? `${Math.max(0, Math.floor((clock - lastReceived) / 1000))} 秒未收到新活动。${checkpointNote || `已完成内容会按${unit}保存；无需重复提交。`}` : ""}
                     </div>
                 ) : null}
 

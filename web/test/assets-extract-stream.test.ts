@@ -8,6 +8,15 @@ const hall = JSON.stringify({ category: "scene", name: "病房走廊", aliases: 
 const lin = JSON.stringify({ category: "character", name: "林小满", aliases: "小满、林护士", appearance: "", prompt_en: "", first_scene: "S01", variants: [{ label: "淋湿", kind: "state", scenes: [1] }, { label: "" }] });
 
 describe("资产设计流式视图", () => {
+    test("跨场复用的空外观行仍展示附件依据、状态和关联，不误判为缺失设计", () => {
+        const reused = { category: "prop", name: "旧推车", first_scene: 2, appearance: "", design: { evidence: [{ kind: "原文", text: "轮子换过一只" }], states: [{ state: "五年后换轮" }], environments: ["市场"] } };
+        const state = parseAssetsExtractStream([marker(1), hall, marker(2), JSON.stringify(reused), ""].join("\n"));
+        expect(state.rowCount).toBe(2);
+        expect(state.scenes[1].rows[0].appearance).toBe("");
+        expect(state.scenes[1].rows[0].designSummary).toBe("1 条依据、1 项状态、资产关联");
+        expect(state.scenes[0].rows[0].designSummary).toBe("");
+    });
+
     test("按回合标记分场，重试清掉这一场的半截输出，没写完的最后一行不算", () => {
         const text = [marker(1), hall, marker(2), JSON.stringify({ category: "prop", name: "半截" }), marker(2, 2), zhou, `{"category": "prop", "name": "折`].join("\n");
         const state = parseAssetsExtractStream(text);

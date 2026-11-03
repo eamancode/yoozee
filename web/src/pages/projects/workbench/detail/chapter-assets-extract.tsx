@@ -92,7 +92,7 @@ function AssetsRunGroups(stream: AssetsExtractStreamState) {
         key: scene.index,
         title: `第 ${scene.index} 场`,
         heading: scene.heading || undefined,
-        meta: `${scene.rows.length} 个资产${scene.attempt > 1 ? ` · 第 ${scene.attempt} 次` : ""}`,
+        meta: `${scene.rows.length} 条资产记录${scene.attempt > 1 ? ` · 第 ${scene.attempt} 次` : ""}`,
         body: (
             <ul className="space-y-1 rounded-md border border-border/60 px-2.5 py-1.5 text-xs leading-5">
                 {scene.rows.map((row, index) => (
@@ -100,8 +100,9 @@ function AssetsRunGroups(stream: AssetsExtractStreamState) {
                         <span className="w-8 shrink-0 text-[var(--fs-micro)] text-foreground/45">{row.category ? CATEGORY_LABEL[row.category] : "？"}</span>
                         <span className="shrink-0 font-medium text-foreground/85">{row.name}</span>
                         <span className="min-w-0 flex-1 truncate text-foreground/55" title={row.appearance || undefined}>
-                            {row.appearance || (row.variants.length ? `子卡：${row.variants.join("、")}` : row.aliases.length ? `补别名：${row.aliases.join("、")}` : "没写外观")}
+                            {row.appearance || (row.variants.length ? `子卡：${row.variants.join("、")}` : row.aliases.length ? `补别名：${row.aliases.join("、")}` : "沿用已有外观")}
                             {row.appearance && row.variants.length ? <span className="ml-1.5 text-foreground/45">子卡：{row.variants.join("、")}</span> : null}
+                            {row.designSummary ? <span className="ml-1.5 text-foreground/45">补充 {row.designSummary}</span> : null}
                         </span>
                     </li>
                 ))}
@@ -371,7 +372,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
         <>
             <span className="font-medium text-foreground/80">{streamState.total ? `正在写第 ${Math.max(1, streamState.current)}/${streamState.total} 场` : "等待模型开始输出"}</span>
             <span>·</span>
-            <span>已出 {streamState.rowCount} 个资产</span>
+            <span>已输出 {streamState.rowCount} 条资产记录（含跨场复用）</span>
             {latestTask?.stage && (latestTask.status === "queued" || latestTask.status === "running") ? (
                 <>
                     <span>·</span>
@@ -509,6 +510,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 running={running}
                 task={latestTask}
                 receivedChars={liveStream?.text.length || 0}
+                checkpointNote="已完成场次保存为进度检查点；全部完成后合并写入资产库，无需重复提交。"
                 status={status}
                 unit="场"
                 stepLabel="提取资产"
