@@ -31,6 +31,9 @@ func requireVideoChainParent(tx *gorm.DB, task *model.Task) error {
 	if parent.Status != model.TaskStatusRunning {
 		return ErrVideoChainStopped
 	}
+	if task.ParentControllerLease == "" || parent.LeaseOwner != task.ParentControllerLease || parent.LeaseExpiresAt == nil || !parent.LeaseExpiresAt.After(time.Now()) {
+		return ErrTaskStateConflict
+	}
 	return nil
 }
 
@@ -44,8 +47,8 @@ func (r *Repository) ProjectVideoChains(userID, projectID, operation string) ([]
 	return tasks, err
 }
 
-// Project row locking serializes create/cancel with child admission on PostgreSQL;
-// SQLite's transaction and unique task ID provide the same persisted idempotency boundary.
+// The project lock serializes controller creation. Child admission and cancellation
+// share the parent-task lock; its lease fences stale controllers before charging.
 func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int) (*model.Task, error) {
 	var existing model.Task
 	err := r.db.Transaction(func(tx *gorm.DB) error {

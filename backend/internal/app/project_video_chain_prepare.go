@@ -86,6 +86,7 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 		if config == nil {
 			return state, BadAuthRequest("连续生成缺少视频模型配置")
 		}
+		if config["channelId"] == nil { config["channelId"] = "" }
 		content := segmentSubmissionContent(shot, revision)
 		if !isPositiveVideoSeconds(content.Dur) {
 			return state, BadAuthRequest("镜头组时长必须大于 0")

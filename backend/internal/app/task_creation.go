@@ -14,13 +14,15 @@ import (
 // Internal admission constraints are not JSON fields. Callers cannot select a
 // task ID or bypass the quoted-charge ceiling through the public tasks API.
 type taskAdmission struct {
-	ParentControllerID string
-	ID                 string
-	MaxCharge          int64
-	AgentRunID         string
-	GenerationID       string
-	ApprovalID         string
-	NonBillable        bool
+	ParentControllerLease string
+	ExpectedRouteRun      int
+	ParentControllerID    string
+	ID                    string
+	MaxCharge             int64
+	AgentRunID            string
+	GenerationID          string
+	ApprovalID            string
+	NonBillable           bool
 }
 
 // CreateTask 收敛任务进入系统前的 admission 流程：输入标准化、逻辑模型路由、
@@ -172,6 +174,7 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	task.RouteRun = 1
 	if req.admission != nil {
 		task.ParentControllerID = req.admission.ParentControllerID
+		task.ParentControllerLease = req.admission.ParentControllerLease
 		task.ID = req.admission.ID
 		task.AgentRunID = req.admission.AgentRunID
 		task.GenerationID = req.admission.GenerationID

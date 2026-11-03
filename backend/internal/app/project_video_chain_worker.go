@@ -60,7 +60,7 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 				if child.MediaRecoveryJSON != "" {
 					_, err = s.RecoverTaskMedia(task.UserID, child.ID)
 				} else {
-					_, err = s.RetryTask(task.UserID, child.ID)
+					_, err = s.taskLifecycle().retryTaskAdmitted(task.UserID, child.ID, &taskAdmission{ParentControllerID: task.ID, ParentControllerLease: task.LeaseOwner, ExpectedRouteRun: step.RetryRouteRun - 1})
 				}
 				if err != nil {
 					return fail(err)
@@ -122,7 +122,7 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		maxCharge = step.Quote.AmountMicrocredits
 	}
 	metadata, _ := input["metadata"].(map[string]any)
-	_, err = s.CreateTask(task.UserID, CreateTaskRequest{ProjectID: task.ProjectID, Type: "canvas_video", Operation: stringValue(metadata["videoEditOperation"]), Model: step.Model, LogicalModelID: step.LogicalModelID, Prompt: stringValue(input["prompt"]), Input: input, admission: &taskAdmission{ID: step.TaskID, MaxCharge: maxCharge, ParentControllerID: task.ID}})
+	_, err = s.CreateTask(task.UserID, CreateTaskRequest{ProjectID: task.ProjectID, Type: "canvas_video", Operation: stringValue(metadata["videoEditOperation"]), Model: step.Model, LogicalModelID: step.LogicalModelID, Prompt: stringValue(input["prompt"]), Input: input, admission: &taskAdmission{ID: step.TaskID, MaxCharge: maxCharge, ParentControllerID: task.ID, ParentControllerLease: task.LeaseOwner}})
 	if err != nil {
 		// A prior lease may have committed this exact task before its controller
 		// checkpoint. The deterministic ID is the idempotency boundary.

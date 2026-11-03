@@ -465,3 +465,18 @@ func TestVideoChainControllerDoesNotStarveQueuedVideo(t *testing.T) {
 		t.Fatal("controller starved its video", claimed, err)
 	}
 }
+
+func TestVideoChainStaleControllerCannotAdmitChild(t *testing.T) {
+	f := newVideoChainFixture(t, "A", "A")
+	chain := f.start(t)
+	expires := time.Now().Add(time.Minute)
+	f.db.Model(&model.Task{}).Where("id = ?", chain.ID).Updates(map[string]any{"status": model.TaskStatusRunning, "lease_owner": "new-worker", "lease_expires_at": expires})
+	child := &model.Task{ID: newID(), UserID: "user-1", ProjectID: f.projectID, Type: "canvas_video", Status: model.TaskStatusQueued, ParentControllerID: chain.ID, ParentControllerLease: "old-worker"}
+	if err := f.s.repo.CreateTaskWithActiveLimit(child, 10); err == nil {
+		t.Fatal("stale controller admitted a video")
+	}
+	child.ParentControllerLease = "new-worker"
+	if err := f.s.repo.CreateTaskWithActiveLimit(child, 10); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -31,6 +31,10 @@ func (s *Service) taskLifecycle() *taskLifecycleCoordinator {
 }
 
 func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.Task, error) {
+	return w.retryTaskAdmitted(userID, id, nil)
+}
+
+func (w *taskLifecycleCoordinator) retryTaskAdmitted(userID string, id string, admission *taskAdmission) (*model.Task, error) {
 	s := w.service
 	if s.IsDraining() {
 		return nil, &AppError{Status: 503, Code: 503, Message: "服务正在维护，暂不接受任务重试", Retryable: true}
@@ -81,6 +85,10 @@ func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.T
 	}
 	if marker, ok := billingInput[videoChainMetadataKey].(map[string]any); ok {
 		task.ParentControllerID = stringValue(marker["controllerId"])
+		if admission == nil || admission.ParentControllerID != task.ParentControllerID || task.RouteRun != admission.ExpectedRouteRun {
+			return nil, BadAuthRequest("请从连续生成面板重试，不重复提交已恢复的视频任务")
+		}
+		task.ParentControllerLease = admission.ParentControllerLease
 		parent, err := s.repo.TaskForUser(userID, task.ParentControllerID)
 		if err != nil || parent.Status != model.TaskStatusRunning {
 			return nil, BadAuthRequest("请在项目连续生成面板中重试，后续镜头仍保持等待")
