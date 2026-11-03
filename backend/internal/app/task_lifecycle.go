@@ -79,9 +79,27 @@ func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.T
 	if err := s.prepareLogicalTaskRetry(task, billingInput); err != nil {
 		return nil, err
 	}
+	task.Prompt, err = s.prepareDramaVideoSubmission(userID, billingInput, task.Prompt, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.enforceDramaSegmentTaskDuration(userID, billingInput); err != nil {
+		return nil, err
+	}
+	if err := s.ValidateTaskCapability(billingInput); err != nil {
+		return nil, err
+	}
 	if err := s.requireCustomChannelsForTaskInput(billingInput); err != nil {
 		return nil, err
 	}
+	if err := s.protectTaskSecrets(billingInput); err != nil {
+		return nil, err
+	}
+	encodedInput, err := json.Marshal(billingInput)
+	if err != nil {
+		return nil, err
+	}
+	task.InputJSON = string(encodedInput)
 	billingOrder, err := s.taskBillingOrder(userID, task, billingInput)
 	if err != nil {
 		return nil, err

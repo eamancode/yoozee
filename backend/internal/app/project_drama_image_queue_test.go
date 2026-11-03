@@ -21,7 +21,7 @@ var assetQueueTitles = []string{"病房走廊", "电梯口", "电梯里"}
 
 // assetQueueFixture 是三个还没出图的场景资产（资产设计建的，payload 记了出图状态），同时任务数上限 1，图片上游一直返回 500。
 // M8 卡 B 起色卡由代码合成，排队只剩资产设计的角色、场景、道具。
-func assetQueueFixture(t *testing.T) (*Service, *gorm.DB, model.Project, DramaImageTaskTemplate, *atomic.Int32) {
+func assetQueueFixture(t *testing.T, response ...func(http.ResponseWriter, *http.Request, int32)) (*Service, *gorm.DB, model.Project, DramaImageTaskTemplate, *atomic.Int32) {
 	t.Helper()
 	svc, db := newDramaWorkerTestService(t)
 	project, _ := seedEpisodeProject(t, svc, db)
@@ -49,7 +49,11 @@ func assetQueueFixture(t *testing.T) (*Service, *gorm.DB, model.Project, DramaIm
 	}
 	var imageCalls atomic.Int32
 	images := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		imageCalls.Add(1)
+		call := imageCalls.Add(1)
+		if len(response) > 0 {
+			response[0](w, r, call)
+			return
+		}
 		http.Error(w, `{"error":{"message":"upstream boom"}}`, http.StatusInternalServerError)
 	}))
 	t.Cleanup(images.Close)
@@ -62,6 +66,71 @@ func assetQueueFixture(t *testing.T) (*Service, *gorm.DB, model.Project, DramaIm
 		"channelId": "", "baseUrl": images.URL, "apiKey": "test-key", "model": "queue-image", "interfaceType": "openai-image", "apiFormat": "openai", "size": "1024x1024", "count": "1",
 	}}}
 	return svc, db, project, template, &imageCalls
+}
+
+func TestDramaImageAutomaticRetryCanSucceed(t *testing.T) {
+	svc, db, project, template, calls := assetQueueFixture(t, func(w http.ResponseWriter, r *http.Request, call int32) {
+		if call == 1 {
+			http.Error(w, "temporary upstream error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="}}})
+	})
+	queued, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template})
+	if err != nil || len(queued.Queued) != 1 {
+		t.Fatalf("queue: %+v %v", queued, err)
+	}
+	first, _ := runQueuedTask(t, svc)
+	if first.Status != model.TaskStatusQueued {
+		t.Fatalf("retry not queued: %+v", first)
+	}
+	done, _ := runQueuedTask(t, svc)
+	if done.ID != first.ID || done.Status != model.TaskStatusSucceeded || calls.Load() != 2 {
+		t.Fatalf("second attempt: %s %q calls=%d", done.Status, done.Error, calls.Load())
+	}
+	if states := assetStates(t, svc, project.ID); states["电梯口"].Status != dramaImageQueued || activeImageTasks(t, db) != 1 {
+		t.Fatalf("success did not continue queue: %+v", states)
+	}
+	var videos int64
+	db.Model(&model.Task{}).Where("type = ?", "canvas_video").Count(&videos)
+	if videos != 0 {
+		t.Fatal("image retry created video task")
+	}
+}
+
+func TestDramaImageAutomaticRetrySkipsRecoveryAndUncertainBilling(t *testing.T) {
+	for _, reason := range []string{"media-recovery", "uncertain-billing"} {
+		t.Run(reason, func(t *testing.T) {
+			svc, db, project, template, calls := assetQueueFixture(t)
+			queued, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template})
+			if err != nil || len(queued.Queued) != 1 {
+				t.Fatal(err)
+			}
+			task, err := svc.repo.Task(assetStates(t, svc, project.ID)["病房走廊"].TaskID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			task.Status = model.TaskStatusFailed
+			if reason == "media-recovery" {
+				task.MediaRecoveryJSON = `{"pending":true}`
+			} else {
+				order := model.BillingOrder{ID: "uncertain-image", UserID: task.UserID, TaskID: task.ID, Status: model.BillingStatusUncertain}
+				if err := db.Create(&order).Error; err != nil {
+					t.Fatal(err)
+				}
+				task.BillingOrderID = order.ID
+			}
+			if err := db.Save(task).Error; err != nil {
+				t.Fatal(err)
+			}
+			svc.afterDramaImageTaskEnded(*task)
+			latest, _ := svc.repo.Task(task.ID)
+			if latest.Status != model.TaskStatusFailed || calls.Load() != 0 {
+				t.Fatalf("unsafe image was retried: %+v calls=%d", latest, calls.Load())
+			}
+		})
+	}
 }
 
 // assetStates 是按资产标题的出图状态（存在资产上的那份）。
@@ -103,6 +172,10 @@ func TestDramaImageQueueContinuesAfterFailedOrCancelledTask(t *testing.T) {
 		t.Fatalf("排队状态：%+v", states)
 	}
 
+	firstAttempt, _ := runQueuedTask(t, svc)
+	if firstAttempt.Status != model.TaskStatusQueued || assetStates(t, svc, project.ID)["病房走廊"].AutoRetryCount != 1 {
+		t.Fatalf("第一次失败应自动重试同一任务：%+v", firstAttempt)
+	}
 	failed, _ := runQueuedTask(t, svc)
 	if failed.Status != model.TaskStatusFailed || imageCalls.Load() == 0 {
 		t.Fatalf("第一张该失败：%s %q（上游调用 %d 次）", failed.Status, failed.Error, imageCalls.Load())
@@ -127,6 +200,9 @@ func TestDramaImageQueueContinuesAfterFailedOrCancelledTask(t *testing.T) {
 		t.Fatalf("第二张取消后第三张接着排：%+v", states)
 	}
 
+	if last, _ := runQueuedTask(t, svc); last.Status != model.TaskStatusQueued {
+		t.Fatalf("第三张第一次失败应重试：%s", last.Status)
+	}
 	if last, _ := runQueuedTask(t, svc); last.Status != model.TaskStatusFailed {
 		t.Fatalf("第三张该失败：%s", last.Status)
 	}
@@ -139,7 +215,14 @@ func TestDramaImageQueueContinuesAfterFailedOrCancelledTask(t *testing.T) {
 	var imageTasks int64
 	db.Model(&model.Task{}).Where("type = ?", "canvas_image").Count(&imageTasks)
 	if imageTasks != 3 || activeImageTasks(t, db) != 0 {
-		t.Fatalf("失败的不自动重试：共 %d 个出图任务，还在跑 %d 个", imageTasks, activeImageTasks(t, db))
+		t.Fatalf("每张仅自动重试一次：共 %d 个出图任务，还在跑 %d 个", imageTasks, activeImageTasks(t, db))
+	}
+	if imageCalls.Load() != 4 {
+		t.Fatalf("失败各调用两次，取消不调用：%d", imageCalls.Load())
+	}
+	svc.afterDramaImageTaskEnded(*failed)
+	if activeImageTasks(t, db) != 0 {
+		t.Fatal("重复结束回调不得再次自动重试")
 	}
 
 	again, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template})

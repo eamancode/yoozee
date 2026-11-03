@@ -20,7 +20,7 @@ import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, vid
 import { imageQualityLabel } from "@/lib/image-quality";
 import { modelQuoteDescription, modelQuoteRequest } from "@/lib/model-pricing";
 import { customShotTitle, formatShotOrdinal, normalizeDefaultShotTitle } from "@/lib/shot-label";
-import { modelCompatibilityError, modelPromptLengthError, modelPromptMaxChars, resolveModelVideoBooleanOptions, type ModelRequirements } from "@/lib/model-selection";
+import { modelCompatibilityError, modelFixedVideoSeconds, modelVideoSubmissionSeconds, modelPromptLengthError, modelPromptMaxChars, resolveModelVideoBooleanOptions, type ModelRequirements } from "@/lib/model-selection";
 import { formatVideoResolutionLabel } from "@/lib/video-generation-options";
 import { submitBackendGenerationTask } from "@/services/api/generation-task";
 import { quoteModel, type LogicalModelQuote } from "@/services/api/logical-models";
@@ -198,8 +198,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const segmentIssueCounts = useMemo(() => Object.fromEntries((dramaProgressQuery.data?.segments || []).filter((segment) => segment.issues).map((segment) => [segment.shotId, segment.issues || 0])), [dramaProgressQuery.data?.segments]);
     const previzReady = useMemo(() => (detail.shotArtifacts || []).some((item) => item.shotId === selectedShot?.id && item.type === "action_board" && item.selected && item.status !== "stale" && item.status !== "failed"), [detail.shotArtifacts, selectedShot?.id]);
     const previzBlocked = activeStage === "video" && Boolean(dramaProgressQuery.data?.previzGate) && !previzReady;
-    const currentDurationSeconds = Number(watchedDuration || Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
-    const generationSeconds = String(Math.max(1, Math.round(currentDurationSeconds)));
+    const currentDurationSeconds = Number(watchedDuration ?? Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
+    const fixedGenerationSeconds = generationCapability === "video" ? modelFixedVideoSeconds(effectiveConfig, selectedModel) : undefined;
+    const generationSeconds = String(modelVideoSubmissionSeconds(effectiveConfig, selectedModel, currentDurationSeconds) ?? currentDurationSeconds);
     const generationReferenceAudios = generationCapability === "video" ? shotAssetReferenceContext.referenceAudios : [];
     const videoEditOperation = generationCapability === "video" && shotAssetReferenceContext.referenceImages.length ? "reference_to_video" : undefined;
     const modelRequirements = useMemo<ModelRequirements>(() => ({
@@ -207,11 +208,12 @@ export default function WorkflowProductionWorkbench(props: Props) {
         input: { textCount: 1, imageCount: shotAssetReferenceContext.referenceImages.length, videoCount: 0, audioCount: generationReferenceAudios.length, characterCount: 0 },
         videoOperation: videoEditOperation,
         videoSeconds: generationCapability === "video" ? generationSeconds : undefined,
+        videoContentSeconds: generationCapability === "video" ? currentDurationSeconds : undefined,
         imageSize: generationCapability === "image" ? aspectRatio : undefined,
         options: generationCapability === "video"
             ? { size: aspectRatio, vquality: resolution, videoSeconds: Number(generationSeconds) }
             : { size: aspectRatio, quality: imageQuality },
-    }), [aspectRatio, generationCapability, generationReferenceAudios.length, generationSeconds, imageQuality, resolution, shotAssetReferenceContext.referenceImages.length, videoEditOperation]);
+    }), [aspectRatio, currentDurationSeconds, generationCapability, generationReferenceAudios.length, generationSeconds, imageQuality, resolution, shotAssetReferenceContext.referenceImages.length, videoEditOperation]);
     // 用户已选择具体渠道；不因规格变化悄悄换到同组另一条计费线路。
     const routedModel = selectedModel;
     const generationProblem = routedModel ? modelCompatibilityError(effectiveConfig, routedModel, modelRequirements) : "请先选择生成模型";
@@ -490,7 +492,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 revision: revisionInput(values, segmentSpecJson),
             });
             const mode = generationCapability;
-            let config = { ...generationConfig, videoSeconds: String(Math.max(1, Math.round(values.durationSeconds))) };
+            const submissionSeconds = modelVideoSubmissionSeconds(effectiveConfig, routedModel, values.durationSeconds);
+            if (mode === "video" && submissionSeconds === undefined) throw new Error("镜头组时长超出模型上限或无效，请拆分镜头组");
+            let config = { ...generationConfig, videoSeconds: String(submissionSeconds ?? values.durationSeconds) };
             // 视频按项目生成模型的方言编译：分段 JSON 存在时，提示词和参考清单都以编译结果为准。
             let dialect: { prompt: string; images: typeof shotAssetReferenceContext.referenceImages; audios: typeof generationReferenceAudios; frames: boolean; metadata: Record<string, unknown> } | null = null;
             if (mode === "video") {
@@ -509,7 +513,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     }
                     const warnings = compiled.result.issues.filter((issue) => issue.level === "warn");
                     if (warnings.length) message.warning(warnings.map((issue) => issue.message).join("；"));
-                    config = { ...config, videoSeconds: String(compiled.result.duration) };
+                    const compiledSeconds = modelVideoSubmissionSeconds(effectiveConfig, routedModel, compiled.result.duration);
+                    if (compiledSeconds === undefined) throw new Error("编译后的镜头组时长超出模型上限，请拆分镜头组");
+                    config = { ...config, videoSeconds: String(compiledSeconds) };
                     dialect = { prompt: compiled.result.prompt, images: media.images, audios: media.audios, frames: media.frames, metadata: { promptSource: "yoozee-dialect", dramaModel: compiled.result.model, dramaSegment: compiled.result.segment, dramaCompileProfileVersion: compiled.compileProfile?.version ?? 0 } };
                 }
             }
@@ -558,7 +564,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     // 首尾帧段（MiniMax-H3 锁首帧）按图生视频提交，图片自带 first_frame / last_frame 角色；其余带图的都是参考生视频。
                     ...(mode === "video" && (dialect ? dialect.images.length : fallbackPalette.images.length) ? { videoEditOperation: dialect?.frames ? "image_to_video" : "reference_to_video" } : {}),
                     resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
-                    artifactMetadata: { model: routedModel, aspectRatio, resolution, imageQuality, durationSeconds: values.durationSeconds, ...skillExecution.metadata },
+                    artifactMetadata: { model: routedModel, aspectRatio, resolution, imageQuality, contentDurationSeconds: values.durationSeconds, durationSeconds: mode === "video" ? Number(config.videoSeconds) : values.durationSeconds, ...skillExecution.metadata },
                 },
             });
             if (activeShotIdRef.current === submittingShot.id) setEditorDirty(false);
@@ -692,8 +698,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                     {familyMismatch ? <p className="-mt-2 mb-3 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">这个模型属于 {routedFamily?.label}，项目的生成模型是 {dramaModel?.label}。分段按 {dramaModel?.label} 的上限和提示词写，请换成同族模型。</p> : null}
                                     <Form.Item label="技能库"><SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} /></Form.Item>
                                     <div className="workflow-form-grid is-three">
-                                        <Form.Item name="durationSeconds" label="段时长（秒）" extra={segmentSpecShots ? "由分段表决定" : dramaModel ? `${segmentLimit.byBrief ? "项目单段" : `${dramaModel.label} 一段`}最长 ${segmentMaxSeconds} 秒` : undefined} rules={segmentMaxSeconds ? [{ validator: (_rule, value) => Number(value) > segmentMaxSeconds ? Promise.reject(new Error(`超过${segmentLimit.byBrief ? "项目单段" : ` ${dramaModel?.label} 一段`} ${segmentMaxSeconds} 秒的上限，请拆成两段`)) : Promise.resolve() }] : undefined}>
-                                            {generationCapability === "video" && videoProfile?.duration.selection === "enum"
+                                        <Form.Item name="durationSeconds" label="段时长（秒）" extra={fixedGenerationSeconds ? `内容不超过 ${fixedGenerationSeconds} 秒；本次生成和计费 ${fixedGenerationSeconds} 秒，结束定格包含在内` : segmentSpecShots ? "由分段表决定" : dramaModel ? `${segmentLimit.byBrief ? "项目单段" : `${dramaModel.label} 一段`}最长 ${segmentMaxSeconds} 秒` : undefined} rules={segmentMaxSeconds ? [{ validator: (_rule, value) => !Number.isFinite(Number(value)) || Number(value) <= 0 || Number(value) > (fixedGenerationSeconds || segmentMaxSeconds) ? Promise.reject(new Error(`时长须大于 0 且不超过 ${fixedGenerationSeconds || segmentMaxSeconds} 秒，请调整或拆分镜头组`)) : Promise.resolve() }] : undefined}>
+                                            {fixedGenerationSeconds ? <InputNumber className="w-full" disabled={Boolean(segmentSpecShots)} changeOnBlur={false} step={0.5} /> : generationCapability === "video" && videoProfile?.duration.selection === "enum"
                                                 ? <Select disabled={Boolean(segmentSpecShots)} options={[
                                                     ...(!videoDurationOptions(videoProfile).includes(Number(watchedDuration)) && Number(watchedDuration) > 0 ? [{ value: Number(watchedDuration), label: `${watchedDuration} 秒（当前渠道不支持）`, disabled: true }] : []),
                                                     ...videoDurationOptions(videoProfile).filter((value) => !segmentMaxSeconds || Number(value) <= segmentMaxSeconds).map((value) => ({ value, label: `${value} 秒` })),
@@ -707,7 +713,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                             <Form.Item label="生成画质"><Select value={imageQuality} onChange={(value) => { setImageQuality(value); rememberGenerationSettings({ imageQuality: value }); }} options={imageProfile.quality.values.map((value) => ({ value, label: imageQualityLabel(value) }))} /></Form.Item>
                                         ) : <div />}
                                     </div>
-                                    {videoProfile ? <p className="mt-2 text-xs text-foreground/60">渠道实际时长：{videoProfile.duration.selection === "enum" ? (videoProfile.duration.values || []).join(" / ") : `${videoProfile.duration.min}–${videoProfile.duration.max}`} 秒{segmentMaxSeconds ? `；项目单段上限 ${segmentMaxSeconds} 秒` : ""}。以此规格报价和提交。</p> : null}
+                                    {videoProfile ? <p className="mt-2 text-xs text-foreground/60">渠道实际时长：{videoProfile.duration.selection === "enum" ? (videoProfile.duration.values || []).join(" / ") : `${videoProfile.duration.min}–${videoProfile.duration.max}`} 秒{fixedGenerationSeconds ? `；镜头内容须大于 0 且不超过 ${fixedGenerationSeconds} 秒` : segmentMaxSeconds ? `；项目单段上限 ${segmentMaxSeconds} 秒` : ""}。以此规格报价和提交。</p> : null}
                                     {generationCapability === "image" && imageProfile ? <ImageSizePicker profile={imageProfile} size={aspectRatio} quality={imageQuality} onChange={(size, quality) => { setAspectRatio(size); if (quality) setImageQuality(quality); rememberGenerationSettings({ aspectRatio: size, ...(quality ? { imageQuality: quality } : {}) }); }} /> : null}
                                 </div>
                                 <div className="workflow-settings-section">

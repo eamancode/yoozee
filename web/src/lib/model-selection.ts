@@ -1,5 +1,6 @@
 import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { videoResolutionComparisonKey } from "@/lib/video-generation-options";
+import { fixedVideoDuration, fixedVideoSubmissionSeconds } from "@/lib/fixed-video-duration";
 import { imageParameterRequest, imageParameterDefaults, imageParameterAccepts } from "./image-parameters";
 import { imageSizePresets } from "@/lib/image-size-presets";
 import { modelOptionName, PUBLIC_MODEL_CATALOG_ID, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
@@ -18,6 +19,8 @@ export type ModelRequirements = {
     input?: ModelInputSummary;
     videoOperation?: string;
     videoSeconds?: string;
+    /** Project content duration; fixed 15/30 second models quote and submit their full slot. */
+    videoContentSeconds?: number;
     imageSize?: string;
     options?: Record<string, unknown>;
 };
@@ -109,9 +112,33 @@ export function configuredModelDisplayName(config: AiConfig, value: string) {
     return channel.modelCosts?.find((item) => item.model === model)?.displayName?.trim() || model;
 }
 
+export function modelFixedVideoSeconds(config: AiConfig, model: string) {
+    const channel = resolveModelChannel(config, model);
+    const cost = channel.modelCosts?.find((item) => item.model === modelOptionName(model));
+    const specs = cost?.logicalCapabilityProfiles?.length ? cost.logicalCapabilityProfiles : cost?.logicalCapabilitySpec ? [cost.logicalCapabilitySpec] : [];
+    if (specs.length) {
+        const slots = specs.map((spec) => {
+            const duration = spec.options?.videoSeconds;
+            const values = duration?.values || (duration?.min === duration?.max && duration?.min !== undefined ? [duration.min] : []);
+            return fixedVideoDuration({ selection: "enum", values: values.map(Number), default: 0 });
+        });
+        return slots.every((slot) => slot === slots[0]) ? slots[0] : undefined;
+    }
+    return fixedVideoDuration(modelCapabilityConfigFor(config, model).video?.duration);
+}
+
+export function modelVideoSubmissionSeconds(config: AiConfig, model: string, contentSeconds: number) {
+    return fixedVideoSubmissionSeconds(modelFixedVideoSeconds(config, model), contentSeconds);
+}
+
 export function modelCompatibilityError(config: AiConfig, model: string, requirements?: ModelRequirements) {
     const capability = requirements?.capability;
-    if (!capability) return "";
+    if (!requirements || !capability) return "";
+    if (capability === "video" && requirements.videoContentSeconds !== undefined) {
+        const seconds = modelVideoSubmissionSeconds(config, model, requirements.videoContentSeconds);
+        if (seconds === undefined) return "镜头组时长超出模型上限或无效";
+        requirements = { ...requirements, videoSeconds: String(seconds), options: { ...requirements.options, videoSeconds: seconds } };
+    }
     const input = requirements?.input;
     const visualInputCount = input ? input.imageCount + input.characterCount : 0;
     const channel = resolveModelChannel(config, model);

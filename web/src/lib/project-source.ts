@@ -14,6 +14,7 @@ export type ProjectSourceDetection = {
 
 /** 创意的字数上限（约 300 字）：更短、又没有场次结构的按创意。 */
 export const IDEA_MAX_CHARS = 300;
+export const PROJECT_SOURCE_MAX_CHARS = 150_000;
 
 // 剧本的格式记号：场次号（第1场、1-2、场1）、场景头（## 内·病房·夜、内景 / 外景、日 / 夜）、△ 动作行、「人物：台词」。
 const SCENE_HEADING = /^\s*(#{1,3}\s*\S|第\s*[0-9一二三四五六七八九十百零〇两]+\s*场|场\s*[0-9]+|[0-9]+\s*[-－.．]\s*[0-9]+\s+\S|[内外](景)?\s*[·・.]|(日|夜|晨|昏)\s*[内外])/;
@@ -24,7 +25,7 @@ const NARRATIVE_LINE_CHARS = 60;
 
 /** 字数：去掉空白后的字符数（与导入预览一致）。 */
 export function sourceCharCount(text: string) {
-    return text.replace(/\s+/g, "").length;
+    return Array.from(text.replace(/\s+/g, "")).length;
 }
 
 /** 文本里像剧本格式的行：场次头、△ 动作行、台词行各几行。 */

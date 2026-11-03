@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CachedResourceImage } from "@/components/cached-resource-image";
+import { AppModal } from "@/components/ui/product/app-modal";
 import { getProjectDramaScenes, queueDramaAssetImages, type DramaImageTaskTemplate } from "@/services/api/project-drama";
 import { createDramaAssetVariant, deleteDramaAssetVariant, updateDramaAssetVariant, type DramaAssetVariantInput, type DramaAssetVariantKind, type ProjectAsset } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
@@ -35,6 +36,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const variants = parent.variants || [];
     const [expanded, setExpanded] = useState(false);
+    const [preview, setPreview] = useState<{ resourceId: string; title: string } | null>(null);
     const [editing, setEditing] = useState<ProjectAsset | "new" | null>(null);
     const [form, setForm] = useState<VariantForm>(variantForm());
     const scenesQuery = useQuery({ queryKey: ["project", projectId, "drama-scenes", "all"], queryFn: ({ signal }) => getProjectDramaScenes(projectId, signal), enabled: editing !== null });
@@ -109,7 +111,13 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                         return (
                             <li key={variant.id} className="min-w-0 list-none rounded-md border border-border/60 px-2 py-1.5">
                                 <div className="flex min-w-0 items-center gap-2">
-                                    <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded border border-border/60 bg-foreground/[.035] text-foreground/24">
+                                    <button
+                                        type="button"
+                                        disabled={!cover}
+                                        aria-label={`预览子卡「${variant.title}」`}
+                                        onClick={() => cover && setPreview({ resourceId: cover.resourceId, title: variant.title })}
+                                        className="grid size-8 shrink-0 place-items-center overflow-hidden rounded border border-border/60 bg-foreground/[.035] text-foreground/24 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-default"
+                                    >
                                         {cover ? (
                                             <CachedResourceImage
                                                 storageKey={`resource:${cover.resourceId}`}
@@ -122,7 +130,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                                         ) : (
                                             <UserRound className="size-4" />
                                         )}
-                                    </span>
+                                    </button>
                                     <div className="min-w-0 flex-1">
                                         <div className="truncate text-[var(--fs-label)] font-medium text-foreground/85" title={variant.title}>
                                             {variant.variant?.label || variant.title}
@@ -164,6 +172,19 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                     })}
                 </ul>
             ) : null}
+            <AppModal open={Boolean(preview)} onCancel={() => setPreview(null)} footer={null} title={preview?.title || "子卡图片预览"} width={960}>
+                {preview ? (
+                    <CachedResourceImage
+                        key={preview.resourceId}
+                        storageKey={`resource:${preview.resourceId}`}
+                        src={resourceFileUrl(preview.resourceId)}
+                        alt={`${preview.title}完整图片`}
+                        eager
+                        className="block max-h-[75vh] w-full object-contain"
+                        fallback={<p role="alert">图片暂时无法加载，请关闭后重新打开。</p>}
+                    />
+                ) : null}
+            </AppModal>
             <Modal
                 className="library-modal"
                 title={editing === "new" ? `给「${parent.title}」新增子卡` : `编辑子卡「${editing?.title || ""}」`}

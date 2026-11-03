@@ -1,4 +1,4 @@
-import { modelRequestOptions, resolveVideoOperation, type ModelRequirements } from "@/lib/model-selection";
+import { modelRequestOptions, modelVideoSubmissionSeconds, resolveVideoOperation, type ModelRequirements } from "@/lib/model-selection";
 import { videoResolutionComparisonKey } from "@/lib/video-generation-options";
 import { imagePriceSelector, normalizeImagePriceSelector } from "@/lib/image-pricing";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
@@ -16,6 +16,11 @@ type ModelCreditCost = {
 };
 
 export function requestCreditCost(options: { channelMode: string; modelCosts?: ModelCreditCost[]; model: string; count?: string | number; seconds?: string | number; capability?: ModelCapability; config?: AiConfig; requirements?: ModelRequirements }) {
+    if (options.capability === "video" && options.config && options.requirements?.videoContentSeconds !== undefined) {
+        const seconds = modelVideoSubmissionSeconds(options.config, options.model, options.requirements.videoContentSeconds);
+        if (seconds === undefined) return null;
+        options = { ...options, seconds, requirements: { ...options.requirements, videoSeconds: String(seconds), options: { ...options.requirements.options, videoSeconds: seconds } } };
+    }
     if (options.channelMode !== "remote") return null;
     const cost = options.modelCosts?.find((item) => item.model === options.model) || null;
     if (!cost) return null;
@@ -92,6 +97,11 @@ export function modelQuoteDescription(quote: LogicalModelQuote) {
 
 export function modelQuoteRequest(config: AiConfig, value: string, capability?: ModelCapability, requirements?: ModelRequirements): ModelQuoteRequest | undefined {
     if (!capability || !value) return undefined;
+    if (capability === "video" && requirements?.videoContentSeconds !== undefined) {
+        const seconds = modelVideoSubmissionSeconds(config, value, requirements.videoContentSeconds);
+        if (seconds === undefined) return undefined;
+        requirements = { ...requirements, videoSeconds: String(seconds), options: { ...requirements.options, videoSeconds: seconds } };
+    }
     const channel = resolveModelChannel(config, value);
     if (channel.scope !== "system") return undefined;
     const cost = channel.modelCosts?.find((item) => item.model === modelOptionName(value));

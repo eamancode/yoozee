@@ -1451,6 +1451,23 @@ func (s *Service) enforceDramaSegmentTaskDuration(userID string, input map[strin
 	}
 	project, err := s.repo.ProjectForUser(userID, strings.TrimSpace(projectID))
 	if err != nil {
+		return err
+	}
+	if fixed, err := s.projectVideoFixedDuration(input); err != nil {
+		return err
+	} else if fixed > 0 {
+		shot, err := s.repo.ShotForProject(projectID, shotID)
+		if err != nil {
+			return err
+		}
+		revision, err := s.repo.ShotRevisionForShot(shotID, shot.CurrentRevisionID)
+		if err != nil {
+			return err
+		}
+		content := segmentSubmissionContent(*shot, revision).Dur
+		if !isPositiveVideoSeconds(content) || content > float64(fixed) || seconds != float64(fixed) {
+			return BadAuthRequest("镜头组时长超出固定时长模型上限或提交时长无效")
+		}
 		return nil
 	}
 	m, err := projectDramaModel(project)

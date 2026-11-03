@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useNavigate } from "react-router";
 
 import { Select } from "@/components/ui/base/select";
-import { detectProjectSource, formatSourceChars, plainTextToHtml, sourceCharCount, sourceDetectionLabel, suggestProjectName, type ProjectSourceKind } from "@/lib/project-source";
+import { detectProjectSource, formatSourceChars, plainTextToHtml, sourceCharCount, sourceDetectionLabel, suggestProjectName, PROJECT_SOURCE_MAX_CHARS, type ProjectSourceKind } from "@/lib/project-source";
 import { projectVisualTypeLabel } from "@/lib/project-visual-type";
 import { listDramaStyleLibrary, dramaStyleLibraryCoverUrl, dramaStyleLibraryKey, sortDramaStyleLibrary, type DramaStyleLibraryItem } from "@/services/api/drama-style-library";
 import type { CreateProjectInput, ProjectVisualType } from "@/services/api/projects";
@@ -245,6 +245,7 @@ function AccountProjectComposer({ userId }: { userId: string }) {
         const signal = lifetime.current?.signal;
         const next: Partial<Record<ComposerSection, string>> = {};
         if (!draft.blank && !draft.text.trim()) next.source = "粘贴剧本、小说或一句创意，或导入文件";
+        if (sourceCharCount(draft.text) > PROJECT_SOURCE_MAX_CHARS) next.source = "建项正文最多支持 15 万字，请分章导入或缩短正文";
         if (!draft.visualType) next.visual = "先选画面类型";
         if (draft.styleMode === "library" && !draft.styleId) next.style = "从风格中心挑一个风格，或改为交给导演分析";
         if (model && model.duration.max < draft.segmentSeconds) next.production = `${model.label} 一段最长 ${model.duration.max} 秒：换模型，或改回 15 秒`;

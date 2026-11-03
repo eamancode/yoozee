@@ -187,10 +187,10 @@ func (r *Repository) RetryTaskWithBilling(userID string, prepared *model.Task, o
 			"provider_request_id": "", "poll_stage": "", "next_poll_at": nil,
 			"provider_cancel_status": "", "provider_cancel_error": "", "provider_cancel_attempts": 0,
 			"provider_cancel_requested_at": nil, "provider_cancelled_at": nil, "provider_cancel_next_check_at": nil,
-			"route_run":                 gorm.Expr("route_run + ?", 1),
+			"route_run":                 gorm.Expr("CASE WHEN route_run < 1 THEN 2 ELSE route_run + 1 END"),
 			"logical_model_revision_id": prepared.LogicalModelRevisionID, "route_id": prepared.RouteID,
 			"channel_model_id": prepared.ChannelModelID, "input_json": prepared.InputJSON,
-			"model": prepared.Model, "provider": prepared.Provider,
+			"model": prepared.Model, "provider": prepared.Provider, "prompt": prepared.Prompt,
 			"lease_owner": "", "lease_expires_at": nil, "updated_at": time.Now(),
 		}
 		if order != nil {

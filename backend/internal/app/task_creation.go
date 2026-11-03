@@ -46,7 +46,8 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	if err := setServerDramaRun(normalizedInput, req.dramaRun); err != nil {
 		return nil, err
 	}
-	if err := s.enforceDramaSegmentTaskDuration(userID, normalizedInput); err != nil {
+	prompt, err = s.prepareDramaVideoSubmission(userID, normalizedInput, prompt, false)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.enforceDramaPrevizGate(userID, normalizedInput); err != nil {
@@ -114,6 +115,9 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	if err := s.enforceDramaModelFamily(userID, normalizedInput, routedNames...); err != nil {
 		return nil, err
 	}
+	if err := s.enforceDramaSegmentTaskDuration(userID, normalizedInput); err != nil {
+		return nil, err
+	}
 
 	if strings.HasPrefix(taskType, "video_") && !hasExecutableProviderVideoConfig(normalizedInput) {
 		if mode, _ := normalizedInput["mode"].(string); mode != "video" {
@@ -161,6 +165,7 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		workbenchKind = workbenchKindFromTaskInput(normalizedInput, taskType)
 	}
 	task := model.Task{ID: newID(), UserID: userID, TraceID: req.TraceID, RequestID: req.RequestID, ProjectID: req.ProjectID, Type: taskType, WorkbenchKind: workbenchKind, Status: model.TaskStatusQueued, Stage: "等待队列调度", Progress: 5, Prompt: prompt, Operation: req.Operation, Provider: req.Provider, Model: req.Model}
+	task.RouteRun = 1
 	if req.admission != nil {
 		task.ID = req.admission.ID
 		task.AgentRunID = req.admission.AgentRunID

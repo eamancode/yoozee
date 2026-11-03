@@ -1,4 +1,5 @@
 import type { VideoCapabilityConfig } from "@/lib/model-capabilities";
+import { fixedVideoDuration, fixedVideoSubmissionSeconds } from "@/lib/fixed-video-duration";
 import type { DramaLine, DramaSegment } from "@/services/api/project-drama";
 import type { ProjectShot, ShotRevision } from "@/services/api/projects";
 
@@ -33,6 +34,10 @@ export type SegmentDurationRule = {
  */
 export function segmentDurationRule(familyMaxSeconds: number, channel?: VideoCapabilityConfig["duration"], familyLabel = "项目生成模型"): SegmentDurationRule {
     const familyMax = familyMaxSeconds > 0 ? familyMaxSeconds : 15;
+    const fixed = fixedVideoDuration(channel);
+    if (fixed) {
+        return { maxSeconds: fixed, minSeconds: 1, submitSeconds: (seconds) => fixedVideoSubmissionSeconds(fixed, seconds), label: `内容不超过 ${fixed} 秒，生成 ${fixed} 秒` };
+    }
     if (channel?.selection === "enum") {
         const values = Array.from(new Set((channel.values || []).filter((value) => value > 0))).sort((left, right) => left - right);
         const allowed = values.filter((value) => value <= familyMax);

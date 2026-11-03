@@ -147,6 +147,13 @@ func validateProjectSource(req CreateProjectRequest) (string, []CreateProjectUni
 	sourceAs := strings.TrimSpace(req.SourceAs)
 	description := strings.TrimSpace(req.Description)
 	text := strings.TrimSpace(req.Source.Text)
+	chars := projectSourceChars(text)
+	for _, unit := range req.Source.Units {
+		chars += projectSourceChars(unit.SourceText)
+	}
+	if chars > projectSourceMaxChars {
+		return "", nil, "", projectSectionError(ReasonProjectSourceInvalid, "建项正文最多支持 15 万字，请分章导入或缩短正文")
+	}
 	switch sourceAs {
 	case ProjectSourceBlank, "":
 		sourceAs = ProjectSourceBlank

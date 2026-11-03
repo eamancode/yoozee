@@ -131,6 +131,11 @@ func (w *taskWorkerCoordinator) processNextTask() error {
 
 func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot *platform.SlotLease) error {
 	s := w.service
+	defer func() {
+		if latest, err := s.repo.Task(task.ID); err == nil && latest.Type == "canvas_image" && latest.Status == model.TaskStatusFailed {
+			s.afterDramaImageTaskEnded(*latest)
+		}
+	}()
 	terminal := s.terminalCoordinator()
 	policyCtx, cancelPolicy := context.WithTimeout(context.Background(), 3*time.Second)
 	reader := &Service{repo: s.repo.WithContext(policyCtx)}

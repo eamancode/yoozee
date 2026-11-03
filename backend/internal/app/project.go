@@ -558,6 +558,9 @@ func (s *Service) DeleteProjectUnit(userID string, projectID string, unitID stri
 }
 
 func newProjectUnit(projectID string, req CreateProjectUnitRequest, position int) (model.ProjectUnit, error) {
+	if err := validateProjectSourceSize(req.SourceText); err != nil {
+		return model.ProjectUnit{}, err
+	}
 	kind := model.ProjectUnitKind(strings.TrimSpace(req.Kind))
 	if kind == "" {
 		kind = model.ProjectUnitKindChapter
@@ -586,6 +589,9 @@ func (s *Service) UpdateProjectUnit(userID string, projectID string, unitID stri
 	}
 	unit, err := s.repo.ProjectUnit(projectID, unitID)
 	if err != nil {
+		return model.ProjectUnit{}, err
+	}
+	if err := validateProjectSourceSize(req.SourceText); err != nil {
 		return model.ProjectUnit{}, err
 	}
 	sourceChanged := unit.SourceText != req.SourceText

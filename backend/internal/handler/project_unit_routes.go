@@ -17,10 +17,8 @@ func registerProjectUnitRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
 		var req service.CreateProjectUnitRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			fail(c, http.StatusBadRequest, err)
+		if !bindProjectSourceJSON(c, &req) {
 			return
 		}
 		unit, err := svc.CreateProjectUnit(user.ID, c.Param("id"), req)
@@ -133,10 +131,8 @@ func registerProjectUnitRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
 		var req service.UpdateProjectUnitRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			fail(c, http.StatusBadRequest, err)
+		if !bindProjectSourceJSON(c, &req) {
 			return
 		}
 		unit, err := svc.UpdateProjectUnit(user.ID, c.Param("id"), c.Param("unitId"), req)

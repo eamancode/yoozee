@@ -51,10 +51,8 @@ func registerProjectCoreRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
 		var req service.CreateProjectRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			fail(c, http.StatusBadRequest, err)
+		if !bindProjectSourceJSON(c, &req) {
 			return
 		}
 		project, err := svc.CreateProject(user.ID, req)

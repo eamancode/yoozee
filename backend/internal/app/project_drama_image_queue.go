@@ -42,10 +42,11 @@ func emptyDramaImageQueueResult() DramaImageQueueResult {
 }
 
 type dramaImageState struct {
-	Status    string `json:"status"`
-	TaskID    string `json:"taskId,omitempty"`
-	Error     string `json:"error,omitempty"`
-	UpdatedAt string `json:"updatedAt,omitempty"`
+	Status         string `json:"status"`
+	TaskID         string `json:"taskId,omitempty"`
+	Error          string `json:"error,omitempty"`
+	UpdatedAt      string `json:"updatedAt,omitempty"`
+	AutoRetryCount int    `json:"autoRetryCount,omitempty"`
 }
 
 // setDramaImageState 改一个资产的 payload（payload 条件更新：别的地方同时改了就重读再改，最多三次）。
@@ -207,18 +208,21 @@ func databaseBusyError(err error) bool {
 
 // afterDramaTaskEnded 是 worker 把任务写成失败或取消之后的短剧收尾：出图任务接着排下一张，自动接续的资产设计失败时接着提取下一集。
 func (s *Service) afterDramaTaskEnded(task model.Task) {
-	s.afterDramaImageTaskEnded(task)
+	// Failed images are handled after worker cleanup and billing settlement.
+	if task.Status == model.TaskStatusCancelled {
+		s.afterDramaImageTaskEnded(task)
+	}
 	s.afterDramaAssetsTaskEnded(task)
 }
 
 // afterDramaImageTaskEnded 在资产设计出图任务失败或取消落库之后跑（任务输入还带着加密的模板）：还记着「出图中、是这个任务」的资产
-// 记成失败（资产页「继续出图」可以重出，不自动重试），然后接着排「等空位」的，免得一张失败把后面的都卡住。这里的失败只记日志。
+// 结算完成后先自动重试一次；再次失败或取消时记成失败，再排「等空位」的。这里的失败只记日志。
 // 色卡（M8 卡 B 起）由代码合成，不走出图任务。
 func (s *Service) afterDramaImageTaskEnded(task model.Task) {
 	if task.Status != model.TaskStatusFailed && task.Status != model.TaskStatusCancelled {
 		return
 	}
-	if !strings.Contains(task.InputJSON, `"dramaAsset"`) {
+	if task.Type != "canvas_image" || (!strings.Contains(task.InputJSON, `"characterAssetId"`) && !strings.Contains(task.InputJSON, `"projectAssetId"`)) {
 		return
 	}
 	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)
@@ -240,8 +244,11 @@ func (s *Service) afterDramaImageTaskEnded(task model.Task) {
 		return
 	}
 	if asset, err := s.repo.AssetForUser(task.UserID, assetID); err == nil {
+		if s.retryFailedDramaImage(task, asset) {
+			return
+		}
 		if state := dramaImageStateOf(asset, assetImageKey); state.Status == dramaImageQueued && state.TaskID == task.ID {
-			failed := dramaImageState{Status: dramaImageFailed, TaskID: task.ID, Error: firstNonEmpty(userFacingTaskError(task.Error), "出图任务失败"), UpdatedAt: time.Now().Format(time.RFC3339Nano)}
+			failed := dramaImageState{Status: dramaImageFailed, TaskID: task.ID, Error: firstNonEmpty(userFacingTaskError(task.Error), "出图任务失败"), AutoRetryCount: state.AutoRetryCount, UpdatedAt: time.Now().Format(time.RFC3339Nano)}
 			if err := s.putDramaImageState(task.UserID, assetID, assetImageKey, failed); err != nil {
 				_ = s.log(task.UserID, task.ID, "warn", "出图失败状态没有写上", err.Error())
 			}

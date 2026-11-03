@@ -78,6 +78,7 @@ const (
 	ReasonPackageEvalNotPassed         = app.ReasonPackageEvalNotPassed
 	ReasonConflict                     = app.ReasonConflict
 	ReasonProjectNameConflict          = app.ReasonProjectNameConflict
+	ReasonProjectSourceInvalid         = app.ReasonProjectSourceInvalid
 	ReasonFailedPrecondition           = app.ReasonFailedPrecondition
 	ReasonForbidden                    = app.ReasonForbidden
 	ReasonInternal                     = app.ReasonInternal
