@@ -17,12 +17,12 @@ import { assetImageQueueLabel } from "./project-visual-asset";
 
 const KIND_LABEL: Record<DramaAssetVariantKind, string> = { costume: "服装", state: "状态" };
 
-type VariantForm = { label: string; kind: DramaAssetVariantKind; look: string; promptEn: string; scenes: string[]; image: boolean };
+type VariantForm = { label: string; kind: DramaAssetVariantKind; look: string; promptEn: string; scenes: string[]; image: boolean; startAfter: string };
 
 /** 子卡编辑时的初值：描述和英文提示词用服务端给的原文（只改变体名时外观不算变，三视图保留）。 */
 function variantForm(asset?: ProjectAsset): VariantForm {
-    if (!asset?.variant) return { label: "", kind: "costume", look: "", promptEn: "", scenes: [], image: true };
-    return { label: asset.variant.label, kind: asset.variant.kind, look: asset.variant.look, promptEn: asset.variant.promptEn, scenes: asset.variant.scenes, image: false };
+    if (!asset?.variant) return { label: "", kind: "costume", look: "", promptEn: "", scenes: [], image: true, startAfter: "" };
+    return { label: asset.variant.label, kind: asset.variant.kind, look: asset.variant.look, promptEn: asset.variant.promptEn, scenes: asset.variant.scenes, image: false, startAfter: asset.variant.startAfter || "" };
 }
 
 /**
@@ -51,7 +51,15 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
     const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ["project", projectId] }), queryClient.invalidateQueries({ queryKey: ["project", projectId, "assets"] })]);
     const saveMutation = useMutation({
         mutationFn: async () => {
-            const input: DramaAssetVariantInput = { label: form.label.trim(), kind: form.kind, look: form.look.trim(), promptEn: form.promptEn.trim(), scenes: form.scenes, ...(form.image ? { imageTask: await imageTask() } : {}) };
+            const input: DramaAssetVariantInput = {
+                label: form.label.trim(),
+                kind: form.kind,
+                look: form.look.trim(),
+                promptEn: form.promptEn.trim(),
+                scenes: form.scenes,
+                startAfter: form.startAfter.trim(),
+                ...(form.image ? { imageTask: await imageTask() } : {}),
+            };
             return editing === "new" || !editing ? createDramaAssetVariant(projectId, parent.id, input) : updateDramaAssetVariant(projectId, editing.id, input);
         },
         onSuccess: async (result) => {
@@ -109,7 +117,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                     {variants.map((variant) => {
                         const cover = projectCharacterCover(variant.character?.representations);
                         const ready = variant.character?.visualStatus === "ready";
-                        const queue = ready ? "" : assetImageQueueLabel(variant.image);
+                        const queue = assetImageQueueLabel(variant.image);
                         return (
                             <li key={variant.id} className="min-w-0 list-none rounded-md border border-border/60 px-2 py-1.5">
                                 <div className="flex min-w-0 items-center gap-2">
@@ -141,11 +149,12 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                                         <div className="truncate text-[var(--fs-micro)] text-foreground/45" title={variant.variant?.scenes.join("、")}>
                                             {variant.variant?.scenes.length ? `用于 ${variant.variant.scenes.join("、")}` : "还没指定场次"}
                                         </div>
+                                        {variant.variant?.startAfter ? <p className="mt-1 text-xs text-foreground/60">动作后生效：{variant.variant.startAfter}。需按镜头选择，不覆盖整场。</p> : null}
                                     </div>
                                 </div>
                                 <div className="mt-1 flex min-w-0 items-center gap-0.5">
                                     <span className={`min-w-0 flex-1 truncate text-[var(--fs-micro)] ${ready ? "text-emerald-700 dark:text-emerald-300" : "text-foreground/45"}`} title={variant.image?.error || undefined}>
-                                        {ready ? "三视图已绑定" : queue ? `三视图${queue}${variant.image?.error ? `：${variant.image.error}` : ""}` : "三视图未出"}
+                                        {queue ? `三视图${queue}${variant.image?.error ? `：${variant.image.error}` : ""}` : ready ? "三视图已绑定" : "三视图未出"}
                                     </span>
                                     <Button
                                         type="text"
@@ -235,6 +244,9 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                     <label className="grid gap-1.5">
                         <span className="font-medium text-foreground/68">用在哪几场</span>
                         <Select mode="multiple" allowClear value={form.scenes} options={sceneOptions} loading={scenesQuery.isLoading} placeholder="生成分段时这几场的镜头绑这张子卡" onChange={(scenes) => setForm((current) => ({ ...current, scenes }))} />
+                        <label className="mt-3 block text-xs">场中生效动作（仅整场适用时留空）</label>
+                        <Input.TextArea value={form.startAfter} onChange={(event) => setForm((current) => ({ ...current, startAfter: event.target.value }))} placeholder="例如：他从抽屉抽出围裙，系上。保留原文动作与段落。" />
+                        {form.startAfter ? <p className="mt-2 text-xs text-foreground/60">此子卡仅在指定动作后适用，不会按场次覆盖整场；请在对应镜头选择，避免提前换装。</p> : null}
                     </label>
                     <Checkbox checked={form.image} onChange={(event) => setForm((current) => ({ ...current, image: event.target.checked }))}>
                         {editing === "new" ? "保存后出三视图" : "外观改了时重出三视图"}

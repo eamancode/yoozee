@@ -120,7 +120,7 @@ export type ProjectAsset = {
 };
 
 /** look / promptEn 是这套服装或状态的描述、用户写的英文提示词（自动生成的提示词是空串），编辑时原样带回。 */
-export type ProjectAssetVariant = { parentId: string; parentTitle?: string; label: string; kind: "costume" | "state"; scenes: string[]; look: string; promptEn: string };
+export type ProjectAssetVariant = { parentId: string; parentTitle?: string; label: string; kind: "costume" | "state"; scenes: string[]; look: string; promptEn: string; startAfter?: string };
 
 /** 服务端出图的排队状态：none 还没排，waiting 等空位，queued 出图中，bound 已出图，stale 出图期间换了版本没绑上，failed 失败。 */
 export type DramaImageStatus = "none" | "waiting" | "queued" | "bound" | "stale" | "failed" | "paused";
@@ -481,7 +481,7 @@ export type DramaAssetVariantKind = "costume" | "state";
  * 新增 / 改子卡：label 是变体名，look 是这套服装或状态的描述，promptEn 可空（空时用主卡的三视图提示词接上变体说明），
  * scenes 是用这套形象的场编号（E02S01）；imageTask 给了时建完（或外观改了后）接着出三视图（带主卡三视图作参考）。
  */
-export type DramaAssetVariantInput = { label: string; kind: DramaAssetVariantKind; look: string; promptEn?: string; scenes?: string[]; imageTask?: DramaImageTaskTemplate };
+export type DramaAssetVariantInput = { label: string; kind: DramaAssetVariantKind; look: string; promptEn?: string; scenes?: string[]; startAfter?: string; imageTask?: DramaImageTaskTemplate };
 
 /** 资产页在主卡下新增子卡：设定按主卡继承（脸型体型不变，只换服装 / 状态）。 */
 export function createDramaAssetVariant(projectId: string, parentId: string, input: DramaAssetVariantInput) {

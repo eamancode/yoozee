@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -661,6 +662,10 @@ func chapterShotsCharacters(assets []ProjectAssetSummary) ([]drama.StepCharacter
 		definition := a.Character.Definition
 		if definition == nil {
 			definition = map[string]any{}
+		}
+		if a.Variant != nil && a.Variant.StartAfter != "" {
+			definition = maps.Clone(definition)
+			definition["appearance"] = "适用边界：" + strings.Join(a.Variant.Scenes, "、") + "；仅在原文动作「" + a.Variant.StartAfter + "」发生后使用此子卡，之前使用主卡或前一状态，不可覆盖整场。" + fmt.Sprint(definition["appearance"])
 		}
 		out = append(out, drama.StepCharacter{Name: a.Title, Definition: definition})
 		records = append(records, dramaStepCharacterRecord{AssetID: a.ID, VersionID: a.Character.VersionID, Name: a.Title, Definition: definition})

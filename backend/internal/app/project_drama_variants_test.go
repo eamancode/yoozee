@@ -562,6 +562,31 @@ func TestApplySceneCastAndBible(t *testing.T) {
 	}
 }
 
+func TestActionScopedVariantDoesNotReplaceWholeScene(t *testing.T) {
+	assets := []ProjectAssetSummary{
+		{ID: "lin", Title: "林深", Category: model.AssetCategoryCharacter, PrimaryVersionID: "lin-v", Character: &CharacterCardSummary{VersionID: "lin-v", VisualStatus: "ready", Definition: map[string]any{"appearance": "西装"}}},
+		{ID: "apron", Title: "林深·围裙", Category: model.AssetCategoryCharacter, PrimaryVersionID: "apron-v", Character: &CharacterCardSummary{VersionID: "apron-v", VisualStatus: "ready", Definition: map[string]any{"appearance": "衬衫外系围裙"}}, Variant: &ProjectAssetVariantSummary{ParentID: "lin", Scenes: []string{"E01S04"}, StartAfter: "他从抽屉里抽出一条围裙，系上。"}},
+	}
+	units := []model.ProjectUnit{{ID: "ep", Kind: model.ProjectUnitKindEpisode, Position: 0}}
+	cast := sceneCastOf("{}", units, "ep", assets)
+	if cast.finalCard("E01S04", "lin", "lin") != "lin" {
+		t.Fatal("payment shot changed into apron")
+	}
+	if cast.finalCard("E01S04", "lin", "apron") != "apron" {
+		t.Fatal("explicit post-action choice lost")
+	}
+	if cast.finalCard("E01S03", "lin", "apron") != "lin" {
+		t.Fatal("boundary leaked into another scene")
+	}
+	if len(sceneCastTitles(cast)) != 0 {
+		t.Fatal("scoped variant became scene-wide instruction")
+	}
+	characters, _ := chapterShotsCharacters(assets)
+	if !strings.Contains(characters[1].Definition["appearance"].(string), "不可覆盖整场") {
+		t.Fatal("source boundary absent in generation context")
+	}
+}
+
 // 七床第一集真跑按小节生成（Seedance 2.0，15 秒一节）：林小满在第 2 场（电梯口）有子卡「林小满·淋湿」（有图），第 2 场各节的
 // 本轮指令写明用子卡，第 1 场的不写；装段后第 2 场有林小满的段引用子卡、不引用主卡，第 1 场的段不引用子卡；第 2 场的段都补上回填的电梯口。
 func TestChapterShotsBindsSceneVariant(t *testing.T) {

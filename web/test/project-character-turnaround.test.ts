@@ -26,11 +26,11 @@ describe("角色三视图", () => {
         expect([...ids].sort()).toEqual(["hero", "villain"]);
     });
 
-    test("三视图优先用项目默认图片模型，渠道里没有时退回全局图片模型", () => {
+    test("三视图优先用项目默认图片模型，不可用时明确阻断；未指定时才用全局模型", () => {
         const { config, globalModel, projectModel } = imageConfig();
         expect(turnaroundImageModel(config, projectModel)).toBe(projectModel);
         expect(turnaroundImageModel(config, "")).toBe(globalModel);
-        expect(turnaroundImageModel(config, "missing-channel::missing-model")).toBe(globalModel);
+        expect(() => turnaroundImageModel(config, "missing-channel::missing-model")).toThrow("项目默认图片模型不可用");
     });
 
     test("资产页把后端仍在跑的三视图并入生成中状态", async () => {

@@ -51,6 +51,7 @@ type AssetsVariant struct {
 	Scenes     []int  `json:"scenes"`
 	Appearance string `json:"appearance"`
 	PromptEn   string `json:"prompt_en"`
+	StartAfter string `json:"start_after,omitempty"`
 }
 
 // AssetVariantTitle 是子卡的资产名：「主卡名·变体名」。
@@ -82,7 +83,7 @@ func parseAssetsVariants(raw json.RawMessage) []AssetsVariant {
 			}
 			return ""
 		}
-		v := AssetsVariant{Label: str("label"), Appearance: str("appearance"), PromptEn: str("prompt_en")}
+		v := AssetsVariant{Label: str("label"), Appearance: str("appearance"), PromptEn: str("prompt_en"), StartAfter: str("start_after")}
 		v.Kind = NormalizeAssetVariantKind(str("kind"), v.Label)
 		v.Scenes = assetsSceneList(obj["scenes"])
 		out = append(out, v)
@@ -153,6 +154,9 @@ func mergeAssetsVariants(prev []AssetsVariant, next []AssetsVariant) []AssetsVar
 		if p.PromptEn == "" {
 			p.PromptEn = v.PromptEn
 		}
+		if p.StartAfter == "" {
+			p.StartAfter = v.StartAfter
+		}
 	}
 	return prev
 }
@@ -171,6 +175,7 @@ func checkAssetsVariants(r *AssetsExtractRow, scenes int, known func(label strin
 	var kept []AssetsVariant
 	for _, v := range r.Variants {
 		v.Label = jsTruncate(jsCompact(v.Label), assetsVariantLabelChars)
+		v.StartAfter = jsTruncate(jsCompact(v.StartAfter), 600)
 		label := AssetVariantTitle(r.Name, firstNonEmptyString(v.Label, "（无名）"))
 		switch {
 		case AssetVariantKey(v.Label) == "" || AssetVariantKey(v.Label) == AssetNameKey(r.Name):
@@ -193,6 +198,9 @@ func checkAssetsVariants(r *AssetsExtractRow, scenes int, known func(label strin
 			v.Scenes = inRange
 		}
 		v.Kind = NormalizeAssetVariantKind(v.Kind, v.Label)
+		if v.StartAfter != "" {
+			add("warn", RuleAssetVariant, label, "仅在原文动作「"+v.StartAfter+"」后适用；保留动作边界，不按场次覆盖整场，请在对应镜头选用")
+		}
 		kept = mergeAssetsVariants(kept, []AssetsVariant{v})
 	}
 	r.Variants = kept

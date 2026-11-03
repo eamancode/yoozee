@@ -5,6 +5,8 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+资产出图恢复接口的 imageTask 采用本次显式选定的模型，assetIds 指定恢复范围；返回 queued、waiting、failed，另可返回 paused。资产 image.status 新增 paused（渠道异常暂停，须修复或切换渠道后继续）。人物子卡新增/修改和清单摘要支持 startAfter，描述场中生效动作；非空时不按整场自动替换。
+
 ## 同场景连续视频生成
 
 `POST /api/projects/:id/video-chains/preview` 接收 `{unitId,shotId,model:{model,logicalModelId?,input},models?}`，以当前镜头顺序和场景归属扩展为连续同场景链，重新编译提示词并校验全部参考图、模型能力、时长、预演闸门和报价。`models` 可按镜头 ID 覆盖模型模板。返回 `data.chain`，含逐组内容/生成时长、原参考图数量、站位编号、结束段适用性、报价与 `previewHash`。

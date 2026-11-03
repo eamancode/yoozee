@@ -126,6 +126,8 @@ type dramaSceneCast struct {
 	// person 是角色卡 ID → 这个人的主卡 ID（主卡是它自己）：同一个人的主卡和各张子卡按它认成一个人。imaged 是有三视图的角色卡。
 	person map[string]string
 	imaged map[string]bool
+	// scoped child IDs require an explicit per-shot choice; never replace a whole scene.
+	scoped map[string]map[string]bool
 }
 
 func (c *dramaSceneCast) empty() bool {
@@ -135,6 +137,9 @@ func (c *dramaSceneCast) empty() bool {
 // finalCard 是这一场里这个人（主卡 parent）最终绑的卡：本场有子卡（有图，或主卡也没图）用子卡；否则主卡有图用主卡；
 // 都不行时留模型写的那张（written，别场或没图的子卡也一样按这条落）。
 func (c *dramaSceneCast) finalCard(scene, parent, written string) string {
+	if c.scoped[scene][written] && c.imaged[written] {
+		return written
+	}
 	if child := c.Variants[scene][parent]; child != "" {
 		return child
 	}
@@ -163,6 +168,7 @@ func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, ass
 	episode := numbers[unitID]
 	cast := &dramaSceneCast{Variants: map[string]map[string]string{}, Environments: map[string][]string{}, titles: map[string]string{}, parents: map[string]string{}, person: map[string]string{}, imaged: map[string]bool{}}
 	imaged := cast.imaged
+	cast.scoped = map[string]map[string]bool{}
 	for _, a := range assets {
 		imaged[a.ID] = a.Character != nil && a.Character.VisualStatus == "ready"
 	}
@@ -194,6 +200,20 @@ func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, ass
 		}
 		cast.parents[a.ID] = a.Variant.ParentID
 		byID[a.ID] = a
+		if a.Variant.StartAfter != "" {
+			for _, code := range a.Variant.Scenes {
+				ep, no, ok := drama.ParseSceneCode(code)
+				if !ok || ep != episode {
+					continue
+				}
+				local := drama.SceneCode(1, no)
+				if cast.scoped[local] == nil {
+					cast.scoped[local] = map[string]bool{}
+				}
+				cast.scoped[local][a.ID] = true
+			}
+			continue
+		}
 		if !imaged[a.ID] && imaged[a.Variant.ParentID] {
 			continue
 		}

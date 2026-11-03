@@ -694,6 +694,7 @@ function ModelAvailabilityBadge({ availability, available, showAvailability }: {
                 <span>{label}</span>
             </div>
             <div className="model-picker-availability-popover-meta">{availability.sampleCount24h} 次 create 尝试 · 7天样本 {trendSamples} 条</div>
+            <div className="model-picker-availability-popover-meta">历史统计，非实时可用性。更新时间：{availability.computedAt || "未提供"}；数据截至：{availability.dataThrough || "未提供"}</div>
             <div className="model-picker-availability-trend" aria-label="近7天成功率趋势">
                 {trend.map((item) => {
                     const dayLabel = item.rate === null ? "暂无数据" : `${Math.round(item.rate * 100)}%`;
@@ -717,7 +718,7 @@ function ModelAvailabilityBadge({ availability, available, showAvailability }: {
             >
                 <ModelRecentHealthTrack availability={availability} />
                 <span className="model-picker-availability-label">
-                    {hasRuns ? `${successCount}/${recentResults.length}` : label}
+                    {hasRuns ? `历史 ${successCount}/${recentResults.length}` : label}
                 </span>
             </span>
         </Popover>

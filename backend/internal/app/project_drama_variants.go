@@ -28,11 +28,12 @@ const assetVariantKey = "assetVariant"
 // assetVariantMeta 是子卡 payload.metadata.assetVariant：变体种类、用这套形象的场编号、怎么来的（extract / manual），
 // 和生成设定时用的服装 / 状态描述、英文提示词原文（改子卡时按它们判断外观变没变；早期建的子卡没有，从设定里拆）。
 type assetVariantMeta struct {
-	Kind     string   `json:"kind"`
-	Scenes   []string `json:"scenes"`
-	Source   string   `json:"source,omitempty"`
-	Look     string   `json:"look,omitempty"`
-	PromptEn string   `json:"promptEn,omitempty"`
+	StartAfter string   `json:"startAfter,omitempty"`
+	Kind       string   `json:"kind"`
+	Scenes     []string `json:"scenes"`
+	Source     string   `json:"source,omitempty"`
+	Look       string   `json:"look,omitempty"`
+	PromptEn   string   `json:"promptEn,omitempty"`
 }
 
 func assetVariantMetaOf(asset *model.Asset) assetVariantMeta {
@@ -46,6 +47,7 @@ func assetVariantMetaOf(asset *model.Asset) assetVariantMeta {
 // ProjectAssetVariantSummary 是子卡在资产清单里的摘要：主卡、变体名、种类（costume / state）、用这套形象的场，
 // 和服装 / 状态描述、用户写的英文提示词（编辑对话框带出原值；自动生成的提示词是空）。
 type ProjectAssetVariantSummary struct {
+	StartAfter  string   `json:"startAfter,omitempty"`
 	ParentID    string   `json:"parentId"`
 	ParentTitle string   `json:"parentTitle,omitempty"`
 	Label       string   `json:"label"`
@@ -63,6 +65,7 @@ func (s *Service) assetVariantSummary(userID string, asset *model.Asset, definit
 	meta := assetVariantMetaOf(asset)
 	summary := &ProjectAssetVariantSummary{ParentID: asset.ParentAssetID, Label: asset.VariantLabel, Kind: drama.NormalizeAssetVariantKind(meta.Kind, asset.VariantLabel), Scenes: meta.Scenes}
 	summary.Look, summary.PromptEn = variantLookOf(meta, definition)
+	summary.StartAfter = meta.StartAfter
 	if parent, err := s.repo.AssetForUser(userID, asset.ParentAssetID); err == nil {
 		summary.ParentTitle = parent.Title
 	}
@@ -144,6 +147,9 @@ func variantDefinition(parent map[string]any, parentTitle string, label string, 
 		out["clothing"] = "服装「" + label + "」：" + look
 	}
 	consistency := fmt.Sprintf("与主卡「%s」是同一人：脸型、五官、发型、肤色、体型与主卡三视图一致，只换成这一套%s。", parentTitle, drama.AssetVariantKindName(kind))
+	if identity, _ := parent["identityAppearance"].(string); identity != "" {
+		consistency = fmt.Sprintf("与主卡「%s」是同一人，保持面部辨识特征和肤色。服装、年龄阶段及临时状态以本子卡明确的差异为准，不叠加主卡的默认服装或年龄；无原文依据的特征不改变。", parentTitle)
+	}
 	if c, _ := parent["consistencyPrompt"].(string); strings.TrimSpace(c) != "" {
 		consistency += strings.TrimSpace(c)
 	}
@@ -151,6 +157,9 @@ func variantDefinition(parent map[string]any, parentTitle string, label string, 
 	prompt := strings.TrimSpace(promptEn)
 	if prompt == "" {
 		base, _ := parent["multiViewPrompt"].(string)
+		if identity, _ := parent["identityAppearance"].(string); identity != "" {
+			base = identity + "；" + fmt.Sprint(out["clothing"])
+		}
 		prompt = strings.TrimSpace(strings.TrimSpace(base) + variantDefaultPromptMarker + map[string]string{drama.AssetVariantState: "condition", drama.AssetVariantCostume: "outfit"}[kind] + " changes: " + label + ".")
 	}
 	out["multiViewPrompt"] = prompt
@@ -236,12 +245,13 @@ func mergeVariantScenes(meta *assetVariantMeta, codes []string) bool {
 // DramaAssetVariantRequest 是资产页新增 / 改子卡：变体名、种类（costume / state）、这套服装或状态的描述、英文三视图提示词（可空，
 // 空时用主卡的接上变体说明）、用这套形象的场编号；ImageTask 给了时建完（或改了外观后）接着出三视图（带主卡三视图作参考）。
 type DramaAssetVariantRequest struct {
-	Label     string                  `json:"label"`
-	Kind      string                  `json:"kind"`
-	Look      string                  `json:"look"`
-	PromptEn  string                  `json:"promptEn,omitempty"`
-	Scenes    []string                `json:"scenes,omitempty"`
-	ImageTask *DramaImageTaskTemplate `json:"imageTask,omitempty"`
+	StartAfter string                  `json:"startAfter,omitempty"`
+	Label      string                  `json:"label"`
+	Kind       string                  `json:"kind"`
+	Look       string                  `json:"look"`
+	PromptEn   string                  `json:"promptEn,omitempty"`
+	Scenes     []string                `json:"scenes,omitempty"`
+	ImageTask  *DramaImageTaskTemplate `json:"imageTask,omitempty"`
 }
 
 // DramaAssetVariantResult 是新增 / 改子卡的结果：子卡和出图排队。
@@ -259,6 +269,10 @@ func normalizeVariantRequest(req *DramaAssetVariantRequest) error {
 	req.Label = strings.TrimSpace(req.Label)
 	req.Look = strings.TrimSpace(req.Look)
 	req.PromptEn = strings.TrimSpace(req.PromptEn)
+	req.StartAfter = strings.TrimSpace(req.StartAfter)
+	if len([]rune(req.StartAfter)) > 600 {
+		return BadAuthRequest("生效动作最多600字，请引用对应原文")
+	}
 	if req.Label == "" {
 		return BadAuthRequest("请写子卡的变体名（如 西服、淋湿）")
 	}
@@ -348,7 +362,7 @@ func (s *Service) CreateDramaAssetVariant(userID string, projectID string, paren
 		return result, err
 	}
 	now := time.Now()
-	asset, version, err := newVariantAsset(userID, *parent, definition, req.Label, req.Kind, req.Look, req.PromptEn, assetVariantMeta{Scenes: req.Scenes, Source: "manual"}, dramaImageNone, now)
+	asset, version, err := newVariantAsset(userID, *parent, definition, req.Label, req.Kind, req.Look, req.PromptEn, assetVariantMeta{Scenes: req.Scenes, Source: "manual", StartAfter: req.StartAfter}, dramaImageNone, now)
 	if err != nil {
 		return result, err
 	}
@@ -425,6 +439,7 @@ func (s *Service) UpdateDramaAssetVariant(userID string, projectID string, varia
 		return result, err
 	}
 	meta.Kind, meta.Scenes, meta.Look, meta.PromptEn = req.Kind, req.Scenes, req.Look, req.PromptEn
+	meta.StartAfter = req.StartAfter
 	if err := s.setDramaImageState(userID, child.ID, func(payload map[string]any) {
 		metadata := payloadMetadata(payload)
 		metadata[assetVariantKey] = meta

@@ -701,7 +701,7 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 		for _, v := range row.Variants {
 			codes := variantSceneCodes(v.Scenes, am.Episode)
 			if child := index.child(parent.asset.ID, v.Label); child != nil {
-				w, changed, err := variantScenesWrite(child, codes, now)
+				w, changed, err := variantScenesWrite(child, codes, v.StartAfter, now)
 				if err != nil {
 					return nil, outcome, err
 				}
@@ -715,7 +715,7 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 				outcome.Assets = append(outcome.Assets, DramaAssetsOutcomeItem{AssetID: child.asset.ID, Name: child.asset.Title, Category: drama.AssetCharacter, Action: action, ParentID: parent.asset.ID})
 				continue
 			}
-			asset, version, err := newVariantAsset(userID, parent.asset, parent.definition, v.Label, v.Kind, v.Appearance, v.PromptEn, assetVariantMeta{Scenes: codes, Source: "extract"}, initial, now)
+			asset, version, err := newVariantAsset(userID, parent.asset, parent.definition, v.Label, v.Kind, v.Appearance, v.PromptEn, assetVariantMeta{Scenes: codes, Source: "extract", StartAfter: v.StartAfter}, initial, now)
 			if err != nil {
 				return nil, outcome, err
 			}
@@ -734,9 +734,13 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 }
 
 // variantScenesWrite 是已有子卡只补场：场都有了时 changed 为 false（不写）；否则只改 payload（不加版本、不动图）。
-func variantScenesWrite(child *dramaAssetEntry, codes []string, now time.Time) (repository.DramaAssetWrite, bool, error) {
+func variantScenesWrite(child *dramaAssetEntry, codes []string, startAfter string, now time.Time) (repository.DramaAssetWrite, bool, error) {
 	meta := assetVariantMetaOf(&child.asset)
-	if !mergeVariantScenes(&meta, codes) {
+	changed := mergeVariantScenes(&meta, codes)
+	if meta.StartAfter == "" && startAfter != "" {
+		meta.StartAfter, changed = startAfter, true
+	}
+	if !changed {
 		return repository.DramaAssetWrite{}, false, nil
 	}
 	asset := child.asset

@@ -5,6 +5,8 @@ description: 柚子后端核心持久化表与状态边界
 
 # 后端数据库
 
+资产提取的完整设计记录使用现有 AssetVersion.DefinitionJSON 中的 extractionDesign，包含 role、identity_appearance、clothing、prop_design、spatial_layout、characters/props/environments 索引、evidence 和 states。后续场次的依据、关联和状态去重追加，不改写初始外观。Asset.PayloadJSON 的 metadata.assetVariant.startAfter 保存同场换装的生效动作；metadata.assetImage 使用 batchId、channelPaused 和 paused 状态隔离暂停与手工恢复批次。无新增表或列。
+
 ## 同场景连续生成检查点
 
 无需新增表或迁移。`tasks.type=project_video_chain` 是不调用模型、不预扣积分的控制任务；`input_json` 保存当前章节、锚定镜头、原始模型模板、报价指纹和逐组步骤。步骤记录镜头版本、签名、确定性子任务 ID、视频资源、末帧资源、来源镜头与来源视频、实际参考编号、上传结果及重试轮次。密钥与上游上传返回值加密保存，接口只返回进度读模型。

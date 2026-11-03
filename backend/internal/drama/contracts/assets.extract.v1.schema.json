@@ -110,6 +110,7 @@
                 "scenes": {"type": "array", "items": {"type": "integer", "minimum": 1}, "description": "用这套形象的场序"},
                 "appearance": {"type": "string", "description": "和主形象不同的服装或状态"},
                 "prompt_en": {"type": "string", "description": "这一套的三视图设定图提示词"}
+                ,"start_after": {"type":"string","description":"仅在场中动作之后生效时，逐字引用触发动作并写明段落；整场适用写空字符串。非空时禁止按整场自动替换，需在后续镜头按该动作边界选用。"}
               }
             },
             "description": "只有角色写：换了服装或状态的各套形象（子卡）"
