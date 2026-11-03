@@ -22,7 +22,7 @@ const asset: ProjectAsset = {
 
 describe("场景与道具参考图片", () => {
     test("生图提交资产与版本身份、设定和项目画风，限制为一张图片", () => {
-        const input = projectVisualImageRequest({ projectId: "project", asset, config: { ...defaultConfig, imageModel: "test-image" }, projectStyle: { id: "style", title: "水墨", prompt: "水墨画风，低饱和" } });
+        const input = projectVisualImageRequest({ projectId: "project", asset, config: { ...defaultConfig, model: "test-image", imageModel: "global-image" }, projectStyle: { id: "style", title: "水墨", prompt: "水墨画风，低饱和" } });
         expect(input.mode).toBe("image");
         expect(input.prompt).toContain("古风藏书阁全景");
         expect(input.prompt).toContain("水墨画风，低饱和");

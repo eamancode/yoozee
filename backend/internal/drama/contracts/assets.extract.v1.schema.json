@@ -18,8 +18,10 @@
     "rules": [
       "category 只能是 character（角色）、environment（场景）、prop（道具）。人·物·场分开：五官、发型、服装、饰品、伤疤写进角色的 appearance；能单独搬走、要单独制作的物件（武器、信物、容器、家具、载具）是道具；搬不走的空间结构（墙、地面、建筑骨架、地形、天光天气）是场景。",
       "name 用剧本里最常用的叫法；同一个人或同一件物的别称、代称、昵称写进 aliases，不另起一行。",
-      "【项目已有资产】里列出的资产已经存在：它再出现时只写一行，category 照抄、name 照抄已有名字，aliases 只写这次新见到的叫法，appearance、prompt_en 留空字符串；已有资产标了「缺外观」的才补写 appearance 和 prompt_en。前面回合已经写过的资产同样不再重复外观。",
-      "appearance 是中文外观 / 结构描述，要能画出来、做出来、搭出来：角色写年龄、性别、肤色、发型发色、五官特征、服装；场景写空间结构、主要固定陈设、光线与时间；道具写形状、结构、材质、颜色、尺寸感和使用痕迹。原文没写的按身份、时代和地域合理推导，不与原文矛盾。",
+      "【项目已有资产】里列出的资产已经存在：它再出现时 category、name 照抄，aliases 补充新叫法，appearance、prompt_en 留空；缺外观的才补。已有资产仍必须在 design 中补充新原文依据、关联索引及状态变化，不因跨场复用而丢弃。",
+      "分析方法以附件技能正文为主。appearance 保留完整中文段落：角色连贯覆盖年龄、性别、肤色、发型发色、五官特征、服装六项；场景按正面全景微俯视15～25度，以站位→近景地面→左右中景→纵深→光线氛围白描，带顶棚市场标明半室外及遮蔽/敞开边界；道具写初始形状、结构、材质、颜色、尺寸和使用痕迹。可移动物件独立建道具，场景只写摆放位置及该道具名称引用，不重复设计。",
+      "design 保存技能的原文依据、交叉索引和状态轨迹。evidence 每项为 {kind:原文/推导/设计建议,location:章节或场次及动作位置,text:原文引句或明确标注的推导}；characters/props/environments 用对应资产的标准 name，双向关联，不编造不存在的对象。states 每项为 {location:场次及段落位置,trigger:变化发生的原文动作或时间条件,state:该时点外观状态}，按故事时间区分初始、中间、最终，禁止未来的损伤、磨亮痕迹提前混入初始出图。",
+      "角色 design.role 写身份与剧情定位；identity_appearance 只写身份不变的面部、肤色等辨识特征，不含服装、持物、特定年龄及临时状态，clothing 写默认服装；它们是供子卡组合的辅助字段，不替代六要素完整 appearance。闪回年龄和当下年龄必须符合原文时间差，无法确定具体岁数时用有依据的范围，不捏造年龄。道具 prop_design 保留外型、材质、配色、细节、尺寸、用途、持有者和制作优先级；场景 spatial_layout 保留空间要素分析、默认时间及场内道具位置。",
       "prompt_en 是英文出图提示词，不写人名和剧情：角色写成一张正面、侧面、背面三视图设定图的提示词（同一角色、同一服装、全身站立、中性姿势、纯净浅色背景）；场景写不出现人物的空场景概念图；道具写单个道具、简洁背景、不出现人物的概念图。画风与【全局风格锚】【项目画风】一致，不另起媒介。",
       "first_scene 写这个资产第一次出现在本集第几场（【场次】里的场序，从 1 数）；只有一场时写 1。",
       "anchors 只有场景写：这个场景里人物能站、能走到的具体位置，3～8 个短名词（如 电梯门前、护士站柜台、楼梯间防火门），分镜站位只用这些名字；正文看不出时只写能确定的几个，不编造正文没有的设施；角色和道具写空数组。",
@@ -41,9 +43,26 @@
           "appearance",
           "prompt_en",
           "first_scene",
-          "palette_hint"
+          "palette_hint",
+          "design"
         ],
         "properties": {
+          "design": {
+            "type": "object",
+            "description": "附件技能三份设计文档的结构化补充：role、identity_appearance、clothing、prop_design、spatial_layout 为字符串；characters、props、environments 为资产标准名数组；evidence 为 {kind,location,text} 数组；states 为 {location,trigger,state} 数组。已有资产也补充新依据、关联和状态轨迹。",
+            "properties": {
+              "role": {"type":"string"},
+              "identity_appearance": {"type":"string"},
+              "clothing": {"type":"string"},
+              "prop_design": {"type":"string"},
+              "spatial_layout": {"type":"string"},
+              "characters": {"type":"array","items":{"type":"string"}},
+              "props": {"type":"array","items":{"type":"string"}},
+              "environments": {"type":"array","items":{"type":"string"}},
+              "evidence": {"type":"array","items":{"type":"object","required":["kind","location","text"],"properties":{"kind":{"type":"string","enum":["原文","推导","设计建议"]},"location":{"type":"string"},"text":{"type":"string"}}}},
+              "states": {"type":"array","items":{"type":"object","required":["location","trigger","state"],"properties":{"location":{"type":"string"},"trigger":{"type":"string"},"state":{"type":"string"}}}}
+            }
+          },
           "category": {
             "type": "string",
             "enum": ["character", "environment", "prop"],

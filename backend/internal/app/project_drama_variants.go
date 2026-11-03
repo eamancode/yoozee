@@ -126,6 +126,12 @@ func variantDefinition(parent map[string]any, parentTitle string, label string, 
 			out[key] = value
 		}
 	}
+	// The complete display paragraph includes the default outfit. Only the
+	// attachment's invariant identity belongs in a different outfit's render.
+	if identity, _ := parent["identityAppearance"].(string); strings.TrimSpace(identity) != "" {
+		out["appearance"] = identity
+		out["identityAppearance"] = identity
+	}
 	parentClothing, _ := parent["clothing"].(string)
 	look = strings.TrimSpace(look)
 	if kind == drama.AssetVariantState {

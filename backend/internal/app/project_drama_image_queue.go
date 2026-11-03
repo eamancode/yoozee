@@ -25,6 +25,7 @@ const (
 	dramaImageBound   = "bound"
 	dramaImageStale   = "stale"
 	dramaImageFailed  = "failed"
+	dramaImagePaused  = "paused"
 )
 
 // dramaImageQueueMu 让同一进程里的排队互斥（多张同时出完图时只有一个在挑下一批）；跨进程靠 payload 条件更新。
@@ -35,6 +36,7 @@ type DramaImageQueueResult struct {
 	Queued  []string `json:"queued"`
 	Waiting []string `json:"waiting"`
 	Failed  []string `json:"failed"`
+	Paused  []string `json:"paused,omitempty"`
 }
 
 func emptyDramaImageQueueResult() DramaImageQueueResult {
@@ -47,6 +49,8 @@ type dramaImageState struct {
 	Error          string `json:"error,omitempty"`
 	UpdatedAt      string `json:"updatedAt,omitempty"`
 	AutoRetryCount int    `json:"autoRetryCount,omitempty"`
+	BatchID        string `json:"batchId,omitempty"`
+	ChannelPaused  bool   `json:"channelPaused,omitempty"`
 }
 
 // setDramaImageState 改一个资产的 payload（payload 条件更新：别的地方同时改了就重读再改，最多三次）。
@@ -151,10 +155,10 @@ func (s *Service) dispatchDramaImages(userID string, key string, jobs []dramaIma
 		}
 		task, createErr := s.createDramaImageTask(userID, asset, job.Build)
 		if createErr != nil {
-			state := dramaImageState{Status: dramaImageFailed, Error: userFacingTaskError(createErr.Error()), UpdatedAt: now}
+			state := dramaImageState{Status: dramaImageFailed, Error: userFacingTaskError(createErr.Error()), UpdatedAt: now, BatchID: dramaImageStateOf(&asset, key).BatchID}
 			// 同时任务数在建任务时才会被别的请求占满、数据库一直忙（重试过了）：这一个和后面的留到下一次接着排，不算出图失败。
 			if strings.Contains(createErr.Error(), "同时排队或运行的任务最多") || databaseBusyError(createErr) {
-				state = dramaImageState{Status: dramaImageWaiting, UpdatedAt: now}
+				state.Status, state.Error = dramaImageWaiting, ""
 				if databaseBusyError(createErr) {
 					state.Error = "数据库忙，这一个没排上：前面的出完会接着排，也可以到资产页点「继续出图」"
 				}
@@ -170,7 +174,7 @@ func (s *Service) dispatchDramaImages(userID string, key string, jobs []dramaIma
 		}
 		slots--
 		result.Queued = append(result.Queued, asset.ID)
-		if err := s.putDramaImageState(userID, asset.ID, key, dramaImageState{Status: dramaImageQueued, TaskID: task.ID, UpdatedAt: now}); err != nil {
+		if err := s.putDramaImageState(userID, asset.ID, key, dramaImageState{Status: dramaImageQueued, TaskID: task.ID, UpdatedAt: now, BatchID: dramaImageStateOf(&asset, key).BatchID}); err != nil {
 			return result, err
 		}
 	}
@@ -248,7 +252,7 @@ func (s *Service) afterDramaImageTaskEnded(task model.Task) {
 			return
 		}
 		if state := dramaImageStateOf(asset, assetImageKey); state.Status == dramaImageQueued && state.TaskID == task.ID {
-			failed := dramaImageState{Status: dramaImageFailed, TaskID: task.ID, Error: firstNonEmpty(userFacingTaskError(task.Error), "出图任务失败"), AutoRetryCount: state.AutoRetryCount, UpdatedAt: time.Now().Format(time.RFC3339Nano)}
+			failed := dramaImageState{Status: dramaImageFailed, TaskID: task.ID, Error: firstNonEmpty(userFacingTaskError(task.Error), "出图任务失败"), AutoRetryCount: state.AutoRetryCount, UpdatedAt: time.Now().Format(time.RFC3339Nano), BatchID: state.BatchID, ChannelPaused: dramaImageChannelFailure(task.Error)}
 			if err := s.putDramaImageState(task.UserID, assetID, assetImageKey, failed); err != nil {
 				_ = s.log(task.UserID, task.ID, "warn", "出图失败状态没有写上", err.Error())
 			}
@@ -276,6 +280,8 @@ type DramaImageTaskTemplate struct {
 	Provider           string         `json:"provider,omitempty"`
 	Input              map[string]any `json:"input"`
 	MaxReferenceImages *int           `json:"maxReferenceImages,omitempty"`
+	// BatchID is assigned by the server. Old completions cannot dispatch a resumed batch with stale credentials.
+	BatchID string `json:"batchId,omitempty"`
 	// Next 是资产都出完图后接着生成分镜要用的文本模型配置（流水线带上，随模板一起加密存在每个出图任务里）。
 	Next *DramaPipelineText `json:"next,omitempty"`
 }

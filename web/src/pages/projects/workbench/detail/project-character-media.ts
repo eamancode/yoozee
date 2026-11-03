@@ -8,10 +8,13 @@ type ProjectStylePrompt = { id: string; title: string; prompt: string; profile?:
 
 const CHARACTER_TURNAROUND_NODE_PREFIX = "character-turnaround:";
 
-/** 三视图优先用项目默认图片模型；没设或当前渠道里没有这个模型时，才退回全局图片模型。 */
+/** 项目指定模型不可用时明确阻断，不能悄悄改走全局渠道。 */
 export function turnaroundImageModel(config: AiConfig, projectDefaultImageModel?: string) {
     const projectModel = projectDefaultImageModel?.trim() || "";
-    if (projectModel && configuredModelMatchesCapability(config, projectModel, "image")) return projectModel;
+    if (projectModel) {
+        if (!configuredModelMatchesCapability(config, projectModel, "image")) throw new Error("项目默认图片模型不可用，请在项目设置中选择可用模型");
+        return projectModel;
+    }
     return config.imageModel || config.model;
 }
 
@@ -29,13 +32,21 @@ export function pendingTurnaroundAssetIds(tasks: GenerationTask[]) {
     return ids;
 }
 
-export async function generateCharacterTurnaround(input: { projectId: string; assetId: string; versionId: string; name: string; definition: Record<string, unknown>; projectStyle?: ProjectStylePrompt; config: AiConfig }) {
+export function characterTurnaroundRequest(input: {
+    projectId: string;
+    assetId: string;
+    versionId: string;
+    name: string;
+    definition: Record<string, unknown>;
+    projectStyle?: ProjectStylePrompt;
+    config: AiConfig;
+}): Parameters<typeof runBackendCanvasGenerationTask>[0] {
     const promptTemplateVariables = characterTurnaroundVariables(input.name, input.definition, input.projectStyle);
-    const generationConfig = { ...input.config, model: input.config.imageModel || input.config.model, count: "1" };
+    const generationConfig = { ...input.config, count: "1" };
     const requestConfig = resolveModelRequestConfig(generationConfig, generationConfig.model);
     const styleExecutionPlan = input.projectStyle?.profile ? resolveStyleExecutionPlan(input.projectStyle.profile, { mode: "image", model: requestConfig.model, interfaceType: requestConfig.interfaceType || requestConfig.apiFormat }) : undefined;
     if (styleExecutionPlan?.status === "blocked" && !logicalModelIDForConfig(generationConfig)) throw new Error(`当前图片模型无法完整执行项目风格：${styleExecutionPlan.warnings.join("；")}。请切换到支持所需参考素材的图片模型`);
-    await runBackendCanvasGenerationTask({
+    return {
         projectId: input.projectId,
         nodeId: `${CHARACTER_TURNAROUND_NODE_PREFIX}${input.assetId}`,
         mode: "image",
@@ -51,7 +62,11 @@ export async function generateCharacterTurnaround(input: { projectId: string; as
             styleExecutionPlan,
             resolvedCharacterVersions: [{ assetId: input.assetId, versionId: input.versionId }],
         },
-    });
+    };
+}
+
+export async function generateCharacterTurnaround(input: Parameters<typeof characterTurnaroundRequest>[0]) {
+    await runBackendCanvasGenerationTask(characterTurnaroundRequest(input));
 }
 
 function characterTurnaroundVariables(name: string, definition: Record<string, unknown>, projectStyle?: ProjectStylePrompt) {

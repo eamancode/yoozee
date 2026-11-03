@@ -65,6 +65,7 @@ import { ProjectVisualAssetCard } from "./project-visual-asset-card";
 import { GroupedPaletteSwatches, MASTER_PALETTE_SOURCE_LABELS, paletteImageStatusLabel, ProjectPaletteCard } from "./project-palette-card";
 import { MasterPaletteGroups, StyleAnchorSummary } from "@/components/drama/master-palette";
 import { assetImageTaskTemplate } from "./drama-image-task";
+import { AssetImageRecovery } from "./asset-image-recovery";
 import { categoryLabels, categoryLabel, mediaLabel, StatusPill, formatTime, textValue, type ProjectDetailViewProps } from "./shared";
 
 const categories = ["all", ...ASSET_CATEGORIES];
@@ -160,6 +161,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         queryFn: async () => (await listProjectAssets(detail.project.id)).assets.filter((asset) => asset.image && asset.image.status !== "bound" && asset.image.status !== "queued"),
     });
     const pendingImageAssets = pendingImageQuery.data || [];
+    const [imageRecoveryOpen, setImageRecoveryOpen] = useState(false);
     const assets = assetsQuery.data?.assets || [];
     const assetFolders = foldersQuery.data?.folders || [];
     const pendingCandidates = candidatesQuery.data?.candidates || [];
@@ -408,7 +410,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const generateVisualMutation = useMutation({
         mutationKey: ["project-visual-image", detail.project.id],
         mutationFn: async (asset: ProjectAsset) => {
-            const model = effectiveConfig.imageModel || effectiveConfig.model;
+            const model = turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
             const config = { ...effectiveConfig, model };
             if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
             await generateProjectVisualImage({
@@ -436,13 +438,14 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     // 资产设计建的角色、场景、道具没出完的图（出图失败、等空位、当时没开出图）由服务端接着排：角色三视图，场景、道具概念图。
     const assetImagesMutation = useMutation({
         mutationKey: ["project-drama-asset-images", detail.project.id],
-        mutationFn: async () => {
-            const model = turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
+        mutationFn: async ({ model, assetIds }: { model: string; assetIds: string[] }) => {
+            if (!assetIds.length) throw new Error("请选择要出图的资产");
             const config = { ...effectiveConfig, model };
             if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
-            return queueDramaAssetImages(detail.project.id, { imageTask: await assetImageTaskTemplate(config, model) });
+            return queueDramaAssetImages(detail.project.id, { assetIds, imageTask: await assetImageTaskTemplate(config, model) });
         },
         onSuccess: async (result) => {
+            setImageRecoveryOpen(false);
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }),
                 queryClient.invalidateQueries({ queryKey: ["project-visual-image-tasks", detail.project.id] }),
@@ -549,7 +552,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5 sm:pl-4">
                     {pendingImageAssets.length ? (
-                        <Button className="!h-9 !px-3" icon={<RefreshCw className="size-3.5" />} loading={assetImagesMutation.isPending} onClick={() => assetImagesMutation.mutate()} aria-label={`继续出图，${pendingImageAssets.length} 个提取的资产还没出图`}>
+                        <Button className="!h-9 !px-3" icon={<RefreshCw className="size-3.5" />} loading={assetImagesMutation.isPending} onClick={() => setImageRecoveryOpen(true)} aria-label={`继续出图，${pendingImageAssets.length} 个提取的资产还没出图`}>
                             继续出图（{pendingImageAssets.length}）
                         </Button>
                     ) : null}
@@ -558,6 +561,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     <Button type="primary" className="!h-9 !px-3.5" icon={<Plus className="size-3.5" />} onClick={() => openCharacterEditor("new")}>新建角色</Button>
                 </div>
             </header>
+            {imageRecoveryOpen ? <AssetImageRecovery assets={pendingImageAssets} config={effectiveConfig} defaultModel={detail.project.defaultImageModel || effectiveConfig.imageModel || effectiveConfig.model} busy={assetImagesMutation.isPending} onClose={() => { if (!assetImagesMutation.isPending) setImageRecoveryOpen(false); }} onSubmit={(selection) => assetImagesMutation.mutate(selection)} /> : null}
             <DramaAssetChecklist projectId={detail.project.id} />
             <div className="project-assets-layout mt-3 grid gap-3">
                 <nav className="space-y-0.5 pr-2" aria-label="素材目录与资产分类">

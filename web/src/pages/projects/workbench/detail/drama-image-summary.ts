@@ -16,6 +16,7 @@ export function dramaImageSummaryText(statuses: DramaImageStatus[], unit: "个" 
     const bound = count((status) => status === "bound");
     const queued = count((status) => status === "queued");
     const waiting = count((status) => status === "waiting");
+    const paused = count((status) => status === "paused");
     const failed = count((status) => status === "failed" || status === "stale");
     const none = count((status) => status === "none");
     if (statuses.length && bound === statuses.length) return `${bound} ${unit}已出图。`;
@@ -24,6 +25,7 @@ export function dramaImageSummaryText(statuses: DramaImageStatus[], unit: "个" 
             bound ? `${bound} ${unit}已出图` : "",
             queued ? `${queued} ${unit}出图中` : "",
             waiting ? `${waiting} ${unit}等前面的出完接着排` : "",
+            paused ? `${paused} ${unit}因图片渠道不可用已暂停（更换渠道后继续出图）` : "",
             failed ? `${failed} ${unit}没出成（原因写在${where}，到资产页点「继续出图」重出）` : "",
             none ? `${none} ${unit}还没出图（到资产页点「继续出图」可以补）` : "",
         ]

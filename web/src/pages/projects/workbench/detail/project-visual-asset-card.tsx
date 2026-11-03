@@ -6,6 +6,7 @@ import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resour
 import type { ProjectAsset } from "@/services/api/projects";
 import { assetImageQueueLabel } from "./project-visual-asset";
 import { categoryLabel } from "./shared";
+import { AssetDesignEvidence } from "./asset-design-evidence";
 
 export function ProjectVisualAssetCard({
     asset,
@@ -31,7 +32,7 @@ export function ProjectVisualAssetCard({
     const resourceId = asset.mediaType === "image" ? resourceIdFromStorageKey(asset.storageKey) : "";
     const description = typeof asset.visual?.definition.description === "string" ? asset.visual.definition.description : "";
     const prompt = typeof asset.visual?.definition.prompt === "string" ? asset.visual.definition.prompt : "";
-    const queue = resourceId ? "" : assetImageQueueLabel(asset.image);
+    const queue = assetImageQueueLabel(asset.image);
     return (
         <AssetLibraryCard className="project-asset-library-card">
             <AssetLibraryCardMedia className="relative aspect-[4/3] overflow-hidden bg-foreground/[.05]">
@@ -49,10 +50,11 @@ export function ProjectVisualAssetCard({
                     <span className="rounded bg-black/60 px-1.5 py-0.5">
                         {categoryLabel(asset.category)} · v{asset.versionCount}
                     </span>
-                    <span className="rounded bg-black/60 px-1.5 py-0.5">{resourceId ? "图片已就绪" : queue || "待生成图片"}</span>
+                    <span className="rounded bg-black/60 px-1.5 py-0.5">{queue || (resourceId ? "图片已就绪" : "待生成图片")}</span>
                 </div>
             </AssetLibraryCardMedia>
             <div className="p-3">
+                <AssetDesignEvidence definition={asset.visual?.definition} />
                 <button type="button" className="w-full truncate text-left text-sm font-semibold" onClick={onOpen}>
                     {asset.title}
                 </button>

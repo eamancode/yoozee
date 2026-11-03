@@ -24,7 +24,7 @@ export function projectVisualImageRequest({ projectId, asset, config, projectSty
     const prompt = typeof asset.visual.definition.prompt === "string" ? asset.visual.definition.prompt.trim() : "";
     if (!prompt) throw new Error("资产缺少生图提示词，请重新提取");
     const description = typeof asset.visual.definition.description === "string" ? asset.visual.definition.description.trim() : "";
-    const generationConfig = { ...config, model: config.imageModel || config.model, count: "1" };
+    const generationConfig = { ...config, count: "1" };
     const requestConfig = resolveModelRequestConfig(generationConfig, generationConfig.model);
     const styleExecutionPlan = projectStyle?.profile ? resolveStyleExecutionPlan(projectStyle.profile, { mode: "image", model: requestConfig.model, interfaceType: requestConfig.interfaceType || requestConfig.apiFormat }) : undefined;
     if (styleExecutionPlan?.status === "blocked" && !logicalModelIDForConfig(generationConfig)) throw new Error(`当前图片模型无法完整执行项目风格：${styleExecutionPlan.warnings.join("；")}。请切换到支持所需参考素材的图片模型`);
@@ -63,6 +63,8 @@ export async function generateProjectVisualImage(input: VisualImageInput) {
 /** 资产设计建的资产在服务端出图队列里的状态（还没出图时显示）；不是资产设计建的、或还没排的返回空串。 */
 export function assetImageQueueLabel(image?: ProjectAssetImageQueue) {
     switch (image?.status) {
+        case "paused":
+            return "渠道不可用，已暂停";
         case "waiting":
             return "等空位出图";
         case "queued":

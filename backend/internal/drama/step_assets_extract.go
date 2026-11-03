@@ -121,7 +121,7 @@ func assetsKnownPrompt(known []AssetsKnown) string {
 	if len(known) == 0 {
 		return ""
 	}
-	lines := []string{"【项目已有资产】下面这些资产已经建好：它们再出现时只写一行 category、name（照抄）和新见到的 aliases，不重复外观；标了「缺外观」的可以补写 appearance 和 prompt_en；角色已有的子卡再出现时 variants 里 label 照抄、只写这次的 scenes。"}
+	lines := []string{"【项目已有资产】下面这些资产已经建好：复用 category、name，aliases 补新叫法，不重复基础外观；design 仍补本场原文依据、关联索引和状态变化。标了「缺外观」的补 appearance、prompt_en；已有子卡 label 照抄，补本场 scenes 及 design 中的动作边界。"}
 	remaining := assetsKnownChars
 	for i, k := range known {
 		if i >= AssetsExtractMaxKnown {
@@ -261,13 +261,14 @@ func AssetsExtractTurnPrompt(scenes []ShotsScene, k int) string {
 
 // AssetsExtractRow 是模型写的一行资产。
 type AssetsExtractRow struct {
-	Category    string   `json:"category"`
-	Name        string   `json:"name"`
-	Aliases     []string `json:"aliases"`
-	Appearance  string   `json:"appearance"`
-	PromptEn    string   `json:"prompt_en"`
-	FirstScene  int      `json:"first_scene"`
-	PaletteHint string   `json:"palette_hint"`
+	Category    string       `json:"category"`
+	Name        string       `json:"name"`
+	Aliases     []string     `json:"aliases"`
+	Appearance  string       `json:"appearance"`
+	PromptEn    string       `json:"prompt_en"`
+	FirstScene  int          `json:"first_scene"`
+	PaletteHint string       `json:"palette_hint"`
+	Design      *AssetDesign `json:"design,omitempty"`
 	// Anchors 只有场景写：人物能站、能走到的位置（生成分段的站位和镜头表检查 R-SHOT-012 用）。
 	Anchors []string `json:"anchors,omitempty"`
 	// Variants 只有角色写：换了服装或状态的各套形象（收尾建成子卡「名·变体」）。
@@ -338,6 +339,12 @@ func AssetsExtractFromText(text string) ([]AssetsExtractRow, AssetsExtractParseS
 		}
 		row.Category, row.Name = NormalizeAssetCategory(str("category")), str("name")
 		row.Appearance, row.PromptEn, row.PaletteHint = str("appearance"), str("prompt_en"), str("palette_hint")
+		if raw := obj["design"]; len(raw) > 0 {
+			var design AssetDesign
+			if json.Unmarshal(raw, &design) == nil {
+				row.Design = &design
+			}
+		}
 		row.Aliases = assetsAliasList(obj["aliases"], row.Name)
 		if row.Category == AssetEnvironment {
 			row.Anchors = assetsAliasList(obj["anchors"], "")
@@ -626,6 +633,7 @@ func mergeAssetsRow(prev *AssetsExtractRow, next AssetsExtractRow) {
 		prev.Anchors = next.Anchors
 	}
 	prev.Variants = mergeAssetsVariants(prev.Variants, next.Variants)
+	prev.Design = MergeAssetDesign(prev.Design, next.Design)
 }
 
 // AssetsAppearance 是写进资产设定的外观描述（压成一行，600 字以内）。

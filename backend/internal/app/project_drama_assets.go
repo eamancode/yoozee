@@ -417,6 +417,14 @@ func assetsRowDefinition(row drama.AssetsExtractRow, episode int, colors []drama
 		prompt += " Color accents: " + strings.Join(parts, ", ") + "."
 	}
 	definition := map[string]any{"aliases": slices.Clone(row.Aliases)}
+	if row.Design != nil {
+		definition["extractionDesign"] = row.Design
+		if row.Category == drama.AssetCharacter {
+			definition["role"] = row.Design.Role
+			definition["identityAppearance"] = row.Design.IdentityAppearance
+			definition["clothing"] = row.Design.Clothing
+		}
+	}
 	if row.Category == drama.AssetCharacter {
 		definition["appearance"], definition["multiViewPrompt"] = drama.AssetsAppearance(row), prompt
 	} else {
@@ -438,13 +446,19 @@ func assetsRowDefinition(row drama.AssetsExtractRow, episode int, colors []drama
 }
 
 // assetLookFields 是合并到已有资产时可以补的外观字段（空着才补）。
-var assetLookFields = []string{"appearance", "multiViewPrompt", "description", "prompt", "anchors"}
+var assetLookFields = []string{"appearance", "multiViewPrompt", "description", "prompt", "anchors", "role", "identityAppearance", "clothing"}
 
 // mergeIntoEntry 把一行并进已有资产的设定（只在内存里）：补别名（行的名字和已有名字不同也算），补空着的外观字段——
 // 场景、道具已经有图的不补（补了出图提示词也和图对不上），角色的图在形象里，补设定不影响它。不改名字，不动已绑的图。
 func mergeIntoEntry(entry *dramaAssetEntry, row drama.AssetsExtractRow, details map[string]any) {
 	before, _ := json.Marshal(entry.definition)
 	mergeAssetAliases(entry.definition, entry.asset.Title, entry.definition["aliases"], details["aliases"], row.Name)
+	if row.Design != nil {
+		var previous *drama.AssetDesign
+		encoded, _ := json.Marshal(entry.definition["extractionDesign"])
+		_ = json.Unmarshal(encoded, &previous)
+		entry.definition["extractionDesign"] = drama.MergeAssetDesign(previous, row.Design)
+	}
 	if !entry.imaged || entry.asset.Category == model.AssetCategoryCharacter {
 		for _, key := range assetLookFields {
 			value, ok := details[key]
@@ -864,7 +878,18 @@ func (s *Service) queueDramaAssetImages(userID string, projectID string, templat
 		return result, err
 	}
 	now := time.Now().Format(time.RFC3339Nano)
+	if template.BatchID == "" && len(only) == 0 {
+		for _, item := range assets {
+			state := dramaImageStateOf(&item.asset, assetImageKey)
+			if state.Status == dramaImageWaiting && state.BatchID == "" {
+				only = append(only, item.asset.ID)
+			}
+		}
+	}
 	if len(only) > 0 {
+		if template.BatchID == "" {
+			template.BatchID = newID()
+		}
 		byID := map[string]model.Asset{}
 		for _, a := range assets {
 			byID[a.asset.ID] = a.asset
@@ -877,7 +902,11 @@ func (s *Service) queueDramaAssetImages(userID string, projectID string, templat
 			if state := dramaImageStateOf(&asset, assetImageKey); state.Status == dramaImageQueued && s.dramaImageTaskActive(userID, state.TaskID) {
 				return result, BadAuthRequest(fmt.Sprintf("「%s」正在出图，等它完成再重出", asset.Title))
 			}
-			if err := s.putDramaImageState(userID, asset.ID, assetImageKey, dramaImageState{Status: dramaImageWaiting, UpdatedAt: now}); err != nil {
+		}
+		// Validate the complete selection before changing any asset state.
+		for _, id := range only {
+			asset := byID[strings.TrimSpace(id)]
+			if err := s.putDramaImageState(userID, asset.ID, assetImageKey, dramaImageState{Status: dramaImageWaiting, UpdatedAt: now, BatchID: template.BatchID}); err != nil {
 				return result, err
 			}
 		}
@@ -886,6 +915,24 @@ func (s *Service) queueDramaAssetImages(userID string, projectID string, templat
 		}
 	}
 	style := projectStyleSnapshot(project)
+	// A terminal authentication/balance error fences this batch across workers and restarts.
+	for _, item := range assets {
+		state := dramaImageStateOf(&item.asset, assetImageKey)
+		if state.BatchID != template.BatchID || !state.ChannelPaused {
+			continue
+		}
+		for _, pending := range assets {
+			p := dramaImageStateOf(&pending.asset, assetImageKey)
+			if p.BatchID == template.BatchID && (p.Status == dramaImageWaiting || p.Status == dramaImagePaused) {
+				p.Status, p.Error, p.ChannelPaused = dramaImagePaused, "图片渠道已暂停："+state.Error+"；选择可用渠道后继续出图", true
+				if err := s.putDramaImageState(userID, pending.asset.ID, assetImageKey, p); err != nil {
+					return result, err
+				}
+				result.Paused = append(result.Paused, pending.asset.ID)
+			}
+		}
+		return result, nil
+	}
 	byID := map[string]dramaImageAsset{}
 	for _, item := range assets {
 		byID[item.asset.ID] = item
@@ -894,7 +941,7 @@ func (s *Service) queueDramaAssetImages(userID string, projectID string, templat
 	var waitingForParent []string
 	for _, item := range assets {
 		asset := item.asset
-		if dramaImageStateOf(&asset, assetImageKey).Status != dramaImageWaiting {
+		if state := dramaImageStateOf(&asset, assetImageKey); state.Status != dramaImageWaiting || state.BatchID != template.BatchID {
 			continue
 		}
 		// 子卡要带主卡的三视图：主卡还在等出图或正在出图时先不排，主卡出完图接着排时再排它。
@@ -947,7 +994,9 @@ func (s *Service) QueueDramaAssetImages(userID string, projectID string, req Dra
 			return emptyDramaImageQueueResult(), nil
 		}
 	}
-	return s.queueDramaAssetImages(userID, projectID, *req.ImageTask, "assets", only)
+	template := *req.ImageTask
+	template.BatchID = newID()
+	return s.queueDramaAssetImages(userID, projectID, template, "assets", only)
 }
 
 // characterStyleSections 是三视图从项目画风里取的小节：只继承角色资产相关规范（与前端 characterStyleConstraint 一致）。

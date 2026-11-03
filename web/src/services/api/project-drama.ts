@@ -632,7 +632,7 @@ export function runDramaProjectStep(
 }
 
 /** 一次排出图：queued 建了任务，waiting 等空位（同时任务数有上限，前面的出完图自动接着排），failed 没建成（原因记在资产上）。 */
-export type DramaImageQueueResult = { queued: string[]; waiting: string[]; failed: string[] };
+export type DramaImageQueueResult = { queued: string[]; waiting: string[]; failed: string[]; paused?: string[] };
 
 /** 重新合成场次色卡的结果：rendered 是合成并绑上图的色卡，failed 是没合成上的（带原因）。 */
 export type DramaPaletteResynthesizeResult = { rendered: string[]; failed: Array<{ assetId: string; code: string; error: string }>; fontNote?: string };

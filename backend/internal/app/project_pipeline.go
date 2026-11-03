@@ -198,7 +198,7 @@ func (s *Service) loadPipelineState(userID string, project *model.Project) (*pip
 			st.assets.Imaged++
 		case a.Image != nil && (a.Image.Status == dramaImageWaiting || a.Image.Status == dramaImageQueued):
 			st.assets.Pending++
-		case a.Image != nil && (a.Image.Status == dramaImageFailed || a.Image.Status == dramaImageStale):
+		case a.Image != nil && (a.Image.Status == dramaImageFailed || a.Image.Status == dramaImageStale || a.Image.Status == dramaImagePaused):
 			st.assets.Failed++
 		}
 	}

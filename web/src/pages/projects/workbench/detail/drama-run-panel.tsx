@@ -84,7 +84,11 @@ export function DramaRunPanel({
     const followRef = useRef(true);
     const [lastReceived, setLastReceived] = useState(() => Date.now());
     const [clock, setClock] = useState(() => Date.now());
-    useEffect(() => setLastReceived(Date.now()), [receivedChars, task?.id, task?.updatedAt, followKey]);
+    useEffect(() => {
+        const now = Date.now();
+        setLastReceived(now);
+        setClock(now);
+    }, [running, receivedChars, task?.id, task?.updatedAt, followKey]);
     useEffect(() => {
         if (!open || !running) return;
         const timer = window.setInterval(() => setClock(Date.now()), 1_000);

@@ -41,6 +41,30 @@ const (
 	assetsInLift = `{"category": "environment", "name": "电梯轿厢", "aliases": ["电梯里"], "appearance": "狭小轿厢，应急灯", "prompt_en": "empty elevator car, emergency light, no people", "first_scene": 1, "palette_hint": ""}`
 )
 
+func TestAssetsAttachmentDesignPersistsAndMerges(t *testing.T) {
+	row := drama.AssetsExtractRow{Category: drama.AssetCharacter, Name: "林深", Appearance: "二十四岁男性，黑短发，穿深灰西装", PromptEn: "character turnaround", Design: &drama.AssetDesign{Role: "受助学生，五年后回报阿婆", IdentityAppearance: "男性，黑发，高鼻梁", Clothing: "深灰西装", Evidence: []drama.AssetEvidence{{Kind: "原文", Location: "第二场", Text: "林深一身深灰西装"}}}}
+	definition := assetsRowDefinition(row, 1, nil, drama.MasterPalette{})
+	encoded, _ := json.Marshal(definition)
+	var persisted map[string]any
+	if err := json.Unmarshal(encoded, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	entry := &dramaAssetEntry{asset: model.Asset{Title: "林深", Category: model.AssetCategoryCharacter}, definition: persisted}
+	next := drama.AssetsExtractRow{Name: "林深", Category: drama.AssetCharacter, Design: &drama.AssetDesign{States: []drama.AssetState{{Location: "第五场·洗手后", Trigger: "系上围裙", State: "西装衬衫外系围裙"}}}}
+	mergeIntoEntry(entry, next, assetsRowDefinition(next, 1, nil, drama.MasterPalette{}))
+	design := entry.definition["extractionDesign"].(*drama.AssetDesign)
+	if definition["role"] != row.Design.Role || len(design.Evidence) != 1 || len(design.States) != 1 || !entry.changed {
+		t.Fatalf("design lost: %+v", entry)
+	}
+	child := variantDefinition(persisted, "林深", "围裙", drama.AssetVariantCostume, "衬衫外系围裙", "same man wearing apron")
+	if child["appearance"] != row.Design.IdentityAppearance || strings.Contains(child["appearance"].(string), "西装") {
+		t.Fatalf("default outfit leaked: %+v", child)
+	}
+	if persisted["appearance"] != row.Appearance {
+		t.Fatal("full six-element description was changed")
+	}
+}
+
 func queueAssetsExtractTask(t *testing.T, svc *Service, db *gorm.DB, project model.Project, unitID string, upstream string, template *DramaImageTaskTemplate) *model.Task {
 	t.Helper()
 	current, err := svc.repo.ProjectForUser("user-1", project.ID)

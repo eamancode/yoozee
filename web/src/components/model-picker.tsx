@@ -265,6 +265,7 @@ export function ModelPicker({
                                         onClick={() => {
                                             if (!model) return;
                                             onChange(model);
+                                            setOpen(false);
                                         }}
                                     >
                                         <ModelLabel

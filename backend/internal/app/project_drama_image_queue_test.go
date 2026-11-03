@@ -68,6 +68,45 @@ func assetQueueFixture(t *testing.T, response ...func(http.ResponseWriter, *http
 	return svc, db, project, template, &imageCalls
 }
 
+func TestDramaImageChannelFailurePausesBatchAndResumesExplicitly(t *testing.T) {
+	for _, code := range []int{401, 403, 402, 404} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			svc, db, project, template, calls := assetQueueFixture(t, func(w http.ResponseWriter, r *http.Request, _ int32) {
+				http.Error(w, "channel unavailable", code)
+			})
+			if _, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template}); err != nil {
+				t.Fatal(err)
+			}
+			failed, _ := runQueuedTask(t, svc)
+			states := assetStates(t, svc, project.ID)
+			if failed.Status != model.TaskStatusFailed || calls.Load() != 1 || activeImageTasks(t, db) != 0 || states["电梯口"].Status != dramaImagePaused || states["电梯里"].Status != dramaImagePaused {
+				t.Fatalf("channel did not pause: task=%s calls=%d states=%+v", failed.Status, calls.Load(), states)
+			}
+			oldBatch := states["病房走廊"].BatchID
+			resumed, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template})
+			if err != nil || len(resumed.Queued) != 1 || len(resumed.Waiting) != 2 {
+				t.Fatalf("resume: %+v %v", resumed, err)
+			}
+			svc.afterDramaImageTaskEnded(*failed)
+			states = assetStates(t, svc, project.ID)
+			if states["病房走廊"].BatchID == oldBatch || states["电梯口"].Status != dramaImageWaiting || activeImageTasks(t, db) != 1 {
+				t.Fatalf("stale callback modified recovery: %+v", states)
+			}
+		})
+	}
+}
+
+func TestDramaImageInvalidSelectionDoesNotPartiallyReset(t *testing.T) {
+	svc, _, project, template, _ := assetQueueFixture(t)
+	_, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template, AssetIDs: []string{"asset-1", "not-in-project"}})
+	if err == nil {
+		t.Fatal("invalid selection accepted")
+	}
+	if state := assetStates(t, svc, project.ID)["病房走廊"]; state.Status != dramaImageNone {
+		t.Fatalf("valid prefix was mutated: %+v", state)
+	}
+}
+
 func TestDramaImageAutomaticRetryCanSucceed(t *testing.T) {
 	svc, db, project, template, calls := assetQueueFixture(t, func(w http.ResponseWriter, r *http.Request, call int32) {
 		if call == 1 {

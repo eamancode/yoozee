@@ -39,7 +39,7 @@ func (s *Service) retryFailedDramaImage(task model.Task, asset *model.Asset) boo
 	if count, _ := metadata["_assetImageAutoRetryCount"].(float64); count >= 1 {
 		return false
 	}
-	if isContentModerationFailure(task.Error) {
+	if isContentModerationFailure(task.Error) || dramaImageChannelFailure(task.Error) {
 		return false
 	}
 	if err := s.taskBilling().CheckRetryEligibility(task.BillingOrderID); err != nil {
@@ -84,4 +84,14 @@ func (s *Service) retryFailedDramaImage(task model.Task, asset *model.Asset) boo
 	}
 	_ = s.log(task.UserID, task.ID, "info", "资产出图自动重试（1/1）", "")
 	return true
+}
+
+// Task errors are persisted as safe provider summaries; match those canonical classifications, never raw upstream bodies.
+func dramaImageChannelFailure(message string) bool {
+	for _, code := range []int{401, 403, 402, 404} {
+		if strings.HasPrefix(message, (providerHTTPError{StatusCode: code}).summary()) {
+			return true
+		}
+	}
+	return false
 }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { assetImageTaskTemplate } from "../src/pages/projects/workbench/detail/drama-image-task";
 import { dramaImageSummaryText } from "../src/pages/projects/workbench/detail/drama-image-summary";
+import { characterTurnaroundRequest, turnaroundImageModel } from "../src/pages/projects/workbench/detail/project-character-media";
 import { createModelChannel, defaultConfig, encodeChannelModel } from "../src/stores/use-config-store";
 
 // 系统渠道的同名模型带声明式参数表（只有 size），个人渠道的同名模型按协议默认能力（有 quality 等）。
@@ -40,6 +41,24 @@ function sameNameConfig() {
 }
 
 describe("短剧出图模板", () => {
+    test("主卡实际提交保留项目模型，不能被全局图片模型覆盖", () => {
+        const config = sameNameConfig();
+        const projectModel = encodeChannelModel("personal", "pr30-image");
+        const selected = turnaroundImageModel(config, projectModel);
+        const request = characterTurnaroundRequest({
+            projectId: "p",
+            assetId: "a",
+            versionId: "v",
+            name: "林深",
+            definition: { appearance: "青年男性，深灰西装" },
+            config: { ...config, model: selected, imageModel: encodeChannelModel("system-image", "fake-image") },
+        });
+        expect(request.config.model).toBe(projectModel);
+        expect(() => turnaroundImageModel(config, "missing-channel::image")).toThrow("项目默认图片模型不可用");
+    });
+    test("渠道暂停计入出图摘要", () => {
+        expect(dramaImageSummaryText(["failed", "paused", "paused"], "个", "资产上")).toContain("2 个因图片渠道不可用已暂停");
+    });
     test("个人模型与系统模型同名：能力配置按选中的个人渠道取，不落到系统模型", async () => {
         const config = sameNameConfig();
         const model = encodeChannelModel("personal", "fake-image");
