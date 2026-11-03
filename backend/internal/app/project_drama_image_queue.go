@@ -79,6 +79,19 @@ func (s *Service) putDramaImageState(userID string, assetID string, key string, 
 	return s.setDramaImageState(userID, assetID, func(payload map[string]any) { payloadMetadata(payload)[key] = state })
 }
 
+// Recheck task ownership on every CAS attempt so a late completion cannot
+// overwrite a manually resumed batch after its original snapshot was read.
+func (s *Service) finishDramaImageState(userID, assetID string, state dramaImageState) error {
+	return s.setDramaImageState(userID, assetID, func(payload map[string]any) {
+		current, _ := decodeInto[dramaImageState](payloadMetadata(payload)[assetImageKey])
+		if current.Status != dramaImageQueued || current.TaskID != state.TaskID {
+			return
+		}
+		state.BatchID, state.AutoRetryCount = current.BatchID, current.AutoRetryCount
+		payloadMetadata(payload)[assetImageKey] = state
+	})
+}
+
 // dramaImageStateOf 读资产 payload.metadata[key] 里的出图状态。
 func dramaImageStateOf(asset *model.Asset, key string) dramaImageState {
 	state, _ := decodeInto[dramaImageState](payloadMetadata(assetPayload(asset))[key])
@@ -253,7 +266,7 @@ func (s *Service) afterDramaImageTaskEnded(task model.Task) {
 		}
 		if state := dramaImageStateOf(asset, assetImageKey); state.Status == dramaImageQueued && state.TaskID == task.ID {
 			failed := dramaImageState{Status: dramaImageFailed, TaskID: task.ID, Error: firstNonEmpty(userFacingTaskError(task.Error), "出图任务失败"), AutoRetryCount: state.AutoRetryCount, UpdatedAt: time.Now().Format(time.RFC3339Nano), BatchID: state.BatchID, ChannelPaused: dramaImageChannelFailure(task.Error)}
-			if err := s.putDramaImageState(task.UserID, assetID, assetImageKey, failed); err != nil {
+			if err := s.finishDramaImageState(task.UserID, assetID, failed); err != nil {
 				_ = s.log(task.UserID, task.ID, "warn", "出图失败状态没有写上", err.Error())
 			}
 		}

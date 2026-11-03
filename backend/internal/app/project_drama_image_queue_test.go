@@ -107,6 +107,26 @@ func TestDramaImageInvalidSelectionDoesNotPartiallyReset(t *testing.T) {
 	}
 }
 
+func TestDramaImageStaleCompletionCannotReplaceResumedState(t *testing.T) {
+	svc, _, project, _, _ := assetQueueFixture(t)
+	state := dramaImageState{Status: dramaImageQueued, TaskID: "new-task", BatchID: "new-batch", AutoRetryCount: 1}
+	if err := svc.putDramaImageState("user-1", "asset-1", assetImageKey, state); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{dramaImageBound, dramaImageFailed} {
+		if err := svc.finishDramaImageState("user-1", "asset-1", dramaImageState{Status: status, TaskID: "old-task"}); err != nil {
+			t.Fatal(err)
+		}
+		if got := assetStates(t, svc, project.ID)["病房走廊"]; got != state {
+			t.Fatalf("stale completion overwrote state: %+v", got)
+		}
+	}
+	asset, _ := svc.repo.AssetForUser("user-1", "asset-1")
+	if got := svc.assetImageSummary("user-1", asset, true); got.Status == dramaImageBound {
+		t.Fatal("existing image hides the new task state")
+	}
+}
+
 func TestDramaImageAutomaticRetryCanSucceed(t *testing.T) {
 	svc, db, project, template, calls := assetQueueFixture(t, func(w http.ResponseWriter, r *http.Request, call int32) {
 		if call == 1 {

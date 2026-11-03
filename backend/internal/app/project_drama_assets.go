@@ -1133,7 +1133,7 @@ func (s *Service) afterDramaAssetImageTask(task model.Task, inputJSON string) {
 	if input.Metadata.Operation == "project_asset_image" && result.Status != "bound" {
 		state.Status, state.Error = dramaImageStale, "出图期间资产换了版本，图留在任务结果里，没有绑到当前版本"
 	}
-	if err := s.putDramaImageState(task.UserID, assetID, assetImageKey, state); err != nil {
+	if err := s.finishDramaImageState(task.UserID, assetID, state); err != nil {
 		_ = s.log(task.UserID, task.ID, "warn", "资产出图状态没有写上", err.Error())
 	}
 	s.continueDramaImages(task, projectID, decrypted)
@@ -1142,9 +1142,10 @@ func (s *Service) afterDramaAssetImageTask(task model.Task, inputJSON string) {
 
 // ProjectAssetImageSummary 是资产设计建的资产在资产清单里的出图状态（none / waiting / queued / bound / stale / failed）。
 type ProjectAssetImageSummary struct {
-	Status string `json:"status"`
-	TaskID string `json:"taskId,omitempty"`
-	Error  string `json:"error,omitempty"`
+	AutoRetryCount int    `json:"autoRetryCount,omitempty"`
+	Status         string `json:"status"`
+	TaskID         string `json:"taskId,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // assetImageSummary 是资产设计建的资产的出图状态；不是资产设计建的返回 nil。
@@ -1153,10 +1154,10 @@ func (s *Service) assetImageSummary(userID string, asset *model.Asset, imaged bo
 		return nil
 	}
 	state := s.dramaImageView(userID, asset, assetImageKey, imaged)
-	if imaged {
+	if imaged && (state.Status == dramaImageNone || state.Status == dramaImageBound) {
 		state.Status, state.Error = dramaImageBound, ""
 	}
-	return &ProjectAssetImageSummary{Status: state.Status, TaskID: state.TaskID, Error: state.Error}
+	return &ProjectAssetImageSummary{Status: state.Status, TaskID: state.TaskID, Error: state.Error, AutoRetryCount: state.AutoRetryCount}
 }
 
 // projectAssetsProgress 是「参考齐了」说明用的资产概况：角色、场景、道具一共几个，几个还没出图。
