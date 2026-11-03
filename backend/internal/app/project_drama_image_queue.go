@@ -179,7 +179,7 @@ func (s *Service) dispatchDramaImages(userID string, key string, jobs []dramaIma
 
 // createDramaImageTask 建一个出图任务。SQLite 下别的写入正占着库时建任务会报「database is locked」：
 // 退避重试三次（每次重组请求），还忙就把错误交回给调用方（留在「等空位」，不记成出图失败）。
-// 模型说不支持这次的参考图时，去掉色卡图再建，还不行就不带参考图（记一条日志）。
+// 模型说不支持这次的参考图时，去掉色卡图再建；子卡所需主卡图不可丢弃。
 func (s *Service) createDramaImageTask(userID string, asset model.Asset, build func(level int) (CreateTaskRequest, error)) (*model.Task, error) {
 	level := dramaRefsAll
 	for attempt := 0; ; attempt++ {

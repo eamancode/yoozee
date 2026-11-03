@@ -1,6 +1,6 @@
 // 资产出图的参考图（M8 卡 D）：角色、子卡、道具带主基调色卡图；场景带本场色卡图和主基调色卡图；子卡另带主卡已确认的三视图
 // （排在最前，保证脸一致）。图片模型的参考图名额（模板里前端按模型能力写的 maxReferenceImages）不够时色卡图先让出（先让主基调色卡，
-// 再让本场色卡），让出的色卡把色值写进提示词；建任务时模型说不支持这么多参考图，就去掉色卡图再建，还不行就不带参考图。
+// 再让本场色卡），让出的色卡把色值写进提示词；主卡参考图不可降级丢弃。
 
 package app
 
@@ -54,15 +54,17 @@ func (s *Service) dramaAssetImageRefs(userID string, project *model.Project, ass
 	var refs []dramaImageRef
 	if asset.ParentAssetID != "" {
 		parent, err := s.repo.AssetForUser(userID, asset.ParentAssetID)
-		if err == nil {
-			id, err := s.versionImageResource(parent.PrimaryVersionID, "turnaround_sheet", "front", "primary")
-			if err != nil {
-				return nil, err
-			}
-			if id != "" {
-				refs = append(refs, dramaImageRef{ResourceID: id, Label: fmt.Sprintf("主卡「%s」已确认的三视图：脸型、五官、发型、肤色、体型与它完全一致，只换服装或状态", parent.Title)})
-			}
+		if err != nil {
+			return nil, err
 		}
+		id, err := s.versionImageResource(parent.PrimaryVersionID, "turnaround_sheet", "front", "primary")
+		if err != nil {
+			return nil, err
+		}
+		if id == "" {
+			return nil, BadAuthRequest(fmt.Sprintf("请先完成主卡「%s」的三视图，再重试子卡出图", parent.Title))
+		}
+		refs = append(refs, dramaImageRef{ResourceID: id, Label: fmt.Sprintf("主卡「%s」已确认的三视图：脸型、五官、发型、肤色、体型与它完全一致，只换服装或状态", parent.Title)})
 	}
 	if asset.Category == model.AssetCategoryEnvironment {
 		ref, err := s.sceneEnvironmentPaletteRef(userID, project, asset, definition)
@@ -173,7 +175,10 @@ func (s *Service) dramaImageRefInputs(userID string, refs []dramaImageRef) ([]an
 	var used []dramaImageRef
 	for _, r := range refs {
 		resource, err := s.repo.ResourceForUser(userID, r.ResourceID)
-		if err != nil || resource.Status != model.ResourceStatusReady {
+		if err != nil || resource.Status != model.ResourceStatusReady || resource.Kind != "image" || !strings.HasPrefix(resource.MimeType, "image/") {
+			if !r.Palette {
+				return nil, nil, BadAuthRequest("主卡参考图片不可用，请先修复主卡图片，再重试子卡出图")
+			}
 			continue
 		}
 		inputs = append(inputs, map[string]any{"id": resource.ID, "type": "image", "name": r.Label, "storageKey": "resource:" + resource.ID, "mimeType": resource.MimeType, "width": resource.Width, "height": resource.Height, "bytes": resource.Size})
@@ -207,6 +212,16 @@ func (s *Service) withDramaImageRefs(userID string, input map[string]any, refs [
 	limit := -1
 	if template.MaxReferenceImages != nil {
 		limit = *template.MaxReferenceImages
+	}
+	// 非色卡参考承载人物身份，不能像色卡一样退化为文字。
+	required := 0
+	for _, ref := range refs {
+		if !ref.Palette {
+			required++
+		}
+	}
+	if required > 0 && (level >= dramaRefsNone || (limit >= 0 && limit < required)) {
+		return "", BadAuthRequest("子卡出图必须保留主卡参考图片，请选择支持参考图片的模型后重试")
 	}
 	kept, dropped := pickDramaImageRefs(refs, limit, level)
 	inputs, used, err := s.dramaImageRefInputs(userID, kept)

@@ -891,6 +891,7 @@ func (s *Service) queueDramaAssetImages(userID string, projectID string, templat
 		byID[item.asset.ID] = item
 	}
 	var jobs []dramaImageJob
+	var waitingForParent []string
 	for _, item := range assets {
 		asset := item.asset
 		if dramaImageStateOf(&asset, assetImageKey).Status != dramaImageWaiting {
@@ -899,6 +900,7 @@ func (s *Service) queueDramaAssetImages(userID string, projectID string, templat
 		// 子卡要带主卡的三视图：主卡还在等出图或正在出图时先不排，主卡出完图接着排时再排它。
 		if parent, ok := byID[asset.ParentAssetID]; ok && !parent.imaged {
 			if status := dramaImageStateOf(&parent.asset, assetImageKey).Status; status == dramaImageWaiting || (status == dramaImageQueued && s.dramaImageTaskActive(userID, dramaImageStateOf(&parent.asset, assetImageKey).TaskID)) {
+				waitingForParent = append(waitingForParent, asset.ID)
 				continue
 			}
 		}
@@ -919,7 +921,9 @@ func (s *Service) queueDramaAssetImages(userID string, projectID string, templat
 			return s.dramaVisualImageTaskRequest(userID, project, style, asset, version, template, origin, refs, level)
 		}})
 	}
-	return s.dispatchDramaImages(userID, assetImageKey, jobs)
+	result, err = s.dispatchDramaImages(userID, assetImageKey, jobs)
+	result.Waiting = append(result.Waiting, waitingForParent...)
+	return result, err
 }
 
 // QueueDramaAssetImages 是资产页「继续出图」：不点名时排资产设计建的、还没有图也没在出图的资产。

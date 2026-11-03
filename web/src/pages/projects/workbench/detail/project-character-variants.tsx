@@ -58,7 +58,9 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
             await refresh();
             setEditing(null);
             setExpanded(true);
-            message.success(result.images.queued.length || result.images.waiting.length ? `子卡「${result.asset.title}」已保存，三视图已排上` : `子卡「${result.asset.title}」已保存`);
+            if (result.images.failed.length) message.warning(`子卡「${result.asset.title}」已保存，三视图未排上，请查看卡片上的原因`);
+            else if (result.images.waiting.length) message.success(`子卡「${result.asset.title}」已保存，等待主卡三视图或出图空位`);
+            else message.success(result.images.queued.length ? `子卡「${result.asset.title}」已保存，三视图已排上` : `子卡「${result.asset.title}」已保存`);
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "子卡保存失败"),
     });

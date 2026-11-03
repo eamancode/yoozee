@@ -305,9 +305,13 @@ func TestDramaAssetImageRefs(t *testing.T) {
 		t.Fatalf("降级去掉色卡图：%+v %s", images, note)
 	}
 	input = map[string]any{}
-	_, _ = svc.withDramaImageRefs("user-1", input, child, DramaImageTaskTemplate{}, dramaRefsNone)
-	if input["referenceImages"] != nil {
-		t.Fatal("最后一档不带参考图")
+	_, err = svc.withDramaImageRefs("user-1", input, child, DramaImageTaskTemplate{}, dramaRefsNone)
+	if err == nil || input["referenceImages"] != nil {
+		t.Fatal("子卡不能降级为无主卡参考图生成")
+	}
+	zero := 0
+	if _, err := svc.withDramaImageRefs("user-1", map[string]any{}, child, DramaImageTaskTemplate{MaxReferenceImages: &zero}, dramaRefsAll); err == nil {
+		t.Fatal("不支持参考图的模型不能生成子卡")
 	}
 
 	// 子卡的三视图任务：角色设定里写明参考图，input 带主卡三视图和主色卡。
@@ -320,6 +324,71 @@ func TestDramaAssetImageRefs(t *testing.T) {
 	vars := req.Input["metadata"].(map[string]any)["promptTemplateVariables"].(map[string]string)
 	if len(req.Input["referenceImages"].([]any)) != 2 || !strings.Contains(vars["角色设定"], "参考图 1：主卡「林小满」已确认的三视图") || !strings.Contains(vars["角色设定"], "与主卡「林小满」是同一人") {
 		t.Fatalf("子卡三视图任务：%+v", vars)
+	}
+}
+
+func TestDramaVariantBlocksUnavailableParentImage(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, _ := seedEpisodeProject(t, svc, db)
+	lin := seedLinXiaoman(t, svc, db, project.ID)
+	created, err := svc.CreateDramaAssetVariant("user-1", project.ID, lin.Asset.ID, DramaAssetVariantRequest{Label: "淋湿", Look: "护士服湿透"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, _ := svc.repo.AssetForUser("user-1", created.Asset.ID)
+	refs, err := svc.dramaAssetImageRefs("user-1", &project, *child, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 引用存在但文件未就绪，必须在创建收费任务前拒绝。
+	if err := db.Model(&model.Resource{}).Where("id = ?", "lin-sheet").Update("status", "failed").Error; err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{}
+	if _, err := svc.withDramaImageRefs("user-1", input, refs, DramaImageTaskTemplate{}, dramaRefsAll); err == nil || input["referenceImages"] != nil {
+		t.Fatal("主卡资源失效不能静默跳过")
+	}
+	if err := db.Where("asset_version_id = ?", lin.Asset.PrimaryVersionID).Delete(&model.AssetRepresentation{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.dramaAssetImageRefs("user-1", &project, *child, map[string]any{}); err == nil || !strings.Contains(err.Error(), "请先完成主卡") {
+		t.Fatalf("主卡未出图应明确提示补图：%v", err)
+	}
+}
+
+func TestDramaVariantQueueReportsParentDependency(t *testing.T) {
+	for _, status := range []string{dramaImageWaiting, dramaImageFailed} {
+		t.Run(status, func(t *testing.T) {
+			svc, db, project, template, calls := assetQueueFixture(t)
+			lin := seedLinXiaoman(t, svc, db, project.ID)
+			child, err := svc.CreateDramaAssetVariant("user-1", project.ID, lin.Asset.ID, DramaAssetVariantRequest{Label: "淋湿", Look: "护士服湿透"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Where("asset_version_id = ?", lin.Asset.PrimaryVersionID).Delete(&model.AssetRepresentation{}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.putDramaImageState("user-1", lin.Asset.ID, assetImageKey, dramaImageState{Status: status}); err != nil {
+				t.Fatal(err)
+			}
+			result, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{AssetIDs: []string{child.Asset.ID}, ImageTask: &template})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if slices.Contains(result.Queued, child.Asset.ID) || calls.Load() != 0 {
+				t.Fatalf("子卡不能提前发给图片模型：%+v", result)
+			}
+			if status == dramaImageWaiting && !slices.Contains(result.Waiting, child.Asset.ID) {
+				t.Fatalf("等待主卡必须返回 waiting：%+v", result)
+			}
+			if status == dramaImageFailed {
+				asset, _ := svc.repo.AssetForUser("user-1", child.Asset.ID)
+				state := dramaImageStateOf(asset, assetImageKey)
+				if !slices.Contains(result.Failed, child.Asset.ID) || !strings.Contains(state.Error, "请先完成主卡") {
+					t.Fatalf("主卡失败时显示可处理的原因：%+v %+v", result, state)
+				}
+			}
+		})
 	}
 }
 
