@@ -133,6 +133,12 @@ func TestDramaRunLoopsScenesInOneTask(t *testing.T) {
 	if !strings.Contains(upstream.prompts[0], "整章提示词") || !strings.Contains(upstream.prompts[0], "【分回合输出】本章按正文的场景标题共 3 场") {
 		t.Fatalf("第一轮是整章提示词加分回合说明：%s", upstream.prompts[0])
 	}
+	if !strings.HasPrefix(upstream.prompts[1], upstream.prompts[0]) || !strings.Contains(upstream.prompts[1], "【本轮输出修正】") || !strings.Contains(upstream.prompts[1], errDramaTurnUnparsed.Error()) {
+		t.Fatal("结构校验失败须保留原请求并反馈具体校验错误")
+	}
+	if upstream.prompts[2] != upstream.prompts[3] {
+		t.Fatal("网络失败重试不能追加上游错误或改写提示词")
+	}
 	if !strings.HasPrefix(upstream.prompts[4], "继续写第 3 场：「内·电梯口·夜」（从「防火门弹开") || !strings.Contains(upstream.prompts[4], "shotNumber 从 5 起") {
 		t.Fatalf("续写指令：%s", upstream.prompts[4])
 	}
@@ -162,6 +168,31 @@ func TestDramaRunLoopsScenesInOneTask(t *testing.T) {
 	streamRows, streamStats, _ := drama.StoryboardRowsFromText(stream.String())
 	if len(streamRows) != 6 || streamStats.Rejected != 0 {
 		t.Fatalf("文本流里能逐行解析出全部镜头：%d %+v", len(streamRows), streamStats)
+	}
+}
+
+func TestDramaRunValidationFeedbackDoesNotAccumulate(t *testing.T) {
+	service, _, create := newDramaRunTestService(t)
+	upstream := &fakeShotsUpstream{fail: func(call int, _ int) int {
+		if call <= 2 {
+			return -1
+		}
+		return 0
+	}}
+	server := httptest.NewServer(upstream.handler(t))
+	defer server.Close()
+	run := dramaRunMeta{RunID: "validation-retry", Step: drama.StepChapterShots, Scenes: dramaRunTestScenes[:1], Turns: 1, ResumeFrom: 1}
+	task := create("validation-retry-task", run)
+	if _, err := service.runDramaRun(dramaRunCtx(task), dramaRunInput(server.URL), run); err != nil {
+		t.Fatal(err)
+	}
+	if upstream.calls != 3 {
+		t.Fatalf("expected two validation retries, got %d calls", upstream.calls)
+	}
+	for _, prompt := range upstream.prompts[1:] {
+		if strings.Count(prompt, "【本轮输出修正】") != 1 || !strings.HasPrefix(prompt, upstream.prompts[0]) {
+			t.Fatal("每次修正只追加一次，原始请求保持完整")
+		}
 	}
 }
 

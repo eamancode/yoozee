@@ -526,8 +526,13 @@ func (s *Service) runDramaTurn(ctx context.Context, task model.Task, input canva
 		}
 		marker.Attempt = attempt
 		stream.marker(marker)
+		attemptInput := input
+		if errors.Is(lastErr, errDramaTurnUnparsed) {
+			// Only local contract validation is fed back; upstream errors may contain credentials.
+			attemptInput.Prompt += "\n\n【本轮输出修正】上一次输出未通过结构校验：" + truncateRunes(lastErr.Error(), 1200) + "\n请按原文事实、已有资产与受保护输出契约，重新输出本轮的完整有效内容。只修正上述格式或引用错误，不输出解释，不省略其余正确内容。"
+		}
 		turnCtx, cancel := context.WithTimeout(ctx, turnTimeout)
-		result, err := runTextTask(turnCtx, input)
+		result, err := runTextTask(turnCtx, attemptInput)
 		cancel()
 		if err == nil {
 			text, _ := result["text"].(string)
@@ -537,7 +542,7 @@ func (s *Service) runDramaTurn(ctx context.Context, task model.Task, input canva
 				continue
 			}
 			stream.finishTurn(text)
-			turn := dramaRunTurn{Index: marker.Index, Scene: marker.Scene, Heading: marker.Heading, Rows: count, Attempts: attempt, Prompt: input.Prompt, Text: text}
+			turn := dramaRunTurn{Index: marker.Index, Scene: marker.Scene, Heading: marker.Heading, Rows: count, Attempts: attempt, Prompt: attemptInput.Prompt, Text: text}
 			if usage, ok := result["usage"].(map[string]any); ok {
 				turn.Usage = usage
 			}

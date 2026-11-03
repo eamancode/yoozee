@@ -294,6 +294,8 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                 onClose={() => setPanelOpen(false)}
                 title="项目风格"
                 running={running}
+                task={latestTask}
+                receivedChars={stream.text.length}
                 status={status}
                 unit="轮"
                 stepLabel="风格分析"

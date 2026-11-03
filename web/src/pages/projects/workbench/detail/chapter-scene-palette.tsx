@@ -440,6 +440,8 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                 onClose={() => setPanelOpen(false)}
                 title="场次色卡"
                 running={running}
+                task={latestTask}
+                receivedChars={stream.text.length}
                 status={status}
                 unit="集"
                 stepLabel="场次色卡"
