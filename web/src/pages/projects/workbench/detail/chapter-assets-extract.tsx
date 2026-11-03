@@ -428,7 +428,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
                         <div className="text-[var(--fs-tiny)] text-foreground/42">当前{unitNoun}</div>
                         <div className="mt-1 truncate text-sm font-medium text-foreground/85">{unit?.title}</div>
-                        <div className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-foreground/45">按场提取角色、场景和道具，写外观和出图提示词；同名或同别名的已有资产只补别名和缺的外观，不改名字、不动已有的图；新资产直接进资产库，不用再确认。</div>
+                        <div className="mt-1 text-[var(--fs-tiny)] leading-[18px] text-foreground/45">按场提取角色、场景和道具，保存外观、原文依据、关联和状态变化。同一资产跨场复用时补充新证据与状态，保留已确认的名字、外观和图片；新资产直接进入资产库。</div>
                     </div>
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
