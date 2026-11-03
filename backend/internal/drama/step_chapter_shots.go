@@ -360,6 +360,8 @@ type ShotsScene struct {
 	Opening string `json:"opening"`
 	// SourceHeadings 是并成这一场的正文场次头（连续同地点，两个以上才有）。
 	SourceHeadings []string `json:"sourceHeadings,omitempty"`
+	// AssetSourceText 只由资产提取填入，续场时明确本轮全部正文，避免漏掉合并场的后半段。
+	AssetSourceText string `json:"assetSourceText,omitempty"`
 	// Section / Genre / Est 是按小节生成时这一轮写的小节（E01S02-P1）、戏类（wenxi15 / wenxi30）和估时秒数：一轮一节。
 	Section string  `json:"section,omitempty"`
 	Genre   string  `json:"genre,omitempty"`

@@ -249,7 +249,7 @@ func sameShotsScenes(a []drama.ShotsScene, b []drama.ShotsScene) bool {
 		x, y := a[i], b[i]
 		// 合并场的展示名可以随元数据解析修正，原始场次头和正文锚必须保持一致。
 		sameHeading := x.Heading == y.Heading || len(x.SourceHeadings) > 1 && slices.Equal(x.SourceHeadings, y.SourceHeadings)
-		if x.ID != y.ID || !sameHeading || x.Opening != y.Opening || x.Section != y.Section || x.Genre != y.Genre || x.Est != y.Est || !slices.Equal(x.SourceHeadings, y.SourceHeadings) {
+		if x.ID != y.ID || !sameHeading || x.Opening != y.Opening || x.AssetSourceText != y.AssetSourceText || x.Section != y.Section || x.Genre != y.Genre || x.Est != y.Est || !slices.Equal(x.SourceHeadings, y.SourceHeadings) {
 			return false
 		}
 	}

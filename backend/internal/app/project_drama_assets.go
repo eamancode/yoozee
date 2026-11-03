@@ -184,7 +184,7 @@ func assetsExtractPlan(project *model.Project, unit *model.ProjectUnit, units []
 	if err != nil {
 		return nil, err
 	}
-	scenes := drama.ChapterShotsScenes(chapterPlainText(unit.SourceText), unit.Title)
+	scenes := drama.AssetsExtractScenes(chapterPlainText(unit.SourceText), unit.Title)
 	return &dramaStepPlan{
 		usage: usage, prompt: prompt, skill: skill, scenes: scenes,
 		record: map[string]any{
