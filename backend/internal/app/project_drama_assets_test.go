@@ -13,6 +13,23 @@ import (
 	"yingce/backend/internal/model"
 )
 
+func TestDramaAssetIndexPrefersTitlesAndRejectsSharedAliases(t *testing.T) {
+	thermos := &dramaAssetEntry{asset: model.Asset{ID: "thermos", Title: "保温桶", Category: model.AssetCategoryProp}, definition: map[string]any{"aliases": []string{"桶"}}}
+	bucket := &dramaAssetEntry{asset: model.Asset{ID: "bucket", Title: "水桶", Category: model.AssetCategoryProp}, definition: map[string]any{"aliases": []string{"桶"}}}
+	for _, order := range [][]*dramaAssetEntry{{thermos, bucket}, {bucket, thermos}} {
+		index := &dramaAssetIndex{byKey: map[string]*dramaAssetEntry{}}
+		for _, entry := range order {
+			index.add(entry)
+		}
+		if got := index.lookup(drama.AssetsExtractRow{Category: drama.AssetProp, Name: "桶"}); got != nil {
+			t.Fatalf("ambiguous generic name resolved to %s", got.asset.Title)
+		}
+		if got := index.lookup(drama.AssetsExtractRow{Category: drama.AssetProp, Name: "水桶", Aliases: []string{"桶"}}); got != bucket {
+			t.Fatal("exact canonical title must select the water bucket")
+		}
+	}
+}
+
 // seedLinXiaoman 建一个已确认、已有三视图的角色「林小满」（资产页手动建的，不是资产设计建的）。
 func seedLinXiaoman(t *testing.T, svc *Service, db *gorm.DB, projectID string) ProjectCharacterDetail {
 	t.Helper()

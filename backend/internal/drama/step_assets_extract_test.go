@@ -92,6 +92,30 @@ const (
 	assetsRowKnife = `{"category": "prop", "name": "折叠刀", "aliases": [], "appearance": "黑柄折叠刀", "prompt_en": "", "first_scene": 2, "palette_hint": ""}`
 )
 
+func TestAssetsExtractSharedAliasDoesNotMergeDistinctProps(t *testing.T) {
+	thermos := AssetsExtractRow{Category: AssetProp, Name: "保温桶", Aliases: []string{"桶"}, Appearance: "密封盛热橙汁", PromptEn: "insulated juice container"}
+	bucket := AssetsExtractRow{Category: AssetProp, Name: "水桶", Appearance: "敞口洗抹布", PromptEn: "open cleaning bucket"}
+	reused := AssetsExtractRow{Category: AssetProp, Name: "水桶", Aliases: []string{"桶"}}
+	for _, rows := range [][]AssetsExtractRow{{thermos, bucket, reused}, {bucket, reused, thermos}} {
+		got := CheckAssetsExtract(rows, AssetsExtractCheckContext{})
+		if len(got.Rows) != 2 || got.Report.Errors != 0 || got.Report.Warnings != 1 {
+			t.Fatalf("shared generic alias must retain two props: %+v", got)
+		}
+		for _, row := range got.Rows {
+			if len(row.Aliases) != 0 {
+				t.Fatalf("ambiguous alias must not be persisted: %+v", row)
+			}
+		}
+	}
+	got := CheckAssetsExtract([]AssetsExtractRow{bucket, reused}, AssetsExtractCheckContext{Known: []AssetsKnown{{Category: AssetProp, Name: "保温桶", Aliases: []string{"桶"}}}})
+	if len(got.Rows) != 1 || got.Rows[0].Merge || got.Rows[0].Name != "水桶" {
+		t.Fatalf("new bucket must not merge into existing thermos: %+v", got)
+	}
+	if thermos.Aliases[0] != "桶" {
+		t.Fatal("checking must not mutate source rows")
+	}
+}
+
 func TestAssetsExtractMergedSceneScope(t *testing.T) {
 	text := "第一场｜后街-夜-外\n阿婆：进来躲雨。\n第二场｜市场果汁摊-日-内\n管理员：交摊位费。\n第三场｜市场果汁摊-日-内\n△林深系上围裙。\n顾客A：这杯子哪买的？\n第四场｜市场角落-日-内\n阿婆：这是角落里的话。"
 	turns := AssetsExtractScenes(text, "测试")

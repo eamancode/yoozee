@@ -486,6 +486,8 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 		}
 	}
 	known := map[string]bool{}
+	ambiguous := assetAmbiguousAliases(rows, ctx.Known)
+	warnedAliases := map[string]bool{}
 	// knownVariants 是已有角色（名字和别名的键）→ 它已有子卡的变体名键。
 	knownVariants := map[string]map[string]bool{}
 	for _, k := range ctx.Known {
@@ -495,6 +497,9 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 		}
 		for _, name := range append([]string{k.Name}, k.Aliases...) {
 			if key := AssetNameKey(name); key != "" {
+				if name != k.Name && ambiguous[k.Category+":"+key] {
+					continue
+				}
 				known[k.Category+":"+key] = true
 				if k.Category == AssetCharacter {
 					knownVariants[key] = labels
@@ -517,6 +522,17 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 		if converted, ok := variantFromTitledRow(r); ok {
 			r = converted
 		}
+		r.Aliases = slices.DeleteFunc(slices.Clone(r.Aliases), func(alias string) bool {
+			key := r.Category + ":" + AssetNameKey(alias)
+			if !ambiguous[key] {
+				return false
+			}
+			if !warnedAliases[key] {
+				add("warn", "R-ASSET-011", r.Name, fmt.Sprintf("别名「%s」同时指向不同资产，已排除该合并键，保留各自名称与设计", alias))
+				warnedAliases[key] = true
+			}
+			return true
+		})
 		label := firstNonEmptyString(r.Name, "（无名）")
 		if r.Name == "" || AssetNameKey(r.Name) == "" {
 			add("error", RuleAssetNoName, label, "资产名为空，这一行没写")
@@ -588,6 +604,44 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 		checkAssetsHexes(out.Rows[i], ctx, add)
 	}
 	return out
+}
+
+// Collect ownership over the entire run before merging: later reuse rows can introduce a shared alias.
+func assetAmbiguousAliases(rows []AssetsExtractRow, known []AssetsKnown) map[string]bool {
+	canonical := map[string]bool{}
+	for _, r := range rows {
+		if r.HasLook() {
+			canonical[r.Category+":"+AssetNameKey(r.Name)] = true
+		}
+	}
+	for _, k := range known {
+		canonical[k.Category+":"+AssetNameKey(k.Name)] = true
+	}
+	owners := map[string]map[string]bool{}
+	collect := func(category, name string, aliases []string) {
+		owner := category + ":" + AssetNameKey(name)
+		if !canonical[owner] {
+			return
+		}
+		for _, alias := range append([]string{name}, aliases...) {
+			key := category + ":" + AssetNameKey(alias)
+			if owners[key] == nil {
+				owners[key] = map[string]bool{}
+			}
+			owners[key][owner] = true
+		}
+	}
+	for _, r := range rows {
+		collect(r.Category, r.Name, r.Aliases)
+	}
+	for _, k := range known {
+		collect(k.Category, k.Name, k.Aliases)
+	}
+	ambiguous := map[string]bool{}
+	for key, names := range owners {
+		ambiguous[key] = len(names) > 1
+	}
+	return ambiguous
 }
 
 func firstKey(index map[string]int, keys []string) (int, bool) {

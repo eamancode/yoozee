@@ -351,15 +351,22 @@ func (x *dramaAssetIndex) add(entry *dramaAssetEntry) {
 	x.entries = append(x.entries, entry)
 	for _, name := range append([]string{entry.asset.Title}, definitionAliases(entry.definition)...) {
 		key := string(entry.asset.Category) + ":" + model.AssetCandidateNameKey(name)
-		if _, ok := x.byKey[key]; !ok && model.AssetCandidateNameKey(name) != "" {
+		if previous, ok := x.byKey[key]; ok && previous != entry {
+			x.byKey[key] = nil
+		} else if !ok && model.AssetCandidateNameKey(name) != "" {
 			x.byKey[key] = entry
 		}
 	}
 }
 
 func (x *dramaAssetIndex) lookup(row drama.AssetsExtractRow) *dramaAssetEntry {
+	for _, entry := range x.entries {
+		if string(entry.asset.Category) == row.Category && model.AssetCandidateNameKey(entry.asset.Title) == drama.AssetNameKey(row.Name) {
+			return entry
+		}
+	}
 	for _, name := range append([]string{row.Name}, row.Aliases...) {
-		if entry, ok := x.byKey[row.Category+":"+model.AssetCandidateNameKey(name)]; ok {
+		if entry := x.byKey[row.Category+":"+model.AssetCandidateNameKey(name)]; entry != nil {
 			return entry
 		}
 	}
