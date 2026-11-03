@@ -1,5 +1,5 @@
 import type { VideoCapabilityConfig } from "@/lib/model-capabilities";
-import { fixedVideoDuration } from "@/lib/fixed-video-duration";
+import { projectVideoDurationSlots } from "@/lib/fixed-video-duration";
 
 /**
  * 镜头视频的段时长：分段 JSON 的 dur 优先，其次是镜头时长；再按模型声明的时长档位取「不短于镜头」的最近一档，
@@ -8,7 +8,7 @@ import { fixedVideoDuration } from "@/lib/fixed-video-duration";
 export function shotVideoSeconds(input: { specSeconds?: number; shotSeconds: number; profile?: VideoCapabilityConfig; segmentMaxSeconds?: number }) {
     // 分段表维护的段以 dur 为准，渠道档位不能改写它（保存时会把段改长）。
     if (input.specSeconds && input.specSeconds > 0) return input.specSeconds;
-    if (fixedVideoDuration(input.profile?.duration)) return input.shotSeconds;
+    if (projectVideoDurationSlots(input.profile?.duration)) return input.shotSeconds;
     const wanted = Math.max(1, Number.isFinite(input.shotSeconds) ? input.shotSeconds : 1);
     const cap = input.segmentMaxSeconds && input.segmentMaxSeconds > 0 ? input.segmentMaxSeconds : Number.POSITIVE_INFINITY;
     const duration = input.profile?.duration;

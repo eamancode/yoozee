@@ -1,6 +1,6 @@
 import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { videoResolutionComparisonKey } from "@/lib/video-generation-options";
-import { fixedVideoDuration, fixedVideoSubmissionSeconds } from "@/lib/fixed-video-duration";
+import { projectVideoDurationSlots, projectVideoSubmissionSeconds } from "@/lib/fixed-video-duration";
 import { imageParameterRequest, imageParameterDefaults, imageParameterAccepts } from "./image-parameters";
 import { imageSizePresets } from "@/lib/image-size-presets";
 import { modelOptionName, PUBLIC_MODEL_CATALOG_ID, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
@@ -19,7 +19,7 @@ export type ModelRequirements = {
     input?: ModelInputSummary;
     videoOperation?: string;
     videoSeconds?: string;
-    /** Project content duration; fixed 15/30 second models quote and submit their full slot. */
+    /** Project content duration; supported 15/30-second slot models quote and submit the resolved tier. */
     videoContentSeconds?: number;
     imageSize?: string;
     options?: Record<string, unknown>;
@@ -112,7 +112,7 @@ export function configuredModelDisplayName(config: AiConfig, value: string) {
     return channel.modelCosts?.find((item) => item.model === model)?.displayName?.trim() || model;
 }
 
-export function modelFixedVideoSeconds(config: AiConfig, model: string) {
+export function modelVideoDurationSlots(config: AiConfig, model: string) {
     const channel = resolveModelChannel(config, model);
     const cost = channel.modelCosts?.find((item) => item.model === modelOptionName(model));
     const specs = cost?.logicalCapabilityProfiles?.length ? cost.logicalCapabilityProfiles : cost?.logicalCapabilitySpec ? [cost.logicalCapabilitySpec] : [];
@@ -120,15 +120,15 @@ export function modelFixedVideoSeconds(config: AiConfig, model: string) {
         const slots = specs.map((spec) => {
             const duration = spec.options?.videoSeconds;
             const values = duration?.values || (duration?.min === duration?.max && duration?.min !== undefined ? [duration.min] : []);
-            return fixedVideoDuration({ selection: "enum", values: values.map(Number), default: 0 });
+            return projectVideoDurationSlots({ selection: "enum", values: values.map(Number), default: 0 });
         });
-        return slots.every((slot) => slot === slots[0]) ? slots[0] : undefined;
+        return slots.every((slot) => JSON.stringify(slot) === JSON.stringify(slots[0])) ? slots[0] : undefined;
     }
-    return fixedVideoDuration(modelCapabilityConfigFor(config, model).video?.duration);
+    return projectVideoDurationSlots(modelCapabilityConfigFor(config, model).video?.duration);
 }
 
 export function modelVideoSubmissionSeconds(config: AiConfig, model: string, contentSeconds: number) {
-    return fixedVideoSubmissionSeconds(modelFixedVideoSeconds(config, model), contentSeconds);
+    return projectVideoSubmissionSeconds(modelVideoDurationSlots(config, model), contentSeconds);
 }
 
 export function modelCompatibilityError(config: AiConfig, model: string, requirements?: ModelRequirements) {

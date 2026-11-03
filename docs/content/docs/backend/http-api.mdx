@@ -7,6 +7,8 @@ description: 信封、错误码与 OpenAPI
 
 ## 剧本正文与镜头视频提交
 
+双档枚举 `[15,30]` 的项目视频任务按内容时长换算：`0 < 内容 < 15` 提交 15 秒；`15 <= 内容 <= 30` 提交 30 秒，恰好 15 秒进入 30 秒档；大于 30 秒拒绝。前端报价采用换算后的档位。后端读取当前目录能力及保存的镜头时长，统一 `config.videoSeconds` 与 `capabilityOptions.videoSeconds`，重试在逻辑路由前执行相同归一化，计费与能力校验据此进行。此规则不改写镜头 `durationMs` 或分段 `dur`，单固定档模型保持原有规则。
+
 `POST /api/projects`、章节新增与更新接收上限为 8 MiB 的 JSON，以容纳中文 UTF-8、Unicode 转义及富文本格式。业务正文上限为 15 万个非空白 Unicode 字符（HTML 标签不计）；建项按所有导入章节合计，章节新增及更新按单章校验。超出 JSON 容量返回 HTTP 413、`reason=project_source_invalid`，业务字数超限返回正文校验错误。批量导入仍受既有批量容量约束。
 
 带 `metadata.domainProjectId` 和 `metadata.shotId` 的视频任务按当前镜头版本校验时长。仅支持固定 15 秒或 30 秒的渠道允许内容时长大于 0 且不超过固定时长，提交的 `config.videoSeconds`、报价及计费采用该固定时长；服务端以渠道目录能力为准，不信任客户端声明的平台模型能力。普通画布及多档模型的时长合同保持原规则。

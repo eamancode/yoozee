@@ -76,11 +76,11 @@ func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.T
 	if err := json.Unmarshal([]byte(decryptedInput), &billingInput); err != nil {
 		return nil, err
 	}
-	if err := s.prepareLogicalTaskRetry(task, billingInput); err != nil {
-		return nil, err
-	}
 	task.Prompt, err = s.prepareDramaVideoSubmission(userID, billingInput, task.Prompt, true)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.prepareLogicalTaskRetry(task, billingInput); err != nil {
 		return nil, err
 	}
 	if err := s.enforceDramaSegmentTaskDuration(userID, billingInput); err != nil {

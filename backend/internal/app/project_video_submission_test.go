@@ -47,7 +47,7 @@ func TestProjectFixedVideoDurations(t *testing.T) {
 			}
 		}
 	}
-	if fixedProjectVideoSeconds(VideoDurationConfig{Selection: "enum", Values: []int{4, 30}}) != 0 {
+	if len(projectVideoDurationSlots(VideoDurationConfig{Selection: "enum", Values: []int{4, 30}})) != 0 {
 		t.Fatal("multi-slot model must retain ordinary rules")
 	}
 }
