@@ -236,23 +236,27 @@ func AssetsExtractScenes(plainText, title string) []ShotsScene {
 func AssetsExtractTurnPlan(scenes []ShotsScene) string {
 	parts := make([]string, 0, len(scenes))
 	for i, s := range scenes {
-		parts = append(parts, fmt.Sprintf("第 %d 场%s", i+1, shotsSceneLabel(s)))
+		label := fmt.Sprintf("第 %d 场%s", i+1, shotsSceneLabel(s))
+		if len(s.SourceHeadings) > 1 {
+			label += "（对应原文：" + strings.Join(s.SourceHeadings, "；") + "）"
+		}
+		parts = append(parts, label)
 	}
 	n := len(scenes)
 	return fmt.Sprintf("【分回合输出】本集按场次标题共 %d 场：%s。这个对话分 %d 个回合写完：本回合只写第 1 场里出现的资产；我说「继续」时再写下一场。"+
-		"每个回合仍按【受保护输出契约】一个资产一行；每场至少输出发生地的 environment 行，复用场景照抄已有 name 并写 first_scene，不重复已有外观；前面回合已经写过的其他资产不再重复外观，有新的叫法时只写一行 category、name 和新的 aliases，换了服装或状态时写一行 category、name 和 variants（只写新的一套）；first_scene 写这一回合的场序。",
+		"分析以技能附件为准。每个回合按输出契约一个资产一行；每场至少输出发生地的 environment 行。复用资产照抄已有 name，不重复基础外观，但本场新增原文证据、关联索引和状态轨迹必须补入 design，不能只补别名。first_scene 写本回合运行场序；variants 只绑定本轮实际出现的造型，首轮 scenes 只写 [1]，不要提前绑定未来场次。原文场号与上述运行场序可能不同，合并场须覆盖列出的全部原文标题；同场中途变化写 start_after 原文动作边界。",
 		n, strings.Join(parts, "；"), n)
 }
 
 // AssetsExtractTurnPrompt 是第 k 场（从 1 数，k ≥ 2）的续写指令。
 func AssetsExtractTurnPrompt(scenes []ShotsScene, k int) string {
 	s := scenes[k-1]
-	prompt := fmt.Sprintf("继续写第 %d 场：%s里出现的资产，first_scene 写 %d。每场至少输出发生地的 environment 行；复用场景照抄已有 name 并写 first_scene，不重复已有外观，新场景补全 appearance 和 prompt_en。前面回合和【项目已有资产】里已有的其他资产只在有新叫法时写一行 category、name 和 aliases，不重复外观；角色在这一场换了服装或状态时写一行 category、name 和 variants（scenes 写 %d）。一个资产一行，不得因没有新资产输出空轮。", k, shotsSceneLabel(s), k, k)
+	prompt := fmt.Sprintf("继续写第 %d 场：%s里出现的资产，first_scene 写 %d。分析以技能附件为准。每场至少输出发生地的 environment 行；复用资产照抄已有 name，appearance 和 prompt_en 留空，但必须补本场新增的 design.evidence、characters/props/environments 交叉索引和 design.states。原文没有变化的字段不重复；新资产补全外观和设计。角色本场出现非默认造型时写 variants，已有子卡 label 照抄，scenes 只写 [%d]；同场中途换装或状态改变，start_after 逐字记录触发动作，不能整场提前应用。一个资产一行，不得因没有新资产输出空轮。", k, shotsSceneLabel(s), k, k)
 	if len(s.SourceHeadings) > 1 {
 		prompt += "\n\n【本轮对应原文场次】" + strings.Join(s.SourceHeadings, "；") + "。这些段落都属于本轮，不能只提取第一段。"
 	}
 	if s.AssetSourceText != "" {
-		prompt += "\n\n【本轮完整正文】\n" + s.AssetSourceText + "\n\n【范围核对】本轮正文只决定哪些资产出场及哪些换装绑定本轮，覆盖全部出镜说话角色、剧情关键道具及明确换装，不把原文场号当成本轮运行场序。新建资产的稳定外观必须回看第一轮完整剧本，汇总同一实体在全部场次中明确给出的结构和识别细节，不能只依据以上节选；后文的接口类型、按键、裂缝、残胶和贴纸等要同时写入首次 appearance 与 prompt_en，接口类型等原文明示标识必须准确保留，不能泛化为普通接口。已建资产仍保持身份及外观不变，不提前输出后续场才出现的新资产。"
+		prompt += "\n\n【本轮完整正文】\n" + s.AssetSourceText + "\n\n【范围核对】本轮正文决定出场资产及本轮造型，覆盖全部出镜说话角色、关键道具及换装；不把原文场号当作运行场序。首次建卡仍须通读完整剧本：接口、按键等跨时段稳定结构写入中英文外观；换轮、撕贴纸、磨亮、淋湿等有发生时点的变化按附件写入 design.states，不能倒填到初始外观。保留事实证据与时点，不提前输出后续场才出现的新资产。"
 	}
 	return prompt
 }

@@ -99,9 +99,15 @@ func TestAssetsExtractMergedSceneScope(t *testing.T) {
 		t.Fatalf("必须沿用统一同地点合场规则：%+v", turns)
 	}
 	prompt := AssetsExtractTurnPrompt(turns, 2)
-	for _, want := range []string{"第二场", "第三场", "管理员：交摊位费", "林深系上围裙", "顾客A：这杯子哪买的", "first_scene 写 2", "scenes 写 2", "稳定外观必须回看第一轮完整剧本", "不能泛化为普通接口"} {
+	for _, want := range []string{"第二场", "第三场", "管理员：交摊位费", "林深系上围裙", "顾客A：这杯子哪买的", "first_scene 写 2", "scenes 只写 [2]", "首次建卡仍须通读完整剧本", "不能倒填到初始外观", "design.evidence", "design.states", "start_after 逐字记录触发动作"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("续场必须包含完整合并范围 %q：%s", want, prompt)
+		}
+	}
+	plan := AssetsExtractTurnPlan(turns)
+	for _, want := range []string{"对应原文：第二场", "第三场", "首轮 scenes 只写 [1]", "不能只补别名", "start_after"} {
+		if !strings.Contains(plan, want) {
+			t.Errorf("首轮必须保留附件分析及原文到运行场序的映射 %q：%s", want, plan)
 		}
 	}
 	if strings.Contains(prompt, "进来躲雨") || strings.Contains(prompt, "这是角落里的话") {
@@ -163,7 +169,7 @@ func TestAssetsExtractReusedSceneTurn(t *testing.T) {
 	}
 	scenes := []ShotsScene{{Heading: "城西便民市场-日-内"}, {Heading: "城西便民市场-黄昏-内"}}
 	for _, prompt := range []string{AssetsExtractTurnPlan(scenes), AssetsExtractTurnPrompt(scenes, 2)} {
-		if !strings.Contains(prompt, "每场至少输出发生地的 environment 行") || !strings.Contains(prompt, "复用场景照抄已有 name 并写 first_scene") {
+		if !strings.Contains(prompt, "每场至少输出发生地的 environment 行") || !strings.Contains(prompt, "复用资产照抄已有 name") || !strings.Contains(prompt, "first_scene") || !strings.Contains(prompt, "design") {
 			t.Fatalf("逐场指令必须允许复用发生地：%s", prompt)
 		}
 	}
