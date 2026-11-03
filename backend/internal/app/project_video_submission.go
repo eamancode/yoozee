@@ -7,10 +7,11 @@ import (
 	"strconv"
 	"strings"
 
+	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
 )
 
-const dramaSceneEnding = "【本镜最后阶段】镜头平稳后拉并适度升高，最终停在能够完整交代场景空间布局的广角全景机位，将本场景所有人物的全身及主要场景结构纳入画面。保持人物在剧情结束时的位置、朝向、姿态及彼此距离，保持场景几何结构和道具位置不变。人物、服装、道具及环境统一转为无贴图的哑光白色三维模型，保留柔和阴影，使轮廓、前后层次和空间关系清晰可辨。上述运镜与白模转换须在视频最后1秒开始前完成；最后1秒锁定机位，将完成转换的白模全景画面定格至视频结束。"
+const dramaSceneEnding = "【本镜最后阶段】视频最后1秒，硬切至斜向下45度俯视的大全景机位，画面同时切换为无贴图的哑光白色三维白模。完整呈现场景空间布局、主要道具及本场景所有人物的全身。保持人物原有站位、朝向、姿态及彼此距离，保持场景结构和道具位置不变。锁定机位与构图，持续1秒直至视频结束；人物仅有轻微呼吸起伏和身体自然晃动，双脚保持原位。保留柔和阴影，使人物轮廓、遮挡关系和空间层次清晰可辨。"
 
 const dramaSubmissionKey = "_dramaVideoSubmission"
 
@@ -61,6 +62,14 @@ func projectVideoSubmissionSeconds(slots []int, content float64) (int, error) {
 
 // System channel capabilities come from the current catalog, never from client metadata.
 func (s *Service) projectTaskVideoDurationSlots(input map[string]any) ([]int, error) {
+	profile, err := s.projectTaskVideoProfile(input)
+	if err != nil || profile == nil {
+		return nil, err
+	}
+	return projectVideoDurationSlots(profile.Duration), nil
+}
+
+func (s *Service) projectTaskVideoProfile(input map[string]any) (*VideoCapabilityConfig, error) {
 	config, _ := input["config"].(map[string]any)
 	raw, err := json.Marshal(config)
 	if err != nil {
@@ -85,7 +94,7 @@ func (s *Service) projectTaskVideoDurationSlots(input map[string]any) ([]int, er
 	if profile == nil || profile.Video == nil {
 		return nil, nil
 	}
-	return projectVideoDurationSlots(profile.Video.Duration), nil
+	return profile.Video, nil
 }
 
 type submissionSegment struct {
@@ -190,6 +199,38 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		break
 	}
 	prompt = basePrompt
+	if marker, ok := input[videoChainMetadataKey].(map[string]any); ok {
+		frameID := stringValue(marker["frameResourceId"])
+		if frameID != "" {
+			images, _ := input["referenceImages"].([]any)
+			index := -1
+			for i, value := range images {
+				image, _ := value.(map[string]any)
+				if stringValue(image["storageKey"]) == "resource:"+frameID {
+					if index >= 0 {
+						return "", BadAuthRequest("站位参考图重复，请重新准备镜头")
+					}
+					index = i
+				}
+			}
+			if index < 0 {
+				return "", BadAuthRequest("站位参考提醒缺少实际发送的截帧图片")
+			}
+			project, err := s.repo.ProjectForUser(userID, projectID)
+			if err != nil {
+				return "", err
+			}
+			m, err := projectDramaModel(project)
+			if err != nil {
+				return "", err
+			}
+			tag := drama.ReferenceImageTag(m, index+1)
+			if stringValue(marker["referenceTag"]) != tag {
+				return "", BadAuthRequest("站位参考图编号与实际图片顺序不一致")
+			}
+			prompt = videoChainPositionPrompt(tag) + "\n\n" + prompt
+		}
+	}
 	if sameScene && !strings.Contains(prompt, dramaSceneEnding) {
 		prompt += "\n\n" + dramaSceneEnding
 	}

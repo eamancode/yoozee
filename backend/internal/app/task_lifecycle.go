@@ -42,6 +42,9 @@ func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.T
 	if task.MediaRecoveryJSON != "" {
 		return nil, BadAuthRequest("作品已生成，请使用重试保存，不要重复生成")
 	}
+	if task.Type == model.TaskTypeProjectVideoChain {
+		return nil, BadAuthRequest("请在项目连续生成面板中继续生成链")
+	}
 	if task.CreationSubmissionID != nil {
 		return nil, creationConflict("智能创作重做需要新的报价批准，请回到创作会话继续")
 	}
@@ -75,6 +78,13 @@ func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.T
 	var billingInput map[string]any
 	if err := json.Unmarshal([]byte(decryptedInput), &billingInput); err != nil {
 		return nil, err
+	}
+	if marker, ok := billingInput[videoChainMetadataKey].(map[string]any); ok {
+		task.ParentControllerID = stringValue(marker["controllerId"])
+		parent, err := s.repo.TaskForUser(userID, task.ParentControllerID)
+		if err != nil || parent.Status != model.TaskStatusRunning {
+			return nil, BadAuthRequest("请在项目连续生成面板中重试，后续镜头仍保持等待")
+		}
 	}
 	task.Prompt, err = s.prepareDramaVideoSubmission(userID, billingInput, task.Prompt, true)
 	if err != nil {
@@ -142,6 +152,16 @@ func (w *taskLifecycleCoordinator) cancelTaskWithIntent(_ context.Context, userI
 	task, err := s.repo.TaskForUser(userID, id)
 	if err != nil {
 		return nil, err
+	}
+	if task.Type == model.TaskTypeProjectVideoChain {
+		if _, err := s.CancelProjectVideoChain(userID, task.ProjectID, id); err != nil {
+			return nil, err
+		}
+		latest, err := s.repo.TaskForUser(userID, id)
+		if err != nil {
+			return nil, err
+		}
+		return taskForOutput(*latest), nil
 	}
 	if task.Status != model.TaskStatusQueued && task.Status != model.TaskStatusRunning {
 		if task.Status == model.TaskStatusCancelled {

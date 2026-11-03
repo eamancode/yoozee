@@ -5,6 +5,8 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+- 同场景连续生成：`handler/project_video_chain_routes.go` 提供预览、发起、列表、续跑与停止接口；`app/project_video_chain*.go` 负责当前场景范围、报价、持久化检查点、逐组调度及参考素材上传；`repository/project_video_chain.go` 提供租约检查点与父链准入锁。`pages/projects/workbench/detail/video-chain-panel.tsx` 展示预览、进度、失败原因、末帧与重试入口。控制链使用独立任务类型，实际视频沿用标准计费与媒体保存流程。
+
 - 剧本容量：`handler/project_body.go` 负责 JSON 请求上限，`app/project_source_limits.go` 负责正文 Unicode 字数校验；建项及章节写入共同使用。
 - 资产图片自动重试：`app/project_drama_image_retry.go` 与 `repository/task_asset_retry.go` 持久化一次重试声明；worker 在结算后触发，复用任务重试的权限、计费与并发门禁。
 - 镜头视频提交：`app/project_video_submission.go` 负责固定 15/30 秒时长校验、最新场景邻接判定及幂等结束段；前端 `lib/fixed-video-duration.ts` 与 `lib/model-selection.ts` 对齐选择、报价和实际生成时长。

@@ -11,6 +11,7 @@ const (
 )
 
 type (
+	ProjectVideoChainRequest               = app.ProjectVideoChainRequest
 	BindProjectAssetImageRequest           = app.BindProjectAssetImageRequest
 	PaymentOrderQuery                      = app.PaymentOrderQuery
 	PaymentReconciliationQuery             = app.PaymentReconciliationQuery

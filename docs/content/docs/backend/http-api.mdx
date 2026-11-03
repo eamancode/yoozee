@@ -5,6 +5,14 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 同场景连续视频生成
+
+`POST /api/projects/:id/video-chains/preview` 接收 `{unitId,shotId,model:{model,logicalModelId?,input},models?}`，以当前镜头顺序和场景归属扩展为连续同场景链，重新编译提示词并校验全部参考图、模型能力、时长、预演闸门和报价。`models` 可按镜头 ID 覆盖模型模板。返回 `data.chain`，含逐组内容/生成时长、原参考图数量、站位编号、结束段适用性、报价与 `previewHash`。
+
+`POST /api/projects/:id/video-chains` 额外要求 `requestId` 与最新 `previewHash`。重复请求不会新增控制链或重复扣费。`GET /api/projects/:id/video-chains?unitId=...` 返回 `data.chains`；`POST .../:chainId/retry` 从失败步骤继续，保留有效结果；`POST .../:chainId/cancel` 停止后续生成，已提交视频继续保存。所有接口校验登录、项目与章节归属。
+
+控制链持久化在后端，后续镜头等待前组视频可读、截帧保存及参考上传成功后才提交。提示词开头引用实际新增图片编号，片末段改为最后 1 秒硬切至 45° 俯视白模大全景；最后一组不附结束段。正文保持完整，最后 1 秒包含在生成总时长内。失败记录阶段及原因，超限或不支持参考图片时不忽略站位图。镜头、顺序或模型变化会暂停旧计划，重试重新编译最新内容；不静默沿用过期引用或报价。任务 API 禁止客户端伪造控制链或预上传标识。
+
 ## 剧本正文与镜头视频提交
 
 双档枚举 `[15,30]` 的项目视频任务按内容时长换算：`0 < 内容 < 15` 提交 15 秒；`15 <= 内容 <= 30` 提交 30 秒，恰好 15 秒进入 30 秒档；大于 30 秒拒绝。前端报价采用换算后的档位。后端读取当前目录能力及保存的镜头时长，统一 `config.videoSeconds` 与 `capabilityOptions.videoSeconds`，重试在逻辑路由前执行相同归一化，计费与能力校验据此进行。此规则不改写镜头 `durationMs` 或分段 `dur`，单固定档模型保持原有规则。

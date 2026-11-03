@@ -496,9 +496,9 @@ func (s *Service) singleCallTaskBillingOrder(userID string, task *model.Task, in
 	if config == nil {
 		return nil, nil
 	}
-	channelID := strings.TrimSpace(fmt.Sprint(config["channelId"]))
+	channelID := stringValue(config["channelId"])
 	if channelID == "" {
-		channelID = systemChannelIDFromBaseURL(fmt.Sprint(config["baseUrl"]))
+		channelID = systemChannelIDFromBaseURL(stringValue(config["baseUrl"]))
 	}
 	if channelID == "" {
 		return nil, nil

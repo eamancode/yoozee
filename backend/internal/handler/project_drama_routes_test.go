@@ -12,6 +12,11 @@ import (
 
 // 短剧制作线的全部路由：少一条前端就会 404，多一条没人用就是死接口。
 var dramaRoutes = []string{
+	"GET /api/projects/:id/video-chains",
+	"POST /api/projects/:id/video-chains",
+	"POST /api/projects/:id/video-chains/preview",
+	"POST /api/projects/:id/video-chains/:chainId/retry",
+	"POST /api/projects/:id/video-chains/:chainId/cancel",
 	"GET /api/drama/models",
 	"GET /api/projects/:id/drama/brief",
 	"PUT /api/projects/:id/drama/brief",
@@ -70,6 +75,11 @@ func TestDramaRoutesRejectAnonymousRequests(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/projects/project-1/video-chains?unitId=u"},
+		{http.MethodPost, "/api/projects/project-1/video-chains"},
+		{http.MethodPost, "/api/projects/project-1/video-chains/preview"},
+		{http.MethodPost, "/api/projects/project-1/video-chains/chain-1/retry"},
+		{http.MethodPost, "/api/projects/project-1/video-chains/chain-1/cancel"},
 		{http.MethodGet, "/api/drama/models"},
 		{http.MethodGet, "/api/projects/project-1/drama/progress"},
 		{http.MethodPost, "/api/projects/project-1/drama/pipeline/next"},

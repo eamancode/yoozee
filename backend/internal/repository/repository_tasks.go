@@ -41,7 +41,7 @@ func (r *Repository) TaskForUser(userID string, id string) (*model.Task, error) 
 
 func (r *Repository) ActiveTaskCountForUser(userID string) (int64, error) {
 	var count int64
-	err := r.db.Model(&model.Task{}).Where("user_id = ? AND status IN ?", userID, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).Count(&count).Error
+	err := r.db.Model(&model.Task{}).Where("user_id = ? AND status IN ? AND type <> ?", userID, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}, model.TaskTypeProjectVideoChain).Count(&count).Error
 	return count, err
 }
 
@@ -63,7 +63,7 @@ func (r *Repository) ClaimNextTask(owner string, leaseDuration time.Duration) (*
 	leaseExpiresAt := now.Add(leaseDuration)
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		query := tx.Where("(status = ? OR (status = ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?))) AND (next_poll_at IS NULL OR next_poll_at <= ?)", model.TaskStatusQueued, model.TaskStatusRunning, now, now).
-			Order("created_at asc").Limit(1)
+			Order("CASE WHEN type = 'project_video_chain' THEN 1 ELSE 0 END asc").Order("created_at asc").Limit(1)
 		if r.Dialect() == "postgres" {
 			query = query.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"})
 		}

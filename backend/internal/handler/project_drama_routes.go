@@ -16,6 +16,7 @@ import (
 )
 
 func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
+	registerProjectVideoChainRoutes(r, svc)
 	r.GET("/drama/models", func(c *gin.Context) {
 		if _, err := currentUser(c, svc); err != nil {
 			failService(c, err)

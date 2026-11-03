@@ -446,6 +446,16 @@ func (s *Service) extractDramaTailFrame(userID, resourceID string) (string, erro
 	if s.dramaTailFrameHook != nil {
 		return s.dramaTailFrameHook(userID, resourceID)
 	}
+	key := normalizedResourceUploadKey([]string{"drama-tail:" + resourceID})
+	if existing, err := s.resourceForUploadKey(userID, key); err != nil {
+		return "", err
+	} else if existing != nil && existing.Status == model.ResourceStatusReady {
+		_, stream, err := s.OpenResource(userID, existing.ID)
+		if err == nil {
+			_ = stream.Close()
+			return existing.ID, nil
+		}
+	}
 	var tail string
 	err := s.withDramaVideoFile(userID, resourceID, func(resource *model.Resource, input string) error {
 		var saveErr error
@@ -547,12 +557,17 @@ func (s *Service) saveDramaTailFrame(userID string, resource *model.Resource, in
 	defer cancel()
 	// Decode every remaining frame and update the same output, so the saved image is the actual final frame.
 	cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-sseof", "-1", "-i", input, "-an", "-update", "1", "-y", output)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		detail := strings.TrimSpace(string(out))
-		if detail == "" {
-			detail = err.Error()
+	// A damaged tail may still yield the closest readable frame. Keep it even
+	// if the decoder reports a later error; otherwise try sequential decoding.
+	_, _ = cmd.CombinedOutput()
+	if info, statErr := os.Stat(output); statErr != nil || info.Size() == 0 {
+		// Some containers cannot seek near EOF. Sequential decoding updates the
+		// same image through the last readable frame without assuming an FPS.
+		fallback := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-i", input, "-an", "-update", "1", "-y", output)
+		out, decodeErr := fallback.CombinedOutput()
+		if info, statErr := os.Stat(output); statErr != nil || info.Size() == 0 {
+			return "", fmt.Errorf("无法读取视频末帧：%s %v", clipText(string(out), 200), decodeErr)
 		}
-		return "", fmt.Errorf("抽取尾帧失败：%s", clipText(detail, 400))
 	}
 	image, err := os.Open(output)
 	if err != nil {

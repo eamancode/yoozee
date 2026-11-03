@@ -602,10 +602,9 @@ func WithScenePalette(r CompileResult, m Model, ref ScenePaletteRef, maxImages i
 	r.Issues = slices.Clone(r.Issues)
 	var line string
 	if room {
-		tag := fmt.Sprintf("@图片%d", images+1)
+		tag := ReferenceImageTag(m, images+1)
 		line = fmt.Sprintf("%s 是本场色卡（%s）：画面用色和光色以它为准，不把色卡本身画进画面。", tag, ref.Code)
 		if m.Dialect() != "seedance" {
-			tag = fmt.Sprintf("<Picture %d>", images+1)
 			line = fmt.Sprintf("%s is the scene color palette card (%s): follow its colors for the frame and lighting; do not draw the card itself.", tag, ref.Code)
 		}
 		r.Files = append(r.Files, CompiledFile{File: ref.File, Tag: tag, Role: scenePaletteRole})
@@ -638,4 +637,12 @@ func WithScenePalette(r CompileResult, m Model, ref ScenePaletteRef, maxImages i
 		r.Paste = PasteVersion(r)
 	}
 	return r
+}
+
+// ReferenceImageTag follows the same positional numbering as compiled media files.
+func ReferenceImageTag(m Model, index int) string {
+	if m.Dialect() == "seedance" {
+		return fmt.Sprintf("@图片%d", index)
+	}
+	return fmt.Sprintf("<Picture %d>", index)
 }

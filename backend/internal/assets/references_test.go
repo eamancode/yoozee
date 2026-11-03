@@ -2,6 +2,20 @@ package assets
 
 import "testing"
 
+func TestVideoChainFrameLineageIsProtectedReference(t *testing.T) {
+	refs, err := CollectDocumentResourceReferences(`{"steps":[{"frameResourceId":"frame","videoResourceId":"output","sourceVideoResourceId":"source"}],"error":"frame-not-reference"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, ref := range refs {
+		got[ref.ResourceID] = true
+	}
+	if len(got) != 3 || !got["frame"] || !got["source"] || !got["output"] {
+		t.Fatal("chain lineage not protected", refs)
+	}
+}
+
 func TestCollectDocumentResourceReferencesIncludesNestedVideoPreview(t *testing.T) {
 	raw := `{"nodes":[{"id":"node-video","metadata":{"videoPreview":{"storageKey":"resource:poster-1","source":{"id":"nested-not-node","url":"/api/resources/poster-2/file"}}}}]}`
 	refs, err := CollectDocumentResourceReferences(raw)

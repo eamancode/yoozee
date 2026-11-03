@@ -51,6 +51,14 @@ func uploadProtocolMedia(ctx context.Context, input canvasGenerationInput, adapt
 			}
 			key := item.Kind + "\x00" + value
 			id, done := uploaded[key]
+			if existing, ok := item.Metadata[protocol.MediaUploadIDKey].(string); ok && existing != "" && stringValue(item.Metadata["chainUploadScope"]) == videoChainUploadScope(input.Config) {
+				id, done = existing, true
+			}
+			checkpoint, _ := ctx.Value(videoChainUploadContextKey{}).(*videoChainUploadCheckpoint)
+			cacheKey := item.Kind + ":" + stringValue(item.Metadata["storageKey"])
+			if checkpoint != nil && checkpoint.IDs[cacheKey] != "" {
+				id, done = checkpoint.IDs[cacheKey], true
+			}
 			if !done {
 				spec, err := uploader.BuildUpload(ctx, protocol.RequestContext{BaseURL: input.Config.BaseURL, Request: *request}, *item)
 				if err != nil {
@@ -64,6 +72,12 @@ func uploadProtocolMedia(ctx context.Context, input canvasGenerationInput, adapt
 					return err
 				}
 				uploaded[key] = id
+				if checkpoint != nil {
+					checkpoint.IDs[cacheKey] = id
+					if err := checkpoint.Save(); err != nil {
+						return err
+					}
+				}
 			}
 			metadata := make(map[string]any, len(item.Metadata)+1)
 			for name, field := range item.Metadata {

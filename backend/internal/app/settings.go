@@ -576,7 +576,7 @@ func (s *Service) decryptTaskSecrets(value interface{}) error {
 
 func isTaskSecretField(key string) bool {
 	switch key {
-	case "apiKey", "secretKey", "runningHubWalletApiKey", "runningHubUploadApiKey":
+	case "apiKey", "secretKey", "runningHubWalletApiKey", "runningHubUploadApiKey", "_chainUploadId":
 		return true
 	default:
 		return false

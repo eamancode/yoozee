@@ -121,6 +121,9 @@ func (r *Repository) CreateTaskWithCreditReservation(task *model.Task, order *mo
 		if err := repo.requireCurrentCloudAgentParent(task); err != nil {
 			return err
 		}
+		if err := requireVideoChainParent(tx, task); err != nil {
+			return err
+		}
 		if err := New(tx).requireExclusiveCanvasAgent(task); err != nil {
 			return err
 		}
@@ -149,6 +152,9 @@ func (r *Repository) CreateTaskWithActiveLimit(task *model.Task, activeTaskLimit
 		if err := repo.requireCurrentCloudAgentParent(task); err != nil {
 			return err
 		}
+		if err := requireVideoChainParent(tx, task); err != nil {
+			return err
+		}
 		if err := New(tx).requireExclusiveCanvasAgent(task); err != nil {
 			return err
 		}
@@ -172,6 +178,9 @@ func (r *Repository) RetryTaskWithBilling(userID string, prepared *model.Task, o
 	var task model.Task
 	taskID := prepared.ID
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := requireVideoChainParent(tx, prepared); err != nil {
+			return err
+		}
 		if err := enforceActiveTaskLimit(tx, userID, activeTaskLimit); err != nil {
 			return err
 		}
@@ -218,7 +227,7 @@ func (r *Repository) RetryTaskWithBilling(userID string, prepared *model.Task, o
 
 func enforceActiveTaskLimit(tx *gorm.DB, userID string, activeTaskLimit int) error {
 	var count int64
-	if err := tx.Model(&model.Task{}).Where("user_id = ? AND status IN ?", userID, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).Count(&count).Error; err != nil {
+	if err := tx.Model(&model.Task{}).Where("user_id = ? AND status IN ? AND type <> ?", userID, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}, model.TaskTypeProjectVideoChain).Count(&count).Error; err != nil {
 		return err
 	}
 	if count >= int64(activeTaskLimit) {

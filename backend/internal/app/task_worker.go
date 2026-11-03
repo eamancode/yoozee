@@ -176,7 +176,7 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 	}()
 	defer close(leaseDone)
 	// 回查已提交的上游任务（分离式回查每 15 秒领取一次）不再重复记“开始处理”，避免淹没任务日志。
-	if task.ProviderRequestID == "" || task.PollStage != "poll" {
+	if (task.Type != model.TaskTypeProjectVideoChain || task.Attempts <= 1) && (task.ProviderRequestID == "" || task.PollStage != "poll") {
 		_ = s.log(task.UserID, task.ID, "info", "后端任务开始处理", "")
 	}
 	s.registerActiveTask(task.ID, cancel)
@@ -195,6 +195,9 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 	if task.Type == model.TaskTypeTimelineRender {
 		return w.processTimelineRender(task, ctx)
 	}
+	if task.Type == model.TaskTypeProjectVideoChain {
+		return s.processProjectVideoChain(ctx, task)
+	}
 	if task.MediaRecoveryJSON != "" {
 		result, recoveryErr := s.resumeTaskMedia(ctx, task)
 		return s.finishTaskMediaRecovery(task, result, recoveryErr)
@@ -209,6 +212,13 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 	var admissionInput map[string]any
 	if err := json.Unmarshal([]byte(decryptedInput), &admissionInput); err != nil {
 		return err
+	}
+	if marker, ok := admissionInput[videoChainMetadataKey].(map[string]any); ok && task.ProviderRequestID == "" {
+		parent, err := s.repo.TaskForUser(task.UserID, stringValue(marker["controllerId"]))
+		if err != nil || parent.Status != model.TaskStatusRunning {
+			_, err = s.taskLifecycle().cancelTaskWithIntent(ctx, task.UserID, task.ID, model.TaskCancellationIntent{Source: model.TaskCancellationParentCancelled, ActorID: task.UserID})
+			return err
+		}
 	}
 	if err := s.requireCustomChannelsForTaskInput(admissionInput); err != nil {
 		// A reclaimed task may already have submitted upstream. Keep the existing

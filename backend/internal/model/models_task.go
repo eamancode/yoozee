@@ -7,6 +7,8 @@ import (
 )
 
 type Task struct {
+	// Admission-only parent fence, set by the server from the chain checkpoint.
+	ParentControllerID string `json:"-" gorm:"-"`
 	// Only EnsureCloudAgent sets this after creating the execution in the same
 	// transaction. Ordinary task saves must not reset it from a stale snapshot.
 	AgentExecutionReady          bool                     `json:"-" gorm:"not null;default:false;<-:create"`

@@ -32,6 +32,76 @@ tags:
   - name: referral
     description: 推广中心：推广码、邀请记录与返佣
 paths:
+  /projects/{id}/video-chains:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string}}
+    get:
+      tags: [projects]
+      summary: 查看章节同场景连续生成链
+      parameters:
+        - {in: query, name: unitId, required: true, schema: {type: string}}
+      responses:
+        "200": {description: "成功信封 data={chains}；只返回进度、报价、视频与末帧资源及来源，不返回凭据或内部上传结果"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+    post:
+      tags: [projects]
+      summary: 发起同场景连续生成
+      description: 校验当前预览指纹；同章节最多一条进行中或失败待处理链。requestId 用于重复提交去重，控制链不调用模型，视频子任务分别计费。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - {$ref: "#/components/schemas/ProjectVideoChainRequest"}
+                - {type: object, required: [previewHash, requestId]}
+      responses:
+        "200": {description: "成功信封 data={chain}"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /projects/{id}/video-chains/preview:
+    post:
+      tags: [projects]
+      summary: 预览连续同场景镜头、参考图与费用
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ProjectVideoChainRequest"}
+      responses:
+        "200": {description: "成功信封 data={chain}；含 previewHash、steps、totalMicrocredits，不调用模型"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /projects/{id}/video-chains/{chainId}/retry:
+    post:
+      tags: [projects]
+      summary: 从失败步骤继续连续生成
+      description: 重新读取镜头、顺序与模型能力，复用签名相同且仍有效的视频、末帧和上传结果；不重复叠加提示词或参考图。
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+        - {in: path, name: chainId, required: true, schema: {type: string}}
+      responses:
+        "200": {description: "成功信封 data={chain}"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /projects/{id}/video-chains/{chainId}/cancel:
+    post:
+      tags: [projects]
+      summary: 停止尚未开始的后续镜头
+      description: 父链停止后拒绝后续子任务准入；取消仍在排队的子任务，保留已提交的视频任务与产物。
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+        - {in: path, name: chainId, required: true, schema: {type: string}}
+      responses:
+        "200": {description: "成功信封 data={chain}"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
   /projects/{id}/assets/{assetId}/image:
     put:
       tags: [projects, assets]
@@ -2578,6 +2648,25 @@ components:
       in: cookie
       name: open_ai_canvas_session
   schemas:
+    ProjectVideoChainModel:
+      type: object
+      required: [model, input]
+      properties:
+        model: {type: string}
+        logicalModelId: {type: string}
+        input: {type: object, additionalProperties: true, description: 与标准视频任务相同的渠道与生成配置，参考清单及最终提示词由后端重新编译}
+    ProjectVideoChainRequest:
+      type: object
+      required: [unitId, shotId, model]
+      properties:
+        unitId: {type: string}
+        shotId: {type: string, description: 当前场景链的锚定镜头}
+        model: {$ref: "#/components/schemas/ProjectVideoChainModel"}
+        models:
+          type: object
+          additionalProperties: {$ref: "#/components/schemas/ProjectVideoChainModel"}
+        previewHash: {type: string}
+        requestId: {type: string, maxLength: 160}
     DramaCheckReport:
       type: object
       properties:

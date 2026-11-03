@@ -22,7 +22,8 @@ import { modelQuoteDescription, modelQuoteRequest } from "@/lib/model-pricing";
 import { customShotTitle, formatShotOrdinal, normalizeDefaultShotTitle } from "@/lib/shot-label";
 import { modelCompatibilityError, modelVideoDurationSlots, modelVideoSubmissionSeconds, modelPromptLengthError, modelPromptMaxChars, resolveModelVideoBooleanOptions, type ModelRequirements } from "@/lib/model-selection";
 import { formatVideoResolutionLabel } from "@/lib/video-generation-options";
-import { submitBackendGenerationTask } from "@/services/api/generation-task";
+import { prepareBackendGenerationTask, submitBackendGenerationTask } from "@/services/api/generation-task";
+import { VideoChainPanel } from "./video-chain-panel";
 import { quoteModel, type LogicalModelQuote } from "@/services/api/logical-models";
 import { refreshGenerationTaskStatus, type GenerationTask } from "@/services/api/task-center";
 import { generationErrorMessage } from "@/lib/generation-error";
@@ -103,6 +104,7 @@ const SKILL_CONTEXT_OVERHEAD_CHARS = 512;
 const MIN_SKILL_CONTEXT_CHARS = 1024;
 
 export default function WorkflowProductionWorkbench(props: Props) {
+	const [videoChainOpen, setVideoChainOpen] = useState(false);
     const { activeStage, detail, projectId, unitId, selectedShot, onSelectShot, onRefresh, onAddShot, addingShot } = props;
     const { message, modal } = App.useApp();
     const navigate = useNavigate();
@@ -637,6 +639,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     return (
         <div className="workflow-production-shell">
+            {activeStage === "video" ? <VideoChainPanel open={videoChainOpen} projectId={projectId} unitId={unitId} shotId={selectedShot.id} onClose={() => setVideoChainOpen(false)} onRefresh={onRefresh} buildModel={async () => {
+                const task = await prepareBackendGenerationTask({ projectId, mode: "video", prompt: "连续生成预览", config: generationConfig });
+                return { model: task.model || routedModel, logicalModelId: task.logicalModelId, input: task.input || {} };
+            }} /> : null}
             <div className="workflow-production-main">
                 <aside className="workflow-library-panel">
                         <SegmentedControl
@@ -743,6 +749,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             </WorkflowDisclosure>
                         </div>
                         <footer className="workflow-editor-actions">
+                            {activeStage === "video" ? <Button disabled={editorDirty || saveShot.isPending || deleteShot.isPending || !routedModel || previzBlocked || familyMismatch} title={editorDirty ? "请先保存脚本，再预览连续生成" : "串联当前场景的连续镜头组，也可查看已有生成链"} onClick={() => setVideoChainOpen(true)}>同场景连续生成</Button> : null}
                             <div className="workflow-generation-cost" aria-live="polite">
                                 {previzBlocked ? <Link to={`/projects/${projectId}/workflow/${unitId}/previz`} className="text-amber-600 hover:underline dark:text-amber-400">预演闸门：{PREVIZ_REQUIRED_HINT}</Link> : creditsEnabled && formattedGenerationCredits ? <><CreditSymbol /><span title={routeQuote ? modelQuoteDescription(routeQuote) : undefined}>本次{routeQuote?.estimated ? "预估" : "费用"} {formattedGenerationCredits} 积分</span></> : creditsEnabled && routedModel ? <span>本次费用将在提交时按实际规格计算</span> : null}
                             </div>
