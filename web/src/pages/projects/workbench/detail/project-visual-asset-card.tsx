@@ -32,7 +32,7 @@ export function ProjectVisualAssetCard({
     const resourceId = asset.mediaType === "image" ? resourceIdFromStorageKey(asset.storageKey) : "";
     const description = typeof asset.visual?.definition.description === "string" ? asset.visual.definition.description : "";
     const prompt = typeof asset.visual?.definition.prompt === "string" ? asset.visual.definition.prompt : "";
-    const queue = assetImageQueueLabel(asset.image);
+    const queue = generating ? "出图中" : assetImageQueueLabel(asset.image);
     return (
         <AssetLibraryCard className="project-asset-library-card">
             <AssetLibraryCardMedia className="relative aspect-[4/3] overflow-hidden bg-foreground/[.05]">
@@ -64,7 +64,7 @@ export function ProjectVisualAssetCard({
                         {prompt}
                     </p>
                 ) : null}
-                {(asset.image?.status === "failed" || asset.image?.status === "waiting") && asset.image.error && !resourceId ? (
+                {!generating && (asset.image?.status === "failed" || asset.image?.status === "waiting") && asset.image.error && !resourceId ? (
                     <p className={`mt-1 line-clamp-2 text-[var(--fs-micro)] ${asset.image.status === "failed" ? "text-red-600 dark:text-red-400" : "text-foreground/50"}`}>{asset.image.error}</p>
                 ) : null}
                 <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">

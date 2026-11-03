@@ -393,24 +393,46 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setEditorAsset(null); done(editorAsset === "new" ? "角色卡已创建" : "角色设定已保存并生成新版本"); },
         onError: failed("角色保存失败"),
     });
+    const queueAssetImages = async (model: string, assetIds: string[]) => {
+        if (!assetIds.length) throw new Error("请选择要出图的资产");
+        const config = { ...effectiveConfig, model };
+        if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
+        const result = await queueDramaAssetImages(detail.project.id, { assetIds, imageTask: await assetImageTaskTemplate(config, model) });
+        await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }),
+            queryClient.invalidateQueries({ queryKey: ["project-visual-image-tasks", detail.project.id] }),
+            queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "character-turnaround-tasks"] }),
+        ]);
+        if (result.failed.length) message.warning(`有 ${result.failed.length} 个资产没排上出图，原因写在卡片上`);
+        else if (!result.queued.length && !result.waiting.length) message.info("没有要出图的资产");
+        else message.success(result.waiting.length ? `已排 ${result.queued.length} 个资产出图，${result.waiting.length} 个等前面的出完接着排` : `已排 ${result.queued.length} 个资产出图`);
+    };
     const generateMutation = useMutation({
         mutationKey: ["project-character-turnaround", detail.project.id],
         mutationFn: async (asset: ProjectAsset) => {
             if (!asset.character) throw new Error("角色版本信息不完整");
             const model = turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
+            if (asset.image) {
+                await queueAssetImages(model, [asset.id]);
+                return;
+            }
             const config = { ...effectiveConfig, model };
             if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
             const projectStyle = resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson);
             await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, projectStyle, config });
             return getProjectCharacter(detail.project.id, asset.id);
         },
-        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); done("三视图已生成并绑定到新角色版本"); },
+        onSuccess: (result) => { if (result) { syncPersonalCharacterProjection(result.asset); done("三视图已生成并绑定到新角色版本"); } },
         onError: failed("三视图生成失败"),
     });
     const generateVisualMutation = useMutation({
         mutationKey: ["project-visual-image", detail.project.id],
         mutationFn: async (asset: ProjectAsset) => {
             const model = turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
+            if (asset.image) {
+                await queueAssetImages(model, [asset.id]);
+                return true;
+            }
             const config = { ...effectiveConfig, model };
             if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
             await generateProjectVisualImage({
@@ -418,7 +440,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                 projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson),
             });
         },
-        onSuccess: async (_, asset) => {
+        onSuccess: async (queued, asset) => {
+            if (queued) return;
             await refreshVisualAsset(asset.id, "图片已生成并绑定到资产新版本");
         },
         onError: failed("资产图片生成失败"),
@@ -438,23 +461,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     // 资产设计建的角色、场景、道具没出完的图（出图失败、等空位、当时没开出图）由服务端接着排：角色三视图，场景、道具概念图。
     const assetImagesMutation = useMutation({
         mutationKey: ["project-drama-asset-images", detail.project.id],
-        mutationFn: async ({ model, assetIds }: { model: string; assetIds: string[] }) => {
-            if (!assetIds.length) throw new Error("请选择要出图的资产");
-            const config = { ...effectiveConfig, model };
-            if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
-            return queueDramaAssetImages(detail.project.id, { assetIds, imageTask: await assetImageTaskTemplate(config, model) });
-        },
-        onSuccess: async (result) => {
-            setImageRecoveryOpen(false);
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }),
-                queryClient.invalidateQueries({ queryKey: ["project-visual-image-tasks", detail.project.id] }),
-                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "character-turnaround-tasks"] }),
-            ]);
-            if (result.failed.length) message.warning(`有 ${result.failed.length} 个资产没排上出图，原因写在卡片上`);
-            else if (!result.queued.length && !result.waiting.length) message.info("没有要出图的资产");
-            else message.success(result.waiting.length ? `已排 ${result.queued.length} 个资产出图，${result.waiting.length} 个等前面的出完接着排` : `已排 ${result.queued.length} 个资产出图`);
-        },
+        mutationFn: ({ model, assetIds }: { model: string; assetIds: string[] }) => queueAssetImages(model, assetIds),
+        onSuccess: () => setImageRecoveryOpen(false),
         onError: failed("资产出图失败"),
     });
     const bindVisualMutation = useMutation({

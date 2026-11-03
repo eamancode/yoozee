@@ -127,6 +127,34 @@ func TestDramaImageStaleCompletionCannotReplaceResumedState(t *testing.T) {
 	}
 }
 
+func TestDramaImageSummaryUsesNewerBoundManualImage(t *testing.T) {
+	svc, db, project, _, _ := assetQueueFixture(t)
+	base := time.Now()
+	for i, status := range []model.TaskStatus{model.TaskStatusFailed, model.TaskStatusSucceeded, model.TaskStatusFailed} {
+		task := model.Task{ID: "manual-state-" + strconv.Itoa(i), UserID: "user-1", ProjectID: project.ID, Type: "canvas_image", Status: status, CreatedAt: base.Add(time.Duration(i) * time.Second)}
+		if err := db.Create(&task).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	representation := model.AssetRepresentation{ID: "manual-representation", TaskID: "manual-state-1", AssetVersionID: "version-1", MediaType: "image", Role: "primary"}
+	if err := db.Create(&representation).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ taskID, want string }{{"manual-state-0", dramaImageBound}, {"manual-state-2", dramaImageFailed}} {
+		if err := svc.putDramaImageState("user-1", "asset-1", assetImageKey, dramaImageState{Status: dramaImageFailed, TaskID: tc.taskID, Error: "failure"}); err != nil {
+			t.Fatal(err)
+		}
+		asset, err := svc.repo.AssetForUser("user-1", "asset-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := svc.assetImageSummary("user-1", asset, true)
+		if got.Status != tc.want || (tc.want == dramaImageBound && (got.Error != "" || got.TaskID != "manual-state-1")) {
+			t.Fatalf("summary for %s: %+v", tc.taskID, got)
+		}
+	}
+}
+
 func TestDramaImageAutomaticRetryCanSucceed(t *testing.T) {
 	svc, db, project, template, calls := assetQueueFixture(t, func(w http.ResponseWriter, r *http.Request, call int32) {
 		if call == 1 {

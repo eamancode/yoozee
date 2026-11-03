@@ -61,6 +61,24 @@ describe("场景与道具参考图片", () => {
         expect(projectVisualTaskAssetId({ clientContext: { nodeId: "character-turnaround:role" } })).toBe("");
         expect(projectVisualTaskAssetId({})).toBe("");
     });
+    test("新生成执行期间不显示上一轮失败", () => {
+        const html = renderToStaticMarkup(
+            <ProjectVisualAssetCard
+                asset={{ ...asset, image: { status: "failed", error: "旧渠道鉴权失败" } }}
+                generating={true}
+                busy={false}
+                folderItems={[]}
+                onOpen={() => {}}
+                onGenerate={() => {}}
+                onBind={() => {}}
+                onMove={() => {}}
+                onRemove={() => {}}
+            />,
+        );
+        expect(html).toContain("出图中");
+        expect(html).not.toContain("旧渠道鉴权失败");
+        expect(html).not.toContain("出图失败");
+    });
     test("个人素材库不会把场景设定显示成角色卡", () => {
         expect(assetKindLabel("entity", "environment")).toBe("场景设定");
         expect(assetKindLabel("entity", "character")).toBe("角色");

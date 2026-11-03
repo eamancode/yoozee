@@ -1154,6 +1154,24 @@ func (s *Service) assetImageSummary(userID string, asset *model.Asset, imaged bo
 		return nil
 	}
 	state := s.dramaImageView(userID, asset, assetImageKey, imaged)
+	// A successful manual generation can replace a failed extraction image.
+	// Compare task creation order, never hide a newer failure behind an older image.
+	if imaged && state.Status == dramaImageFailed && state.TaskID != "" {
+		failed, taskErr := s.repo.TaskForUser(userID, state.TaskID)
+		representations, repsErr := s.repo.AssetRepresentations(asset.PrimaryVersionID)
+		if taskErr == nil && repsErr == nil {
+			for _, representation := range representations {
+				if representation.MediaType != "image" || representation.TaskID == "" || representation.TaskID == state.TaskID {
+					continue
+				}
+				bound, err := s.repo.TaskForUser(userID, representation.TaskID)
+				if err == nil && bound.Status == model.TaskStatusSucceeded && bound.CreatedAt.After(failed.CreatedAt) {
+					state = dramaImageState{Status: dramaImageBound, TaskID: bound.ID}
+					break
+				}
+			}
+		}
+	}
 	if imaged && (state.Status == dramaImageNone || state.Status == dramaImageBound) {
 		state.Status, state.Error = dramaImageBound, ""
 	}
