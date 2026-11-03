@@ -65,6 +65,22 @@ func TestAssetsAttachmentDesignPersistsAndMerges(t *testing.T) {
 	}
 }
 
+func TestAttachmentStateVariantDoesNotForceCurrentAgeOrOutfit(t *testing.T) {
+	parent := map[string]any{"appearance": "二十四岁，穿深灰西装", "identityAppearance": "男性，黑发，高鼻梁", "age": "24", "clothing": "深灰西装"}
+	look := "五年前十九岁学生，穿旧米灰棉质上衣和深色长裤，雨湿"
+	child := variantDefinition(parent, "林深", "学生雨夜", drama.AssetVariantState, look, "same identifiable person at age 19, student cotton clothes, wet")
+	if child["age"] != nil || child["appearance"] != parent["identityAppearance"] || parent["age"] != "24" {
+		t.Fatalf("current age leaked or parent changed: %+v / %+v", child, parent)
+	}
+	clothing := child["clothing"].(string)
+	if !strings.Contains(clothing, look) || strings.Contains(clothing, "；服装同主卡：") || !strings.Contains(clothing, "仅在本子卡未明确指定服装时适用") {
+		t.Fatalf("state outfit overrides explicit difference: %s", clothing)
+	}
+	if got, _ := variantLookOf(assetVariantMeta{}, child); got != look {
+		t.Fatalf("generated inheritance leaked into editable variant: %q", got)
+	}
+}
+
 func queueAssetsExtractTask(t *testing.T, svc *Service, db *gorm.DB, project model.Project, unitID string, upstream string, template *DramaImageTaskTemplate) *model.Task {
 	t.Helper()
 	current, err := svc.repo.ProjectForUser("user-1", project.ID)

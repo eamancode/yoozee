@@ -134,13 +134,14 @@ func variantDefinition(parent map[string]any, parentTitle string, label string, 
 	if identity, _ := parent["identityAppearance"].(string); strings.TrimSpace(identity) != "" {
 		out["appearance"] = identity
 		out["identityAppearance"] = identity
+		delete(out, "age")
 	}
 	parentClothing, _ := parent["clothing"].(string)
 	look = strings.TrimSpace(look)
 	if kind == drama.AssetVariantState {
 		clothing := "状态「" + label + "」：" + look
 		if c := strings.TrimSpace(parentClothing); c != "" {
-			clothing += "；服装同主卡：" + c
+			clothing += "；服装同主卡（仅在本子卡未明确指定服装时适用）：" + c
 		}
 		out["clothing"] = clothing
 	} else {
@@ -179,7 +180,7 @@ func variantLookOf(meta assetVariantMeta, definition map[string]any) (string, st
 	}
 	clothing, _ := definition["clothing"].(string)
 	look := variantLookPrefix.ReplaceAllString(strings.TrimSpace(clothing), "")
-	if i := strings.Index(look, "；服装同主卡："); i >= 0 {
+	if i := strings.Index(look, "；服装同主卡"); i >= 0 {
 		look = look[:i]
 	}
 	prompt, _ := definition["multiViewPrompt"].(string)
