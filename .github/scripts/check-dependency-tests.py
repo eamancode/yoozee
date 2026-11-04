@@ -9,6 +9,7 @@ REQUIRED = {
     ("repository", "TestCanvasRevision/postgres"),
     ("platform", "TestRuntimeCoordinatorRedisLeasePreservesLongestTTL"),
     ("app", "TestClearAdminRuntimeCacheUsesRedisWhitelist"),
+    ("app", "TestVideoChainLocalTailFrameIsActualFinalFrame"),
 }
 
 

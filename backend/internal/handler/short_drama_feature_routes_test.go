@@ -37,7 +37,7 @@ func TestShortDramaFeatureGateKeepsSharedLibraries(t *testing.T) {
 			t.Cleanup(func() { _ = sqlDB.Close() })
 			if err := db.AutoMigrate(&model.User{}, &model.AuthSession{}, &model.SystemSetting{}, &model.UserStorageGrant{}, &model.UserStorageState{},
 				&model.Asset{}, &model.AssetVersion{}, &model.AssetRepresentation{}, &model.CharacterVoiceBinding{},
-				&model.VoiceProfile{}, &model.StyleProfile{}, &model.Project{}, &model.ProjectAssetLink{},
+				&model.VoiceProfile{}, &model.StyleProfile{}, &model.DramaStyleLibraryEntry{}, &model.Project{}, &model.ProjectAssetLink{},
 				&model.ProjectAssetFolder{}, &model.Resource{}, &model.Shot{}, &model.ShotAssetReference{},
 				&model.ProjectUnit{}, &model.CanvasProject{}); err != nil {
 				t.Fatal(err)
