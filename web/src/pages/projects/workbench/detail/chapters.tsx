@@ -279,7 +279,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const liveStoryboardStream = selectedUnitId ? storyboardStreams[selectedUnitId] : undefined;
     // 台词覆盖率和超长段：拿本章正文里引号中的台词，对照各段 lines；超过项目模型上限的段要拆。
     const unitShots = useMemo(() => detail.shots.filter((shot) => shot.unitId === selectedUnit?.id), [detail.shots, selectedUnit?.id]);
-    const dialogueCoverage = useMemo(() => chapterDialogueCoverage(stripHtml(draftHtml || selectedUnit?.sourceText || ""), unitShots, detail.shotRevisions, !dirty && speechLedgerQuery.data?.ready ? speechLedgerQuery.data.ledger?.entries : undefined), [detail.shotRevisions, draftHtml, selectedUnit?.sourceText, unitShots, dirty, speechLedgerQuery.data]);
+    const dialogueCoverage = useMemo(() => chapterDialogueCoverage(draftHtml || selectedUnit?.sourceText || "", unitShots, detail.shotRevisions, !dirty && speechLedgerQuery.data?.ready ? speechLedgerQuery.data.ledger?.entries : undefined), [detail.shotRevisions, draftHtml, selectedUnit?.sourceText, unitShots, dirty, speechLedgerQuery.data]);
     const overLimitSegments = unitShots.filter((shot) => shot.durationMs > segmentMaxSeconds * 1000);
     const serverChapterOperations = useMemo(() => {
         const operations = new Map<string, ChapterOperation>();
@@ -387,6 +387,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 } : item),
             } : current);
             setDirty(false);
+			void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "speech-ledger", unit.id] });
             refreshProject();
             message.success("章节已保存");
         },

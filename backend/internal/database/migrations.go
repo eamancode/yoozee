@@ -345,7 +345,11 @@ func migratePersonalDirectorStyleScope(tx *gorm.DB) error {
 			return err
 		}
 	}
-	if !tx.Migrator().HasColumn(&model.ProjectUnit{}, "SpeechLedgerJSON") {
+	if !tx.Migrator().HasTable(&model.ProjectUnit{}) {
+		if err := tx.Migrator().CreateTable(&model.ProjectUnit{}); err != nil {
+			return err
+		}
+	} else if !tx.Migrator().HasColumn(&model.ProjectUnit{}, "SpeechLedgerJSON") {
 		if err := tx.Migrator().AddColumn(&model.ProjectUnit{}, "SpeechLedgerJSON"); err != nil {
 			return err
 		}
@@ -358,10 +362,10 @@ func migratePersonalDirectorStyleScope(tx *gorm.DB) error {
 	if err := tx.Model(&model.DramaStyleLibraryEntry{}).Where("source IN ?", []string{"director", "analysis"}).Update("scope_owner", gorm.Expr("created_by")).Error; err != nil {
 		return err
 	}
-	if tx.Migrator().HasIndex(&model.DramaStyleLibraryEntry{}, "idx_drama_style_library_name") {
-		if err := tx.Migrator().DropIndex(&model.DramaStyleLibraryEntry{}, "idx_drama_style_library_name"); err != nil {
-			return err
-		}
+	// GORM's PostgreSQL DropIndex emits CURRENT_SCHEMA().index for an implicit schema.
+	// This constant index name resolves through the same search_path as table queries.
+	if err := tx.Exec("DROP INDEX IF EXISTS idx_drama_style_library_name").Error; err != nil {
+		return err
 	}
 	return tx.Migrator().CreateIndex(&model.DramaStyleLibraryEntry{}, "idx_drama_style_library_name")
 }

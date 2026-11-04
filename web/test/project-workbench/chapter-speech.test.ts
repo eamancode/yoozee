@@ -15,6 +15,12 @@ test("unquoted script speech is counted even with zero shots, including single-c
     expect(result.missing).toEqual(["又跳了", "嗯", "谢谢您"]);
 });
 
+test("saved HTML paragraphs retain separate speech without quotation marks", () => {
+    const result = chapterDialogueCoverage("<p>△灯暗了。</p><p>阿婆：（画外）又跳了。</p><p>林深：谢谢您。</p><p>阿婆：嗯。</p>", [], []);
+    expect(result.expected).toBe(3);
+    expect(result.missing).toEqual(["又跳了", "谢谢您", "嗯"]);
+});
+
 test("repeated source speech requires repeated coverage", () => {
     const { shots, revisions } = spoken("收着。");
     const result = chapterDialogueCoverage("阿婆：收着。\n阿婆：收着。", shots, revisions);

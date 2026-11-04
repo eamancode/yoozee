@@ -341,7 +341,7 @@ func TestStyleLockPresetAutoLocks(t *testing.T) {
 	if err != nil || done.Status != model.TaskStatusSucceeded {
 		t.Fatalf("按画风生成：%v %s %q", err, done.Status, done.Error)
 	}
-	if len(upstream.images) != 0 || !strings.Contains(upstream.texts[0], "按【项目画风】") {
+	if len(upstream.images) != 0 || !strings.Contains(upstream.texts[0], "【公共风格中心完整字段】") {
 		t.Fatalf("没有参考图、按画风定：%d", len(upstream.images))
 	}
 	var result struct {
@@ -357,6 +357,10 @@ func TestStyleLockPresetAutoLocks(t *testing.T) {
 	}
 	if list, _ := svc.DramaStyleLibrary(&model.User{ID: "user-1"}, ""); len(list.Items) != 0 {
 		t.Fatalf("不回写风格库：%+v", list.Items)
+	}
+	current, _ := svc.repo.ProjectForUser("user-1", project.ID)
+	if !strings.Contains(current.StyleProfileJSON, "negativePrompt") || !strings.Contains(current.StyleProfileJSON, "【项目导演风格】") {
+		t.Fatalf("组合规格未保存：%s", current.StyleProfileJSON)
 	}
 }
 

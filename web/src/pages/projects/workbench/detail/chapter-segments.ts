@@ -75,13 +75,14 @@ const SCENE_CATEGORIES = new Set(["scene", "environment", "location"]);
 
 /** 台词覆盖率：章节里引号中的台词，有多少原样出现在本章各段的 lines 里。 */
 export function chapterDialogueCoverage(sourceText: string, shots: ProjectShot[], revisions: ShotRevision[], ledger?: Array<{ text: string }>) {
-    const labelled = sourceText.split(/\r?\n/).flatMap((line) => {
+	const source = sourceText.replace(/<br\s*\/?\s*>|<\/(?:p|div|li|h[1-6])\s*>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+	const labelled = source.split(/\r?\n/).flatMap((line) => {
         if (/^\s*[△▲]/.test(line)) return [];
         const match = line.trim().match(/^([^：:（(\s]{1,12})(?:[（(][^）)]*[）)])?\s*[：:]\s*(.+)$/);
         if (!match || /^(场景|时间|地点|画面|动作|字幕|落版|落版字幕|镜头|音效|音乐|备注)$/.test(match[1])) return [];
         return [stripQuotes(match[2].replace(/^(?:\s*[（(][^）)]*[）)])+\s*/, ""))];
     });
-    const quoted = labelled.length ? labelled : Array.from(sourceText.matchAll(/[“「"]([^”」"]+)[”」"]/g), (match) => match[1]);
+	const quoted = labelled.length ? labelled : Array.from(source.matchAll(/[“「"]([^”」"]+)[”」"]/g), (match) => match[1]);
     const expected = (ledger ? ledger.map((entry) => entry.text) : quoted).map(normalizeLine).filter(Boolean);
     const revisionById = new Map(revisions.map((revision) => [revision.id, revision]));
     const spoken = shots

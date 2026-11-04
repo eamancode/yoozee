@@ -143,15 +143,6 @@ type Step struct {
 
 var steps = []Step{
 	{
-		ID: StepSpeechExtract, Label: "声音台账", Scope: StepScopeUnit, Contract: ContractSpeechExtract,
-		DefaultSkill: "yz-speech-extract", SkillBudgetChars: 32000, SkillLinkedFiles: 3,
-		Inputs:     []StepInput{{Name: "source", Label: "完整剧本与场段编号", Source: "当前单元保存的完整正文，不从镜头回推"}},
-		TaskSource: "short-drama-speech-extract", EvalConcurrency: 1,
-		Gate:    StepGate{Metrics: []string{GateParseRate}, ParseRate: 1},
-		EvalSet: []StepEvalChapter{{ID: "qichuang-e01", Profile: "live-realism", Label: "《七床》第一集（独立提取全部声音）"}},
-		Turns:   TurnPlan{Unit: "轮", Count: CountSpeechExtractTurn},
-	},
-	{
 		ID:       StepStyleLock,
 		Label:    "风格锁定",
 		Scope:    StepScopeProject,
@@ -276,6 +267,15 @@ var steps = []Step{
 			Next:  func(turns []ShotsScene, k int, _ int) string { return AssetsExtractTurnPrompt(turns, k) },
 			Count: CountAssetsExtractTurn,
 		},
+	},
+	{
+		ID: StepSpeechExtract, Label: "声音台账", Scope: StepScopeUnit, Contract: ContractSpeechExtract,
+		DefaultSkill: "yz-speech-extract", SkillBudgetChars: 32000, SkillLinkedFiles: 3,
+		Inputs:     []StepInput{{Name: "source", Label: "完整剧本与场段编号", Source: "当前单元保存的完整正文，不从镜头回推"}},
+		TaskSource: "short-drama-speech-extract", EvalConcurrency: 1,
+		Gate:    StepGate{Metrics: []string{GateParseRate}, ParseRate: 1},
+		EvalSet: []StepEvalChapter{{ID: "qichuang-e01", Profile: "live-realism", Label: "《七床》第一集（独立提取全部声音）"}},
+		Turns:   TurnPlan{Unit: "轮", Count: CountSpeechExtractTurn},
 	},
 	{
 		ID:       StepChapterShots,

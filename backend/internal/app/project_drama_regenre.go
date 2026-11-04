@@ -81,7 +81,7 @@ func sectionGenreChangeFor(project *model.Project, unit *model.ProjectUnit, reco
 	if err != nil {
 		return sectionGenreChange{}, err
 	}
-	return planSectionGenreChange(chapterPlainText(unit.SourceText), unit.Title, genre, m.Duration.Max, genreOverridesOf(record, unit), strings.TrimSpace(sectionID), target)
+	return planSectionGenreChange(chapterPlainText(unit.SourceText), unit.Title, genre, m.Duration.Max, genreOverridesOf(record, unit), strings.TrimSpace(sectionID), target, dramaShotlistScript(unit, false))
 }
 
 // sectionGenreChange 是算好的一次改戏类：新的改戏类范围（整章）和这次改动。
@@ -95,8 +95,8 @@ type sectionGenreChange struct {
 //   - 改回文戏：这一场里与它相连的一串武戏节的范围一起去掉（这一串是一起切出来的，单拿一节回文戏会把剩下的切法打乱）；
 //
 // 再按新范围重切，这一场里对不上原来任何一节（场、正文行、台词、戏类）的新节就是要重写的节。
-func planSectionGenreChange(text string, title string, genre drama.ShotGenre, modelMax int, current []drama.GenreOverride, sectionID string, target string) (sectionGenreChange, error) {
-	before := drama.PlanSections(text, title, genre, modelMax, current)
+func planSectionGenreChange(text string, title string, genre drama.ShotGenre, modelMax int, current []drama.GenreOverride, sectionID string, target string, inventory *drama.Script) (sectionGenreChange, error) {
+	before := drama.PlanSectionsWithScript(text, title, genre, modelMax, current, inventory)
 	idx := slices.IndexFunc(before.Sections, func(s drama.Section) bool { return s.ID == sectionID })
 	if idx < 0 {
 		ids := make([]string, 0, len(before.Sections))
@@ -138,7 +138,7 @@ func planSectionGenreChange(text string, title string, genre drama.ShotGenre, mo
 	default:
 		return sectionGenreChange{}, BadAuthRequest("genre 只能是 wuxi（改为武戏）或 wenxi（改回文戏）")
 	}
-	after := drama.PlanSections(text, title, genre, modelMax, next)
+	after := drama.PlanSectionsWithScript(text, title, genre, modelMax, next, inventory)
 	same := func(n drama.Section) bool {
 		return slices.ContainsFunc(before.Sections, func(o drama.Section) bool {
 			return o.Scene == n.Scene && o.Lines == n.Lines && o.Genre == n.Genre && slices.Equal(o.LineIDs, n.LineIDs)
