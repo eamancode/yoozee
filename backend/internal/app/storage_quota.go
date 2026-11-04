@@ -151,10 +151,28 @@ func (s *Service) commitTaskCompletionWithinStorageQuota(task *model.Task, resul
 	completed.CompletedAt = ptr(time.Now())
 	var register func(*repository.Repository) error
 	visualImage := strings.Contains(task.InputJSON, "project_asset_image")
-	if task.MediaRecoveryJSON != "" || visualImage {
+	styleCover := strings.Contains(task.InputJSON, "director-style-cover")
+	if task.MediaRecoveryJSON != "" || visualImage || styleCover {
 		completed.MediaStage = "completed"
 		register = func(repo *repository.Repository) error {
 			writer := &Service{repo: repo, dataDir: s.dataDir}
+			if styleCover {
+				var result map[string]interface{}
+				if err := json.Unmarshal(resultJSON, &result); err != nil {
+					return err
+				}
+				if err := writer.finalizeDirectorStyleCover(*task, result); err != nil {
+					return err
+				}
+				encoded, err := json.Marshal(result)
+				if err != nil {
+					return err
+				}
+				if err := validateTaskDataGrowthQuotaWithPolicy(usage, taskDelta+int64(len(encoded)-len(resultJSON)), policy.Resource); err != nil {
+					return err
+				}
+				completed.ResultJSON = string(encoded)
+			}
 			if visualImage {
 				var result map[string]interface{}
 				if err := json.Unmarshal(resultJSON, &result); err != nil {

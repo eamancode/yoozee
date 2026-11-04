@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 93
+const CurrentSchemaVersion int64 = 94
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -337,6 +337,7 @@ var schemaMigrations = []migration{
 	{version: 91, name: "agent_memory_document_skill_discovery", checksum: "sha256:agent-memory-document-skill-discovery-v76-20261028", apply: migrateAgentMemoryDocumentSkillDiscovery},
 	{version: 92, name: "agent_memory_document_columns", checksum: "sha256:agent-memory-document-columns-v77-20261028", apply: migrateAgentMemoryDocumentColumns},
 	{version: 93, name: "personal_director_style_scope", checksum: "sha256:personal-director-style-scope-v93", apply: migratePersonalDirectorStyleScope},
+	{version: 94, name: "director_style_profile_cover", checksum: "sha256:director-style-profile-cover-v94", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.StyleProfile{}) }},
 }
 
 func migratePersonalDirectorStyleScope(tx *gorm.DB) error {

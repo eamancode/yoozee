@@ -1,6 +1,8 @@
 package app
 
 import (
+	"errors"
+	"gorm.io/gorm"
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/prompts"
 )
@@ -57,7 +59,26 @@ func (s *Service) promptDomain() *prompts.Service {
 }
 
 func (s *Service) ListStyleProfiles(userID string) ([]model.StyleProfile, error) {
-	return s.promptDomain().ListStyleProfiles(userID)
+	if err := s.migratePersonalDirectorProfiles(userID); err != nil {
+		return nil, err
+	}
+	rows, err := s.promptDomain().ListStyleProfiles(userID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if err := s.refreshDirectorCoverState(&rows[i]); err != nil {
+			return nil, err
+		}
+		if rows[i].SourceProjectID != "" {
+			if project, err := s.repo.ProjectForUser(userID, rows[i].SourceProjectID); err == nil {
+				rows[i].PreferredImageModel = project.DefaultImageModel
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
+		}
+	}
+	return rows, nil
 }
 
 func (s *Service) CreateStyleProfile(userID string, req StyleProfileRequest) (model.StyleProfile, error) {

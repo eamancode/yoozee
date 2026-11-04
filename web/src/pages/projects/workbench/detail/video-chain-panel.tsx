@@ -7,7 +7,17 @@ import { createVideoChain, cancelVideoChain, listVideoChains, previewVideoChain,
 import { resourceFileUrl } from "@/services/api/resources";
 import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store";
 
-const phaseLabels: Record<string, string> = { waiting: "等待前序镜头", extracting: "截取上一组末帧", uploading: "上传参考素材", prepared: "参考素材已准备", submitting: "提交生成", generating: "等待视频完成", completed: "已完成", cancelled: "已停止" };
+const phaseLabels: Record<string, string> = {
+    waiting: "等待前序镜头",
+    extracting: "截取上一组末帧",
+    uploading: "上传参考素材",
+    prepared: "参考素材已准备",
+    reference_ready: "站位参考已准备",
+    submitting: "提交生成",
+    generating: "等待视频完成",
+    completed: "已完成",
+    cancelled: "已停止",
+};
 
 export function VideoChainPanel({
     open,
@@ -33,6 +43,7 @@ export function VideoChainPanel({
     const [busy, setBusy] = useState(false);
     const [problem, setProblem] = useState("");
     const request = useRef<VideoChainRequest | undefined>(undefined);
+    const prepareRequest = useRef<VideoChainRequest | undefined>(undefined);
     const gate = useRef(false);
     const session = useRef(0);
     const chains = useQuery({ queryKey: ["project-video-chains", projectId, unitId], queryFn: ({ signal }) => listVideoChains(projectId, unitId, signal), enabled: open, refetchInterval: open ? 2000 : false });
@@ -49,6 +60,7 @@ export function VideoChainPanel({
         setSelectedId(undefined);
         setProblem("");
         request.current = undefined;
+        prepareRequest.current = undefined;
     }, [open, projectId, unitId, shotId]);
     useEffect(() => {
         if (chain?.status === "succeeded" || chain?.status === "failed") void onRefresh().catch(() => setProblem("生成进度已保存，刷新产物列表失败，请稍后刷新页面"));
@@ -91,6 +103,21 @@ export function VideoChainPanel({
             message.success("连续生成已启动，关闭面板后仍会在后台继续");
         });
 
+    const preparePosition = () =>
+        run(async () => {
+            const model = await buildModel();
+            const input = { unitId, shotId, model, scope: "single" as const, prepareOnly: true };
+            const { chain: preview } = await previewVideoChain(projectId, input);
+            const requestId = prepareRequest.current?.previewHash === preview.previewHash ? prepareRequest.current.requestId : crypto.randomUUID();
+            prepareRequest.current = { ...input, previewHash: preview.previewHash, requestId };
+            const { chain } = await createVideoChain(projectId, prepareRequest.current);
+            prepareRequest.current = undefined;
+            setSelectedId(chain.id);
+            setPreview(undefined);
+            await chains.refetch();
+            message.success("仅准备站位参考，不会提交视频生成任务");
+        });
+
     return (
         <AppModal open={open} centered title="同场景连续生成" width={820} onCancel={onClose} footer={null} styles={{ body: { maxHeight: "calc(100dvh - 160px)", overflowY: "auto" } }}>
             <p className="mb-4 text-foreground/65">按叙事顺序串联当前场景的连续镜头组。后一组等待前一组完成，再截取片末画面作为站位参考；保留原参考图。切换场景时结束本链。</p>
@@ -111,7 +138,7 @@ export function VideoChainPanel({
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <strong aria-live="polite">{chain.stage || "提交预览"}</strong>
                         <span>
-                            共 {chain.steps.length} 组 · {chain.steps.some((step) => step.quote) ? `${chain.totalMicrocredits / 1000000} 平台积分（整链预估，按实际子任务结算）` : "个人渠道按上游计费"}
+                            共 {chain.steps.length} 组 · {chain.prepareOnly ? "仅准备参考，不生成视频" : chain.steps.some((step) => step.quote) ? `${chain.totalMicrocredits / 1000000} 平台积分（整链预估，按实际子任务结算）` : "个人渠道按上游计费"}
                         </span>
                     </div>
                     <ol className="max-h-[50vh] space-y-3 overflow-y-auto pr-2 thin-scrollbar">
@@ -148,6 +175,11 @@ export function VideoChainPanel({
                                     <div className="mt-2">
                                         <Image width={120} src={resourceFileUrl(step.frameResourceId)} alt={`来自上一组的站位参考 ${step.referenceTag}`} />
                                         <span className="ml-2 text-xs text-foreground/55">上一组末帧 · {step.referenceTag}</span>
+                                        {step.frameAssetId ? (
+                                            <a className="ml-2 text-xs underline" href={`/projects/${projectId}/assets?category=storyboard_reference`}>
+                                                在分镜参考资产中查看
+                                            </a>
+                                        ) : null}
                                     </div>
                                 ) : null}
                                 {step.videoResourceId ? (
@@ -193,6 +225,11 @@ export function VideoChainPanel({
                     </Button>
                 ) : null}
                 {!active && chain?.status !== "failed" ? (
+                    <Button loading={busy} onClick={() => void preparePosition()}>
+                        仅准备本组站位参考
+                    </Button>
+                ) : null}
+                {!active && chain?.status !== "failed" ? (
                     <Button loading={busy} onClick={() => void refreshPreview()}>
                         预览当前场景与费用
                     </Button>
@@ -203,7 +240,8 @@ export function VideoChainPanel({
                     </Button>
                 ) : null}
             </div>
-            {active ? <p className="mt-3 text-xs text-foreground/55">已提交的镜头仍会完成；停止后续生成不会撤销已产生的模型费用。关闭面板不会停止生成链。</p> : null}
+            <p className="mt-3 text-xs text-foreground/55">仅准备站位参考：读取前序已有视频、截帧并准备参考输入，不提交任何视频生成任务。</p>
+            {active && !chain?.prepareOnly ? <p className="mt-3 text-xs text-foreground/55">已提交的镜头仍会完成；停止后续生成不会撤销已产生的模型费用。关闭面板不会停止生成链。</p> : null}
         </AppModal>
     );
 }

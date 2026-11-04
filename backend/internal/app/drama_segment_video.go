@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -542,7 +543,24 @@ func (s *Service) withDramaVideoFile(userID, resourceID string, fn func(resource
 }
 
 // saveDramaTailFrame 用 ffmpeg 取本地视频的最后一帧并保存为图片资源。
-func (s *Service) saveDramaTailFrame(userID string, resource *model.Resource, input string) (string, error) {
+type dramaTailFrameObservation struct {
+	TimeSeconds *float64 `json:"timeSeconds,omitempty"`
+	Method      string   `json:"method"`
+}
+
+var tailFrameTimestamp = regexp.MustCompile(`pts_time:([0-9.+eE-]+)`)
+
+func observeTailFrame(output []byte, method string, observation *dramaTailFrameObservation) {
+	observation.Method = method
+	frames := tailFrameTimestamp.FindAllSubmatch(output, -1)
+	if len(frames) > 0 {
+		if seconds, err := strconv.ParseFloat(string(frames[len(frames)-1][1]), 64); err == nil {
+			observation.TimeSeconds = &seconds
+		}
+	}
+}
+
+func (s *Service) saveDramaTailFrame(userID string, resource *model.Resource, input string, observations ...*dramaTailFrameObservation) (string, error) {
 	ffmpegBin, err := renderFfmpegBinary()
 	if err != nil {
 		return "", fmt.Errorf("抽取尾帧失败：%w", err)
@@ -556,18 +574,29 @@ func (s *Service) saveDramaTailFrame(userID string, resource *model.Resource, in
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	// Decode every remaining frame and update the same output, so the saved image is the actual final frame.
-	cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-sseof", "-1", "-i", input, "-an", "-update", "1", "-y", output)
+	cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "info", "-copyts", "-sseof", "-1", "-i", input, "-an", "-vf", "showinfo", "-update", "1", "-y", output)
 	// A damaged tail may still yield the closest readable frame. Keep it even
 	// if the decoder reports a later error; otherwise try sequential decoding.
-	_, _ = cmd.CombinedOutput()
+	decoded, decodeErr := cmd.CombinedOutput()
+	method := "last-frame-tail-seek"
+	if decodeErr != nil {
+		method = "closest-readable-tail-frame"
+	}
 	if info, statErr := os.Stat(output); statErr != nil || info.Size() == 0 {
 		// Some containers cannot seek near EOF. Sequential decoding updates the
 		// same image through the last readable frame without assuming an FPS.
-		fallback := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-i", input, "-an", "-update", "1", "-y", output)
+		fallback := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "info", "-copyts", "-i", input, "-an", "-vf", "showinfo", "-update", "1", "-y", output)
 		out, decodeErr := fallback.CombinedOutput()
+		decoded, method = out, "last-frame-sequential-fallback"
+		if decodeErr != nil {
+			method = "closest-readable-sequential-frame"
+		}
 		if info, statErr := os.Stat(output); statErr != nil || info.Size() == 0 {
 			return "", fmt.Errorf("无法读取视频末帧：%s %v", clipText(string(out), 200), decodeErr)
 		}
+	}
+	if len(observations) > 0 && observations[0] != nil {
+		observeTailFrame(decoded, method, observations[0])
 	}
 	image, err := os.Open(output)
 	if err != nil {

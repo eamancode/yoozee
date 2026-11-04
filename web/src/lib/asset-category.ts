@@ -1,9 +1,9 @@
-export const ASSET_CATEGORIES = ["character", "environment", "prop", "material", "other", "palette"] as const;
+export const ASSET_CATEGORIES = ["character", "environment", "prop", "material", "other", "palette", "storyboard_reference"] as const;
 
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
 
 /** 用户能手选的分类：色卡（palette）只由风格锁定（主基调色卡）和场次色卡生成，不出现在分类选择里。 */
-export const EDITABLE_ASSET_CATEGORIES = ASSET_CATEGORIES.filter((category) => category !== "palette");
+export const EDITABLE_ASSET_CATEGORIES = ASSET_CATEGORIES.filter((category) => category !== "palette" && category !== "storyboard_reference");
 
 export const ASSET_CATEGORY_LABELS: Record<AssetCategory, string> = {
     character: "角色",
@@ -12,6 +12,7 @@ export const ASSET_CATEGORY_LABELS: Record<AssetCategory, string> = {
     material: "素材",
     other: "其他",
     palette: "色卡",
+    storyboard_reference: "分镜参考",
 };
 
 export const ASSET_CATEGORY_OPTIONS = EDITABLE_ASSET_CATEGORIES.map((value) => ({

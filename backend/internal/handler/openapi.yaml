@@ -32,6 +32,40 @@ tags:
   - name: referral
     description: 推广中心：推广码、邀请记录与返佣
 paths:
+  /projects/{id}/director-style:
+    post:
+      tags: [projects]
+      summary: 保存项目导演结果到原风格中心的我的风格
+      description: 仅项目创建人可保存；同项目幂等更新一条个人档案，可附图片任务模板独立生成封面。
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DirectorStyleSaveRequest"}
+      responses:
+        "200": {description: "成功信封 data={profile}；封面状态独立于已保存的文本"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /style-profiles/{id}/cover:
+    post:
+      tags: [projects]
+      summary: 独立生成或重试个人风格封面
+      description: 仅档案创建人可调用；运行中复用原任务，regenerate=true 可主动重绘已成功的封面。旧回调不能覆盖新版本。
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DirectorStyleSaveRequest"}
+      responses:
+        "200": {description: "成功信封 data={profile}；含 coverStatus、coverTaskId、coverResourceId、coverImageRevision、coverError"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
   /projects/{id}/video-chains:
     parameters:
       - {in: path, name: id, required: true, schema: {type: string}}
@@ -2648,6 +2682,17 @@ components:
       in: cookie
       name: open_ai_canvas_session
   schemas:
+    DirectorStyleSaveRequest:
+      type: object
+      properties:
+        regenerate: {type: boolean, default: false}
+        imageTask:
+          type: object
+          description: 与标准图片任务使用同一渠道和配置；不可用时文本仍保存为待生成封面
+          properties:
+            model: {type: string}
+            logicalModelId: {type: string}
+            input: {type: object, additionalProperties: true}
     ProjectVideoChainModel:
       type: object
       required: [model, input]
@@ -2659,6 +2704,8 @@ components:
       type: object
       required: [unitId, shotId, model]
       properties:
+        scope: {type: string, enum: [scene, single], default: scene, description: single 只生成选中组，仍检查同场景前序依赖}
+        prepareOnly: {type: boolean, default: false, description: 仅 scope=single 可用；准备站位参考后结束，不提交视频生成}
         unitId: {type: string}
         shotId: {type: string, description: 当前场景链的锚定镜头}
         model: {$ref: "#/components/schemas/ProjectVideoChainModel"}

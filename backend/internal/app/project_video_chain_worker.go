@@ -25,12 +25,16 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		}
 	}
 	if index < 0 {
-		return s.saveVideoChain(task, state, model.TaskStatusSucceeded, "同场景连续生成已完成", "")
+		stage := "同场景连续生成已完成"
+		if state.Request.Scope == "single" {
+			stage = "镜头视频已完成"
+		}
+		return s.saveVideoChain(task, state, model.TaskStatusSucceeded, stage, "")
 	}
 	step := &state.Steps[index]
 	fail := func(cause error) error {
 		step.Status, step.Error = "failed", sanitizeUserVisibleError(cause.Error())
-		label := map[string]string{"waiting": "前置检查", "extracting": "末帧截取", "uploading": "参考素材上传", "prepared": "提交准备", "submitting": "视频提交", "generating": "视频生成"}[step.Phase]
+		label := map[string]string{"waiting": "前置检查", "extracting": "末帧截取", "registering": "分镜参考登记与绑定", "uploading": "参考素材上传", "prepared": "提交准备", "submitting": "视频提交", "generating": "视频生成"}[step.Phase]
 		if label == "" {
 			label = "处理"
 		}
@@ -85,15 +89,28 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 	if len(fresh.Steps) != len(state.Steps) || fresh.Steps[index].Signature != step.Signature {
 		return fail(BadAuthRequest("镜头内容、叙事顺序或模型已变化，点击重试以最新内容继续"))
 	}
-	if index > 0 {
-		previous := &state.Steps[index-1]
-		if previous.Status != "succeeded" || previous.VideoResourceID == "" {
-			return fail(BadAuthRequest("上一镜头视频尚未完成"))
+	if step.SourceShotID != "" {
+		if index > 0 {
+			previous := &state.Steps[index-1]
+			if previous.Status != "succeeded" || previous.VideoResourceID == "" {
+				return fail(BadAuthRequest("上一镜头视频尚未完成"))
+			}
+			step.SourceVideoResourceID, step.SourceVideoTaskID = previous.VideoResourceID, previous.TaskID
 		}
-		step.SourceVideoResourceID = previous.VideoResourceID
 		if step.FrameResourceID == "" {
 			step.Phase = "extracting"
-			id, err := s.extractDramaTailFrame(task.UserID, previous.VideoResourceID)
+			observation := dramaTailFrameObservation{Method: "test-hook"}
+			var id string
+			var err error
+			if s.dramaTailFrameHook != nil {
+				id, err = s.extractDramaTailFrame(task.UserID, step.SourceVideoResourceID)
+			} else {
+				err = s.withDramaVideoFile(task.UserID, step.SourceVideoResourceID, func(resource *model.Resource, path string) error {
+					var extractErr error
+					id, extractErr = s.saveDramaTailFrame(task.UserID, resource, path, &observation)
+					return extractErr
+				})
+			}
 			if err != nil {
 				return fail(err)
 			}
@@ -101,7 +118,14 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 				return fail(err)
 			}
 			step.FrameResourceID = id
+			step.FrameTimeSeconds, step.FrameSelection = observation.TimeSeconds, observation.Method
 			return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" · 片末截帧已保存", "")
+		}
+		if step.FrameAssetID == "" {
+			step.Phase = "registering"
+		}
+		if err := s.registerVideoChainFrame(task, step); err != nil {
+			return fail(fmt.Errorf("分镜参考保存或绑定已失效：%w", err))
 		}
 	}
 	input, err := s.videoChainInput(task, step)
@@ -115,6 +139,10 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		}
 		step.Phase = "prepared"
 		return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" · 参考素材已准备", "")
+	}
+	if state.Request.PrepareOnly {
+		step.Status, step.Phase = "succeeded", "reference_ready"
+		return s.saveVideoChain(task, state, model.TaskStatusSucceeded, "站位参考已准备，未提交视频生成", "")
 	}
 	step.Phase = "submitting"
 	maxCharge := int64(0)

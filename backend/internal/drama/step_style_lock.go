@@ -518,6 +518,12 @@ func StyleProfileProblem(profile map[string]any) string {
 			return "style_profile.tags 必须为字符串数组"
 		}
 	}
+	prompt, _ := profile["prompt"].(string)
+	for _, heading := range []string{"风格组合", "项目定位", "题材世界观", "叙事气质", "视觉媒介", "角色设计系统", "项目色彩与光影", "服饰、材质与场景", "影像与动态基线", "资产一致性", "全局禁用", "使用边界"} {
+		if !strings.Contains(prompt, "【"+heading+"】") {
+			return "style_profile.prompt 缺少系统风格章节：【" + heading + "】"
+		}
+	}
 	return ""
 }
 

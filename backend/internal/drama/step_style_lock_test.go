@@ -8,7 +8,24 @@ import (
 	"testing"
 )
 
-const styleLockOutput = `{"style_profile":{"title":"都市悬疑","description":"冷调实景","tags":["悬疑"],"prompt":"【视觉媒介】真人实拍\n【角色设计系统】自然比例","negativePrompt":"霓虹、HDR"},"style_anchor": {"medium": "真人实拍", "lighting": "实景光源，冷暖分区", "camera": "克制，定焦", "grading": "低饱和冷调", "forbidden": ["霓虹", "HDR"]}}
+func TestDirectorStyleProfileRequiresCompleteSystemSections(t *testing.T) {
+	out, _ := StyleLockFromText(styleLockOutput)
+	if problem := StyleProfileProblem(out.StyleProfile); problem != "" {
+		t.Fatal(problem)
+	}
+	for _, heading := range []string{"叙事气质", "影像与动态基线", "使用边界"} {
+		copy := map[string]any{}
+		for key, value := range out.StyleProfile {
+			copy[key] = value
+		}
+		copy["prompt"] = strings.ReplaceAll(copy["prompt"].(string), "【"+heading+"】", "")
+		if problem := StyleProfileProblem(copy); !strings.Contains(problem, heading) {
+			t.Fatalf("missing %s accepted: %s", heading, problem)
+		}
+	}
+}
+
+const styleLockOutput = `{"style_profile":{"title":"都市悬疑","description":"冷调实景","tags":["悬疑"],"prompt":"【风格组合】都市、悬疑、真人、写实人物\n【项目定位】生活空间中的悬疑剧情\n【题材世界观】当代中国城市\n【叙事气质】克制观察与逐步揭示\n【视觉媒介】真人实拍\n【角色设计系统】自然比例\n【项目色彩与光影】低饱和冷暖分区\n【服饰、材质与场景】真实棉布、金属和城市建筑\n【影像与动态基线】定焦观察，动作有重心\n【资产一致性】同人同脸，同场同布局\n【全局禁用】霓虹、HDR、同脸\n【使用边界】具体机位和动作由分镜设计","negativePrompt":"霓虹、HDR"},"style_anchor": {"medium": "真人实拍", "lighting": "实景光源，冷暖分区", "camera": "克制，定焦", "grading": "低饱和冷调", "forbidden": ["霓虹", "HDR"]}}
 {"group": "主角组", "colors": [{"name_zh": "护士蓝", "name_en": "Nurse Blue", "hex": "5b7fa3", "usage": "林小满制服"}, {"name_zh": "苍白肤", "name_en": "Pale Skin", "hex": "#E3D3C4", "usage": "主角肤色"}]}
 {"group": "配角", "colors": [{"name_zh": "病号条纹", "name_en": "Patient Stripe", "hex": "#8DA1B9", "usage": "病人服"}]}
 {"group": "道具组", "colors": [{"name_zh": "铁锈红", "name_en": "Rust Red", "hex": "#7A3B2E", "usage": "七床床牌"}]}

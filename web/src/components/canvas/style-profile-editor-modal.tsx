@@ -172,6 +172,7 @@ function PromptFields({ profile, onChange }: EditorFieldsProps) {
             <Field label="推荐负面 Prompt">
                 <Input.TextArea value={profile.negativePrompt} autoSize={{ minRows: 6, maxRows: 14 }} placeholder="填写需要全项目避免的媒介漂移、人物错误、材质错误、文字水印等" onChange={(event) => onChange({ negativePrompt: event.target.value })} />
             </Field>
+            {profile.director ? <details className="rounded border border-border p-3"><summary className="cursor-pointer text-sm">导演结构化规格</summary><dl className="mt-3 space-y-2 text-xs">{Object.entries(profile.director.styleAnchor).map(([key,value]) => <div key={key}><dt className="font-medium">{({medium:"媒介",art_style:"美术风格",lighting:"灯光政策",camera:"镜头语言",grading:"调色",forbidden:"禁用项",era:"时代",genre:"题材",render_quality:"渲染质量"} as Record<string,string>)[key] || key}</dt><dd className="mt-1 whitespace-pre-wrap text-foreground/60">{Array.isArray(value) ? value.join("、") : typeof value === "object" ? JSON.stringify(value) : String(value || "")}</dd></div>)}</dl><p className="mt-3 text-xs text-foreground/55">由项目导演分析保存；完整视觉规范和禁用项仍可在上方编辑。应用时复制当前版本，不改写其他项目。</p></details> : null}
         </div>
     );
 }

@@ -66,6 +66,7 @@ func (s *Service) videoChainInput(task *model.Task, step *videoChainStepState) (
 		input["referenceImages"] = append(images, videoChainReference(resource, step.ReferenceTag))
 		marker["frameResourceId"], marker["referenceTag"] = resource.ID, step.ReferenceTag
 		marker["sourceShotId"], marker["sourceVideoResourceId"] = step.SourceShotID, step.SourceVideoResourceID
+		marker["sourceRevisionId"], marker["frameAssetId"] = step.SourceRevisionID, step.FrameAssetID
 	}
 	input[videoChainMetadataKey] = marker
 	for _, group := range []string{"referenceImages", "referenceVideos", "referenceAudios"} {

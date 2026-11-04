@@ -6,7 +6,7 @@ import { useNavigate } from "react-router";
 
 import { Select } from "@/components/ui/base/select";
 import { detectProjectSource, formatSourceChars, plainTextToHtml, sourceCharCount, sourceDetectionLabel, suggestProjectName, PROJECT_SOURCE_MAX_CHARS, type ProjectSourceKind } from "@/lib/project-source";
-import { projectVisualTypeLabel } from "@/lib/project-visual-type";
+import { projectVisualTypeLabel, styleProfileSupportsVisualType } from "@/lib/project-visual-type";
 import { listDramaStyleLibrary, dramaStyleLibraryCoverUrl, dramaStyleLibraryKey, sortDramaStyleLibrary, type DramaStyleLibraryItem } from "@/services/api/drama-style-library";
 import type { CreateProjectInput, ProjectVisualType } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -14,7 +14,7 @@ import { useUserStore } from "@/stores/use-user-store";
 
 import { continueProjectPipeline } from "../detail/project-chapter-ai";
 import { dramaRunModeLabel, findDramaModel, preferredDramaModel, useDramaChannelFamilies, useDramaModels } from "../drama-model";
-import { uploadStyleReferenceImages } from "../project-style-inputs";
+import { StyleReferenceImagesPicker, uploadStyleReferenceImages } from "../project-style-inputs";
 import { ComposerSectionShell, ProductionSection, StyleSourceSection, VisualTypeCards } from "./composer-sections";
 import { CanvasStylePickerModal } from "@/components/canvas/canvas-style-picker-modal";
 import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
@@ -190,7 +190,18 @@ function AccountProjectComposer({ userId }: { userId: string }) {
     // 换了画面类型：已选的风格不属于新类型就清空，原地提示并给「撤销」。
     const changeVisualType = (visualType: ProjectVisualType) => {
         clearError("visual");
-        const previous = { visualType: draft.visualType, styleId: draft.styleId };
+        const previous = { visualType: draft.visualType, styleId: draft.styleId, publicStyle: draft.publicStyle, styleMode: draft.styleMode };
+        if (draft.publicStyle && !styleProfileSupportsVisualType(draft.publicStyle, visualType)) {
+            update({ visualType, publicStyle: undefined, styleId: undefined, styleMode: "director" });
+            setTypeNotice({
+                text: `已清空与${projectVisualTypeLabel(visualType)}不匹配的风格「${draft.publicStyle.title}」`,
+                undo: () => {
+                    update(previous);
+                    setTypeNotice(undefined);
+                },
+            });
+            return;
+        }
         if (draft.styleId && selectedStyle && selectedStyle.projectType !== visualType) {
             update({ visualType, styleId: undefined });
             setTypeNotice({
@@ -250,7 +261,7 @@ function AccountProjectComposer({ userId }: { userId: string }) {
         if (!draft.blank && !draft.text.trim()) next.source = "粘贴剧本、小说或一句创意，或导入文件";
         if (sourceCharCount(draft.text) > PROJECT_SOURCE_MAX_CHARS) next.source = "建项正文最多支持 15 万字，请分章导入或缩短正文";
         if (!draft.visualType) next.visual = "先选画面类型";
-        if (draft.styleMode === "library" && !draft.styleId) next.style = "从风格中心挑一个风格，或改为交给导演分析";
+        if ((draft.styleMode === "library" || draft.styleMode === "profile") && !draft.styleId) next.style = "从风格中心挑一个风格，或改为交给导演分析";
         if (model && model.duration.max < draft.segmentSeconds) next.production = `${model.label} 一段最长 ${model.duration.max} 秒：换模型，或改回 15 秒`;
         const textModel = effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
         const textReady = Boolean(textModel) && isAiConfigReady({ ...effectiveConfig, model: textModel, textModel }, textModel);
@@ -285,7 +296,12 @@ function AccountProjectComposer({ userId }: { userId: string }) {
                     source: sourceAs === "idea" ? { text: draft.text.trim() } : sourceAs === "blank" ? {} : { units: sourceUnits.map((unit) => ({ title: unit.title, sourceText: plainTextToHtml(unit.plainText) })) },
                     ...(sourceAs === "idea" ? { ideaPlan: { episodes: draft.ideaEpisodes, episodeSeconds: draft.ideaEpisodeSeconds } } : {}),
                     visualType: draft.visualType!,
-                    style: draft.styleMode === "library" ? { mode: "library", styleId: draft.styleId! } : { mode: "director", ...(draft.styleBrief.trim() ? { brief: draft.styleBrief.trim() } : {}), ...(refImageIds.length ? { refImageIds } : {}) },
+                    style:
+                        draft.styleMode === "profile"
+                            ? { mode: "profile", styleId: draft.styleId! }
+                            : draft.styleMode === "library"
+                              ? { mode: "library", styleId: draft.styleId! }
+                              : { mode: "director", ...(draft.styleBrief.trim() ? { brief: draft.styleBrief.trim() } : {}), ...(refImageIds.length ? { refImageIds } : {}) },
                     aspectRatio: draft.aspectRatio,
                     ...(draft.publicStyle ? { stylePresetId: draft.publicStyle.presetId, styleProfileJson: serializeStyleProfile(draft.publicStyle) } : {}),
                     segmentSeconds: draft.segmentSeconds,
@@ -353,7 +369,16 @@ function AccountProjectComposer({ userId }: { userId: string }) {
         return () => window.removeEventListener("keydown", onKey);
     }, [expanded, importOpen]);
 
-    const styleSummary = draft.styleMode === "library" ? (selectedStyle ? `风格「${selectedStyle.name}」` : "从风格中心挑") : draft.styleBrief.trim() || images.length ? "交给导演分析（带参考）" : "交给导演分析";
+    const styleSummary =
+        draft.styleMode === "profile"
+            ? `使用「${draft.publicStyle?.title || "我的风格"}」`
+            : draft.styleMode === "library"
+              ? selectedStyle
+                  ? `风格「${selectedStyle.name}」`
+                  : "从风格中心挑"
+              : draft.styleBrief.trim() || images.length
+                ? "交给导演分析（带参考）"
+                : "交给导演分析";
     const sourceSummary = !draft.text.trim() ? "空项目" : kind === "idea" ? `创意 ${draft.ideaEpisodes} 集` : kind === "script" ? `剧本 ${sourceUnits.length} 集` : `小说 ${sourceUnits.length} 章`;
 
     return (
@@ -508,32 +533,47 @@ function AccountProjectComposer({ userId }: { userId: string }) {
                     <ComposerSectionShell id="style" index={3} title="画风从哪来" error={errors.style}>
                         <div className="mb-4 flex items-center gap-3">
                             <Button onClick={() => setPublicStyleOpen(true)}>打开风格中心</Button>
-                            <span>{draft.publicStyle?.title || "选择公共视觉风格，导演将在此基础上补充项目风格"}</span>
+                            <span>{draft.publicStyle?.title || "选择系统风格或我的风格，导演可在此基础上补充项目规格"}</span>
                         </div>
-                        <CanvasStylePickerModal open={publicStyleOpen} value={draft.publicStyle?.presetId} currentProfile={draft.publicStyle} onClose={() => setPublicStyleOpen(false)} onSelect={(preset) => {
-                            update({ publicStyle: preset.profile || createStyleProfileSnapshot(preset), styleMode: "director", styleId: undefined });
-                            setPublicStyleOpen(false);
-                        }} />
-                        <StyleSourceSection
-                            mode={draft.styleMode}
+                        <CanvasStylePickerModal
+                            open={publicStyleOpen}
                             visualType={draft.visualType}
-                            brief={draft.styleBrief}
-                            images={images}
-                            styleId={draft.styleId}
-                            items={typeItems}
-                            loading={libraryQuery.isLoading}
-                            onMode={(styleMode) => {
-                                clearError("style");
-                                update({ styleMode });
-                            }}
-                            onBrief={(styleBrief) => update({ styleBrief })}
-                            onImages={setImages}
-                            onStyle={(item?: DramaStyleLibraryItem) => {
-                                clearError("style");
-                                setTypeNotice(undefined);
-                                update({ styleId: item?.id });
+                            value={draft.publicStyle?.presetId}
+                            currentProfile={draft.publicStyle}
+                            onClose={() => setPublicStyleOpen(false)}
+                            onSelect={(preset) => {
+                                const profile = preset.profile || createStyleProfileSnapshot(preset);
+                                const personalId = profile.sourceProfileId || (profile.source === "user" ? profile.presetId : undefined);
+                                update({ publicStyle: profile, styleMode: personalId && profile.director ? "profile" : "director", styleId: personalId && profile.director ? personalId : undefined });
+                                setPublicStyleOpen(false);
                             }}
                         />
+                        <div className="mb-3 flex flex-wrap gap-2">
+                            <Button aria-pressed={draft.styleMode === "director"} onClick={() => update({ styleMode: "director" })}>
+                                交给导演分析
+                            </Button>
+                            {draft.publicStyle?.director ? (
+                                <Button aria-pressed={draft.styleMode === "profile"} onClick={() => update({ styleMode: "profile", styleId: draft.publicStyle?.sourceProfileId || draft.publicStyle?.presetId })}>
+                                    使用已选导演风格
+                                </Button>
+                            ) : null}
+                        </div>
+                        {draft.styleMode === "director" ? (
+                            <div className="project-create-style-director">
+                                <Input.TextArea
+                                    value={draft.styleBrief}
+                                    onChange={(event) => update({ styleBrief: event.target.value })}
+                                    maxLength={2000}
+                                    autoSize={{ minRows: 2, maxRows: 5 }}
+                                    placeholder="可补充风格描述，导演结合已选风格与剧本完善规格"
+                                    aria-label="风格描述"
+                                />
+                                <StyleReferenceImagesPicker value={images} onChange={setImages} />
+                                <p className="project-create-note">结果自动保存到风格中心「我的风格」，仅你可见，并生成风格封面。</p>
+                            </div>
+                        ) : (
+                            <p className="project-create-note">直接应用已保存的风格快照，跳过全局导演分析。后续编辑原风格不会改写此项目。</p>
+                        )}
                     </ComposerSectionShell>
 
                     <ComposerSectionShell id="production" index={4} title="怎么做" error={errors.production}>

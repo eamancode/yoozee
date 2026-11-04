@@ -18,7 +18,7 @@ import { announceCreatedGenerationTask, queryGenerationTask, waitForGenerationTa
 import { configuredModelMatchesCapability, logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
 
 import { SHOT_TURN_MARKER } from "./chapter-shot-stream";
-import { assetImageTaskTemplate } from "./drama-image-task";
+import { assetImageTaskTemplate, directorCoverTaskTemplate } from "./drama-image-task";
 
 type ChapterTaskOptions = {
     onTaskUpdate?: (task: GenerationTask) => void;
@@ -207,6 +207,7 @@ export function isStyleLockTask(task: GenerationTask) {
 
 /** 风格锁定的输入：风格文字、参考图资源 ID（画面类型取项目的）；lockOnFinish 是收尾直接锁定。 */
 export type StyleLockRunInput = {
+    defaultImageModel?: string;
     projectId: string;
     config: AiConfig;
     styleText?: string;
@@ -218,6 +219,7 @@ export type StyleLockRunInput = {
 async function startStyleLock(input: StyleLockRunInput) {
     const model = input.config.textModel || input.config.model;
     const config = { ...input.config, model };
+    const imageTask = await directorCoverTaskTemplate(input.config,input.defaultImageModel);
     const { task, usage } = await runDramaProjectStep(input.projectId, "style.lock", {
         model,
         ...(logicalModelIDForConfig(config) ? { logicalModelId: logicalModelIDForConfig(config) } : {}),
@@ -225,6 +227,7 @@ async function startStyleLock(input: StyleLockRunInput) {
         ...(input.styleText?.trim() ? { styleText: input.styleText.trim() } : {}),
         ...(input.referenceImages?.length ? { referenceImages: input.referenceImages } : {}),
         ...(input.lockOnFinish ? { lockOnFinish: true } : {}),
+        ...(imageTask ? { assetImageTask: imageTask } : {}),
     });
     announceCreatedGenerationTask(task);
     return { task, usage };

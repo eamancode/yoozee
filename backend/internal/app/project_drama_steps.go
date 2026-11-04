@@ -288,7 +288,7 @@ func (s *Service) runDramaStepFor(userID string, project *model.Project, unitID 
 	if req.pipelineQueue != nil {
 		taskReq.Input["metadata"].(map[string]any)["dramaPipeline"] = dramaPipelineMeta{Queue: req.pipelineQueue}
 	}
-	if plan.assets != nil && plan.assets.Images {
+	if plan.assets != nil && plan.assets.Images || stepID == drama.StepStyleLock && req.ImageTask.usable() {
 		// 模板带着渠道配置，和其余任务输入一样加密存，任务结束随密钥一起去掉。
 		taskReq.Input["assetImageTask"] = req.ImageTask
 	}

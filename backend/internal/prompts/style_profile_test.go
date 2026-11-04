@@ -28,7 +28,10 @@ func TestStyleProfileCreateAndUpdateOwnsIdentityAndRevision(t *testing.T) {
 		t.Fatalf("created profile metadata was not preserved: document=%+v", createdDocument)
 	}
 
-	updated, err := svc.UpdateStyleProfile("user-1", created.ID, styleProfileTestRequest(t, "志怪暗彩二版", 300))
+	if _, err := svc.UpdateStyleProfile("user-1", created.ID, styleProfileTestRequest(t, "伪造版本", 300)); err == nil {
+		t.Fatal("client must not bypass the current edit version")
+	}
+	updated, err := svc.UpdateStyleProfile("user-1", created.ID, styleProfileTestRequest(t, "志怪暗彩二版", 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +41,13 @@ func TestStyleProfileCreateAndUpdateOwnsIdentityAndRevision(t *testing.T) {
 	}
 	if updated.Revision != 2 || updatedDocument.Revision != 2 || updatedDocument.PresetID != created.ID || updatedDocument.Title != "志怪暗彩二版" {
 		t.Fatalf("updated profile revision was not server controlled: model=%+v document=%+v", updated, updatedDocument)
+	}
+	if _, err := svc.UpdateStyleProfile("user-1", created.ID, styleProfileTestRequest(t, "迟到编辑", 1)); err == nil {
+		t.Fatal("stale edit overwrote the latest personal style")
+	}
+	profiles, err := svc.ListStyleProfiles("user-1")
+	if err != nil || len(profiles) != 1 || profiles[0].Name != updated.Name || profiles[0].Revision != 2 {
+		t.Fatal("rejected edit changed the saved style", err, profiles)
 	}
 }
 

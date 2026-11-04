@@ -11,6 +11,12 @@ import (
 
 func (s *Service) prepareProjectVideoChain(userID, projectID string, req ProjectVideoChainRequest) (videoChainState, error) {
 	state := videoChainState{UnitID: req.UnitID, AnchorShotID: req.ShotID, Request: req, Steps: []videoChainStepState{}}
+	if req.PrepareOnly && req.Scope != "single" {
+		return state, BadAuthRequest("仅准备站位参考必须指定单组范围，不会生成前序视频")
+	}
+	if req.Scope != "" && req.Scope != "scene" && req.Scope != "single" {
+		return state, BadAuthRequest("不支持的镜头生成范围")
+	}
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return state, err
@@ -49,6 +55,13 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 	}
 	if last-first+1 > 200 {
 		return state, BadAuthRequest("本场镜头组超过 200 组，请先按叙事划分场景")
+	}
+	sceneFirst, sceneLast := first, last
+	if req.PrepareOnly && anchor == sceneFirst {
+		return state, failedPrecondition("当前镜头组没有相邻的同场景前序，无需准备站位参考")
+	}
+	if req.Scope == "single" {
+		first, last = anchor, anchor
 	}
 	feature, err := s.FeatureEnabled(FeatureFrontendModels)
 	if err != nil {
@@ -115,7 +128,7 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 		if len(videos) > 0 {
 			operation = "video_to_video"
 		}
-		hasPosition := i > first
+		hasPosition := i > sceneFirst
 		if !hasPosition && len(videos) == 0 {
 			for _, item := range images {
 				media, _ := item.(map[string]any)
@@ -183,7 +196,7 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 		if hasPosition {
 			finalPrompt = videoChainPositionPrompt(tag) + "\n\n" + finalPrompt
 		}
-		ending := i < last
+		ending := i < sceneLast
 		if ending && !strings.Contains(finalPrompt, dramaSceneEnding) {
 			finalPrompt += "\n\n" + dramaSceneEnding
 		}
@@ -226,16 +239,62 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 		step := videoChainStepState{ProjectVideoChainStep: ProjectVideoChainStep{ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Title: shot.Title, Scene: scene, ContentSeconds: content.Dur, GenerationSeconds: generation, Model: choice.Model, Status: "waiting", Phase: "waiting", ReferenceCount: len(images), ReferenceTag: tag, Ending: ending, Quote: quote}, Input: input, LogicalModelID: choice.LogicalModelID, Signature: signature, Uploads: map[string]string{}}
 		if hasPosition {
 			step.SourceShotID = shots[i-1].ID
+			step.SourceRevisionID = shots[i-1].CurrentRevisionID
+			if req.Scope == "single" {
+				prior, err := s.videoChainExistingPredecessor(userID, projectID, shots[i-1])
+				if err != nil {
+					return state, err
+				}
+				step.SourceVideoResourceID, step.SourceVideoTaskID = prior.ResourceID, prior.TaskID
+				step.Signature = videoChainHash([]any{signature, prior.ID, prior.ResourceID, prior.TaskID})
+			}
 		}
 		state.Steps = append(state.Steps, step)
 		previousSignature = signature
 	}
-	fingerprint := []any{projectID, req.UnitID}
+	fingerprint := []any{projectID, req.UnitID, req.Scope, req.PrepareOnly}
 	for _, step := range state.Steps {
 		fingerprint = append(fingerprint, step.Signature, step.Quote)
 	}
 	state.PreviewHash = videoChainHash(fingerprint)
 	return state, nil
+}
+
+func (s *Service) videoChainExistingPredecessor(userID, projectID string, shot model.Shot) (*model.ShotArtifact, error) {
+	artifacts, err := s.repo.ProjectUnitShotArtifacts(projectID, shot.UnitID)
+	if err != nil {
+		return nil, err
+	}
+	var selected *model.ShotArtifact
+	for i := range artifacts {
+		item := &artifacts[i]
+		if item.ShotID != shot.ID || item.RevisionID != shot.CurrentRevisionID || item.Type != "video" || item.Status != "ready" || item.ResourceID == "" {
+			continue
+		}
+		if selected == nil || item.Selected && !selected.Selected || item.Selected == selected.Selected && item.Version > selected.Version {
+			selected = item
+		}
+	}
+	if selected == nil {
+		return nil, failedPrecondition("上一镜头组尚无当前版本的可用视频，请先生成上一组或显式发起同场景连续生成")
+	}
+	task, err := s.repo.TaskForUser(userID, selected.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	var input map[string]any
+	if err := json.Unmarshal([]byte(task.InputJSON), &input); err != nil {
+		return nil, err
+	}
+	metadata, _ := input["metadata"].(map[string]any)
+	submission, _ := metadata[dramaSubmissionKey].(map[string]any)
+	if task.Status != model.TaskStatusSucceeded || submission["endingApplied"] != true || !strings.Contains(task.Prompt, "无贴图的哑光白色三维白模") {
+		return nil, failedPrecondition("上一组历史视频未保证含白模结束段，请重新生成上一组或显式发起新链")
+	}
+	if _, err := s.videoChainReadyResource(userID, selected.ResourceID, "video/"); err != nil {
+		return nil, err
+	}
+	return selected, nil
 }
 
 func (s *Service) videoChainCompiledReferences(userID string, files []drama.CompiledFile) ([]any, []any, []any, error) {

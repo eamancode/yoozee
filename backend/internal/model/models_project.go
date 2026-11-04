@@ -261,18 +261,29 @@ type ProjectStyleSource struct {
 
 // StyleProfile 是用户可持续编辑的风格源；项目只保存应用当时的 JSON 快照，避免源对象更新污染历史生成。
 type StyleProfile struct {
-	ID          string     `json:"id" gorm:"primaryKey;size:36"`
-	UserID      string     `json:"userId" gorm:"index;size:36;index:idx_style_profiles_user_updated,priority:1"`
-	Name        string     `json:"name" gorm:"size:160"`
-	Description string     `json:"description" gorm:"size:500"`
-	CoverURL    string     `json:"coverUrl" gorm:"type:text"`
-	TagsJSON    string     `json:"tagsJson" gorm:"type:text"`
-	ProfileJSON string     `json:"profileJson" gorm:"type:text"`
-	Favorite    bool       `json:"favorite" gorm:"index"`
-	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty" gorm:"index"`
-	Revision    int64      `json:"revision"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt" gorm:"index:idx_style_profiles_user_updated,priority:2"`
+	CoverImageRevision  int64      `json:"coverImageRevision,omitempty"`
+	PreferredImageModel string     `json:"preferredImageModel,omitempty" gorm:"-"`
+	SourceProjectID     string     `json:"sourceProjectId,omitempty" gorm:"index;size:36"`
+	SourceLibraryID     string     `json:"sourceLibraryId,omitempty" gorm:"index;size:36"`
+	SourceFingerprint   string     `json:"-" gorm:"size:64"`
+	CoverTaskID         string     `json:"coverTaskId,omitempty" gorm:"index;size:36"`
+	CoverResourceID     string     `json:"coverResourceId,omitempty" gorm:"index;size:36"`
+	CoverStatus         string     `json:"coverStatus,omitempty" gorm:"size:24"`
+	CoverError          string     `json:"coverError,omitempty" gorm:"type:text"`
+	CoverRevision       int64      `json:"coverRevision,omitempty"`
+	CoverAttempt        int        `json:"-"`
+	ID                  string     `json:"id" gorm:"primaryKey;size:36"`
+	UserID              string     `json:"userId" gorm:"index;size:36;index:idx_style_profiles_user_updated,priority:1"`
+	Name                string     `json:"name" gorm:"size:160"`
+	Description         string     `json:"description" gorm:"size:500"`
+	CoverURL            string     `json:"coverUrl" gorm:"type:text"`
+	TagsJSON            string     `json:"tagsJson" gorm:"type:text"`
+	ProfileJSON         string     `json:"profileJson" gorm:"type:text"`
+	Favorite            bool       `json:"favorite" gorm:"index"`
+	LastUsedAt          *time.Time `json:"lastUsedAt,omitempty" gorm:"index"`
+	Revision            int64      `json:"revision"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	UpdatedAt           time.Time  `json:"updatedAt" gorm:"index:idx_style_profiles_user_updated,priority:2"`
 }
 
 type ProjectUnit struct {
@@ -490,6 +501,12 @@ type ShotAssetReference struct {
 	Role           string    `json:"role" gorm:"index;size:32;uniqueIndex:idx_shot_asset_reference_unique,priority:3"`
 	Status         string    `json:"status" gorm:"index;size:24"`
 	CreatedAt      time.Time `json:"createdAt"`
+}
+
+type StoryboardReferenceConsumer struct {
+	ShotID string `json:"shotId"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
 }
 
 type WorkflowTemplateVersion struct {

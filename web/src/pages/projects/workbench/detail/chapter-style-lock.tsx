@@ -1,4 +1,4 @@
-import { App, Button, Input, Modal } from "antd";
+import { App, Button, Input, Modal, Image } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, Palette } from "lucide-react";
@@ -10,7 +10,8 @@ import { Callout } from "@/components/ui/product/callout";
 import { projectVisualTypeLabel } from "@/lib/project-visual-type";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaRunProgressOf, dramaStyleLockOutcomeOf, getDramaStepUsage, masterPaletteColors, type DramaBible } from "@/services/api/project-drama";
-import { dramaStyleLibraryKey, lockDramaStyle, saveDramaStyleToLibrary } from "@/services/api/drama-style-library";
+import { lockDramaStyle } from "@/services/api/drama-style-library";
+import { generateStyleProfileCover, listStyleProfiles, saveProjectDirectorStyle } from "@/services/api/style-profiles";
 import type { ProjectDetail } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -20,6 +21,7 @@ import { storyboardRunStop } from "./chapter-shot-stream";
 import { DramaRunPanel } from "./drama-run-panel";
 import { followDramaRunTask, isStyleLockTask, runStyleLock } from "./project-chapter-ai";
 import { parseStyleLockStream, type StyleLockStreamState } from "./style-lock-stream";
+import { directorCoverTaskTemplate } from "./drama-image-task";
 
 /** 项目连戏表里锁定的风格（风格锚、主基调色卡、来源）。 */
 export function projectLockedStyle(bibleJson?: string) {
@@ -46,7 +48,19 @@ const SOURCE_LABELS: Record<string, string> = { analysis: "风格分析后锁定
 
 function StyleLockRunGroups(stream: StyleLockStreamState) {
     const groups = stream.anchor ? [{ key: "anchor", title: "全局风格锚", meta: "", body: <StyleAnchorSummary anchor={stream.anchor} /> }] : [];
-    if (stream.profile) groups.unshift({ key: "profile", title: stream.profile.title, meta: stream.profile.tags.join(" · "), body: <div className="space-y-3"><p>{stream.profile.description}</p><p className="whitespace-pre-wrap">{stream.profile.prompt}</p>{stream.profile.negativePrompt ? <p className="whitespace-pre-wrap">禁用：{stream.profile.negativePrompt}</p> : null}</div> });
+    if (stream.profile)
+        groups.unshift({
+            key: "profile",
+            title: stream.profile.title,
+            meta: stream.profile.tags.join(" · "),
+            body: (
+                <div className="space-y-3">
+                    <p>{stream.profile.description}</p>
+                    <p className="whitespace-pre-wrap">{stream.profile.prompt}</p>
+                    {stream.profile.negativePrompt ? <p className="whitespace-pre-wrap">禁用：{stream.profile.negativePrompt}</p> : null}
+                </div>
+            ),
+        });
     if (stream.colorCount)
         groups.push({ key: "palette", title: "主基调色卡", meta: `${stream.palette.groups.length} 组 · ${stream.colorCount} 色${stream.attempt > 1 ? ` · 第 ${stream.attempt} 次` : ""}`, body: <MasterPaletteGroups palette={stream.palette} /> });
     return groups;
@@ -68,10 +82,10 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
     const current = useMemo(() => projectLockedStyle(detail.project.bibleJson), [detail.project.bibleJson]);
     const [open, setOpen] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
+    const personalStyles = useQuery({ queryKey: ["style-profiles"], queryFn: listStyleProfiles, enabled: panelOpen, refetchInterval: panelOpen ? 3000 : false });
+    const personalStyle = personalStyles.data?.profiles.find((profile) => profile.sourceProjectId === projectId);
     const [starting, setStarting] = useState(false);
     const [locking, setLocking] = useState(false);
-    const [saveOpen, setSaveOpen] = useState(false);
-    const [saveName, setSaveName] = useState("");
     const [saving, setSaving] = useState(false);
     const [stream, setStream] = useState<{ taskId: string; text: string }>({ taskId: "", text: "" });
     const followedRef = useRef(new Set<string>());
@@ -97,7 +111,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
     }, [outcome, running, stream, taskDetail]);
     // 这次分析的候选有没有锁进项目：项目的锁定记录指向这个任务。
     const lockedThisTask = Boolean(outcome && current.locked && current.record?.task_id === taskDetail?.id);
-    const savedToLibrary = Boolean(current.record?.library_id);
+    const savedToLibrary = Boolean(personalStyle || current.record?.library_id);
 
     const refresh = async () => {
         await Promise.all([queryClient.invalidateQueries({ queryKey: ["project", projectId] }), queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] })]);
@@ -129,7 +143,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         try {
             const referenceImages = await uploadStyleReferenceImages(settings.images);
             const result = await runStyleLock(
-                { projectId, config, styleText: settings.text, referenceImages },
+                { projectId, config, defaultImageModel: detail.project.defaultImageModel, styleText: settings.text, referenceImages },
                 {
                     onTaskUpdate: (task) => {
                         followedRef.current.add(task.id);
@@ -166,10 +180,12 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         if (!taskDetail) return;
         setLocking(true);
         try {
-            const result = await lockDramaStyle(projectId, { taskId: taskDetail.id });
+            const imageTask = await directorCoverTaskTemplate(effectiveConfig, detail.project.defaultImageModel);
+            const result = await lockDramaStyle(projectId, { taskId: taskDetail.id, imageTask });
             await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ["project", projectId, "assets"] })]);
             message.success(`已锁定：风格锚和 ${masterPaletteColors(result.masterPalette).length} 色主基调色卡写进项目，主色卡在资产页`);
             if (result.imageError) message.warning(result.imageError);
+            if (result.personalStyleError) message.warning(result.personalStyleError);
             if (result.fontNote) message.warning(`主色卡图没有中文色名：服务器没读到中文字体，只画了 HEX 和英文名（${result.fontNote}）`);
         } catch (error) {
             message.error(error instanceof Error ? `锁定失败：${error.message}` : "锁定失败");
@@ -181,12 +197,27 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
     const save = async () => {
         setSaving(true);
         try {
-            const item = await saveDramaStyleToLibrary({ projectId, name: saveName });
-            await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: dramaStyleLibraryKey(item.projectType) }), queryClient.invalidateQueries({ queryKey: dramaStyleLibraryKey() })]);
-            setSaveOpen(false);
-            message.success(`已保存个人导演风格「${item.projectTypeLabel}」：${item.name}，仅你可见`);
+            const { profile: item } = await saveProjectDirectorStyle(projectId, await directorCoverTaskTemplate(effectiveConfig, detail.project.defaultImageModel));
+            await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ["style-profiles"] })]);
+            message.success(`已保存到风格中心「我的风格」：${item.name}，仅你可见`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "存进风格库失败");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const regenerateCover = async () => {
+        if (!personalStyle) return save();
+        setSaving(true);
+        try {
+            const imageTask = await directorCoverTaskTemplate(effectiveConfig, detail.project.defaultImageModel);
+            if (!imageTask) throw new Error("请先在项目设置或全局设置中配置可用图片模型，导演文本已保存");
+            await generateStyleProfileCover(personalStyle.id, imageTask, personalStyle.coverStatus === "ready");
+            await queryClient.invalidateQueries({ queryKey: ["style-profiles"] });
+            message.success("风格封面已提交");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "封面提交失败");
         } finally {
             setSaving(false);
         }
@@ -286,10 +317,6 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                     )}
                 </div>
             </Modal>
-            <Modal className="library-modal" title="存进风格库" open={saveOpen} width={460} okText="存进去" cancelText="取消" okButtonProps={{ disabled: !saveName.trim(), loading: saving }} onCancel={() => setSaveOpen(false)} onOk={() => void save()}>
-                <p className="mb-3 text-xs leading-5 text-foreground/55">基础风格字段、导演风格锚和主基调色卡按项目类型保存为个人导演风格，仅创建人可查看、选用、改名和删除。</p>
-                <Input value={saveName} maxLength={60} showCount autoFocus placeholder="例如：都市冷调悬疑" onChange={(event) => setSaveName(event.target.value)} onPressEnter={() => saveName.trim() && void save()} />
-            </Modal>
             <DramaRunPanel
                 open={panelOpen}
                 onClose={() => setPanelOpen(false)}
@@ -318,6 +345,23 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                           : []
                 }
             >
+                {current.locked ? (
+                    <section className="mb-3 rounded border border-border p-3">
+                        <strong className="text-sm">导演风格封面 · 我的风格</strong>
+                        <div className="mt-2">
+                            {personalStyle?.coverUrl ? <Image width={240} src={personalStyle.coverUrl} alt="项目导演风格封面" /> : null}
+                            {personalStyle?.coverStatus !== "ready" ? (
+                                <p className="text-xs text-foreground/60">
+                                    {personalStyle?.coverStatus === "queued" || personalStyle?.coverStatus === "running" ? "封面生成中" : personalStyle?.coverError || "封面待生成"}
+                                    {personalStyle?.coverUrl ? "（暂用旧封面）" : ""}
+                                </p>
+                            ) : null}
+                        </div>
+                        <Button className="mt-2" size="small" loading={saving} disabled={personalStyle?.coverStatus === "queued" || personalStyle?.coverStatus === "running"} onClick={() => void regenerateCover()}>
+                            {personalStyle?.coverStatus === "ready" ? "重新生成封面" : personalStyle?.coverStatus === "failed" ? "重试风格封面" : "生成风格封面"}
+                        </Button>
+                    </section>
+                ) : null}
                 {current.locked && current.record?.font_note && !running ? (
                     <Callout
                         tone="warning"
@@ -366,17 +410,11 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                             {latestTask ? "重新分析" : "分析项目风格"}
                         </Button>
                         {canSave ? (
-                            <Button
-                                size="small"
-                                onClick={() => {
-                                    setSaveName("");
-                                    setSaveOpen(true);
-                                }}
-                            >
-                                存进风格库
+                            <Button size="small" onClick={() => void save()}>
+                                保存到我的风格
                             </Button>
                         ) : null}
-                        {savedToLibrary && current.record?.source !== "library" ? <span className="self-center text-[var(--fs-tiny)] text-foreground/45">已存进风格库</span> : null}
+                        {savedToLibrary && current.record?.source !== "library" ? <span className="self-center text-[var(--fs-tiny)] text-foreground/45">已保存到我的风格</span> : null}
                     </div>
                 ) : null}
             </DramaRunPanel>

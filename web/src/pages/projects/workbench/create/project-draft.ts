@@ -20,7 +20,7 @@ export type ProjectCreateDraft = {
     /** 用户改过的项目名；空时按正文自动生成。 */
     name?: string;
     visualType?: ProjectVisualType;
-    styleMode: "director" | "library";
+    styleMode: "director" | "library" | "profile";
     styleBrief: string;
     styleId?: string;
     publicStyle?: StyleProfileSnapshot;

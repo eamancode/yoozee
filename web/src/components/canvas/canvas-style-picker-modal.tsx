@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Clock3, Copy, Eye, Palette, Pencil, Plus, Search, SlidersHorizontal, Star, Trash2, UserRound } from "lucide-react";
-import { App, Button, Input } from "antd";
+import { App, Button, Input, Image as PreviewImage } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { nanoid } from "nanoid";
 
@@ -15,8 +15,12 @@ import {
     type CanvasStylePreset,
     type ProjectStyleSelection,
 } from "@/lib/canvas/canvas-style-system";
-import { createStyleProfile, deleteStyleProfile, listStyleProfiles, setStyleProfileFavorite, touchStyleProfile, updateStyleProfile, type UserStyleProfile } from "@/services/api/style-profiles";
+import { createStyleProfile, deleteStyleProfile, generateStyleProfileCover, listStyleProfiles, setStyleProfileFavorite, touchStyleProfile, updateStyleProfile, type UserStyleProfile } from "@/services/api/style-profiles";
+import { prepareBackendGenerationTask } from "@/services/api/generation-task";
+import { configuredModelMatchesCapability, useEffectiveConfig } from "@/stores/use-config-store";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
+import { styleProfileSupportsVisualType } from "@/lib/project-visual-type";
+import type { ProjectVisualType } from "@/services/api/projects";
 
 export type { CanvasStylePreset } from "@/lib/canvas/canvas-style-system";
 
@@ -411,7 +415,7 @@ export function resolveProjectCanvasStyle(presetId?: string, profileJson?: strin
         description: profile.description,
         tags: [...profile.tags],
         prompt: profile.prompt,
-        imageUrl: profile.coverUrl || preset?.imageUrl || "/short-drama-styles/real-life.jpg",
+        imageUrl: profile.coverUrl || (profile.director ? "" : preset?.imageUrl || "/short-drama-styles/real-life.jpg"),
         selection: preset?.selection,
         profile,
     };
@@ -426,18 +430,20 @@ type UserStyleLibraryItem = { kind: "user"; preset: CanvasStylePreset; entity: U
 type StyleLibraryItem = SystemStyleLibraryItem | UserStyleLibraryItem;
 type StyleEditorState = { profile: StyleProfileSnapshot; entityId?: string };
 
-export function CanvasStylePickerModal({ open, value, currentProfile, startInEditor = false, applying = false, onClose, onSelect }: {
+export function CanvasStylePickerModal({ open, value, currentProfile, visualType, startInEditor = false, applying = false, onClose, onSelect }: {
     open: boolean;
     value?: string;
     currentProfile?: StyleProfileSnapshot | null;
     startInEditor?: boolean;
     applying?: boolean;
     /** 建项目选了「类型」时只列这个类型的画风（按媒介过滤）；不传列全部。 */
+    visualType?: ProjectVisualType;
     onClose: () => void;
     onSelect: (preset: CanvasStylePreset) => void;
 }) {
     const { message, modal } = App.useApp();
     const queryClient = useQueryClient();
+    const effectiveConfig = useEffectiveConfig();
     const theme = canvasThemes[useActiveTheme()];
     const [detailPreset, setDetailPreset] = useState<CanvasStylePreset | null>(null);
     const [tab, setTab] = useState<StyleCenterTab>("system");
@@ -446,7 +452,17 @@ export function CanvasStylePickerModal({ open, value, currentProfile, startInEdi
     const [systemFavoriteIds, setSystemFavoriteIds] = useState<string[]>([]);
     const [recentIds, setRecentIds] = useState<string[]>([]);
     const [editor, setEditor] = useState<StyleEditorState | null>(null);
-    const profilesQuery = useQuery({ queryKey: ["style-profiles"], queryFn: listStyleProfiles, enabled: open });
+    const profilesQuery = useQuery({ queryKey: ["style-profiles"], queryFn: listStyleProfiles, enabled: open, refetchInterval: (query) => open && query.state.data?.profiles.some((profile) => ["queued", "running"].includes(profile.coverStatus || "")) ? 3000 : false });
+    const coverMutation = useMutation({
+        mutationFn: async (entity: UserStyleProfile) => {
+            const model = [entity.preferredImageModel,effectiveConfig.imageModel].find((value) => value && configuredModelMatchesCapability(effectiveConfig,value,"image"));
+            if (!model || !configuredModelMatchesCapability(effectiveConfig,model,"image")) throw new Error("请先在设置中配置可用的图片模型；风格文本已保存");
+            const task = await prepareBackendGenerationTask({mode:"image",prompt:"导演风格封面",config:{...effectiveConfig,model,count:"1"}});
+            return generateStyleProfileCover(entity.id,{model:task.model || model,logicalModelId:task.logicalModelId,input:task.input || {}},entity.coverStatus === "ready");
+        },
+        onSuccess: async () => { await queryClient.invalidateQueries({queryKey:["style-profiles"]}); message.success("风格封面已提交，生成后会自动显示"); },
+        onError: (error) => message.error(error instanceof Error ? error.message : "封面生成失败"),
+    });
 
     useEffect(() => {
         if (!open) return;
@@ -484,9 +500,10 @@ export function CanvasStylePickerModal({ open, value, currentProfile, startInEdi
             ? [...systemItems.filter((item) => systemFavoriteIds.includes(item.preset.id)), ...userItems.filter((item) => item.kind === "user" && item.entity.favorite)]
             : [...userItems.filter((item) => item.kind === "user" && item.entity.lastUsedAt).sort((a, b) => String(b.entity.lastUsedAt).localeCompare(String(a.entity.lastUsedAt))), ...recentIds.flatMap((id) => systemItems.filter((item) => item.preset.id === id))];
         if (tab === "system" && category !== "全部") source = source.filter((item) => item.preset.category === category);
+        if (visualType) source = source.filter((item) => styleProfileSupportsVisualType(item.preset.profile || createStyleProfileSnapshot(item.preset),visualType));
         if (keyword) source = source.filter((item) => `${item.preset.title} ${item.preset.category} ${item.preset.description} ${item.preset.tags.join(" ")}`.toLocaleLowerCase("zh-CN").includes(keyword));
         return source;
-    }, [category, query, recentIds, systemFavoriteIds, systemItems, tab, userItems]);
+    }, [category, query, recentIds, systemFavoriteIds, systemItems, tab, userItems,visualType]);
 
     const saveMutation = useMutation({
         mutationFn: ({ profile, apply }: { profile: StyleProfileSnapshot; apply: boolean }) => editor?.entityId
@@ -588,6 +605,8 @@ export function CanvasStylePickerModal({ open, value, currentProfile, startInEdi
                                     onCopy={() => copyPreset(item.preset)}
                                     onEdit={item.kind === "user" ? () => setEditor({ profile: editableCopy(item.preset.profile!, item.entity.id), entityId: item.entity.id }) : undefined}
                                     onDelete={item.kind === "user" ? () => confirmDelete(item.entity) : undefined}
+                                    onCover={item.kind === "user" ? () => coverMutation.mutate(item.entity) : undefined}
+                                    coverBusy={item.kind === "user" && (coverMutation.isPending && coverMutation.variables?.id === item.entity.id || ["queued", "running"].includes(item.entity.coverStatus || ""))}
                                 />
                             ))}
                             {!visibleItems.length ? <EmptyStyleCenter tab={tab} loading={profilesQuery.isLoading} failed={profilesQuery.isError} color={theme.node.muted} onCreate={createNewStyle} onBrowse={() => { setTab("system"); setQuery(""); }} /> : null}
@@ -611,13 +630,13 @@ function readStyleIds(key: string) {
     }
 }
 
-function StyleCenterCard({ item, active, applying, favorite, theme, onApply, onDetail, onFavorite, onCopy, onEdit, onDelete }: { item: StyleLibraryItem; active: boolean; applying: boolean; favorite: boolean; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onApply: () => void; onDetail: () => void; onFavorite: () => void; onCopy: () => void; onEdit?: () => void; onDelete?: () => void }) {
+function StyleCenterCard({ item, active, applying, favorite, theme, onApply, onDetail, onFavorite, onCopy, onEdit, onDelete, onCover, coverBusy }: { item: StyleLibraryItem; active: boolean; applying: boolean; favorite: boolean; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onApply: () => void; onDetail: () => void; onFavorite: () => void; onCopy: () => void; onEdit?: () => void; onDelete?: () => void; onCover?: () => void; coverBusy?: boolean }) {
     const { preset } = item;
     return (
         <article className={`style-center-card group flex min-w-0 flex-col overflow-hidden rounded-md border ${active ? "is-active" : ""}`} style={{ background: theme.canvas.background, borderColor: active ? theme.node.activeStroke : theme.node.stroke, boxShadow: active ? `inset 0 0 0 1px ${theme.node.activeStroke}` : undefined }}>
             <div className="relative overflow-hidden border-b" style={{ borderColor: theme.node.stroke }}>
                 <button type="button" className="style-center-card-cover block w-full overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-inset" style={{ "--tw-ring-color": theme.node.activeStroke } as CSSProperties} onClick={onDetail} aria-label={`查看${preset.title}规范`}>
-                    <img src={preset.imageUrl} width="640" height="360" alt={`${preset.title}画风示意`} className="h-full w-full object-cover transition-transform" />
+                    {preset.imageUrl ? <img src={preset.imageUrl} width="640" height="360" alt={`${preset.title}画风示意`} className="h-full w-full object-cover transition-transform" /> : <span className="grid aspect-video place-items-center text-xs text-foreground/55">{coverBusy ? "风格封面生成中" : "风格封面待生成"}</span>}
                 </button>
                 <button type="button" className={`style-center-favorite-action absolute right-2 top-2 grid size-8 place-items-center rounded-md outline-none focus-visible:ring-2 ${favorite ? "is-active" : ""}`} onClick={onFavorite} aria-label={favorite ? "取消收藏" : "收藏"} title={favorite ? "取消收藏" : "收藏"}><Star className="size-3.5" fill={favorite ? "currentColor" : "none"} /></button>
             </div>
@@ -625,6 +644,8 @@ function StyleCenterCard({ item, active, applying, favorite, theme, onApply, onD
                 <div className="flex min-w-0 items-center gap-2 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}><span className="truncate">{item.kind === "user" ? "我的风格" : preset.category}</span>{active ? <span className="ml-auto flex shrink-0 items-center gap-1 font-medium" style={{ color: theme.node.activeStroke }}><Check className="size-3" />当前</span> : null}</div>
                 <h3 className="mt-2 truncate text-sm font-semibold">{preset.title}</h3>
                 <p className="mt-2 line-clamp-2 text-xs leading-5" style={{ color: theme.node.muted }}>{preset.description}</p>
+                {item.kind === "user" && item.entity.coverError ? <p role="status" className="mt-2 text-xs text-foreground/60">{item.entity.coverError}</p> : null}
+                {item.kind === "user" && item.entity.coverUrl && item.entity.coverStatus !== "ready" ? <p className="mt-1 text-xs text-foreground/55">暂用旧封面，新封面完成后自动替换</p> : null}
                 <div className="mt-2 flex min-h-6 flex-wrap gap-1">{preset.tags.slice(0, 3).map((tag) => <span key={tag} className="rounded bg-foreground/5 px-2 py-0.5 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>{tag}</span>)}</div>
             </div>
             <footer className="mt-2 flex min-h-11 items-center gap-1 border-t px-2" style={{ borderColor: theme.node.stroke }}>
@@ -632,6 +653,7 @@ function StyleCenterCard({ item, active, applying, favorite, theme, onApply, onD
                 <IconAction label="复制并编辑" onClick={onCopy}><Copy className="size-3.5" /></IconAction>
                 {onEdit ? <IconAction label="编辑风格" onClick={onEdit}><Pencil className="size-3.5" /></IconAction> : null}
                 {onDelete ? <IconAction label="删除风格" danger onClick={onDelete}><Trash2 className="size-3.5" /></IconAction> : null}
+                {onCover && item.kind === "user" ? <Button size="small" loading={coverBusy} onClick={onCover}>{item.entity.coverStatus === "ready" ? "重绘封面" : item.entity.coverStatus === "failed" ? "重试封面" : "生成封面"}</Button> : null}
                 <Button type="default" size="small" className={`style-center-apply-button ml-auto ${active ? "is-current" : ""}`} disabled={active || applying} icon={active ? <Check className="size-3.5" /> : <Palette className="size-3.5" />} onClick={onApply}>{active ? "当前" : "应用"}</Button>
             </footer>
         </article>
@@ -660,7 +682,7 @@ function EmptyStyleCenter({ tab, loading, failed, color, onCreate, onBrowse }: {
 export function userStylePreset(entity: UserStyleProfile): CanvasStylePreset | null {
     const profile = parseStyleProfile(entity.profileJson);
     if (!profile) return null;
-    return { id: profile.presetId, title: profile.title, category: "我的风格", description: profile.description, tags: [...profile.tags], prompt: profile.prompt, imageUrl: profile.coverUrl || entity.coverUrl || "/short-drama-styles/real-life.jpg", profile };
+    return { id: profile.presetId, title: profile.title, category: "我的风格", description: profile.description, tags: [...profile.tags], prompt: profile.prompt, imageUrl: profile.coverUrl || entity.coverUrl || "", profile };
 }
 
 function blankUserStyle(): StyleProfileSnapshot {
@@ -678,7 +700,7 @@ export function CanvasStyleDetailModal({ open, preset, selected = false, onClose
         <AppModal rootClassName="canvas-style-detail-modal" open={open} title={null} footer={null} centered destroyOnHidden width="min(820px, calc(100vw - 24px))" onCancel={onClose} flush>
             {preset ? <div className="canvas-style-detail-shell flex flex-col overflow-hidden" style={{ color: theme.node.text, background: theme.node.panel }}>
                 <div className="flex h-44 shrink-0 items-center justify-center overflow-hidden border-b sm:h-52" style={{ borderColor: theme.node.stroke, background: theme.canvas.background }}>
-                    <img src={preset.imageUrl} width="960" height="540" alt={`${preset.title}画风示意`} className="h-full w-full object-contain" style={preset.id === "black-white-noir" ? { filter: "grayscale(1) contrast(1.08)" } : undefined} />
+                    {preset.imageUrl ? <PreviewImage src={preset.imageUrl} alt={`${preset.title}画风示意`} height="100%" className="!h-full object-contain" /> : <span className="text-xs text-foreground/55">封面待生成，可在“我的风格”中生成或重试</span>}
                 </div>
                 <header className="border-b px-4 py-3 pr-12 sm:px-5 sm:pr-12" style={{ borderColor: theme.node.stroke }}>
                     <div className="flex items-center gap-2 text-[var(--fs-tiny)] font-medium" style={{ color: theme.node.activeStroke }}><span>{preset.category}</span><span className="flex items-center gap-1" style={{ color: theme.node.muted }}><SlidersHorizontal className="size-3" />{preset.profile?.assets.length ? `${preset.profile.assets.length} 个执行资产` : "Prompt 通用"}</span></div>
@@ -710,8 +732,12 @@ function kindOptionsLabel(kind: string) {
 }
 
 function parseStyleSections(prompt: string) {
-    return prompt.split("\n").map((line) => {
+    const sections: Array<{title:string;content:string}> = [];
+    for (const line of prompt.split("\n")) {
         const match = line.match(/^【([^】]+)】(.*)$/);
-        return match ? { title: match[1], content: match[2] } : { title: "补充规范", content: line };
-    }).filter((section) => section.content);
+        if (match) sections.push({title:match[1],content:match[2]});
+        else if (sections.length) sections[sections.length-1].content += `\n${line}`;
+        else if (line.trim()) sections.push({title:"补充规范",content:line});
+    }
+    return sections.filter((section) => section.content.trim());
 }

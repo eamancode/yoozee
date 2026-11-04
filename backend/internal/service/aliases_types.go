@@ -333,6 +333,7 @@ type (
 	StorageMigrationSummary                = app.StorageMigrationSummary
 	StyleProfileFavoriteRequest            = app.StyleProfileFavoriteRequest
 	StyleProfileRequest                    = app.StyleProfileRequest
+	DirectorStyleSaveRequest               = app.DirectorStyleSaveRequest
 	ToolItem                               = app.ToolItem
 	ToolList                               = app.ToolList
 	ToolListRequest                        = app.ToolListRequest

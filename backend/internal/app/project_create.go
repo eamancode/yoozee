@@ -212,6 +212,30 @@ func validateProjectSource(req CreateProjectRequest) (string, []CreateProjectUni
 // validateProjectStyle 校验画风从哪来：导演分析的描述字数、参考图（本人已就绪的图片资源）；风格库条目要存在且属于所选画面类型。
 func (s *Service) validateProjectStyle(userID string, visualType string, style model.ProjectStyleSource) (model.ProjectStyleSource, *model.DramaStyleLibraryEntry, error) {
 	switch strings.TrimSpace(style.Mode) {
+	case "profile":
+		profile, err := s.repo.StyleProfileForUser(userID, strings.TrimSpace(style.StyleID))
+		if err != nil {
+			return style, nil, NotFound("我的风格中没有这一条")
+		}
+		var doc struct {
+			Director struct {
+				Anchor     *drama.StyleAnchor  `json:"styleAnchor"`
+				Palette    drama.MasterPalette `json:"masterPalette"`
+				VisualType string              `json:"visualType"`
+			} `json:"director"`
+		}
+		if err := json.Unmarshal([]byte(profile.ProfileJSON), &doc); err != nil {
+			return style, nil, err
+		}
+		if doc.Director.VisualType != "" && doc.Director.VisualType != visualType {
+			return style, nil, projectSectionError(ReasonProjectStyleInvalid, "所选个人风格与画面类型不一致")
+		}
+		if doc.Director.Anchor.Empty() || drama.ValidateMasterPalette(doc.Director.Palette) != nil {
+			return style, nil, projectSectionError(ReasonProjectStyleInvalid, "该风格尚无完整导演规格，请选为基础风格后交给导演分析")
+		}
+		anchor, _ := json.Marshal(doc.Director.Anchor)
+		palette, _ := json.Marshal(doc.Director.Palette)
+		return model.ProjectStyleSource{Mode: "profile", StyleID: profile.ID}, &model.DramaStyleLibraryEntry{ID: profile.ID, ProjectType: visualType, Name: profile.Name, StyleProfileJSON: profile.ProfileJSON, StyleAnchorJSON: string(anchor), MasterPaletteJSON: string(palette)}, nil
 	case model.ProjectStyleDirector, "":
 		brief := strings.TrimSpace(style.Brief)
 		if drama.JSLen(brief) > drama.StyleLockTextChars {

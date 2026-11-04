@@ -3,6 +3,7 @@ package prompts
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 	"yingce/backend/internal/kernel"
@@ -21,6 +22,7 @@ type StyleProfileFavoriteRequest struct {
 }
 
 type StyleProfileDocument struct {
+	Director        map[string]any      `json:"director,omitempty"`
 	SchemaVersion   int                 `json:"schemaVersion"`
 	PresetID        string              `json:"presetId"`
 	Title           string              `json:"title"`
@@ -111,6 +113,13 @@ func (s *Service) UpdateStyleProfile(userID string, id string, req StyleProfileR
 	if err != nil {
 		return model.StyleProfile{}, err
 	}
+	var incoming StyleProfileDocument
+	if err := json.Unmarshal([]byte(req.ProfileJSON), &incoming); err != nil {
+		return model.StyleProfile{}, kernel.BadAuthRequest("风格配置不是合法 JSON")
+	}
+	if int64(incoming.Revision) != profile.Revision {
+		return model.StyleProfile{}, kernel.NewAppError(http.StatusConflict, "风格已被更新，请刷新后重试")
+	}
 	normalized, document, err := normalizeUserStyleProfileJSON(req.ProfileJSON, profile.ID, profile.Revision+1)
 	if err != nil {
 		return model.StyleProfile{}, kernel.BadAuthRequest(err.Error())
@@ -125,7 +134,11 @@ func (s *Service) UpdateStyleProfile(userID string, id string, req StyleProfileR
 	if err := s.repo.UpdateStyleProfile(profile); err != nil {
 		return model.StyleProfile{}, err
 	}
-	return *profile, nil
+	updated, err := s.repo.StyleProfileForUser(userID, id)
+	if err != nil {
+		return model.StyleProfile{}, err
+	}
+	return *updated, nil
 }
 
 func (s *Service) SetStyleProfileFavorite(userID string, id string, favorite bool) error {
@@ -169,6 +182,19 @@ func ValidateStyleProfileJSON(value string) (string, error) {
 	}
 	if len(profile.Selection) > 20 {
 		return "", errors.New("项目画风辅助标注最多 20 项")
+	}
+	if profile.Director != nil {
+		if _, ok := profile.Director["styleAnchor"].(map[string]any); !ok {
+			return "", errors.New("导演规格缺少有效风格锚")
+		}
+		if _, ok := profile.Director["masterPalette"].(map[string]any); !ok {
+			return "", errors.New("导演规格缺少有效主基调色卡")
+		}
+		if visual, ok := profile.Director["visualType"]; ok {
+			if _, valid := visual.(string); !valid {
+				return "", errors.New("导演规格画面类型无效")
+			}
+		}
 	}
 	for key, value := range profile.Selection {
 		if strings.TrimSpace(key) == "" || len([]rune(key)) > 64 || len([]rune(value)) > 200 {

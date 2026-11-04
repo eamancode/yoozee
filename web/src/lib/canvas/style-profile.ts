@@ -33,6 +33,7 @@ export type StyleAssetBinding = {
 };
 
 export type StyleProfileSnapshot = {
+    director?: { styleAnchor: Record<string, unknown>; masterPalette: unknown; visualType?: string };
     schemaVersion: 1;
     presetId: string;
     title: string;
@@ -50,6 +51,7 @@ export type StyleProfileSnapshot = {
 };
 
 export type StyleProfileSource = Pick<StyleProfileSnapshot, "title" | "description" | "tags" | "prompt"> & {
+    director?: StyleProfileSnapshot["director"];
     // 内置画风使用 id，持久化配置使用 presetId，两种来源在此统一归一化。
     presetId?: string;
     id?: string;
@@ -96,6 +98,7 @@ export type StyleExecutionPlan = {
 export function createStyleProfileSnapshot(source: StyleProfileSource): StyleProfileSnapshot {
     return {
         schemaVersion: 1,
+        director: source.director ? structuredClone(source.director) : undefined,
         presetId: (source.presetId || source.id || "").trim(),
         title: source.title.trim(),
         description: source.description.trim(),
@@ -149,6 +152,20 @@ export function parseStyleProfile(value?: string | null): StyleProfileSnapshot |
         if (!parsed.tags.every((tag) => typeof tag === "string")) return null;
         if ([parsed.negativePrompt, parsed.coverUrl, parsed.sourceProfileId].some((value) => value !== undefined && typeof value !== "string")) return null;
         if (parsed.selection !== undefined && (!parsed.selection || typeof parsed.selection !== "object" || Array.isArray(parsed.selection) || !Object.values(parsed.selection).every((value) => typeof value === "string"))) return null;
+        if (
+            parsed.director !== undefined &&
+            (!parsed.director ||
+                typeof parsed.director !== "object" ||
+                Array.isArray(parsed.director) ||
+                !parsed.director.styleAnchor ||
+                typeof parsed.director.styleAnchor !== "object" ||
+                Array.isArray(parsed.director.styleAnchor) ||
+                !parsed.director.masterPalette ||
+                typeof parsed.director.masterPalette !== "object" ||
+                Array.isArray(parsed.director.masterPalette) ||
+                (parsed.director.visualType !== undefined && typeof parsed.director.visualType !== "string"))
+        )
+            return null;
         if (!parsed.assets.every(isStyleAssetBinding)) return null;
         if (parsed.source !== "builtin" && parsed.source !== "user" && parsed.source !== "external") return null;
         if (parsed.executionPolicy !== undefined && parsed.executionPolicy !== "compatible-fallback" && parsed.executionPolicy !== "strict-assets") return null;

@@ -17,6 +17,12 @@ description: 信封、错误码与 OpenAPI
 
 ## 同场景连续视频生成
 
+请求新增 `scope: "scene" | "single"`。普通单组视频入口使用 `single`：只生成选中镜头，仍须准备当前相邻同场景前序的有效末帧；不自动生成未选中的收费镜头。通用任务入口不能绕过这一依赖。已有历史前序未请求白模结束段时，需先重新生成前序或明确发起整链。
+
+`prepareOnly:true` 仅允许 `scope:"single"`，读取前序已有视频、保存分镜参考并准备参考输入后结束，不创建视频生成子任务。预览指纹区分正式生成与仅准备，后者 `totalMicrocredits=0`；这不代表上游素材上传服务承诺免费。步骤返回 `frameAssetId`、`sourceVideoTaskId`、`sourceRevisionId`、`frameTimeSeconds` 和 `frameSelection`，可追溯到实际图片及消费镜头。
+
+个人风格沿用 `/api/style-profiles`。`POST /api/projects/:id/director-style` 保存或更新项目关联的个人档案，`POST /api/style-profiles/:id/cover` 接收 `{imageTask,regenerate?}` 独立生成封面，均校验创建人。`regenerate:true` 表示主动重绘成功封面；排队或运行中的任务仍复用。封面失败保留文本与旧成功图片。更新个人档案的 `profileJson.revision` 必须匹配当前版本，否则返回 409。建项 `style.mode="profile"` 加 `styleId` 可直接采用本人的完整导演档案，跳过全局文本分析。
+
 `POST /api/projects/:id/video-chains/preview` 接收 `{unitId,shotId,model:{model,logicalModelId?,input},models?}`，以当前镜头顺序和场景归属扩展为连续同场景链，重新编译提示词并校验全部参考图、模型能力、时长、预演闸门和报价。`models` 可按镜头 ID 覆盖模型模板。返回 `data.chain`，含逐组内容/生成时长、原参考图数量、站位编号、结束段适用性、报价与 `previewHash`。
 
 `POST /api/projects/:id/video-chains` 额外要求 `requestId` 与最新 `previewHash`。重复请求不会新增控制链或重复扣费。`GET /api/projects/:id/video-chains?unitId=...` 返回 `data.chains`；`POST .../:chainId/retry` 从失败步骤继续，保留有效结果；`POST .../:chainId/cancel` 停止后续生成，已提交视频继续保存。所有接口校验登录、项目与章节归属。

@@ -11,7 +11,7 @@ import (
 	"yingce/backend/internal/model"
 )
 
-const dramaSceneEnding = "【本镜最后阶段】视频最后1秒，硬切至斜向下45度俯视的大全景机位，画面同时切换为无贴图的哑光白色三维白模。完整呈现场景空间布局、主要道具及本场景所有人物的全身。保持人物原有站位、朝向、姿态及彼此距离，保持场景结构和道具位置不变。锁定机位与构图，持续1秒直至视频结束；人物仅有轻微呼吸起伏和身体自然晃动，双脚保持原位。保留柔和阴影，使人物轮廓、遮挡关系和空间层次清晰可辨。"
+const dramaSceneEnding = "【本镜最后阶段】视频最后1秒，硬切至斜向下45度俯视的大全景机位，画面同时切换为无贴图的哑光白色三维白模。完整呈现场景空间布局、主要道具及本小节最后一个镜头结束时仍在场景内人物的全身。保持人物原有站位、朝向、姿态及彼此距离，保持场景结构和道具位置不变。锁定机位与构图，持续1秒直至视频结束；人物仅有轻微呼吸起伏和身体自然晃动，双脚保持原位。保留柔和阴影，使人物轮廓、遮挡关系和空间层次清晰可辨。"
 
 const dramaSubmissionKey = "_dramaVideoSubmission"
 
@@ -185,9 +185,25 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		return "", err
 	}
 	sameScene, nextID := false, ""
+	previousID := ""
+	previousRevisionID := ""
 	for i := range shots {
-		if shots[i].ID != shotID || i+1 == len(shots) {
+		if shots[i].ID != shotID {
 			continue
+		}
+		if i > 0 && segment.Scene != "" {
+			previous := shots[i-1]
+			previousRevision, err := s.repo.ShotRevisionForShot(previous.ID, previous.CurrentRevisionID)
+			if err != nil {
+				return "", err
+			}
+			if segment.Scene == segmentSubmissionContent(previous, previousRevision).Scene {
+				previousID = previous.ID
+				previousRevisionID = previous.CurrentRevisionID
+			}
+		}
+		if i+1 == len(shots) {
+			break
 		}
 		next := shots[i+1]
 		nextRevision, err := s.repo.ShotRevisionForShot(next.ID, next.CurrentRevisionID)
@@ -199,6 +215,13 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		break
 	}
 	prompt = basePrompt
+	marker, _ := input[videoChainMetadataKey].(map[string]any)
+	if previousID != "" && (stringValue(marker["sourceShotId"]) != previousID || stringValue(marker["sourceRevisionId"]) != previousRevisionID || stringValue(marker["frameResourceId"]) == "" || stringValue(marker["sourceVideoResourceId"]) == "") {
+		return "", failedPrecondition("本镜头组需要上一组末帧站位参考，请从分镜制作重新生成或发起同场景连续生成；不会自动省略参考图")
+	}
+	if previousID == "" && stringValue(marker["frameResourceId"]) != "" {
+		return "", failedPrecondition("场景归属或叙事顺序已变化，请重新准备生成；不跨场景继承末帧")
+	}
 	if marker, ok := input[videoChainMetadataKey].(map[string]any); ok {
 		frameID := stringValue(marker["frameResourceId"])
 		if frameID != "" {

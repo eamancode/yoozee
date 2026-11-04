@@ -24,6 +24,7 @@ import { modelCompatibilityError, modelVideoDurationSlots, modelVideoSubmissionS
 import { formatVideoResolutionLabel } from "@/lib/video-generation-options";
 import { prepareBackendGenerationTask, submitBackendGenerationTask } from "@/services/api/generation-task";
 import { VideoChainPanel } from "./video-chain-panel";
+import { createVideoChain, previewVideoChain } from "@/services/api/project-video-chains";
 import { quoteModel, type LogicalModelQuote } from "@/services/api/logical-models";
 import { refreshGenerationTaskStatus, type GenerationTask } from "@/services/api/task-center";
 import { generationErrorMessage } from "@/lib/generation-error";
@@ -126,6 +127,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const [submittingShotIds, setSubmittingShotIds] = useState<Set<string>>(() => new Set());
     // 同一镜头连点「生成」时第二次点击读到的还是上一次渲染的状态，靠 ref 同步挡住，免得一次点击发两个任务。
     const submittingRef = useRef<Set<string>>(new Set());
+    const singleSubmissionRef = useRef(new Map<string, string>());
     const [taskClock, setTaskClock] = useState(() => Date.now());
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
@@ -485,7 +487,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             if (familyMismatch) throw new Error(`当前视频模型属于 ${routedFamily?.label}，项目的生成模型是 ${dramaModel?.label}：请换成 ${dramaModel?.label} 的模型，或在项目设置里改生成模型`);
             const compatibilityError = modelCompatibilityError(effectiveConfig, routedModel, modelRequirements);
             if (compatibilityError) throw new Error(`当前模型配置不可用：${compatibilityError}`);
-            const saved = await saveProjectShot(projectId, {
+            const saved = !editorDirty && submittingShot.currentRevisionId ? { shot: submittingShot } : await saveProjectShot(projectId, {
                 id: submittingShot.id,
                 unitId,
                 title: values.title,
@@ -549,7 +551,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 });
             const promptLengthError = modelPromptLengthError(effectiveConfig, routedModel, mode, skillExecution.prompt);
             if (promptLengthError) throw new Error(promptLengthError);
-            await submitBackendGenerationTask({
+            const generationRequest = {
                 projectId,
                 mode,
                 prompt: skillExecution.prompt,
@@ -570,7 +572,22 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
                     artifactMetadata: { model: routedModel, aspectRatio, resolution, imageQuality, contentDurationSeconds: values.durationSeconds, durationSeconds: mode === "video" ? Number(config.videoSeconds) : values.durationSeconds, ...skillExecution.metadata },
                 },
-            });
+            };
+            if (mode === "video") {
+                const task = await prepareBackendGenerationTask(generationRequest);
+                const request = { scope: "single" as const, unitId, shotId: saved.shot.id, model: { model: task.model || routedModel, logicalModelId: task.logicalModelId, input: task.input || {} } };
+                const { chain: preview } = await previewVideoChain(projectId, request);
+                // The preview binds the current revision, model and predecessor.
+                // A timed-out repeat must find the same controller.
+                const requestId = singleSubmissionRef.current.get(preview.previewHash) || crypto.randomUUID();
+                singleSubmissionRef.current.set(preview.previewHash, requestId);
+                await createVideoChain(projectId, { ...request, previewHash: preview.previewHash, requestId });
+                singleSubmissionRef.current.delete(preview.previewHash);
+                await queryClient.invalidateQueries({ queryKey: ["project-video-chains", projectId, unitId] });
+                setVideoChainOpen(true);
+            } else {
+                await submitBackendGenerationTask(generationRequest);
+            }
             if (activeShotIdRef.current === submittingShot.id) setEditorDirty(false);
             await Promise.all([onRefresh(), invalidateDrama()]);
             message.success(`${productionStageCopy[activeStage as "storyboard" | "previz" | "video"].label}任务已提交`);
@@ -640,6 +657,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     return (
         <div className="workflow-production-shell">
             {activeStage === "video" ? <VideoChainPanel open={videoChainOpen} projectId={projectId} unitId={unitId} shotId={selectedShot.id} onClose={() => setVideoChainOpen(false)} onRefresh={onRefresh} buildModel={async () => {
+                if (editorDirty) throw new Error("请先保存镜头修改，再准备站位参考或启动连续生成");
                 const task = await prepareBackendGenerationTask({ projectId, mode: "video", prompt: "连续生成预览", config: generationConfig });
                 return { model: task.model || routedModel, logicalModelId: task.logicalModelId, input: task.input || {} };
             }} /> : null}

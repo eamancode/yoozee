@@ -9,6 +9,44 @@ import (
 )
 
 func RegisterStyleProfileRoutes(r *gin.RouterGroup, svc *service.Service) {
+	r.POST("/style-profiles/:id/cover", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req service.DirectorStyleSaveRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		profile, err := svc.GenerateStyleProfileCover(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"profile": profile})
+	})
+	r.POST("/projects/:id/director-style", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req service.DirectorStyleSaveRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		profile, err := svc.SaveProjectDirectorStyle(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"profile": profile})
+	})
 	r.GET("/style-profiles", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

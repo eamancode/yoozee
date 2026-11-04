@@ -168,7 +168,7 @@ func isCanvasCollectionPath(path string) bool {
 
 func isBareResourceIDField(field string) bool {
 	switch field {
-	case "resourceId", "resourceIds", "sampleResourceId", "referenceResourceId", "referenceResourceIds", "frameResourceId", "videoResourceId", "sourceVideoResourceId":
+	case "resourceId", "resourceIds", "sampleResourceId", "referenceResourceId", "referenceResourceIds", "frameResourceId", "videoResourceId", "sourceVideoResourceId", "coverResourceId":
 		return true
 	default:
 		return false

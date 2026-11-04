@@ -71,6 +71,8 @@ export function deleteDramaStyleLibraryEntry(id: string) {
 
 /** 锁定风格的结果：写进项目的风格锚、主基调色卡、来源，主色卡资产（imageError 是图没绑上的原因，锁定已生效）。 */
 export type DramaStyleLockResult = {
+    personalStyleError?: string;
+    personalStyle?: import("./style-profiles").UserStyleProfile;
     styleAnchor: DramaStyleAnchor;
     masterPalette: DramaMasterPalette;
     styleLock: DramaStyleLockRecord;
@@ -80,6 +82,6 @@ export type DramaStyleLockResult = {
 };
 
 /** 「锁定此风格」：风格分析任务的候选（taskId）或平台风格库的条目（libraryId）二选一，写进项目并合成主色卡。 */
-export function lockDramaStyle(projectId: string, input: { taskId: string } | { libraryId: string }) {
+export function lockDramaStyle(projectId: string, input: ({ taskId: string } | { libraryId: string }) & { imageTask?: import("./project-drama").DramaImageTaskTemplate }) {
     return http.post<DramaStyleLockResult>(`/projects/${encodeURIComponent(projectId)}/drama/style-lock`, input);
 }

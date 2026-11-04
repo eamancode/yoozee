@@ -27,9 +27,10 @@ const masterPaletteKey = "masterPalette"
 
 // dramaStyleLockMeta 是任务 metadata.dramaStyleLock：这次分析的输入（「重新分析」按它回填对话框）。
 type dramaStyleLockMeta struct {
-	ProjectType string   `json:"projectType"`
-	Text        string   `json:"text,omitempty"`
-	Images      []string `json:"images,omitempty"`
+	ProfileRevision *int64   `json:"profileRevision,omitempty"`
+	ProjectType     string   `json:"projectType"`
+	Text            string   `json:"text,omitempty"`
+	Images          []string `json:"images,omitempty"`
 	// Source 是 analysis（有文字或参考图）或 preset（只按画风生成）。
 	Source string `json:"source"`
 	// AutoLock 是收尾直接锁定（建项目时只选了画风预设：按画风当场生成主色卡存在项目上，不用再点锁定）。
@@ -41,17 +42,19 @@ type dramaStyleLockMeta struct {
 
 // DramaStyleLockOutcome 是风格锁定收尾写进 result.dramaStep 的候选：用户点「锁定此风格」时取它写进项目。
 type DramaStyleLockOutcome struct {
-	StyleProfile  map[string]any            `json:"styleProfile,omitempty"`
-	Step          string                    `json:"step"`
-	Status        string                    `json:"status"`
-	Source        string                    `json:"source"`
-	ProjectType   string                    `json:"projectType"`
-	StyleAnchor   *drama.StyleAnchor        `json:"styleAnchor"`
-	MasterPalette drama.MasterPalette       `json:"masterPalette"`
-	Parse         drama.StyleLockParseStats `json:"parse"`
-	Errors        int                       `json:"errors"`
-	Warnings      int                       `json:"warnings"`
-	Items         []drama.CheckItem         `json:"items,omitempty"`
+	PersonalStyleError string                    `json:"personalStyleError,omitempty"`
+	StyleProfileID     string                    `json:"styleProfileId,omitempty"`
+	StyleProfile       map[string]any            `json:"styleProfile,omitempty"`
+	Step               string                    `json:"step"`
+	Status             string                    `json:"status"`
+	Source             string                    `json:"source"`
+	ProjectType        string                    `json:"projectType"`
+	StyleAnchor        *drama.StyleAnchor        `json:"styleAnchor"`
+	MasterPalette      drama.MasterPalette       `json:"masterPalette"`
+	Parse              drama.StyleLockParseStats `json:"parse"`
+	Errors             int                       `json:"errors"`
+	Warnings           int                       `json:"warnings"`
+	Items              []drama.CheckItem         `json:"items,omitempty"`
 	// Locked 是收尾直接锁定（AutoLock）写进项目的锁定记录。
 	Locked *drama.StyleLockRecord `json:"locked,omitempty"`
 	// LibraryID 是导演定画风锁定后存进平台风格库的条目（存不进只记日志，为空）。
@@ -68,19 +71,22 @@ const (
 
 // DramaStyleLockRequest 是「锁定此风格」：TaskID（风格分析任务的候选）和 LibraryID（平台风格库的条目）二选一。
 type DramaStyleLockRequest struct {
-	TaskID    string `json:"taskId,omitempty"`
-	LibraryID string `json:"libraryId,omitempty"`
+	ImageTask *DramaImageTaskTemplate `json:"imageTask,omitempty"`
+	TaskID    string                  `json:"taskId,omitempty"`
+	LibraryID string                  `json:"libraryId,omitempty"`
 }
 
 // DramaStyleLockResult 是锁定后的项目风格：风格锚、主基调色卡、来源，主色卡资产和合成图。
 type DramaStyleLockResult struct {
-	StyleAnchor   *drama.StyleAnchor     `json:"styleAnchor"`
-	MasterPalette drama.MasterPalette    `json:"masterPalette"`
-	StyleLock     drama.StyleLockRecord  `json:"styleLock"`
-	Asset         *ProjectAssetSummary   `json:"asset,omitempty"`
-	ImageError    string                 `json:"imageError,omitempty"`
-	FontNote      string                 `json:"fontNote,omitempty"`
-	Library       *DramaStyleLibraryItem `json:"library,omitempty"`
+	PersonalStyleError string                 `json:"personalStyleError,omitempty"`
+	PersonalStyle      *model.StyleProfile    `json:"personalStyle,omitempty"`
+	StyleAnchor        *drama.StyleAnchor     `json:"styleAnchor"`
+	MasterPalette      drama.MasterPalette    `json:"masterPalette"`
+	StyleLock          drama.StyleLockRecord  `json:"styleLock"`
+	Asset              *ProjectAssetSummary   `json:"asset,omitempty"`
+	ImageError         string                 `json:"imageError,omitempty"`
+	FontNote           string                 `json:"fontNote,omitempty"`
+	Library            *DramaStyleLibraryItem `json:"library,omitempty"`
 }
 
 // projectLockedStyle 读项目锁定的风格：风格锚、主基调色卡、来源；locked 是风格锚非空且色板至少一个颜色。读不出的字段当作没有。
@@ -174,6 +180,16 @@ func (s *Service) planStyleLock(userID string, project *model.Project, step dram
 		return nil, err
 	}
 	lock := &dramaStyleLockMeta{ProjectType: projectType, Text: text, Images: ids, Source: source, AutoLock: req.LockOnFinish || req.pipeline, Pipeline: req.pipeline}
+	if err := s.migratePersonalDirectorProfiles(userID); err != nil {
+		return nil, err
+	}
+	profileRevision := int64(0)
+	if profile, err := s.repo.StyleProfileForUser(userID, videoChainHash([]string{"director-style", userID, project.ID})[:32]); err == nil {
+		profileRevision = profile.Revision
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	lock.ProfileRevision = &profileRevision
 	plan, err := styleLockPlan(project, lock, story, usage, skill)
 	if err != nil {
 		return nil, err
@@ -294,7 +310,7 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 		}
 	}
 	if lock.AutoLock {
-		locked, err := s.applyDramaStyleLock(task.UserID, project, styleLockInput{ProfileFields: out.StyleProfile, Anchor: out.Anchor, Palette: out.Palette, Title: project.Name, Record: drama.StyleLockRecord{Source: lock.Source, ProjectType: lock.ProjectType, TaskID: task.ID}})
+		locked, err := s.applyDramaStyleLock(task.UserID, project, styleLockInput{ExpectedProfileRevision: lock.ProfileRevision, ImageTask: taskAssetImageTemplate(task.InputJSON), ProfileFields: out.StyleProfile, Anchor: out.Anchor, Palette: out.Palette, Title: project.Name, Record: drama.StyleLockRecord{Source: lock.Source, ProjectType: lock.ProjectType, TaskID: task.ID}})
 		if err != nil {
 			return DramaStyleLockOutcome{}, fmt.Errorf("风格已分析出来，锁定写入失败：%w", err)
 		}
@@ -305,15 +321,9 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 			_ = s.log(task.UserID, task.ID, "warn", "主色卡图没有中文字体，只画了 HEX 和英文名", locked.FontNote)
 		}
 		outcome.Status, outcome.Locked = DramaStyleLockOutcomeLocked, &locked.StyleLock
-		if lock.Pipeline {
-			// 导演定的风格存进平台风格库（来源导演分析、说明写项目名），团队以后建项可以直接挑。存不进不影响已锁定的风格。
-			if project, err = s.activeProjectForUser(task.UserID, projectID); err == nil {
-				if item, err := s.saveDirectorStyleToLibrary(task.UserID, project); err != nil {
-					_ = s.log(task.UserID, task.ID, "warn", "导演定的风格没有存进风格库", err.Error())
-				} else {
-					outcome.LibraryID = item.ID
-				}
-			}
+		outcome.PersonalStyleError = locked.PersonalStyleError
+		if locked.PersonalStyle != nil {
+			outcome.StyleProfileID = locked.PersonalStyle.ID
 		}
 	}
 	return outcome, nil
@@ -368,16 +378,22 @@ func (s *Service) LockDramaStyle(userID string, projectID string, req DramaStyle
 		outcome := result.DramaStep
 		lock = styleLockInput{Anchor: outcome.StyleAnchor, Palette: outcome.MasterPalette, Title: project.Name, Record: drama.StyleLockRecord{Source: firstNonEmpty(outcome.Source, drama.StyleLockSourceAnalysis), ProjectType: outcome.ProjectType, TaskID: task.ID}}
 		lock.ProfileFields = outcome.StyleProfile
+		if planned := taskDramaStyleLock(task.InputJSON); planned != nil {
+			lock.ExpectedProfileRevision = planned.ProfileRevision
+		}
 	}
+	lock.ImageTask = req.ImageTask
 	return s.applyDramaStyleLock(userID, project, lock)
 }
 
 // styleLockInput 是要写进项目的锁定风格。
 type styleLockInput struct {
-	ProfileFields map[string]any
-	ProfileJSON   string
-	Anchor        *drama.StyleAnchor
-	Palette       drama.MasterPalette
+	ExpectedProfileRevision *int64
+	ImageTask               *DramaImageTaskTemplate
+	ProfileFields           map[string]any
+	ProfileJSON             string
+	Anchor                  *drama.StyleAnchor
+	Palette                 drama.MasterPalette
 	// Title 是合成图上的标题（风格库条目名或项目名）。
 	Title  string
 	Record drama.StyleLockRecord
@@ -496,6 +512,17 @@ func (s *Service) applyDramaStyleLock(userID string, project *model.Project, in 
 		project.StylePresetID = presetID
 	}
 	out := DramaStyleLockResult{StyleAnchor: in.Anchor, MasterPalette: palette, StyleLock: record, FontNote: fontNote}
+	if record.Source != drama.StyleLockSourceLibrary {
+		personal, err := s.SaveProjectDirectorStyle(userID, project.ID, DirectorStyleSaveRequest{ExpectedRevision: in.ExpectedProfileRevision, ImageTask: in.ImageTask})
+		if err != nil {
+			if !errors.Is(err, repository.ErrTaskStateConflict) {
+				return out, fmt.Errorf("风格已锁定，保存到我的风格失败：%w", err)
+			}
+			out.PersonalStyleError = "我的风格在分析期间已被编辑，已保留你的个人版本；项目导演结果已锁定，可查看后手动保存"
+		} else {
+			out.PersonalStyle = &personal
+		}
+	}
 	if _, err := s.bindProjectAssetImage(userID, project.ID, record.AssetID, BindProjectAssetImageRequest{ResourceID: resource.ID, ExpectedVersionID: versionID}, newID()); err != nil {
 		out.ImageError = "风格已锁定，主色卡图没有绑到资产上：" + err.Error()
 	}

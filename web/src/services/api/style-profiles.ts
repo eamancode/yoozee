@@ -1,6 +1,16 @@
 import { http } from "@/services/api/request";
+import type { DramaImageTaskTemplate } from "./project-drama";
 
 export type UserStyleProfile = {
+    sourceProjectId?: string;
+    preferredImageModel?: string;
+    sourceLibraryId?: string;
+    coverTaskId?: string;
+    coverResourceId?: string;
+    coverStatus?: string;
+    coverError?: string;
+    coverRevision?: number;
+    coverImageRevision?: number;
     id: string;
     userId: string;
     name: string;
@@ -14,6 +24,9 @@ export type UserStyleProfile = {
     createdAt: string;
     updatedAt: string;
 };
+
+export const generateStyleProfileCover = (id: string, imageTask: DramaImageTaskTemplate, regenerate = false) => http.post<{ profile: UserStyleProfile }>(`/style-profiles/${encodeURIComponent(id)}/cover`, { imageTask, regenerate });
+export const saveProjectDirectorStyle = (projectId: string, imageTask?: DramaImageTaskTemplate) => http.post<{ profile: UserStyleProfile }>(`/projects/${encodeURIComponent(projectId)}/director-style`, { imageTask });
 
 export function listStyleProfiles() {
     return http.get<{ profiles: UserStyleProfile[] }>("/style-profiles");

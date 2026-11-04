@@ -21,6 +21,8 @@ type ProjectVideoChainModel struct {
 }
 
 type ProjectVideoChainRequest struct {
+	PrepareOnly bool                              `json:"prepareOnly,omitempty"`
+	Scope       string                            `json:"scope,omitempty"`
 	UnitID      string                            `json:"unitId"`
 	ShotID      string                            `json:"shotId"`
 	Model       ProjectVideoChainModel            `json:"model"`
@@ -44,6 +46,11 @@ type ProjectVideoChainStep struct {
 	VideoResourceID       string             `json:"videoResourceId,omitempty"`
 	FrameResourceID       string             `json:"frameResourceId,omitempty"`
 	SourceVideoResourceID string             `json:"sourceVideoResourceId,omitempty"`
+	SourceVideoTaskID     string             `json:"sourceVideoTaskId,omitempty"`
+	FrameAssetID          string             `json:"frameAssetId,omitempty"`
+	FrameTimeSeconds      *float64           `json:"frameTimeSeconds,omitempty"`
+	FrameSelection        string             `json:"frameSelection,omitempty"`
+	SourceRevisionID      string             `json:"sourceRevisionId,omitempty"`
 	SourceShotID          string             `json:"sourceShotId,omitempty"`
 	ReferenceTag          string             `json:"referenceTag,omitempty"`
 	ReferenceCount        int                `json:"referenceCount"`
@@ -52,6 +59,8 @@ type ProjectVideoChainStep struct {
 }
 
 type ProjectVideoChainView struct {
+	Scope             string                  `json:"scope,omitempty"`
+	PrepareOnly       bool                    `json:"prepareOnly,omitempty"`
 	ID                string                  `json:"id,omitempty"`
 	ProjectID         string                  `json:"projectId"`
 	UnitID            string                  `json:"unitId"`
@@ -113,7 +122,7 @@ func (s *Service) videoChainState(task *model.Task) (videoChainState, error) {
 }
 
 func videoChainView(projectID string, task *model.Task, state videoChainState) ProjectVideoChainView {
-	view := ProjectVideoChainView{ProjectID: projectID, UnitID: state.UnitID, Status: "preview", PreviewHash: state.PreviewHash, Steps: []ProjectVideoChainStep{}}
+	view := ProjectVideoChainView{Scope: state.Request.Scope, PrepareOnly: state.Request.PrepareOnly, ProjectID: projectID, UnitID: state.UnitID, Status: "preview", PreviewHash: state.PreviewHash, Steps: []ProjectVideoChainStep{}}
 	if task != nil {
 		view.ID = task.ID
 		view.Status = string(task.Status)
@@ -122,7 +131,7 @@ func videoChainView(projectID string, task *model.Task, state videoChainState) P
 	}
 	for _, step := range state.Steps {
 		view.Steps = append(view.Steps, step.ProjectVideoChainStep)
-		if step.Quote != nil {
+		if step.Quote != nil && !state.Request.PrepareOnly {
 			view.TotalMicrocredits += step.Quote.AmountMicrocredits
 		}
 	}
@@ -354,6 +363,32 @@ func (s *Service) RetryProjectVideoChain(userID, projectID, id string) (ProjectV
 		}
 		if step.Status == "failed" {
 			step.Status = "waiting"
+		}
+		if step.FrameResourceID != "" {
+			if _, err := s.videoChainReadyResource(userID, step.FrameResourceID, "image/"); err != nil {
+				step.FrameResourceID, step.FrameAssetID, step.FrameSelection = "", "", ""
+				step.FrameTimeSeconds = nil
+				step.Uploads = map[string]string{}
+				step.Phase = "waiting"
+			} else if step.FrameAssetID != "" {
+				refs, err := s.repo.ShotAssetReferencesForShot(step.ShotID)
+				if err != nil {
+					return ProjectVideoChainView{}, err
+				}
+				versionID := videoChainHash([]string{"frame-version", step.FrameAssetID})[:32]
+				linked := false
+				for _, ref := range refs {
+					if ref.AssetVersionID == versionID && ref.Role == "continuity" && ref.Status == "linked" {
+						linked = true
+					}
+				}
+				// Explicit resume re-establishes a removed required binding without
+				// re-extracting or duplicating its already successful frame.
+				if !linked {
+					step.FrameAssetID = ""
+					step.Phase = "waiting"
+				}
+			}
 		}
 	}
 	raw, err := s.encodeVideoChainState(fresh)

@@ -8,7 +8,7 @@ import type { GenerationTask } from "@/services/api/task-center";
 export type ProjectVisualType = "live_action" | "cg_real" | "anime_3d" | "anime_2d";
 
 /** 画风来源：mode=director 交给导演分析；mode=library 从风格中心挑（styleId，建项时直接锁定）。 */
-export type ProjectStyleSource = { mode: "director"; brief?: string; refImageIds?: string[] } | { mode: "library"; styleId: string };
+export type ProjectStyleSource = { mode: "director"; brief?: string; refImageIds?: string[] } | { mode: "library" | "profile"; styleId: string };
 
 /** 建项的「要拍什么」：创意写原话，小说、剧本是用章节页导入同一套解析切好的章 / 集（sourceText 是编辑器 HTML）。 */
 export type ProjectSourceAs = "idea" | "novel" | "script" | "blank";
@@ -95,6 +95,7 @@ export type ProjectUnit = {
 };
 
 export type ProjectAsset = {
+    storyboardReference?: { sourceShotId: string; sourceShotTitle?: string; sourceRevisionId: string; sourceVideoResourceId: string; sourceVideoTaskId: string; frameResourceId: string; controllerId: string; frameSelection: string; frameTimeSeconds?: number; historical?: boolean; consumers?: Array<{shotId:string;title:string;status:string}> };
     id: string;
     title: string;
     mediaType: string;

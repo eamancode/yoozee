@@ -7,6 +7,8 @@ export interface VideoChainModel {
     input: Record<string, unknown>;
 }
 export interface VideoChainRequest {
+    prepareOnly?: boolean;
+    scope?: "scene" | "single";
     unitId: string;
     shotId: string;
     model: VideoChainModel;
@@ -28,6 +30,11 @@ export interface VideoChainStep {
     taskId?: string;
     videoResourceId?: string;
     frameResourceId?: string;
+    frameAssetId?: string;
+    frameTimeSeconds?: number;
+    frameSelection?: string;
+    sourceRevisionId?: string;
+    sourceVideoTaskId?: string;
     sourceVideoResourceId?: string;
     sourceShotId?: string;
     referenceTag?: string;
@@ -36,6 +43,8 @@ export interface VideoChainStep {
     quote?: LogicalModelQuote;
 }
 export interface VideoChain {
+    scope?: "scene" | "single";
+    prepareOnly?: boolean;
     id?: string;
     projectId: string;
     unitId: string;

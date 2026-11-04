@@ -46,23 +46,24 @@ type CreateAssetVersionRequest struct {
 }
 
 type ProjectAssetSummary struct {
-	ID               string                     `json:"id"`
-	Title            string                     `json:"title"`
-	MediaType        string                     `json:"mediaType"`
-	Category         model.AssetCategory        `json:"category"`
-	Status           model.AssetVersionStatus   `json:"status"`
-	PrimaryVersionID string                     `json:"primaryVersionId,omitempty"`
-	VersionCount     int                        `json:"versionCount"`
-	Usages           []string                   `json:"usages"`
-	FolderID         string                     `json:"folderId,omitempty"`
-	Position         int                        `json:"position"`
-	StorageKey       string                     `json:"storageKey,omitempty"`
-	DurationMs       int64                      `json:"durationMs,omitempty"`
-	PreviewText      string                     `json:"previewText,omitempty"`
-	UpdatedAt        time.Time                  `json:"updatedAt"`
-	Source           string                     `json:"source,omitempty"`
-	Character        *CharacterCardSummary      `json:"character,omitempty"`
-	Visual           *ProjectAssetVisualSummary `json:"visual,omitempty"`
+	StoryboardReference *StoryboardReferenceSource `json:"storyboardReference,omitempty"`
+	ID                  string                     `json:"id"`
+	Title               string                     `json:"title"`
+	MediaType           string                     `json:"mediaType"`
+	Category            model.AssetCategory        `json:"category"`
+	Status              model.AssetVersionStatus   `json:"status"`
+	PrimaryVersionID    string                     `json:"primaryVersionId,omitempty"`
+	VersionCount        int                        `json:"versionCount"`
+	Usages              []string                   `json:"usages"`
+	FolderID            string                     `json:"folderId,omitempty"`
+	Position            int                        `json:"position"`
+	StorageKey          string                     `json:"storageKey,omitempty"`
+	DurationMs          int64                      `json:"durationMs,omitempty"`
+	PreviewText         string                     `json:"previewText,omitempty"`
+	UpdatedAt           time.Time                  `json:"updatedAt"`
+	Source              string                     `json:"source,omitempty"`
+	Character           *CharacterCardSummary      `json:"character,omitempty"`
+	Visual              *ProjectAssetVisualSummary `json:"visual,omitempty"`
 	// Palette 是色卡（category=palette）的色彩脚本、出图状态和取色校验。
 	Palette *ProjectAssetPaletteSummary `json:"palette,omitempty"`
 	// Image 是资产设计建的角色、场景、道具的出图排队状态（别的资产没有）。
@@ -358,6 +359,9 @@ func (s *Service) UpdateProjectAsset(userID string, projectID string, assetID st
 		}
 	} else if req.Category != nil {
 		category := model.AssetCategory(strings.TrimSpace(*req.Category))
+		if category != asset.Category && (category == model.AssetCategoryStoryboardReference || asset.Category == model.AssetCategoryStoryboardReference) {
+			return ProjectAssetSummary{}, BadAuthRequest("分镜参考分类由生成链维护，可调整文件夹或重新准备站位参考")
+		}
 		if !validAssetCategory(category) {
 			return ProjectAssetSummary{}, BadAuthRequest("不支持的资产业务分类")
 		}
@@ -450,6 +454,9 @@ func (s *Service) CreateProjectAssetVersion(userID string, projectID string, ass
 	asset, err := s.repo.AssetForUser(userID, assetID)
 	if err != nil {
 		return model.AssetVersion{}, err
+	}
+	if asset.Category == model.AssetCategoryStoryboardReference {
+		return model.AssetVersion{}, BadAuthRequest("分镜参考保留来源版本，请从生成面板重新准备站位参考")
 	}
 	linked, err := s.repo.ProjectAssetLinked(projectID, assetID)
 	if err != nil {
@@ -678,7 +685,7 @@ func containsString(values []string, target string) bool {
 
 func validAssetCategory(category model.AssetCategory) bool {
 	switch category {
-	case model.AssetCategoryCharacter, model.AssetCategoryEnvironment, model.AssetCategoryProp, model.AssetCategoryMaterial, model.AssetCategoryOther, model.AssetCategoryPalette:
+	case model.AssetCategoryCharacter, model.AssetCategoryEnvironment, model.AssetCategoryProp, model.AssetCategoryMaterial, model.AssetCategoryOther, model.AssetCategoryPalette, model.AssetCategoryStoryboardReference:
 		return true
 	default:
 		return false
@@ -700,6 +707,41 @@ func (s *Service) projectAssetSummary(userID string, projectID string, asset *mo
 	}
 	storageKey, previewText, source, durationMs := projectAssetPreview(asset.PayloadJSON)
 	summary := ProjectAssetSummary{ID: asset.ID, Title: asset.Title, MediaType: asset.Kind, Category: asset.Category, Status: asset.Status, PrimaryVersionID: asset.PrimaryVersionID, VersionCount: len(versions), Usages: usages, FolderID: link.FolderID, Position: link.Position, StorageKey: storageKey, PreviewText: previewText, DurationMs: durationMs, UpdatedAt: asset.UpdatedAt, Source: source}
+	if asset.Category == model.AssetCategoryStoryboardReference {
+		var payload struct {
+			Metadata struct {
+				Source *StoryboardReferenceSource `json:"storyboardReference"`
+			} `json:"metadata"`
+		}
+		if err := json.Unmarshal([]byte(asset.PayloadJSON), &payload); err != nil {
+			return ProjectAssetSummary{}, err
+		}
+		summary.StoryboardReference = payload.Metadata.Source
+		if source := summary.StoryboardReference; source != nil {
+			consumers, err := s.repo.StoryboardReferenceConsumers(projectID, asset.PrimaryVersionID)
+			if err != nil {
+				return ProjectAssetSummary{}, err
+			}
+			source.Consumers = consumers
+			shot, err := s.repo.ShotForProject(projectID, source.SourceShotID)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				source.Historical = true
+			} else if err != nil {
+				return ProjectAssetSummary{}, err
+			} else {
+				source.Historical = shot.CurrentRevisionID != source.SourceRevisionID
+				artifacts, err := s.repo.ProjectUnitShotArtifacts(projectID, shot.UnitID)
+				if err != nil {
+					return ProjectAssetSummary{}, err
+				}
+				for _, artifact := range artifacts {
+					if artifact.ShotID == shot.ID && artifact.Type == "video" && artifact.Selected && artifact.ResourceID != source.SourceVideoResourceID {
+						source.Historical = true
+					}
+				}
+			}
+		}
+	}
 	if asset.Category == model.AssetCategoryCharacter && asset.PrimaryVersionID != "" {
 		card, cardErr := s.characterCard(userID, asset)
 		if cardErr != nil {

@@ -528,7 +528,7 @@ func (s *Service) segmentForShot(userID string, projectID string, shot *model.Sh
 	if revision != nil {
 		sub.Size = revision.ShotSize
 		sub.Camera = strings.TrimSpace(strings.Join(projectDramaNonEmpty(revision.CameraAngle, revision.CameraMovement), "，"))
-		sub.Text = strings.TrimSpace(strings.Join(projectDramaNonEmpty(revision.PlotDescription, revision.Action), "。"))
+		sub.Text = firstNonEmpty(revision.VideoPrompt, strings.TrimSpace(strings.Join(projectDramaNonEmpty(revision.PlotDescription, revision.Action), "。")))
 		sub.Lines = parseLegacyDialogue(revision.Dialogue)
 		seg.Rules = revision.ContinuityNotes
 	}
@@ -541,6 +541,9 @@ func (s *Service) segmentForShot(userID string, projectID string, shot *model.Sh
 		return drama.Segment{}, nil, false, err
 	}
 	for _, ref := range references {
+		if ref.Role == "continuity" || ref.Status != "linked" {
+			continue
+		}
 		version, err := s.repo.AssetVersionForProject(projectID, ref.AssetVersionID)
 		if err != nil {
 			continue

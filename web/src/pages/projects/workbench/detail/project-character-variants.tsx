@@ -55,7 +55,10 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
             const resource = await uploadResourceFile(file, "image", { fileName: file.name });
             return replaceProjectCharacterRepresentations(projectId, variant.id, [{ role: "primary", resourceId: resource.id, metadata: { source: "manual-upload" } }]);
         },
-        onSuccess: async () => { await refresh(); message.success("子卡图片已替换并保存为新版本"); },
+        onSuccess: async () => {
+            await refresh();
+            message.success("子卡图片已替换并保存为新版本");
+        },
         onError: (error) => message.error(error instanceof Error ? error.message : "子卡图片替换失败"),
     });
     const saveMutation = useMutation({
@@ -175,8 +178,24 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                                         aria-label={`${ready ? "重新出" : "出"}子卡「${variant.title}」的三视图`}
                                     />
                                     <Button type="text" size="small" className="!h-6 !px-1" icon={<Pencil className="size-3.5" />} onClick={() => open(variant)} aria-label={`编辑子卡「${variant.title}」`} />
-                                    <Upload accept="image/png,image/jpeg,image/webp" showUploadList={false} disabled={uploadMutation.isPending} beforeUpload={(file) => { uploadMutation.mutate({ variant, file }); return false; }}>
-                                        <Button type="text" size="small" icon={<UploadIcon className="size-3.5" />} loading={uploadMutation.isPending && uploadMutation.variables?.variant.id === variant.id} aria-label={`上传替换子卡「${variant.title}」的图片`}>上传替换</Button>
+                                    <Upload
+                                        accept="image/png,image/jpeg,image/webp"
+                                        showUploadList={false}
+                                        disabled={uploadMutation.isPending}
+                                        beforeUpload={(file) => {
+                                            uploadMutation.mutate({ variant, file });
+                                            return false;
+                                        }}
+                                    >
+                                        <Button
+                                            type="text"
+                                            size="small"
+                                            icon={<UploadIcon className="size-3.5" />}
+                                            loading={uploadMutation.isPending && uploadMutation.variables?.variant.id === variant.id}
+                                            aria-label={`上传替换子卡「${variant.title}」的图片`}
+                                        >
+                                            上传替换
+                                        </Button>
                                     </Upload>
                                     <Popconfirm title="移出这张子卡？" description="被镜头引用时不能移出，会列出引用它的镜头。" okText="移出" cancelText="取消" onConfirm={() => deleteMutation.mutate(variant)}>
                                         <Button

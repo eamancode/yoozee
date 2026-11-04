@@ -1,7 +1,7 @@
 import { modelCapabilityConfigFor, normalizeImageValue } from "@/lib/model-capabilities";
 import type { DramaImageTaskTemplate } from "@/services/api/project-drama";
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
-import type { AiConfig } from "@/stores/use-config-store";
+import { configuredModelMatchesCapability, type AiConfig } from "@/stores/use-config-store";
 
 /**
  * 服务端出图的图片任务模板：按图片模型组一个普通图片任务（与场景、道具出图同一套协议、渠道和参数换算），交给服务端；
@@ -27,4 +27,17 @@ async function dramaImageTaskTemplate(config: AiConfig, imageModel: string, plac
 /** 资产设计出图的模板：角色三视图、场景和道具概念图，画幅按图片模型的配置（与资产页手动出图一致）。 */
 export function assetImageTaskTemplate(config: AiConfig, imageModel: string) {
     return dramaImageTaskTemplate(config, imageModel, { prompt: "资产出图", source: "short-drama-assets" });
+}
+
+/** Missing image configuration must not discard a completed director text result. */
+export async function directorCoverTaskTemplate(config: AiConfig, defaultImageModel?: string) {
+    for (const model of [defaultImageModel, config.imageModel]) {
+        if (!model || !configuredModelMatchesCapability(config, model, "image")) continue;
+        try {
+            return await assetImageTaskTemplate(config, model);
+        } catch {
+            /* The saved personal style exposes a pending cover and retry action. */
+        }
+    }
+    return undefined;
 }

@@ -5,6 +5,14 @@ description: 柚子后端核心持久化表与状态边界
 
 # 后端数据库
 
+## 统一个人风格与分镜参考（迁移 94）
+
+原风格中心的个人档案统一存入 `style_profiles`。新增 `source_project_id`、`source_library_id`、`source_fingerprint` 记录来源及重放指纹；新增 `cover_task_id`、`cover_resource_id`、`cover_status`、`cover_error`、`cover_revision`、`cover_image_revision`、`cover_attempt` 管理独立图片封面任务及对应版本。`profile_json.director` 保存结构化导演风格锚、主基调色卡与画面类型，原 selection、执行资产、许可和执行策略一并保留。文本更新使用版本条件写入；封面回调同时匹配用户、任务和档案版本。项目只更新仍匹配原快照的封面，其他项目历史快照不跟随修改。
+
+旧个人导演条目按原创建人幂等归并，公共 manual/seed 不迁为个人；能确认原始项目时关联该项目。归并保留旧项目快照，不把旧色卡当成图片模型已生成的封面。
+
+`assets.category=storyboard_reference` 表示“分镜参考”。沿用 Asset、AssetVersion、AssetRepresentation 和 ProjectAssetLink，来源、镜头版本、视频任务、视频资源、实际截帧时间与读取方式保存在设定及表征元数据。`shot_asset_references.role=continuity` 将帧绑定到消费它的下一组；旧绑定标 `superseded` 保留历史。自动绑定不进入原始提示词编译，控制器按实际输入追加一次。登记与绑定受父链状态和租约约束，来源视频及图片进入统一资源引用保护。
+
 ## 声音台账与个人导演风格（迁移 93）
 
 `project_units.speech_ledger_json` 保存完整剧本独立提取的声音台账：正文哈希、技能版本、带场/段出处的台词、画外、旁白及核对用 Script。写入同时校验项目归属和原正文，正文改变后旧台账立即失效，不能覆盖新正文。

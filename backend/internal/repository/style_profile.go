@@ -33,10 +33,18 @@ func (r *Repository) CreateStyleProfile(profile *model.StyleProfile) error {
 }
 
 func (r *Repository) UpdateStyleProfile(profile *model.StyleProfile) error {
-	return r.db.Model(&model.StyleProfile{}).Where("id = ? AND user_id = ?", profile.ID, profile.UserID).Updates(map[string]any{
+	result := r.db.Model(&model.StyleProfile{}).Where("id = ? AND user_id = ? AND revision = ?", profile.ID, profile.UserID, profile.Revision-1).Updates(map[string]any{
 		"name": profile.Name, "description": profile.Description, "cover_url": profile.CoverURL,
 		"tags_json": profile.TagsJSON, "profile_json": profile.ProfileJSON, "revision": profile.Revision, "updated_at": profile.UpdatedAt,
-	}).Error
+		"cover_task_id": "", "cover_status": "pending", "cover_error": "风格内容已更新，可生成新封面",
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrTaskStateConflict
+	}
+	return nil
 }
 
 func (r *Repository) SetStyleProfileFavorite(userID string, id string, favorite bool) error {

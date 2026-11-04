@@ -66,6 +66,10 @@ func TestProjectSceneEndingUsesLatestOrderAndNeverStacks(t *testing.T) {
 	}
 	for i := range 4 {
 		input := map[string]any{"mode": "video", "metadata": map[string]any{"domainProjectId": project.ID, "shotId": fmt.Sprint(i)}, "config": map[string]any{"videoSeconds": "10"}}
+		if i > 0 && i < 3 {
+			input["referenceImages"] = []any{map[string]any{"storageKey": "resource:frame"}}
+			input[videoChainMetadataKey] = map[string]any{"sourceShotId": fmt.Sprint(i - 1), "sourceRevisionId": fmt.Sprint("r", i-1), "sourceVideoResourceId": "video", "frameResourceId": "frame", "referenceTag": "@图片1"}
+		}
 		prompt, err := svc.prepareDramaVideoSubmission("user-1", input, "完整镜头内容", false)
 		if err != nil {
 			t.Fatal(err)
@@ -80,7 +84,7 @@ func TestProjectSceneEndingUsesLatestOrderAndNeverStacks(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if strings.Count(prompt, dramaSceneEnding) != want || !strings.HasPrefix(prompt, "完整镜头内容") {
+		if strings.Count(prompt, dramaSceneEnding) != want || !strings.Contains(prompt, "完整镜头内容") {
 			t.Fatalf("group %d: %q", i, prompt)
 		}
 		if i == 0 {

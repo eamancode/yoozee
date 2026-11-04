@@ -3,7 +3,7 @@
   "step": "style.lock",
   "contract": "style.lock@2",
   "profiles": ["action-epic", "anime-3d", "duanju-shiga", "game-ip", "live-realism"],
-  "version": "1.1.0",
+  "version": "1.2.0",
   "files": ["SKILL.md"],
   "eval": ["qichuang-e01"]
 }
