@@ -155,6 +155,9 @@ func (s *Service) LinkProjectAsset(userID string, projectID string, req LinkProj
 	if category == model.AssetCategoryPalette && asset.Category != model.AssetCategoryPalette {
 		return ProjectAssetSummary{}, BadAuthRequest("色卡由导演风格按色彩脚本生成，不能把上传的素材加成色卡")
 	}
+	if (category == model.AssetCategoryStoryboardReference || asset.Category == model.AssetCategoryStoryboardReference) && category != asset.Category {
+		return ProjectAssetSummary{}, BadAuthRequest("分镜参考由片末截帧自动建立，不能将普通素材改为该类型")
+	}
 	folderID, err := s.resolveProjectAssetFolderID(projectID, req.FolderID)
 	if err != nil {
 		return ProjectAssetSummary{}, err

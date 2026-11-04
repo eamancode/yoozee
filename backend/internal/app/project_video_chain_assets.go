@@ -2,9 +2,41 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
+	"gorm.io/gorm"
 	"time"
 	"yingce/backend/internal/model"
 )
+
+func videoChainFrameAssetID(projectID string, step *videoChainStepState) string {
+	return videoChainHash([]string{projectID, step.SourceShotID, step.SourceRevisionID, step.SourceVideoResourceID})[:32]
+}
+
+func (s *Service) reuseVideoChainFrame(task *model.Task, step *videoChainStepState) (bool, error) {
+	asset, err := s.repo.AssetForUser(task.UserID, videoChainFrameAssetID(task.ProjectID, step))
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	version, err := s.repo.AssetVersion(asset.PrimaryVersionID)
+	if err != nil {
+		return false, err
+	}
+	var source StoryboardReferenceSource
+	if err := json.Unmarshal([]byte(version.DefinitionJSON), &source); err != nil {
+		return false, err
+	}
+	if asset.Category != model.AssetCategoryStoryboardReference || source.SourceShotID != step.SourceShotID || source.SourceRevisionID != step.SourceRevisionID || source.SourceVideoResourceID != step.SourceVideoResourceID {
+		return false, failedPrecondition("已有分镜参考的来源不匹配，请检查资产后重试")
+	}
+	if _, err := s.videoChainReadyResource(task.UserID, source.FrameResourceID, "image/"); err != nil {
+		return false, err
+	}
+	step.FrameResourceID, step.FrameTimeSeconds, step.FrameSelection = source.FrameResourceID, source.FrameTimeSeconds, source.FrameSelection
+	return true, nil
+}
 
 type StoryboardReferenceSource struct {
 	SourceShotTitle       string                              `json:"sourceShotTitle,omitempty"`
@@ -28,7 +60,7 @@ func (s *Service) registerVideoChainFrame(task *model.Task, step *videoChainStep
 	if source.CurrentRevisionID != step.SourceRevisionID {
 		return failedPrecondition("上一组镜头版本已变化，请按最新内容重试")
 	}
-	id := videoChainHash([]string{task.ProjectID, step.SourceShotID, step.SourceRevisionID, step.SourceVideoResourceID})[:32]
+	id := videoChainFrameAssetID(task.ProjectID, step)
 	versionID := videoChainHash([]string{"frame-version", id})[:32]
 	now := time.Now()
 	lineage := StoryboardReferenceSource{SourceShotTitle: source.Title, FrameTimeSeconds: step.FrameTimeSeconds, SourceShotID: source.ID, SourceRevisionID: step.SourceRevisionID, SourceVideoResourceID: step.SourceVideoResourceID, SourceVideoTaskID: step.SourceVideoTaskID, FrameResourceID: step.FrameResourceID, ControllerID: task.ID, FrameSelection: step.FrameSelection}

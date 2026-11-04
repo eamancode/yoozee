@@ -99,6 +99,11 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		}
 		if step.FrameResourceID == "" {
 			step.Phase = "extracting"
+			if reused, err := s.reuseVideoChainFrame(task, step); err != nil {
+				return fail(err)
+			} else if reused {
+				return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" · 已有片末参考已复用", "")
+			}
 			observation := dramaTailFrameObservation{Method: "test-hook"}
 			var id string
 			var err error

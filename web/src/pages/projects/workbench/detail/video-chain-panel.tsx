@@ -10,6 +10,7 @@ import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store"
 const phaseLabels: Record<string, string> = {
     waiting: "等待前序镜头",
     extracting: "截取上一组末帧",
+    registering: "保存并绑定分镜参考",
     uploading: "上传参考素材",
     prepared: "参考素材已准备",
     reference_ready: "站位参考已准备",

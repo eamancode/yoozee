@@ -54,6 +54,9 @@ func TestVideoChainSingleRequiresAndTransfersCurrentPredecessor(t *testing.T) {
 	if err != nil || len(assets) != 1 || assets[0].ID != step.FrameAssetID || assets[0].StoryboardReference.SourceVideoResourceID != videoID || assets[0].StoryboardReference.SourceVideoTaskID != artifact.TaskID {
 		t.Fatal("missing durable asset lineage", err, assets)
 	}
+	if _, err := f.s.LinkProjectAsset("user-1", f.projectID, LinkProjectAssetRequest{AssetID: assets[0].ID, Category: "prop"}); err == nil {
+		t.Fatal("system reference category could be rewritten through relinking")
+	}
 	bindings, err := f.s.repo.ShotAssetReferencesForShot("s1")
 	if err != nil || len(bindings) != 1 || bindings[0].Role != "continuity" || bindings[0].AssetVersionID != assets[0].PrimaryVersionID {
 		t.Fatal("frame not bound to its consumer", err, bindings)
@@ -120,6 +123,18 @@ func TestVideoChainPrepareOnlyCreatesReferenceWithoutVideoSubmission(t *testing.
 	f.db.Model(&model.Task{}).Where("type = ?", "canvas_video").Count(&count)
 	if parent.Status != model.TaskStatusSucceeded || count != 1 || state.Steps[0].FrameAssetID == "" || state.Steps[0].VideoResourceID != "" {
 		t.Fatal("preparation submitted a video or lost reference", parent.Error, count, state)
+	}
+	f.req.RequestID = "prepare-again"
+	second := f.start(t)
+	for range 8 {
+		f.tick(t, second.ID)
+	}
+	secondTask, _ := f.s.repo.TaskForUser("user-1", second.ID)
+	secondState, _ := f.s.videoChainState(secondTask)
+	var assets int64
+	f.db.Model(&model.Asset{}).Where("category = ?", "storyboard_reference").Count(&assets)
+	if secondTask.Status != model.TaskStatusSucceeded || f.frames.Load() != 1 || assets != 1 || secondState.Steps[0].FrameResourceID != state.Steps[0].FrameResourceID {
+		t.Fatal("a new controller duplicated extraction or disagreed with its bound asset", secondTask.Error, f.frames.Load(), assets)
 	}
 }
 
