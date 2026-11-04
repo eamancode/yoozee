@@ -2,7 +2,7 @@ import { agentCanvasActions, agentCanvasActionLabel } from "@/lib/canvas/agent-c
 import { Button } from "antd";
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, CircleDot, HelpCircle, ListChecks, LoaderCircle, RotateCcw, Undo2, XCircle, Blocks, FoldVertical, Info } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -1001,7 +1001,15 @@ export const AgentOperationFeed = memo(function AgentOperationFeed({
     live?: boolean;
 }) {
     const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
-    const reducedMotion = useReducedMotion();
+    const [reducedMotion, setReducedMotion] = useState(true);
+    useEffect(() => {
+        if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+        const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+        const update = () => setReducedMotion(preference.matches);
+        update();
+        preference.addEventListener?.("change", update);
+        return () => preference.removeEventListener?.("change", update);
+    }, []);
     const listId = useId();
     const latest = items[items.length - 1];
     if (!latest) return null;

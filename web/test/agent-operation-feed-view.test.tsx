@@ -44,6 +44,19 @@ test("operations fold into one line that reports only the latest action", () => 
     }
 });
 
+test("operation summaries render without a browser media-query API", () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "window");
+    try {
+        Object.defineProperty(globalThis, "window", { configurable: true, value: undefined });
+        expect(renderToStaticMarkup(<AgentOperationFeed items={steps} theme={canvasThemes.light} />)).toContain("已获取可用模型");
+        Object.defineProperty(globalThis, "window", { configurable: true, value: new EventTarget() });
+        expect(renderToStaticMarkup(<AgentOperationFeed items={steps} theme={canvasThemes.light} />)).toContain('aria-expanded="false"');
+    } finally {
+        if (original) Object.defineProperty(globalThis, "window", original);
+        else Reflect.deleteProperty(globalThis, "window");
+    }
+});
+
 test("messages and reasoning stay free of decorative side icons", () => {
     const assistant = renderToStaticMarkup(<AgentChatMessage item={{ id: "a1", role: "assistant", text: "已完成。" }} theme={canvasThemes.light} />);
     expect(assistant).not.toContain("agent-message-icon");
