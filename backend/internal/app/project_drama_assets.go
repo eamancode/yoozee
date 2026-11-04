@@ -402,11 +402,7 @@ func (s *Service) characterVersionImaged(versionID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	roles := map[string]bool{}
-	for _, r := range reps {
-		roles[r.Role] = true
-	}
-	return roles["turnaround_sheet"] || (roles["front"] && roles["side"] && roles["back"]), nil
+	return characterRepresentationsReady(reps), nil
 }
 
 // assetsRowDefinition 是一行资产写进设定的字段：角色 appearance / multiViewPrompt，场景、道具 description / prompt；
@@ -424,6 +420,12 @@ func assetsRowDefinition(row drama.AssetsExtractRow, episode int, colors []drama
 		prompt += " Color accents: " + strings.Join(parts, ", ") + "."
 	}
 	definition := map[string]any{"aliases": slices.Clone(row.Aliases)}
+	if row.Category == drama.AssetProp && row.Design != nil {
+		definition["productionPriority"] = row.Design.ProductionPriority
+		if strings.TrimSpace(row.Design.BodyDescription) != "" {
+			row.Appearance = strings.TrimSpace(row.Design.BodyDescription)
+		}
+	}
 	if row.Design != nil {
 		definition["extractionDesign"] = row.Design
 		if row.Category == drama.AssetCharacter {
@@ -464,7 +466,11 @@ func mergeIntoEntry(entry *dramaAssetEntry, row drama.AssetsExtractRow, details 
 		var previous *drama.AssetDesign
 		encoded, _ := json.Marshal(entry.definition["extractionDesign"])
 		_ = json.Unmarshal(encoded, &previous)
-		entry.definition["extractionDesign"] = drama.MergeAssetDesign(previous, row.Design)
+		merged := drama.MergeAssetDesign(previous, row.Design)
+		entry.definition["extractionDesign"] = merged
+		if row.Category == drama.AssetProp {
+			entry.definition["productionPriority"] = merged.ProductionPriority
+		}
 	}
 	if !entry.imaged || entry.asset.Category == model.AssetCategoryCharacter {
 		for _, key := range assetLookFields {
@@ -650,7 +656,11 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 			return nil, outcome, err
 		}
 		payload := assetPayload(&asset)
-		payloadMetadata(payload)[assetImageKey] = dramaImageState{Status: initial, UpdatedAt: now.Format(time.RFC3339Nano)}
+		imageStatus := initial
+		if details["productionPriority"] == "low" {
+			imageStatus = dramaImageNone
+		}
+		payloadMetadata(payload)[assetImageKey] = dramaImageState{Status: imageStatus, UpdatedAt: now.Format(time.RFC3339Nano)}
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return nil, outcome, err
@@ -800,8 +810,15 @@ func (s *Service) mergedAssetWrite(entry *dramaAssetEntry, now time.Time) (repos
 		return repository.DramaAssetWrite{Asset: &next, Version: &version, ExpectedVersionID: entry.version.ID, Representations: reps, Voice: voice}, nil
 	}
 	payload := assetPayload(&asset)
+	promotedProp := lowPriorityProp(&asset) && entry.definition["productionPriority"] != "low" && !entry.imaged
 	if data, ok := payload["data"].(map[string]any); ok && data["definition"] != nil {
 		data["definition"] = entry.definition
+	}
+	if promotedProp {
+		state := dramaImageStateOf(&asset, assetImageKey)
+		if state.Status == dramaImageNone || state.Status == "" {
+			payloadMetadata(payload)[assetImageKey] = dramaImageState{Status: dramaImageWaiting, UpdatedAt: now.Format(time.RFC3339Nano)}
+		}
 	}
 	if !entry.content {
 		version := *entry.version
@@ -996,6 +1013,9 @@ func (s *Service) QueueDramaAssetImages(userID string, projectID string, req Dra
 			return DramaImageQueueResult{}, err
 		}
 		for _, a := range assets {
+			if lowPriorityProp(&a.asset) {
+				continue
+			}
 			state := s.dramaImageView(userID, &a.asset, assetImageKey, a.imaged)
 			if !a.imaged && state.Status != dramaImageQueued {
 				only = append(only, a.asset.ID)
@@ -1189,6 +1209,9 @@ func (s *Service) assetImageSummary(userID string, asset *model.Asset, imaged bo
 func projectAssetsProgress(assets []ProjectAssetSummary) drama.AssetsInput {
 	var in drama.AssetsInput
 	for _, a := range assets {
+		if lowPriorityPropSummary(a) {
+			continue
+		}
 		if !slices.Contains(dramaAssetCategories, a.Category) || string(a.Status) == string(model.AssetVersionStatusArchived) {
 			continue
 		}

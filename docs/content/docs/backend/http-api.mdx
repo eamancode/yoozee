@@ -5,6 +5,14 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 独立声音台账与风格权限
+
+`POST /api/projects/:id/units/:unitId/drama/steps/speech.extract/run` 使用独立 `yz-speech-extract` 技能从完整正文提取声音，沿用文本任务和 SSE，不依赖已有镜头。`GET /api/projects/:id/units/:unitId/drama/speech-ledger` 返回 `{ready, ledger}`；正文变化时 `ready=false`。台账条目含 `scene`、`paragraph`、可选 `paragraph_end`、`speaker`、`kind`（dialogue/voiceover/narration）、逐字 `text`。来源或原句无效、漏掉明确台词时任务失败，不保存不完整结果。
+
+建项可提交 `stylePresetId` 与 `styleProfileJson` 完整风格中心快照；导演分析输出契约为 `style.lock@2`，包含原公共视觉字段、导演风格锚及色卡。个人导演风格列表、封面、建项和锁定选用均校验创建人；知晓条目 ID 不授予读取权限。公共预置接口保持原有行为。
+
+子卡手动图片替换沿用 `/projects/:id/characters/:assetId/representations`，上传完成后提交 `primary` 表征及 `metadata.source=manual-upload`。绑定新版本前校验资源归属和就绪状态，失败保留原图。资产出图不指定 assetIds 时默认排除 low 优先级道具，显式点选可生成。
+
 资产出图恢复接口的 imageTask 采用本次显式选定的模型，assetIds 指定恢复范围；返回 queued、waiting、failed，另可返回 paused。资产 image.status 新增 paused（渠道异常暂停，须修复或切换渠道后继续）。人物子卡新增/修改和清单摘要支持 startAfter，描述场中生效动作；非空时不按整场自动替换。
 
 ## 同场景连续视频生成

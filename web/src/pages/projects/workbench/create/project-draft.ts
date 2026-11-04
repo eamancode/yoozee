@@ -2,6 +2,7 @@ import { localForageStorageForScope } from "@/lib/localforage-storage";
 import type { ProjectSourceKind } from "@/lib/project-source";
 import type { DramaRunMode } from "@/services/api/project-drama";
 import type { ProjectVisualType } from "@/services/api/projects";
+import type { StyleProfileSnapshot } from "@/lib/canvas/style-profile";
 
 /** 建项草稿：按当前账号 scope 存进 localforage（不进 localStorage），刷新或换页回来接着填。参考图是本地文件，不进草稿。 */
 export type ProjectCreateDraft = {
@@ -22,6 +23,7 @@ export type ProjectCreateDraft = {
     styleMode: "director" | "library";
     styleBrief: string;
     styleId?: string;
+    publicStyle?: StyleProfileSnapshot;
     aspectRatio: string;
     segmentSeconds: number;
     generationModel?: string;

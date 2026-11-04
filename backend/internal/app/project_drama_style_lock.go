@@ -41,6 +41,7 @@ type dramaStyleLockMeta struct {
 
 // DramaStyleLockOutcome 是风格锁定收尾写进 result.dramaStep 的候选：用户点「锁定此风格」时取它写进项目。
 type DramaStyleLockOutcome struct {
+	StyleProfile  map[string]any            `json:"styleProfile,omitempty"`
 	Step          string                    `json:"step"`
 	Status        string                    `json:"status"`
 	Source        string                    `json:"source"`
@@ -219,6 +220,18 @@ func styleLockPlan(project *model.Project, lock *dramaStyleLockMeta, story strin
 		ProjectType: lock.ProjectType, Text: lock.Text, Images: len(lock.Images), Story: story, BriefJSON: project.BriefJSON,
 		Style: drama.StepStyle{Title: style.Title, Prompt: style.Prompt, Selection: style.Selection}, Skill: skill,
 	}
+	var base map[string]any
+	if json.Unmarshal([]byte(project.StyleProfileJSON), &base) == nil {
+		fields := map[string]any{}
+		for _, key := range []string{"title", "description", "tags", "selection", "prompt", "negativePrompt"} {
+			if value, ok := base[key]; ok {
+				fields[key] = value
+			}
+		}
+		if encoded, err := json.Marshal(fields); err == nil && len(fields) > 0 {
+			in.BaseFieldsJSON = string(encoded)
+		}
+	}
 	if p, err := drama.BuiltinProfile(projectDramaContext(project).profileID()); err == nil {
 		in.Profile = drama.StyleBibleProfile{Label: p.Label, StyleBlock: p.StyleBlock.Zh, LightPolicy: p.LightPolicy}
 	}
@@ -259,6 +272,9 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 	}
 	text, _ := result["text"].(string)
 	out, stats := drama.StyleLockFromText(text)
+	if problem := drama.StyleProfileProblem(out.StyleProfile); problem != "" {
+		return DramaStyleLockOutcome{}, BadAuthRequest(problem)
+	}
 	report := drama.CheckStyleLock(out)
 	if report.Errors > 0 {
 		for _, item := range report.Items {
@@ -268,7 +284,8 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 		}
 	}
 	outcome := DramaStyleLockOutcome{
-		Step: meta.Step, Status: DramaStyleLockOutcomeCandidate, Source: lock.Source, ProjectType: lock.ProjectType,
+		StyleProfile: out.StyleProfile,
+		Step:         meta.Step, Status: DramaStyleLockOutcomeCandidate, Source: lock.Source, ProjectType: lock.ProjectType,
 		StyleAnchor: out.Anchor, MasterPalette: out.Palette, Parse: stats, Errors: report.Errors, Warnings: report.Warnings,
 	}
 	for _, item := range report.Items {
@@ -277,7 +294,7 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 		}
 	}
 	if lock.AutoLock {
-		locked, err := s.applyDramaStyleLock(task.UserID, project, styleLockInput{Anchor: out.Anchor, Palette: out.Palette, Title: project.Name, Record: drama.StyleLockRecord{Source: lock.Source, ProjectType: lock.ProjectType, TaskID: task.ID}})
+		locked, err := s.applyDramaStyleLock(task.UserID, project, styleLockInput{ProfileFields: out.StyleProfile, Anchor: out.Anchor, Palette: out.Palette, Title: project.Name, Record: drama.StyleLockRecord{Source: lock.Source, ProjectType: lock.ProjectType, TaskID: task.ID}})
 		if err != nil {
 			return DramaStyleLockOutcome{}, fmt.Errorf("风格已分析出来，锁定写入失败：%w", err)
 		}
@@ -321,8 +338,12 @@ func (s *Service) LockDramaStyle(userID string, projectID string, req DramaStyle
 		if err != nil {
 			return DramaStyleLockResult{}, err
 		}
+		if !canReadDramaStyleLibrary(userID, entry) {
+			return DramaStyleLockResult{}, NotFound("风格库里没有这一条")
+		}
 		anchor, palette := styleLibraryEntryStyle(entry)
 		lock = styleLockInput{Anchor: anchor, Palette: palette, Title: entry.Name, Record: drama.StyleLockRecord{Source: drama.StyleLockSourceLibrary, LibraryID: entry.ID, ProjectType: entry.ProjectType}}
+		lock.ProfileJSON = entry.StyleProfileJSON
 	} else {
 		task, err := s.repo.TaskForUser(userID, taskID)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -346,14 +367,17 @@ func (s *Service) LockDramaStyle(userID string, projectID string, req DramaStyle
 		}
 		outcome := result.DramaStep
 		lock = styleLockInput{Anchor: outcome.StyleAnchor, Palette: outcome.MasterPalette, Title: project.Name, Record: drama.StyleLockRecord{Source: firstNonEmpty(outcome.Source, drama.StyleLockSourceAnalysis), ProjectType: outcome.ProjectType, TaskID: task.ID}}
+		lock.ProfileFields = outcome.StyleProfile
 	}
 	return s.applyDramaStyleLock(userID, project, lock)
 }
 
 // styleLockInput 是要写进项目的锁定风格。
 type styleLockInput struct {
-	Anchor  *drama.StyleAnchor
-	Palette drama.MasterPalette
+	ProfileFields map[string]any
+	ProfileJSON   string
+	Anchor        *drama.StyleAnchor
+	Palette       drama.MasterPalette
 	// Title 是合成图上的标题（风格库条目名或项目名）。
 	Title  string
 	Record drama.StyleLockRecord
@@ -441,11 +465,35 @@ func (s *Service) applyDramaStyleLock(userID string, project *model.Project, in 
 	if err != nil {
 		return DramaStyleLockResult{}, err
 	}
-	if err := s.repo.ApplyDramaStyleLock(userID, project.ID, string(encoded), write, now); err != nil {
+	profileJSON, presetID := "", ""
+	if in.ProfileFields != nil {
+		in.ProfileJSON, err = combinedDirectorProfile(project, in.Anchor, palette, project.Name, "", project.ID, in.ProfileFields)
+		if err != nil {
+			return DramaStyleLockResult{}, err
+		}
+	}
+	if in.ProfileJSON != "" {
+		profileJSON, err = validateStyleProfileJSON(in.ProfileJSON)
+		if err != nil {
+			return DramaStyleLockResult{}, err
+		}
+		var profile struct {
+			PresetID string `json:"presetId"`
+		}
+		if err = json.Unmarshal([]byte(profileJSON), &profile); err != nil {
+			return DramaStyleLockResult{}, err
+		}
+		presetID = profile.PresetID
+	}
+	if err := s.repo.ApplyDramaStyleLock(userID, project.ID, string(encoded), write, now, profileJSON, presetID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return DramaStyleLockResult{}, errors.New("项目或主色卡在写入前被删除，没有锁定")
 		}
 		return DramaStyleLockResult{}, err
+	}
+	if profileJSON != "" {
+		project.StyleProfileJSON = profileJSON
+		project.StylePresetID = presetID
 	}
 	out := DramaStyleLockResult{StyleAnchor: in.Anchor, MasterPalette: palette, StyleLock: record, FontNote: fontNote}
 	if _, err := s.bindProjectAssetImage(userID, project.ID, record.AssetID, BindProjectAssetImageRequest{ResourceID: resource.ID, ExpectedVersionID: versionID}, newID()); err != nil {

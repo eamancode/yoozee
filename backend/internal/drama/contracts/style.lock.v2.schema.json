@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "style.lock@2",
+  "title": "完整公共风格字段与导演规格",
+  "type": "object",
+  "required": ["style_profile", "style_anchor", "groups"],
+  "x-contract": {
+    "heading": "【受保护输出契约】",
+    "layout": "blocks",
+    "items": "groups",
+    "format": "先单独一行输出 {\"style_profile\":{…},\"style_anchor\":{…}}，再按主角组、配角组、道具组、环境组每组一行 JSON，不写 Markdown 或解释。",
+    "rowsIntro": "每组字段：",
+    "requirement": "保留公共风格中心的完整视觉字段，并补充导演风格锚和主基调色卡；不得只输出色卡。",
+    "rules": [
+      "style_profile 包含 title、description、tags（字符串数组）、prompt、negativePrompt。prompt 使用原风格中心的完整章节格式：【风格组合】【项目定位】【题材世界观】【视觉媒介】【角色设计系统】【项目色彩与光影】【服饰、材质与场景】【资产一致性】【全局禁用】。每节用独立一行，保留标题与内容。根据当前项目类型统一所有字段，不能保留相互冲突的媒介。已选公共风格的字段是创作基础，导演结合剧本补全，不能任意丢弃特征。",
+      "style_anchor 字段：medium（媒介，与项目类型一致）、art_style（美术风格）、lighting（主光方向、光比、实景光源及冷暖政策）、camera（景别、焦段与运镜政策）、grading（色温、饱和、对比与肤色）、forbidden（字符串数组）；可写 era、genre、render_quality。",
+      "每组2～5个颜色，全片8～16色，至少有主角组与环境组。每色写 name_zh、name_en、hex（#RRGGBB）、usage，明确角色、道具或环境用途。不得捏造无依据的角色或物品凑色。",
+      "风格中心的执行资产、原生模型参数、参考资源和许可由系统保留，不生成或更改资源ID、渠道、URL、LoRA和许可。输出仅包含视觉字段与导演规格。"
+    ]
+  },
+  "properties": {
+    "style_profile": {
+      "type": "object",
+      "required": ["title", "description", "tags", "prompt", "negativePrompt"],
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "prompt": { "type": "string" },
+        "negativePrompt": { "type": "string" }
+      }
+    },
+    "style_anchor": {
+      "type": "object",
+      "properties": {
+        "medium": { "type": "string" },
+        "art_style": { "type": "string" },
+        "lighting": { "type": "string" },
+        "camera": { "type": "string" },
+        "grading": { "type": "string" },
+        "forbidden": { "type": "array", "items": { "type": "string" } },
+        "era": { "type": "string" },
+        "genre": { "type": "string" },
+        "render_quality": { "type": "string" }
+      }
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["group", "colors"],
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "分组名：主角组、配角组、道具组或环境组"
+          },
+          "colors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name_zh", "name_en", "hex", "usage"],
+              "properties": {
+                "name_zh": { "type": "string" },
+                "name_en": { "type": "string" },
+                "hex": { "type": "string" },
+                "usage": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

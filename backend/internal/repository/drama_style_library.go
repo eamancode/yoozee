@@ -8,10 +8,10 @@ import (
 	"yingce/backend/internal/model"
 )
 
-// DramaStyleLibrary 列出平台风格库（团队共享，不按用户过滤）：projectType 为空时列全部，按类型、更新时间倒序。
-func (r *Repository) DramaStyleLibrary(projectType string) ([]model.DramaStyleLibraryEntry, error) {
+// DramaStyleLibrary 返回公共预置和当前用户自己的导演条目。
+func (r *Repository) DramaStyleLibrary(projectType string, userID string) ([]model.DramaStyleLibraryEntry, error) {
 	var rows []model.DramaStyleLibraryEntry
-	query := r.db.Model(&model.DramaStyleLibraryEntry{})
+	query := r.db.Model(&model.DramaStyleLibraryEntry{}).Where("source NOT IN ? OR created_by = ?", []string{"director", "analysis"}, userID)
 	if projectType != "" {
 		query = query.Where("project_type = ?", projectType)
 	}
@@ -29,9 +29,9 @@ func (r *Repository) DramaStyleLibraryEntry(id string) (*model.DramaStyleLibrary
 }
 
 // DramaStyleLibraryNameTaken 是同一类型里有没有同名条目（exceptID 是正在改名的那一条）。
-func (r *Repository) DramaStyleLibraryNameTaken(projectType string, name string, exceptID string) (bool, error) {
+func (r *Repository) DramaStyleLibraryNameTaken(projectType string, name string, exceptID string, scopeOwner string) (bool, error) {
 	var count int64
-	err := r.db.Model(&model.DramaStyleLibraryEntry{}).Where("project_type = ? AND name = ? AND id <> ?", projectType, name, exceptID).Count(&count).Error
+	err := r.db.Model(&model.DramaStyleLibraryEntry{}).Where("project_type = ? AND name = ? AND id <> ? AND scope_owner = ?", projectType, name, exceptID, scopeOwner).Count(&count).Error
 	return count > 0, err
 }
 
@@ -66,9 +66,14 @@ func (r *Repository) DeleteDramaStyleLibraryEntry(id string) error {
 
 // ApplyDramaStyleLock 在一个事务里写项目的锁定风格：bible_json，和主基调色卡资产（新建资产、第 1 个版本、项目关联，
 // 或给已有的主色卡加一个版本并换成主版本）。
-func (r *Repository) ApplyDramaStyleLock(userID string, projectID string, bibleJSON string, palette DramaPaletteWrite, now time.Time) error {
+func (r *Repository) ApplyDramaStyleLock(userID string, projectID string, bibleJSON string, palette DramaPaletteWrite, now time.Time, profileJSON string, presetID string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&model.Project{}).Where("id = ? AND user_id = ?", projectID, userID).Updates(map[string]any{"bible_json": bibleJSON, "updated_at": now})
+		values := map[string]any{"bible_json": bibleJSON, "updated_at": now}
+		if profileJSON != "" {
+			values["style_profile_json"] = profileJSON
+			values["style_preset_id"] = presetID
+		}
+		result := tx.Model(&model.Project{}).Where("id = ? AND user_id = ?", projectID, userID).Updates(values)
 		if result.Error != nil {
 			return result.Error
 		}

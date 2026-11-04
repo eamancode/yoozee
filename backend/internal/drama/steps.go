@@ -9,8 +9,8 @@ import "slices"
 const (
 	// StepStyleLock 是风格锁定（建项目时的导演风格分析）：项目类型 + 风格文字 + 参考图 + 画风 → 全局风格锚 + 主基调色卡（分组色板）。
 	StepStyleLock = "style.lock"
-	// ContractStyleLock 是风格锁定的输出契约：第一行风格锚，之后每组一行色板。
-	ContractStyleLock = "style.lock@1"
+	// ContractStyleLock 是风格锁定的输出契约：完整公共视觉字段、导演风格锚和分组色板。
+	ContractStyleLock = "style.lock@2"
 	// StepChapterShots 是生成分段：一章正文 → 镜头行（带 spec）。
 	StepChapterShots = "chapter.shots"
 	// ContractChapterShots 是生成分段的输出契约版本；改契约就加版本号并换 schema 文件。
@@ -143,6 +143,15 @@ type Step struct {
 
 var steps = []Step{
 	{
+		ID: StepSpeechExtract, Label: "声音台账", Scope: StepScopeUnit, Contract: ContractSpeechExtract,
+		DefaultSkill: "yz-speech-extract", SkillBudgetChars: 32000, SkillLinkedFiles: 3,
+		Inputs:     []StepInput{{Name: "source", Label: "完整剧本与场段编号", Source: "当前单元保存的完整正文，不从镜头回推"}},
+		TaskSource: "short-drama-speech-extract", EvalConcurrency: 1,
+		Gate:    StepGate{Metrics: []string{GateParseRate}, ParseRate: 1},
+		EvalSet: []StepEvalChapter{{ID: "qichuang-e01", Profile: "live-realism", Label: "《七床》第一集（独立提取全部声音）"}},
+		Turns:   TurnPlan{Unit: "轮", Count: CountSpeechExtractTurn},
+	},
+	{
 		ID:       StepStyleLock,
 		Label:    "风格锁定",
 		Scope:    StepScopeProject,
@@ -152,7 +161,7 @@ var steps = []Step{
 			{Name: "brief", Label: "【项目需求】", Source: "需求文档 brief_json 的片名、用途、平台、口味、约束、不做的事等，共 1500 字"},
 			{Name: "projectStyle", Label: "【项目画风：…】", Source: "项目画风快照 styleProfileJson 的 title、selection 与 prompt，按小节取到 1200 字；没选画风时不写"},
 			{Name: "profile", Label: "【风格档案：…】", Source: "项目风格档案（profiles/*.json）的名称、画面质感段（style_block.zh，600 字）与光线政策"},
-			{Name: "contract", Label: "【受保护输出契约】", Source: "style.lock@1 schema 生成（第一行风格锚，之后每组一行色板）"},
+			{Name: "contract", Label: "【受保护输出契约】", Source: "style.lock@2 schema 生成（完整公共风格字段、导演风格锚、分组色板）"},
 		},
 		Parser:           "一轮；StyleLockFromText 逐行解析风格锚和分组色板（缺括号补齐、字段类型不符单字段降级），CountStyleLockTurn 当轮校验；收尾只写进任务结果，用户点「锁定此风格」才写 bible_json 并合成主色卡",
 		Checks:           []string{"CheckStyleLock（R-LOCK-*：有风格锚、至少 4 色、HEX 是 #RRGGBB；缺主角组或环境组、缺色名、HEX 重复、字段降级读出是 warn）"},

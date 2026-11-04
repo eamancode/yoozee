@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 92
+const CurrentSchemaVersion int64 = 93
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -336,6 +336,34 @@ var schemaMigrations = []migration{
 	{version: 90, name: "user_groups_pricing_currency", checksum: "sha256:user-groups-pricing-currency-v75-20261028", apply: migrateUserGroupsPricingCurrency},
 	{version: 91, name: "agent_memory_document_skill_discovery", checksum: "sha256:agent-memory-document-skill-discovery-v76-20261028", apply: migrateAgentMemoryDocumentSkillDiscovery},
 	{version: 92, name: "agent_memory_document_columns", checksum: "sha256:agent-memory-document-columns-v77-20261028", apply: migrateAgentMemoryDocumentColumns},
+	{version: 93, name: "personal_director_style_scope", checksum: "sha256:personal-director-style-scope-v93", apply: migratePersonalDirectorStyleScope},
+}
+
+func migratePersonalDirectorStyleScope(tx *gorm.DB) error {
+	if !tx.Migrator().HasColumn(&model.DramaStyleLibraryEntry{}, "StyleProfileJSON") {
+		if err := tx.Migrator().AddColumn(&model.DramaStyleLibraryEntry{}, "StyleProfileJSON"); err != nil {
+			return err
+		}
+	}
+	if !tx.Migrator().HasColumn(&model.ProjectUnit{}, "SpeechLedgerJSON") {
+		if err := tx.Migrator().AddColumn(&model.ProjectUnit{}, "SpeechLedgerJSON"); err != nil {
+			return err
+		}
+	}
+	if !tx.Migrator().HasColumn(&model.DramaStyleLibraryEntry{}, "ScopeOwner") {
+		if err := tx.Migrator().AddColumn(&model.DramaStyleLibraryEntry{}, "ScopeOwner"); err != nil {
+			return err
+		}
+	}
+	if err := tx.Model(&model.DramaStyleLibraryEntry{}).Where("source IN ?", []string{"director", "analysis"}).Update("scope_owner", gorm.Expr("created_by")).Error; err != nil {
+		return err
+	}
+	if tx.Migrator().HasIndex(&model.DramaStyleLibraryEntry{}, "idx_drama_style_library_name") {
+		if err := tx.Migrator().DropIndex(&model.DramaStyleLibraryEntry{}, "idx_drama_style_library_name"); err != nil {
+			return err
+		}
+	}
+	return tx.Migrator().CreateIndex(&model.DramaStyleLibraryEntry{}, "idx_drama_style_library_name")
 }
 
 // legacyProjectTypes 是改版前的项目类型取值 → 画面类型。

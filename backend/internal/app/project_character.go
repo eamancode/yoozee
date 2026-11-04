@@ -664,6 +664,9 @@ func (s *Service) prepareNextCharacterVersion(asset *model.Asset, name string, d
 			return model.Asset{}, model.AssetVersion{}, nil, nil, err
 		}
 		rebuilt["metadata"] = metadata
+		if replacementRepresentations != nil {
+			metadata[assetImageKey] = dramaImageState{Status: dramaImageBound, UpdatedAt: now.Format(time.RFC3339Nano)}
+		}
 		raw, err := json.Marshal(rebuilt)
 		if err != nil {
 			return model.Asset{}, model.AssetVersion{}, nil, nil, err
@@ -710,14 +713,12 @@ func (s *Service) characterCardVersion(userID string, version *model.AssetVersio
 		return CharacterCardSummary{}, err
 	}
 	representations := make([]CharacterRepresentationSummary, 0, len(stored))
-	roles := make(map[string]bool, len(stored))
 	for _, representation := range stored {
 		representations = append(representations, CharacterRepresentationSummary{ID: representation.ID, ResourceID: representation.ResourceID, MediaType: representation.MediaType, Role: representation.Role})
-		roles[representation.Role] = true
 	}
 	visualStatus := "missing"
 	// 新角色只需要一张完整的三视图设定图；旧版本的三张视图仍按原规则兼容读取。
-	if roles["turnaround_sheet"] || (roles["front"] && roles["side"] && roles["back"]) {
+	if characterRepresentationsReady(stored) {
 		visualStatus = "ready"
 	} else if len(representations) > 0 {
 		visualStatus = "partial"
@@ -737,6 +738,22 @@ func (s *Service) characterCardVersion(userID string, version *model.AssetVersio
 		return CharacterCardSummary{}, bindingErr
 	}
 	return CharacterCardSummary{VersionID: version.ID, Version: version.Version, Definition: definition, Representations: representations, Voice: voice, VisualStatus: visualStatus, VoiceStatus: voiceStatus}, nil
+}
+
+func characterRepresentationsReady(reps []model.AssetRepresentation) bool {
+	roles := map[string]bool{}
+	for _, rep := range reps {
+		roles[rep.Role] = true
+		if rep.Role == "primary" {
+			var metadata struct {
+				Source string `json:"source"`
+			}
+			if json.Unmarshal([]byte(rep.MetadataJSON), &metadata) == nil && metadata.Source == "manual-upload" {
+				return true
+			}
+		}
+	}
+	return roles["turnaround_sheet"] || (roles["front"] && roles["side"] && roles["back"])
 }
 
 func (s *Service) characterAssetDetail(userID string, asset *model.Asset) (CharacterAssetSummary, error) {

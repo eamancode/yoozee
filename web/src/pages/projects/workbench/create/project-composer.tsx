@@ -16,6 +16,8 @@ import { continueProjectPipeline } from "../detail/project-chapter-ai";
 import { dramaRunModeLabel, findDramaModel, preferredDramaModel, useDramaChannelFamilies, useDramaModels } from "../drama-model";
 import { uploadStyleReferenceImages } from "../project-style-inputs";
 import { ComposerSectionShell, ProductionSection, StyleSourceSection, VisualTypeCards } from "./composer-sections";
+import { CanvasStylePickerModal } from "@/components/canvas/canvas-style-picker-modal";
+import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import { composerSectionOfError, createProjectWithUniqueName, generateIdeaChapters, type ComposerSection } from "./create-project-flow";
 import { clearProjectDraft, EMPTY_PROJECT_DRAFT, loadProjectDraft, projectDraftHasContent, saveProjectDraft, type ProjectCreateDraft } from "./project-draft";
 import { importedUnits, SourceImportModal, type ImportedProjectSource } from "./source-import-modal";
@@ -59,6 +61,7 @@ function AccountProjectComposer({ userId }: { userId: string }) {
     const submittingRef = useRef(false);
     const lifetime = useRef<AbortController | null>(null);
     const [images, setImages] = useState<File[]>([]);
+    const [publicStyleOpen, setPublicStyleOpen] = useState(false);
     const [importOpen, setImportOpen] = useState(false);
     const [importFile, setImportFile] = useState<File>();
     const [editingName, setEditingName] = useState(false);
@@ -284,6 +287,7 @@ function AccountProjectComposer({ userId }: { userId: string }) {
                     visualType: draft.visualType!,
                     style: draft.styleMode === "library" ? { mode: "library", styleId: draft.styleId! } : { mode: "director", ...(draft.styleBrief.trim() ? { brief: draft.styleBrief.trim() } : {}), ...(refImageIds.length ? { refImageIds } : {}) },
                     aspectRatio: draft.aspectRatio,
+                    ...(draft.publicStyle ? { stylePresetId: draft.publicStyle.presetId, styleProfileJson: serializeStyleProfile(draft.publicStyle) } : {}),
                     segmentSeconds: draft.segmentSeconds,
                     generationModel: model?.id || recommendedModel,
                     runMode: draft.runMode,
@@ -502,6 +506,14 @@ function AccountProjectComposer({ userId }: { userId: string }) {
                     </ComposerSectionShell>
 
                     <ComposerSectionShell id="style" index={3} title="画风从哪来" error={errors.style}>
+                        <div className="mb-4 flex items-center gap-3">
+                            <Button onClick={() => setPublicStyleOpen(true)}>打开风格中心</Button>
+                            <span>{draft.publicStyle?.title || "选择公共视觉风格，导演将在此基础上补充项目风格"}</span>
+                        </div>
+                        <CanvasStylePickerModal open={publicStyleOpen} value={draft.publicStyle?.presetId} currentProfile={draft.publicStyle} onClose={() => setPublicStyleOpen(false)} onSelect={(preset) => {
+                            update({ publicStyle: preset.profile || createStyleProfileSnapshot(preset), styleMode: "director", styleId: undefined });
+                            setPublicStyleOpen(false);
+                        }} />
                         <StyleSourceSection
                             mode={draft.styleMode}
                             visualType={draft.visualType}

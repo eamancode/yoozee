@@ -1,13 +1,13 @@
-import { App, Button, Checkbox, Input, Modal, Popconfirm, Radio, Select } from "antd";
-import { ChevronDown, Pencil, Plus, Sparkles, Trash2, UserRound } from "lucide-react";
+import { App, Button, Checkbox, Input, Modal, Popconfirm, Radio, Select, Upload } from "antd";
+import { ChevronDown, Pencil, Plus, Sparkles, Trash2, Upload as UploadIcon, UserRound } from "lucide-react";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { getProjectDramaScenes, queueDramaAssetImages, type DramaImageTaskTemplate } from "@/services/api/project-drama";
-import { createDramaAssetVariant, deleteDramaAssetVariant, updateDramaAssetVariant, type DramaAssetVariantInput, type DramaAssetVariantKind, type ProjectAsset } from "@/services/api/projects";
-import { resourceFileUrl } from "@/services/api/resources";
+import { createDramaAssetVariant, deleteDramaAssetVariant, replaceProjectCharacterRepresentations, updateDramaAssetVariant, type DramaAssetVariantInput, type DramaAssetVariantKind, type ProjectAsset } from "@/services/api/projects";
+import { resourceFileUrl, uploadResourceFile } from "@/services/api/resources";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { assetImageTaskTemplate } from "./drama-image-task";
@@ -49,6 +49,15 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
         return assetImageTaskTemplate(config, model);
     };
     const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ["project", projectId] }), queryClient.invalidateQueries({ queryKey: ["project", projectId, "assets"] })]);
+    const uploadMutation = useMutation({
+        mutationFn: async ({ variant, file }: { variant: ProjectAsset; file: File }) => {
+            if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new Error("请上传 PNG、JPEG 或 WebP 图片");
+            const resource = await uploadResourceFile(file, "image", { fileName: file.name });
+            return replaceProjectCharacterRepresentations(projectId, variant.id, [{ role: "primary", resourceId: resource.id, metadata: { source: "manual-upload" } }]);
+        },
+        onSuccess: async () => { await refresh(); message.success("子卡图片已替换并保存为新版本"); },
+        onError: (error) => message.error(error instanceof Error ? error.message : "子卡图片替换失败"),
+    });
     const saveMutation = useMutation({
         mutationFn: async () => {
             const input: DramaAssetVariantInput = {
@@ -166,6 +175,9 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                                         aria-label={`${ready ? "重新出" : "出"}子卡「${variant.title}」的三视图`}
                                     />
                                     <Button type="text" size="small" className="!h-6 !px-1" icon={<Pencil className="size-3.5" />} onClick={() => open(variant)} aria-label={`编辑子卡「${variant.title}」`} />
+                                    <Upload accept="image/png,image/jpeg,image/webp" showUploadList={false} disabled={uploadMutation.isPending} beforeUpload={(file) => { uploadMutation.mutate({ variant, file }); return false; }}>
+                                        <Button type="text" size="small" icon={<UploadIcon className="size-3.5" />} loading={uploadMutation.isPending && uploadMutation.variables?.variant.id === variant.id} aria-label={`上传替换子卡「${variant.title}」的图片`}>上传替换</Button>
+                                    </Upload>
                                     <Popconfirm title="移出这张子卡？" description="被镜头引用时不能移出，会列出引用它的镜头。" okText="移出" cancelText="取消" onConfirm={() => deleteMutation.mutate(variant)}>
                                         <Button
                                             type="text"
@@ -210,7 +222,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                 styles={{ body: { paddingTop: 12 } }}
             >
                 <div className="grid gap-3 text-xs">
-                    <p className="leading-5 text-foreground/55">子卡是「{parent.title}」的另一套服装或状态：脸型、五官、发型、体型照主卡，只换这里写的部分；出三视图时带主卡三视图作参考。</p>
+                    <p className="leading-5 text-foreground/55">子卡继承「{parent.title}」的稳定身份特征；服装、年龄阶段和临时状态以子卡明确的差异为准。生成时携带主卡参考，也可以手动上传图片替换。</p>
                     <label className="grid gap-1.5">
                         <span className="font-medium text-foreground/68">变体名</span>
                         <Input value={form.label} maxLength={24} placeholder="如 西服、淋湿、受伤" onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))} status={/[·・•]/.test(form.label) ? "error" : undefined} />

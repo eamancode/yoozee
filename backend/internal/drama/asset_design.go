@@ -5,6 +5,8 @@ import "slices"
 // AssetDesign preserves the attachment's evidence, cross references and chronology
 // separately from the single paragraph used to describe the default appearance.
 type AssetDesign struct {
+	ProductionPriority string          `json:"production_priority,omitempty"`
+	BodyDescription    string          `json:"body_description,omitempty"`
 	Role               string          `json:"role,omitempty"`
 	IdentityAppearance string          `json:"identity_appearance,omitempty"`
 	Clothing           string          `json:"clothing,omitempty"`
@@ -39,6 +41,13 @@ func MergeAssetDesign(first, next *AssetDesign) *AssetDesign {
 		return first
 	}
 	out := *first
+	if out.BodyDescription == "" {
+		out.BodyDescription = next.BodyDescription
+	}
+	priority := map[string]int{"": 0, "low": 1, "medium": 2, "high": 3}
+	if priority[next.ProductionPriority] > priority[out.ProductionPriority] {
+		out.ProductionPriority = next.ProductionPriority
+	}
 	for _, field := range [][2]*string{{&out.Role, &next.Role}, {&out.IdentityAppearance, &next.IdentityAppearance}, {&out.Clothing, &next.Clothing}, {&out.PropDesign, &next.PropDesign}, {&out.SpatialLayout, &next.SpatialLayout}} {
 		if *field[0] == "" {
 			*field[0] = *field[1]

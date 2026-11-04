@@ -24,11 +24,12 @@ var contractFS embed.FS
 
 // contractFiles 是契约版本 → schema 文件。
 var contractFiles = map[string]string{
+	ContractSpeechExtract:    "contracts/speech.extract.v1.schema.json",
 	ContractCanvasStoryboard: "contracts/chapter.shots.v2.schema.json",
 	ContractChapterShots:     "contracts/chapter.shots.v3.schema.json",
 	ContractScriptAdapt:      "contracts/script.adapt.v1.schema.json",
 	ContractScenePalette:     "contracts/scene.palette.v1.schema.json",
-	ContractStyleLock:        "contracts/style.lock.v1.schema.json",
+	ContractStyleLock:        "contracts/style.lock.v2.schema.json",
 	ContractAssetsExtract:    "contracts/assets.extract.v1.schema.json",
 }
 

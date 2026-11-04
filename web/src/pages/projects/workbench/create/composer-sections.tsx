@@ -154,6 +154,7 @@ export function StyleSourceSection(props: {
     onStyle: (item?: DramaStyleLibraryItem) => void;
 }) {
     const { mode, visualType, brief, images, styleId, items, loading, onMode, onBrief, onImages, onStyle } = props;
+    const selectedStyle = items.find((item) => item.id === styleId);
     return (
         <>
             <ChoiceGroup
@@ -167,11 +168,11 @@ export function StyleSourceSection(props: {
                     value === "director" ? (
                         <>
                             <strong>交给导演分析</strong>
-                            <span>拆完剧本先由导演定画风，结果存进风格中心</span>
+                            <span>导演结合公共风格与剧本定画风，结果仅自己可见</span>
                         </>
                     ) : (
                         <>
-                            <strong>从风格中心挑</strong>
+                            <strong>使用已保存的导演风格</strong>
                             <span>直接用现成的风格，跳过全局风格分析</span>
                         </>
                     )
@@ -195,6 +196,7 @@ export function StyleSourceSection(props: {
                 </div>
             ) : (
                 <div className="project-create-style-library">
+                    {selectedStyle?.styleProfile ? <details className="mb-3 rounded border border-border p-3"><summary className="cursor-pointer">完整风格规范与导演字段 · {selectedStyle.styleProfile.title}</summary><p className="mt-2">{selectedStyle.styleProfile.description}</p><p>{selectedStyle.styleProfile.tags.join(" · ")}</p><p className="max-h-72 overflow-y-auto whitespace-pre-wrap">{selectedStyle.styleProfile.prompt}</p>{selectedStyle.styleProfile.negativePrompt ? <p>禁用：{selectedStyle.styleProfile.negativePrompt}</p> : null}</details> : null}
                     {!visualType ? (
                         <p className="project-create-note">先选画面类型，风格中心只列这个类型的风格。</p>
                     ) : loading ? (

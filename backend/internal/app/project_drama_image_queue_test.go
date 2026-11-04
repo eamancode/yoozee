@@ -107,6 +107,36 @@ func TestDramaImageInvalidSelectionDoesNotPartiallyReset(t *testing.T) {
 	}
 }
 
+func TestLowPriorityPropsRemainOptionalUntilExplicitSelection(t *testing.T) {
+	svc, db, project, template, calls := assetQueueFixture(t)
+	asset, err := svc.repo.AssetForUser("user-1", "asset-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := assetPayload(asset)
+	payload["data"] = map[string]any{"definition": map[string]any{"productionPriority": "low"}}
+	raw, _ := json.Marshal(payload)
+	if err := db.Model(&model.Asset{}).Where("id = ?", asset.ID).Updates(map[string]any{"category": model.AssetCategoryProp, "payload_json": string(raw)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	queued, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range append(queued.Queued, queued.Waiting...) {
+		if id == asset.ID {
+			t.Fatal("background prop queued by default")
+		}
+	}
+	explicit, err := svc.QueueDramaAssetImages("user-1", project.ID, DramaAssetImagesRequest{ImageTask: &template, AssetIDs: []string{asset.ID}})
+	if err != nil || len(explicit.Waiting) != 1 || explicit.Waiting[0] != asset.ID {
+		t.Fatalf("manual selection unavailable: %+v %v", explicit, err)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("queue test must not invoke image model")
+	}
+}
+
 func TestDramaImageStaleCompletionCannotReplaceResumedState(t *testing.T) {
 	svc, _, project, _, _ := assetQueueFixture(t)
 	state := dramaImageState{Status: dramaImageQueued, TaskID: "new-task", BatchID: "new-batch", AutoRetryCount: 1}

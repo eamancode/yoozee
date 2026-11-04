@@ -13,7 +13,9 @@ import (
 var (
 	beatIDPattern     = regexp.MustCompile(`^E\p{Nd}{2}S\p{Nd}{2}[a-z]?[LB]\p{Nd}{2,3}$`)
 	beatIDTailPattern = regexp.MustCompile(`([LB])(\p{Nd}+)$`)
-	scriptLinePattern = regexp.MustCompile(`^([^：:（(]{1,8})(（[^）]*）)?[：:][\s\p{Z}]*[“"]?(.+?)[”"]?$`)
+	scriptLinePattern = regexp.MustCompile(`^([^：:（(]{1,8})([（(][^）)]*[）)])?[：:][\s\p{Z}]*[“"]?(.+?)[”"]?$`)
+	speechCuePrefix   = regexp.MustCompile(`^[\s\p{Z}]*([（(][^）)]*[）)])[\s\p{Z}]*`)
+	speechVOCue       = regexp.MustCompile(`(?i)画外|旁白|\bO\.?S\.?\b|\bV\.?O\.?\b`)
 	lineBreakPattern  = regexp.MustCompile(`\r\n|[\n\r\v\f\x1c\x1d\x1e\x{85}\x{2028}\x{2029}]`)
 )
 

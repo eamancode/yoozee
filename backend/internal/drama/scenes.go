@@ -319,8 +319,21 @@ func sceneBeats(lines []string) ([]ScriptBeat, []string) {
 		m := scriptLinePattern.FindStringSubmatch(ln)
 		if m != nil && !strings.HasPrefix(ln, "（") && !strings.HasPrefix(ln, "(") && !strings.HasPrefix(ln, "△") && !strings.HasPrefix(ln, "▲") && !screenTextSpeaker(strings.TrimSpace(m[1]), nil) {
 			who, said := strings.TrimSpace(m[1]), strings.TrimSpace(m[3])
+			cue := m[2]
+			for {
+				prefix := speechCuePrefix.FindStringSubmatch(said)
+				if prefix == nil {
+					break
+				}
+				cue += prefix[1]
+				said = strings.TrimSpace(strings.TrimPrefix(said, prefix[0]))
+			}
+			said = strings.Trim(said, "\"“”")
+			if said == "" {
+				continue
+			}
 			kind := "line"
-			if strings.Contains(m[2], "画外") || strings.Contains(m[2], "OS") {
+			if speechVOCue.MatchString(cue) || speechVOCue.MatchString(who) {
 				kind = "vo"
 			}
 			beats = append(beats, ScriptBeat{Kind: kind, Speaker: who, Text: said, Tag: "原文事实"})

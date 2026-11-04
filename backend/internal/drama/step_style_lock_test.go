@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const styleLockOutput = `{"style_anchor": {"medium": "真人实拍", "lighting": "实景光源，冷暖分区", "camera": "克制，定焦", "grading": "低饱和冷调", "forbidden": ["霓虹", "HDR"]}}
+const styleLockOutput = `{"style_profile":{"title":"都市悬疑","description":"冷调实景","tags":["悬疑"],"prompt":"【视觉媒介】真人实拍\n【角色设计系统】自然比例","negativePrompt":"霓虹、HDR"},"style_anchor": {"medium": "真人实拍", "lighting": "实景光源，冷暖分区", "camera": "克制，定焦", "grading": "低饱和冷调", "forbidden": ["霓虹", "HDR"]}}
 {"group": "主角组", "colors": [{"name_zh": "护士蓝", "name_en": "Nurse Blue", "hex": "5b7fa3", "usage": "林小满制服"}, {"name_zh": "苍白肤", "name_en": "Pale Skin", "hex": "#E3D3C4", "usage": "主角肤色"}]}
 {"group": "配角", "colors": [{"name_zh": "病号条纹", "name_en": "Patient Stripe", "hex": "#8DA1B9", "usage": "病人服"}]}
 {"group": "道具组", "colors": [{"name_zh": "铁锈红", "name_en": "Rust Red", "hex": "#7A3B2E", "usage": "七床床牌"}]}

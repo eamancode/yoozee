@@ -22,7 +22,7 @@ export function AssetImageRecovery({
     onSubmit: (selection: { model: string; assetIds: string[] }) => void;
 }) {
     const [model, setModel] = useState(defaultModel);
-    const [ids, setIds] = useState(() => assets.map((asset) => asset.id));
+    const [ids, setIds] = useState(() => assets.filter((asset) => asset.visual?.definition.productionPriority !== "low").map((asset) => asset.id));
     return (
         <AppModal
             open
@@ -45,6 +45,7 @@ export function AssetImageRecovery({
                         <div key={asset.id}>
                             <Checkbox checked={ids.includes(asset.id)} onChange={(event) => setIds((current) => (event.target.checked ? [...current, asset.id] : current.filter((id) => id !== asset.id)))}>
                                 {asset.title} · {assetImageQueueLabel(asset.image) || "未出图"}
+                                {asset.visual?.definition.productionPriority === "low" ? " · 背景道具（默认暂不出图，可手动选择）" : ""}
                             </Checkbox>
                             {asset.image?.error ? <p className="ml-6 break-words text-xs text-foreground/55">{asset.image.error}</p> : null}
                         </div>

@@ -276,17 +276,18 @@ type StyleProfile struct {
 }
 
 type ProjectUnit struct {
-	ID         string            `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID  string            `json:"projectId" gorm:"index;size:36;index:idx_project_units_project_position,priority:1"`
-	ParentID   string            `json:"parentId,omitempty" gorm:"index;size:36"`
-	Kind       ProjectUnitKind   `json:"kind" gorm:"index;size:24"`
-	Title      string            `json:"title" gorm:"size:240"`
-	SourceText string            `json:"sourceText" gorm:"type:text"`
-	WordCount  int               `json:"wordCount"`
-	Status     ProjectUnitStatus `json:"status" gorm:"index;size:24"`
-	Position   int               `json:"position" gorm:"index:idx_project_units_project_position,priority:2"`
-	CreatedAt  time.Time         `json:"createdAt"`
-	UpdatedAt  time.Time         `json:"updatedAt"`
+	SpeechLedgerJSON string            `json:"-" gorm:"type:text"`
+	ID               string            `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID        string            `json:"projectId" gorm:"index;size:36;index:idx_project_units_project_position,priority:1"`
+	ParentID         string            `json:"parentId,omitempty" gorm:"index;size:36"`
+	Kind             ProjectUnitKind   `json:"kind" gorm:"index;size:24"`
+	Title            string            `json:"title" gorm:"size:240"`
+	SourceText       string            `json:"sourceText" gorm:"type:text"`
+	WordCount        int               `json:"wordCount"`
+	Status           ProjectUnitStatus `json:"status" gorm:"index;size:24"`
+	Position         int               `json:"position" gorm:"index:idx_project_units_project_position,priority:2"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
 }
 
 type CanvasUnitLink struct {
@@ -457,13 +458,14 @@ type DramaStepBinding struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-// DramaStyleLibraryEntry 是平台风格库的一条（M8）：建项目时锁定的风格（风格锚 + 主基调色卡），按项目类型归档，团队共享——
-// 登录用户都能看、能新增；改名、改色板、删除限管理员或创建者。项目选用时把风格锚和色板复制进自己的 bible_json，条目之后改了或删了不影响已选的项目。
+// DramaStyleLibraryEntry 保存公共预置或创建人私有的导演风格；选用时复制快照，后续编辑不改变已选项目。
 type DramaStyleLibraryEntry struct {
-	ID string `json:"id" gorm:"primaryKey;size:36"`
+	StyleProfileJSON string `json:"styleProfileJson" gorm:"type:text"`
+	ID               string `json:"id" gorm:"primaryKey;size:36"`
+	ScopeOwner       string `json:"-" gorm:"size:36;not null;default:'';uniqueIndex:idx_drama_style_library_name,priority:3"`
 	// ProjectType 是画面类型：live_action / cg_real / anime_3d / anime_2d（与项目 visual_type 同值）。
 	ProjectType string `json:"projectType" gorm:"size:32;not null;index:idx_drama_style_library_type,priority:1;uniqueIndex:idx_drama_style_library_name,priority:1"`
-	// Name 在同一项目类型里不重名（唯一索引 idx_drama_style_library_name）。
+	// Name 在同一项目类型和个人/公共作用域里不重名。
 	Name        string `json:"name" gorm:"size:120;not null;uniqueIndex:idx_drama_style_library_name,priority:2"`
 	Description string `json:"description" gorm:"size:500"`
 	// StyleAnchorJSON / MasterPaletteJSON 是风格锚和主基调色卡（与 bible_json.style_anchor / master_palette 同一形状）。

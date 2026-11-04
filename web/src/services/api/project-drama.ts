@@ -2,6 +2,8 @@ import { ApiError, http } from "@/services/api/request";
 import { API_ERROR_REASON } from "@/services/api/error-codes";
 import type { GenerationTask } from "@/services/api/task-center";
 import type { ShotArtifact } from "@/services/api/projects";
+import type { StyleProfileSnapshot } from "@/lib/canvas/style-profile";
+export type DramaVisualStyleFields = Pick<StyleProfileSnapshot, "title" | "description" | "tags" | "prompt" | "negativePrompt">;
 
 /** 可选的视频生成模型族（kb-dialects/models.json）。一段最长 duration.max 秒。 */
 export type DramaModel = {
@@ -529,7 +531,7 @@ export function recommendDramaStyleProfile(styleMap: DramaStyleProfiles["styleMa
 }
 
 /** 短剧流程步骤：style.lock 是风格锁定、script.adapt 是剧本优化、scene.palette 是场次色卡（项目级），assets.extract 是资产设计、chapter.shots 是生成分段（按章节或剧集）。 */
-export type DramaStepId = "chapter.shots" | "style.lock" | "script.adapt" | "scene.palette" | "assets.extract";
+export type DramaStepId = "chapter.shots" | "style.lock" | "script.adapt" | "scene.palette" | "assets.extract" | "speech.extract";
 
 /** 一个项目跑这一步用哪个技能版本（风格档案查绑定；bound 为 false 时是步骤默认技能）。 */
 export type DramaStepUsage = {
@@ -567,7 +569,7 @@ export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?:
 export function runDramaStep(
     projectId: string,
     unitId: string,
-    step: "chapter.shots" | "assets.extract",
+    step: "chapter.shots" | "assets.extract" | "speech.extract",
     input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule; resumeTaskId?: string; onlyScenes?: string[]; onlySections?: string[]; discard?: boolean; imageTask?: DramaImageTaskTemplate },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
@@ -775,6 +777,7 @@ export type DramaChainedAssets = { step: "assets.extract"; taskId?: string; unit
 
 /** 风格锁定收尾的结果（任务 result.dramaStep）：candidate 是候选（等用户点「锁定此风格」），locked 是建项目时只选了画风、收尾已直接锁定。 */
 export type DramaStyleLockOutcome = {
+    styleProfile?: DramaVisualStyleFields;
     step: "style.lock";
     status: "candidate" | "locked";
     source: "analysis" | "preset";

@@ -1,12 +1,14 @@
 import { apiBaseURL, compactApiParams, http } from "@/services/api/request";
 import type { DramaMasterPalette, DramaStyleAnchor, DramaStyleLockRecord } from "@/services/api/project-drama";
 import type { ProjectAsset } from "@/services/api/projects";
+import type { StyleProfileSnapshot } from "@/lib/canvas/style-profile";
 
 /** 画面类型（与项目 visualType 同值），平台风格库按它归档。 */
 export type DramaProjectTypeOption = { value: string; label: string };
 
 /** 平台风格库的一条：风格锚 + 主基调色卡，按项目类型归档，团队共享；canEdit 是当前用户能不能改、删（管理员或创建者）。 */
 export type DramaStyleLibraryItem = {
+    styleProfile?: StyleProfileSnapshot;
     id: string;
     projectType: string;
     projectTypeLabel: string;

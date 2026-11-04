@@ -46,6 +46,7 @@ const SOURCE_LABELS: Record<string, string> = { analysis: "风格分析后锁定
 
 function StyleLockRunGroups(stream: StyleLockStreamState) {
     const groups = stream.anchor ? [{ key: "anchor", title: "全局风格锚", meta: "", body: <StyleAnchorSummary anchor={stream.anchor} /> }] : [];
+    if (stream.profile) groups.unshift({ key: "profile", title: stream.profile.title, meta: stream.profile.tags.join(" · "), body: <div className="space-y-3"><p>{stream.profile.description}</p><p className="whitespace-pre-wrap">{stream.profile.prompt}</p>{stream.profile.negativePrompt ? <p className="whitespace-pre-wrap">禁用：{stream.profile.negativePrompt}</p> : null}</div> });
     if (stream.colorCount)
         groups.push({ key: "palette", title: "主基调色卡", meta: `${stream.palette.groups.length} 组 · ${stream.colorCount} 色${stream.attempt > 1 ? ` · 第 ${stream.attempt} 次` : ""}`, body: <MasterPaletteGroups palette={stream.palette} /> });
     return groups;
@@ -91,7 +92,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
     const stop = useMemo(() => (taskDetail ? storyboardRunStop(taskDetail, dramaRunProgressOf(taskDetail)) : undefined), [taskDetail]);
     const streamState = useMemo(() => {
         if (running || (stream.text && (stream.taskId === taskDetail?.id || !taskDetail))) return parseStyleLockStream(stream.text);
-        if (outcome) return { anchor: outcome.styleAnchor, palette: outcome.masterPalette, attempt: 1, colorCount: masterPaletteColors(outcome.masterPalette).length };
+        if (outcome) return { profile: outcome.styleProfile, anchor: outcome.styleAnchor, palette: outcome.masterPalette, attempt: 1, colorCount: masterPaletteColors(outcome.masterPalette).length };
         return parseStyleLockStream("");
     }, [outcome, running, stream, taskDetail]);
     // 这次分析的候选有没有锁进项目：项目的锁定记录指向这个任务。
@@ -183,7 +184,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
             const item = await saveDramaStyleToLibrary({ projectId, name: saveName });
             await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: dramaStyleLibraryKey(item.projectType) }), queryClient.invalidateQueries({ queryKey: dramaStyleLibraryKey() })]);
             setSaveOpen(false);
-            message.success(`已存进风格库「${item.projectTypeLabel}」：${item.name}，团队里建同类型项目时都能选`);
+            message.success(`已保存个人导演风格「${item.projectTypeLabel}」：${item.name}，仅你可见`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "存进风格库失败");
         } finally {
@@ -286,7 +287,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                 </div>
             </Modal>
             <Modal className="library-modal" title="存进风格库" open={saveOpen} width={460} okText="存进去" cancelText="取消" okButtonProps={{ disabled: !saveName.trim(), loading: saving }} onCancel={() => setSaveOpen(false)} onOk={() => void save()}>
-                <p className="mb-3 text-xs leading-5 text-foreground/55">风格锚和主基调色卡按项目类型存进平台风格库，团队里所有账号建同类型项目时都能直接选用；管理员和你可以改名、删除。</p>
+                <p className="mb-3 text-xs leading-5 text-foreground/55">基础风格字段、导演风格锚和主基调色卡按项目类型保存为个人导演风格，仅创建人可查看、选用、改名和删除。</p>
                 <Input value={saveName} maxLength={60} showCount autoFocus placeholder="例如：都市冷调悬疑" onChange={(event) => setSaveName(event.target.value)} onPressEnter={() => saveName.trim() && void save()} />
             </Modal>
             <DramaRunPanel

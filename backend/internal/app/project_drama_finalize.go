@@ -88,6 +88,13 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 		return false, nil
 	}
 	switch meta.Step {
+	case drama.StepSpeechExtract:
+		outcome, err := s.applySpeechExtractTask(task, result)
+		if err != nil {
+			return false, err
+		}
+		result["dramaStep"] = outcome
+		return true, nil
 	case drama.StepChapterShots:
 		outcome, err := s.applyChapterShotsTask(task, meta, result)
 		if err != nil {

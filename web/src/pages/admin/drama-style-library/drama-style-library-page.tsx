@@ -152,7 +152,7 @@ export default function DramaStyleLibraryPage() {
     return (
         <AdminPageFrame
             title="风格库"
-            description="平台风格库：建项目时锁定的风格（风格锚 + 主基调色卡），按项目类型归档，团队所有账号建项目时可选"
+            description="公共预置风格按项目类型展示；个人导演风格仅创建人可见，管理员也不会看到他人的个人条目。"
             actions={
                 <div className="flex gap-2">
                     <Select

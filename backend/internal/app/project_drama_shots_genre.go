@@ -122,7 +122,7 @@ func sectionShotsPlan(project *model.Project, unit *model.ProjectUnit, units []m
 	anchor, _ := projectStyleBible(project.BibleJSON)
 	stepAssets, assetRecords := chapterShotsAssets(assets)
 	characters, characterRecords := chapterShotsCharacters(assets)
-	plan := drama.PlanSections(chapterPlainText(unit.SourceText), unit.Title, genre, m.Duration.Max, overrides)
+	plan := drama.PlanSectionsWithScript(chapterPlainText(unit.SourceText), unit.Title, genre, m.Duration.Max, overrides, dramaShotlistScript(unit, false))
 	if len(plan.Sections) == 0 {
 		return nil, BadAuthRequest("当前章节没有可用于分镜的正文")
 	}

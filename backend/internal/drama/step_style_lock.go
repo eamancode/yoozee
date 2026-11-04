@@ -248,6 +248,7 @@ func ProjectTypeLabel(value string) string {
 
 // StyleLockInput 是组装风格锁定提示词的全部输入。
 type StyleLockInput struct {
+	BaseFieldsJSON string
 	// ProjectType 是画面类型（live_action …）；Text 是用户写的风格文字；Images 是随任务带的参考图张数。
 	ProjectType string
 	Text        string
@@ -306,6 +307,12 @@ func BuildStyleLockPrompt(in StyleLockInput) (StepPrompt, error) {
 	}
 	text := joinTruthy([]string{
 		skillPrompt,
+		func() string {
+			if in.BaseFieldsJSON == "" {
+				return ""
+			}
+			return "【公共风格中心完整字段】\n" + in.BaseFieldsJSON + "\n保留以上基础字段的视觉约束，结合故事补充导演的媒介、美术、光线、镜头语言、调色、禁用项和主基调色卡。保存时基础风格字段与导演字段组合，不能缩减成只有色卡。"
+		}(),
 		stepBriefPrompt(in.BriefJSON, "【项目需求】定风格时遵守下面的需求。"),
 		style,
 		styleBibleProfilePrompt(in.Profile),
@@ -342,8 +349,9 @@ func StyleLockAnchorPrompt(anchor *StyleAnchor, intro string) string {
 
 // StyleLockOutput 是解析出的风格锚和主基调色卡。
 type StyleLockOutput struct {
-	Anchor  *StyleAnchor  `json:"styleAnchor,omitempty"`
-	Palette MasterPalette `json:"masterPalette"`
+	StyleProfile map[string]any `json:"styleProfile,omitempty"`
+	Anchor       *StyleAnchor   `json:"styleAnchor,omitempty"`
+	Palette      MasterPalette  `json:"masterPalette"`
 	// Coerced 是色板里字段类型不符、降级读出的说明（检查报 warn）。
 	Coerced          []string `json:"-"`
 	anchorUnreadable bool
@@ -388,6 +396,14 @@ func StyleLockFromText(text string) (StyleLockOutput, StyleLockParseStats) {
 		}
 		if repaired {
 			stats.Repaired++
+		}
+		if raw, ok := obj["style_profile"]; ok {
+			var profile map[string]any
+			if json.Unmarshal(raw, &profile) == nil {
+				out.StyleProfile = profile
+			} else {
+				stats.Invalid++
+			}
 		}
 		rawAnchor, wrapped := obj["style_anchor"]
 		if !wrapped {
@@ -480,7 +496,29 @@ func CountStyleLockTurn(text string, _ TurnContext) (int, error) {
 			return 0, fmt.Errorf("%s（%d 行读不出）", item.Message, stats.Invalid)
 		}
 	}
+	if problem := StyleProfileProblem(out.StyleProfile); problem != "" {
+		return 0, fmt.Errorf("%s", problem)
+	}
 	return stats.Colors, nil
+}
+
+func StyleProfileProblem(profile map[string]any) string {
+	for _, key := range []string{"title", "description", "prompt", "negativePrompt"} {
+		value, ok := profile[key].(string)
+		if !ok || (key == "title" || key == "prompt") && strings.TrimSpace(value) == "" {
+			return "style_profile 缺少有效字段 " + key
+		}
+	}
+	tags, ok := profile["tags"].([]any)
+	if !ok {
+		return "style_profile.tags 必须为字符串数组"
+	}
+	for _, tag := range tags {
+		if _, ok := tag.(string); !ok {
+			return "style_profile.tags 必须为字符串数组"
+		}
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------- 检查

@@ -26,7 +26,9 @@ type CreateProjectRequest struct {
 	// VisualType 是画面类型（必填，建项后不可改）：live_action / cg_real / anime_3d / anime_2d。
 	VisualType string `json:"visualType"`
 	// Style 是画风从哪来：{mode: director, brief?, refImageIds?} 交给导演分析；{mode: library, styleId} 从风格中心挑（建项时直接锁定）。
-	Style model.ProjectStyleSource `json:"style"`
+	Style            model.ProjectStyleSource `json:"style"`
+	StylePresetID    string                   `json:"stylePresetId"`
+	StyleProfileJSON string                   `json:"styleProfileJson"`
 	// AspectRatio 是画幅（建项后不可改），空则 9:16。
 	AspectRatio string `json:"aspectRatio"`
 	// SegmentSeconds 是每段时长（15 / 30 秒），写进 brief_json.segment_seconds，不能超过视频模型一段的上限；空则 15。

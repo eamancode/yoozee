@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -20,7 +21,7 @@ import (
 	"yingce/backend/internal/model"
 )
 
-const styleLockReply = `{"style_anchor": {"medium": "真人实拍", "art_style": "都市冷调悬疑", "lighting": "实景光源，冷暖分区", "camera": "定焦，克制", "grading": "低饱和冷调", "forbidden": ["霓虹", "HDR"]}}
+const styleLockReply = `{"style_profile":{"title":"都市悬疑","description":"冷调实景","tags":["悬疑"],"prompt":"【视觉媒介】真人实拍\n【角色设计系统】自然比例","negativePrompt":"霓虹、HDR"},"style_anchor": {"medium": "真人实拍", "art_style": "都市冷调悬疑", "lighting": "实景光源，冷暖分区", "camera": "定焦，克制", "grading": "低饱和冷调", "forbidden": ["霓虹", "HDR"]}}
 {"group": "主角组", "colors": [{"name_zh": "护士蓝", "name_en": "Nurse Blue", "hex": "#5B7FA3", "usage": "林小满制服"}, {"name_zh": "苍白肤", "name_en": "Pale Skin", "hex": "#E3D3C4", "usage": "主角肤色"}, {"name_zh": "墨黑发", "name_en": "Ink Black", "hex": "#1B1B1F", "usage": "主角发色"}]}
 {"group": "配角组", "colors": [{"name_zh": "病号条纹", "name_en": "Patient Stripe", "hex": "#8DA1B9", "usage": "周岸病号服"}, {"name_zh": "黑衣", "name_en": "Night Coat", "hex": "#26262B", "usage": "黑衣人"}]}
 {"group": "道具组", "colors": [{"name_zh": "铁锈红", "name_en": "Rust Red", "hex": "#7A3B2E", "usage": "七床床牌"}, {"name_zh": "刀光银", "name_en": "Blade Silver", "hex": "#B8BEC4", "usage": "刀"}]}
@@ -208,8 +209,21 @@ func TestStyleLockAnalysisLockAndLibrary(t *testing.T) {
 		t.Fatalf("项目记下存进的条目：%+v", bible["style_lock"])
 	}
 
-	// 另一个账号：风格库里看得到（不能改删），建项目选它直接带上风格锚和主色卡，不跑分析。
+	// 个人导演风格不对其他账号和管理员开放。
 	other := &model.User{ID: "user-2", Role: "user"}
+	for _, viewer := range []*model.User{other, {ID: "admin", Role: model.UserRoleAdmin}} {
+		privateList, listErr := svc.DramaStyleLibrary(viewer, drama.VisualLiveAction)
+		if listErr != nil || len(privateList.Items) != 0 {
+			t.Fatalf("个人风格不得跨账号展示: %v %+v", listErr, privateList)
+		}
+		if _, coverErr := svc.PrepareDramaStyleLibraryCoverDelivery(viewer, item.ID, ResourceAccessOptions{}, ""); coverErr == nil {
+			t.Fatal("个人封面不得跨账号读取")
+		}
+	}
+	// 后续公共库行为使用后台公共条目，不将个人条目作为共享样本。
+	if err := svc.repo.UpdateDramaStyleLibraryEntry(item.ID, map[string]any{"source": DramaStyleLibrarySourceManual, "scope_owner": ""}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	list, err := svc.DramaStyleLibrary(other, drama.VisualLiveAction)
 	if err != nil || len(list.Items) != 1 || list.Items[0].CanEdit || len(list.ProjectTypes) != 4 {
 		t.Fatalf("团队共享：%v %+v", err, list)

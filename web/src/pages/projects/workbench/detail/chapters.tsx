@@ -76,6 +76,8 @@ import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } fro
 import { chapterStoryboardReplaceImpact } from "./chapter-storyboard-production";
 import { chapterSegmentDiscards, segmentDiscardLine } from "./segment-discard";
 import { chapterDialogueCoverage, segmentDurationRule, segmentTargetLabel } from "./chapter-segments";
+import { getUnitSpeechLedger } from "@/services/api/project-speech";
+import { SpeechLedgerControl } from "./speech-ledger-control";
 import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { latestStoryboardWrite, parseShotStream, shotStreamFromResult, storyboardRunPartial, storyboardRunStop } from "./chapter-shot-stream";
 import { ChapterStoryboardRunPanel } from "./chapter-storyboard-run-panel";
@@ -245,6 +247,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         enabled: Boolean(selectedUnitId),
     });
     const shotlist = shotlistQuery.data;
+    const speechLedgerQuery = useQuery({ queryKey: ["project", detail.project.id, "speech-ledger", selectedUnitId], queryFn: ({ signal }) => getUnitSpeechLedger(detail.project.id, selectedUnitId, signal), enabled: Boolean(selectedUnitId) });
     // 场次表按已保存的正文实时切：正文保存时间变了重新读；规则改变后旧数据编号错位时带 notice（正文上方和生成分段侧栏提示）。
     const scenesQuery = useQuery({
         queryKey: [...dramaScenesKey(detail.project.id, selectedUnitId), selectedUnit?.updatedAt || "", dramaRule.maxSeconds, dramaRule.minSeconds],
@@ -276,7 +279,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const liveStoryboardStream = selectedUnitId ? storyboardStreams[selectedUnitId] : undefined;
     // 台词覆盖率和超长段：拿本章正文里引号中的台词，对照各段 lines；超过项目模型上限的段要拆。
     const unitShots = useMemo(() => detail.shots.filter((shot) => shot.unitId === selectedUnit?.id), [detail.shots, selectedUnit?.id]);
-    const dialogueCoverage = useMemo(() => chapterDialogueCoverage(stripHtml(draftHtml || selectedUnit?.sourceText || ""), unitShots, detail.shotRevisions), [detail.shotRevisions, draftHtml, selectedUnit?.sourceText, unitShots]);
+    const dialogueCoverage = useMemo(() => chapterDialogueCoverage(stripHtml(draftHtml || selectedUnit?.sourceText || ""), unitShots, detail.shotRevisions, !dirty && speechLedgerQuery.data?.ready ? speechLedgerQuery.data.ledger?.entries : undefined), [detail.shotRevisions, draftHtml, selectedUnit?.sourceText, unitShots, dirty, speechLedgerQuery.data]);
     const overLimitSegments = unitShots.filter((shot) => shot.durationMs > segmentMaxSeconds * 1000);
     const serverChapterOperations = useMemo(() => {
         const operations = new Map<string, ChapterOperation>();
@@ -822,6 +825,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                             </div>
                             <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5">
                                 <StyleLockControl detail={detail} tasks={chapterTasksQuery.data} disabled={dirty} />
+                                <SpeechLedgerControl key={selectedUnitId} projectId={detail.project.id} unitId={selectedUnitId} disabled={dirty || originalLocked} />
                                 <ScriptAdaptControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} onWritten={showWrittenEpisodes} onChained={(taskId) => followChainedScenePalette(detail.project.id, taskId)} />
                                 <ScenePaletteControl detail={detail} chapters={chapterUnits} episodes={episodeUnits} tasks={chapterTasksQuery.data} disabled={dirty} />
                                 <AssetsExtractControl detail={detail} unit={selectedUnit} units={[...chapterUnits, ...episodeUnits]} paletteReady={scenesQuery.data?.unitId === selectedUnit.id ? scenesQuery.data.paletteReady : undefined} unitNoun={unitKind(selectedUnit) === "episode" ? "集" : "章"} tasks={chapterTasksQuery.data} disabled={dirty || adaptedOriginal} disabledReason={adaptedOriginal ? adaptedOriginalHint : undefined} />
@@ -830,7 +834,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending || originalLocked} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
-                        {originalLocked ? <div className="shrink-0 border-b border-border/70 px-4 py-2"><Callout tone="info" title={adaptedOriginal ? "这一章已改编成剧集，原文只读" : "已有剧集，原文只读"} action={<Button size="small" onClick={() => (adaptedEpisodeTarget ? selectChapter(adaptedEpisodeTarget.unitId) : switchUnitView("episode"))}>{adaptedEpisodeTarget ? `去${adaptedEpisodeLabel}` : "看剧集"}</Button>}>{adaptedOriginal ? "原文只作改编依据：改剧情、提取资产、生成分段都到剧集上操作；要按原文重来，点「剧本优化」勾选这一章重新改编，新剧本会替换由它改编的剧集。" : "原文只作改编依据。这一章还没改编：点「剧本优化」勾选它改编成剧集。"}</Callout></div> : null}
+                                {dialogueCoverage.missing.length ? <details className="shrink-0 border-b border-border px-4 py-2 text-sm"><summary className="cursor-pointer text-amber-700 dark:text-amber-300">{dialogueCoverage.missing.length} 条声音未落镜 · {speechLedgerQuery.data?.ready && !dirty ? "按独立声音台账核对" : "规则扫描，建议先提取声音台账"}</summary><ul className="mt-2 max-h-48 overflow-y-auto">{dialogueCoverage.missing.map((line, index) => <li key={index}>{line}</li>)}</ul></details> : null}
+                                {originalLocked ? <div className="shrink-0 border-b border-border/70 px-4 py-2"><Callout tone="info" title={adaptedOriginal ? "这一章已改编成剧集，原文只读" : "已有剧集，原文只读"} action={<Button size="small" onClick={() => (adaptedEpisodeTarget ? selectChapter(adaptedEpisodeTarget.unitId) : switchUnitView("episode"))}>{adaptedEpisodeTarget ? `去${adaptedEpisodeLabel}` : "看剧集"}</Button>}>{adaptedOriginal ? "原文只作改编依据：改剧情、提取资产、生成分段都到剧集上操作；要按原文重来，点「剧本优化」勾选这一章重新改编，新剧本会替换由它改编的剧集。" : "原文只作改编依据。这一章还没改编：点「剧本优化」勾选它改编成剧集。"}</Callout></div> : null}
                         <EditorToolbar editor={originalLocked ? null : editor} />
                         <ChapterSceneList scenes={scenesQuery.data} editor={editor} dirty={dirty} />
                         <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">

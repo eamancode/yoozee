@@ -28,6 +28,7 @@ var dramaRoutes = []string{
 	"GET /api/projects/:id/units/:unitId/drama/scenes",
 	"POST /api/projects/:id/drama/scenes/renumber",
 	"GET /api/projects/:id/units/:unitId/drama/shotlist",
+	"GET /api/projects/:id/units/:unitId/drama/speech-ledger",
 	"POST /api/projects/:id/units/:unitId/drama/shotlist/repack",
 	"GET /api/projects/:id/drama/progress",
 	"POST /api/projects/:id/drama/pipeline/next",

@@ -96,11 +96,33 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 	if err != nil {
 		return model.Project{}, err
 	}
+	publicProfile, err := validateStyleProfileJSON(req.StyleProfileJSON)
+	if err != nil {
+		return model.Project{}, err
+	}
+	if err := validateStyleProfilePreset(req.StylePresetID, publicProfile); err != nil {
+		return model.Project{}, err
+	}
+	presetID := strings.TrimSpace(req.StylePresetID)
+	if library != nil && library.StyleProfileJSON != "" {
+		publicProfile, err = validateStyleProfileJSON(library.StyleProfileJSON)
+		if err != nil {
+			return model.Project{}, err
+		}
+		var profile struct {
+			PresetID string `json:"presetId"`
+		}
+		if err = json.Unmarshal([]byte(publicProfile), &profile); err != nil {
+			return model.Project{}, err
+		}
+		presetID = profile.PresetID
+	}
 	now := time.Now()
 	project := model.Project{
 		ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceAs, Description: description,
 		VisualType: visualType, RunMode: runMode, StyleSource: style, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel,
 		GenerationModel: generationModel, StyleProfile: drama.VisualTypeProfile(visualType), BriefJSON: briefJSON,
+		StylePresetID: presetID, StyleProfileJSON: publicProfile,
 		Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.repo.CreateProject(&project); err != nil {
@@ -230,6 +252,9 @@ func (s *Service) validateProjectStyle(userID string, visualType string, style m
 		}
 		if err != nil {
 			return style, nil, err
+		}
+		if !canReadDramaStyleLibrary(userID, entry) {
+			return style, nil, NotFound("风格库里没有这一条")
 		}
 		if entry.ProjectType != visualType {
 			return style, nil, projectSectionError(ReasonProjectStyleInvalid, fmt.Sprintf("风格「%s」只适用于%s", entry.Name, drama.ProjectTypeLabel(entry.ProjectType)))

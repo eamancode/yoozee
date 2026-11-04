@@ -5,6 +5,14 @@ description: 柚子后端核心持久化表与状态边界
 
 # 后端数据库
 
+## 声音台账与个人导演风格（迁移 93）
+
+`project_units.speech_ledger_json` 保存完整剧本独立提取的声音台账：正文哈希、技能版本、带场/段出处的台词、画外、旁白及核对用 Script。写入同时校验项目归属和原正文，正文改变后旧台账立即失效，不能覆盖新正文。
+
+`drama_style_library_entries.style_profile_json` 保存原风格中心完整快照与导演规格组合后的副本；原预置的参考资产、执行参数等不交给模型重写。`scope_owner` 对 director/analysis 回填创建人，公共 manual/seed 为空；名称唯一索引改为 `(project_type, name, scope_owner)`，不同用户的个人同名风格互不占位。个人条目包括管理员在内均只能由创建人访问，公共预置保持原可见性。
+
+道具的 `extractionDesign.production_priority`、`body_description` 与顶层 `productionPriority` 存在既有设定 JSON，不新增表。低优先级背景道具保留但默认不排自动出图；手动选择仍可生成。手动替换子卡图片生成新版本，`primary` 表征以 `metadata.source=manual-upload` 标记，保留历史版本并清除过期排队状态。
+
 资产提取的完整设计记录使用现有 AssetVersion.DefinitionJSON 中的 extractionDesign，包含 role、identity_appearance、clothing、prop_design、spatial_layout、characters/props/environments 索引、evidence 和 states。后续场次的依据、关联和状态去重追加，不改写初始外观。Asset.PayloadJSON 的 metadata.assetVariant.startAfter 保存同场换装的生效动作；metadata.assetImage 使用 batchId、channelPaused 和 paused 状态隔离暂停与手工恢复批次。无新增表或列。
 
 ## 同场景连续生成检查点

@@ -1,13 +1,15 @@
 /**
- * 风格锁定的流式视图：服务端一个任务一轮，模型一行一个 JSON（style.lock@1：第一行风格锚，之后每组一行色板 {"group": "主角组", "colors": [...]}），
+ * 风格锁定的流式视图：style.lock@2 第一行完整视觉字段和风格锚，之后每组一行色板。
  * 回合标记（{"@turn": {...}}）与其他步骤同一种；重试时会再出一行标记，见到就把之前收到的半截输出清掉。只用于显示，候选以任务结果为准。
  */
 
 import type { DramaMasterPalette, DramaMasterPaletteGroupKey, DramaPaletteColor, DramaStyleAnchor } from "@/services/api/project-drama";
+import type { DramaVisualStyleFields } from "@/services/api/project-drama";
 
 import { SHOT_TURN_MARKER } from "./chapter-shot-stream";
 
 export type StyleLockStreamState = {
+    profile?: DramaVisualStyleFields;
     anchor?: DramaStyleAnchor;
     palette: DramaMasterPalette;
     attempt: number;
@@ -76,6 +78,7 @@ export function normalizeMasterPalette(groups: Array<{ key?: string; name: strin
 
 /** 解析文本流：回合标记重开（清掉重试前的半截输出），风格锚单独记下，带 colors 的行是一组，整张色板写在一行也认。 */
 export function parseStyleLockStream(text: string): StyleLockStreamState {
+    let profile: DramaVisualStyleFields | undefined;
     let anchor: DramaStyleAnchor | undefined;
     let groups: Array<{ name: string; colors: DramaPaletteColor[] }> = [];
     let attempt = 1;
@@ -86,10 +89,15 @@ export function parseStyleLockStream(text: string): StyleLockStreamState {
         if (marker) {
             attempt = Number(marker.attempt) || 1;
             anchor = undefined;
+            profile = undefined;
             groups = [];
             continue;
         }
         const wrapped = record(parsed.style_anchor);
+        const visual = record(parsed.style_profile);
+        if (visual && [visual.title, visual.description, visual.prompt, visual.negativePrompt].every((value) => typeof value === "string") && Array.isArray(visual.tags) && visual.tags.every((tag) => typeof tag === "string")) {
+            profile = { title: String(visual.title), description: String(visual.description), prompt: String(visual.prompt), negativePrompt: String(visual.negativePrompt), tags: visual.tags as string[] };
+        }
         if (wrapped) anchor = wrapped as DramaStyleAnchor;
         else if (!Array.isArray(parsed.colors) && ["medium", "art_style", "lighting", "grading"].filter((key) => key in parsed).length >= 2) anchor = parsed as DramaStyleAnchor;
         const whole = record(parsed.master_palette)?.groups ?? parsed.master_palette;
@@ -102,5 +110,5 @@ export function parseStyleLockStream(text: string): StyleLockStreamState {
         if (Array.isArray(parsed.colors)) groups.push({ name: String(parsed.group ?? parsed.name ?? ""), colors: colors(parsed.colors) });
     }
     const palette = normalizeMasterPalette(groups);
-    return { anchor, palette, attempt, colorCount: palette.groups.reduce((sum, group) => sum + group.colors.length, 0) };
+    return { profile, anchor, palette, attempt, colorCount: palette.groups.reduce((sum, group) => sum + group.colors.length, 0) };
 }

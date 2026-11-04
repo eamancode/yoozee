@@ -1,7 +1,4 @@
-// 平台风格库（M8 卡 A）：项目锁定的风格（风格锚 + 主基调色卡）可以存进来，按项目类型归档，团队共享——登录用户都能看、能新增，
-// 改名、改色板、删除限管理员或创建者。别的项目在建项目时选用，就把风格锚和色板复制进自己的 bible_json（LockDramaStyle），
-// 不跑分析；条目之后改了、删了都不影响已选的项目。封面是存入时合成的主色卡图（资源属于合成它的账号），所有登录用户经
-// GET /drama/style-library/:id/cover 读。
+// 公共预置保持共享；导演分析及个人保存的条目、封面和写路径仅创建者可访问。
 
 package app
 
@@ -34,6 +31,7 @@ const (
 
 // DramaStyleLibraryItem 是风格库的一条（页面用）。
 type DramaStyleLibraryItem struct {
+	StyleProfile     json.RawMessage     `json:"styleProfile,omitempty"`
 	ID               string              `json:"id"`
 	ProjectType      string              `json:"projectType"`
 	ProjectTypeLabel string              `json:"projectTypeLabel"`
@@ -90,7 +88,11 @@ func styleLibraryEntryStyle(entry *model.DramaStyleLibraryEntry) (*drama.StyleAn
 }
 
 func canEditDramaStyleLibrary(actor *model.User, entry *model.DramaStyleLibraryEntry) bool {
-	return actor != nil && (actor.Role == model.UserRoleAdmin || entry.CreatedBy == actor.ID)
+	return actor != nil && canReadDramaStyleLibrary(actor.ID, entry) && (actor.Role == model.UserRoleAdmin || entry.CreatedBy == actor.ID)
+}
+
+func canReadDramaStyleLibrary(userID string, entry *model.DramaStyleLibraryEntry) bool {
+	return userID != "" && (entry.Source != DramaStyleLibrarySourceDirector && entry.Source != DramaStyleLibrarySourceAnalysis || entry.CreatedBy == userID)
 }
 
 func (s *Service) dramaStyleLibraryItems(actor *model.User, rows []model.DramaStyleLibraryEntry) ([]DramaStyleLibraryItem, error) {
@@ -107,7 +109,8 @@ func (s *Service) dramaStyleLibraryItems(actor *model.User, rows []model.DramaSt
 		row := &rows[i]
 		anchor, palette := styleLibraryEntryStyle(row)
 		item := DramaStyleLibraryItem{
-			ID: row.ID, ProjectType: row.ProjectType, ProjectTypeLabel: drama.ProjectTypeLabel(row.ProjectType), Name: row.Name, Description: row.Description,
+			StyleProfile: json.RawMessage(row.StyleProfileJSON),
+			ID:           row.ID, ProjectType: row.ProjectType, ProjectTypeLabel: drama.ProjectTypeLabel(row.ProjectType), Name: row.Name, Description: row.Description,
 			StyleAnchor: anchor, MasterPalette: palette, ColorCount: len(palette.Colors()), Source: row.Source,
 			CreatedBy: row.CreatedBy, UpdatedBy: row.UpdatedBy, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CanEdit: canEditDramaStyleLibrary(actor, row),
 		}
@@ -131,7 +134,7 @@ func (s *Service) DramaStyleLibrary(actor *model.User, projectType string) (Dram
 	if projectType != "" && drama.ProjectTypeLabel(projectType) == "" {
 		return DramaStyleLibraryList{}, BadAuthRequest("未知的项目类型")
 	}
-	rows, err := s.repo.DramaStyleLibrary(projectType)
+	rows, err := s.repo.DramaStyleLibrary(projectType, actor.ID)
 	if err != nil {
 		return DramaStyleLibraryList{}, err
 	}
@@ -151,7 +154,7 @@ func (s *Service) dramaStyleLibraryItem(actor *model.User, row *model.DramaStyle
 }
 
 // validStyleLibraryName 校验名称（1～60 字）并查同类型重名。
-func (s *Service) validStyleLibraryName(projectType string, name string, exceptID string) (string, error) {
+func (s *Service) validStyleLibraryName(projectType string, name string, exceptID string, scopeOwner string) (string, error) {
 	name = strings.Join(strings.Fields(name), " ")
 	if name == "" {
 		return "", BadAuthRequest("给这个风格起个名字")
@@ -159,7 +162,7 @@ func (s *Service) validStyleLibraryName(projectType string, name string, exceptI
 	if utf8.RuneCountInString(name) > dramaStyleLibraryNameRunes {
 		return "", BadAuthRequest(fmt.Sprintf("风格名最多 %d 字", dramaStyleLibraryNameRunes))
 	}
-	taken, err := s.repo.DramaStyleLibraryNameTaken(projectType, name, exceptID)
+	taken, err := s.repo.DramaStyleLibraryNameTaken(projectType, name, exceptID, scopeOwner)
 	if err != nil {
 		return "", err
 	}
@@ -245,7 +248,7 @@ func (s *Service) SaveDramaStyleToLibrary(actor *model.User, req DramaStyleLibra
 		return DramaStyleLibraryItem{}, BadAuthRequest("项目还没有锁定风格，先锁定再存进风格库")
 	}
 	if record.Source == drama.StyleLockSourceLibrary && record.LibraryID != "" {
-		if _, err := s.repo.DramaStyleLibraryEntry(record.LibraryID); err == nil {
+		if entry, err := s.repo.DramaStyleLibraryEntry(record.LibraryID); err == nil && canReadDramaStyleLibrary(actor.ID, entry) {
 			return DramaStyleLibraryItem{}, BadAuthRequest("这个风格取自风格库，已经在库里了")
 		}
 	}
@@ -253,7 +256,7 @@ func (s *Service) SaveDramaStyleToLibrary(actor *model.User, req DramaStyleLibra
 	if drama.ProjectTypeLabel(projectType) == "" {
 		return DramaStyleLibraryItem{}, BadAuthRequest("请选这个风格归到哪个项目类型")
 	}
-	name, err := s.validStyleLibraryName(projectType, req.Name, "")
+	name, err := s.validStyleLibraryName(projectType, req.Name, "", actor.ID)
 	if err != nil {
 		return DramaStyleLibraryItem{}, err
 	}
@@ -285,7 +288,7 @@ func (s *Service) saveDirectorStyleToLibrary(userID string, project *model.Proje
 	}
 	name := string(base)
 	for n := 2; ; n++ {
-		taken, err := s.repo.DramaStyleLibraryNameTaken(projectType, name, "")
+		taken, err := s.repo.DramaStyleLibraryNameTaken(projectType, name, "", actor.ID)
 		if err != nil {
 			return DramaStyleLibraryItem{}, err
 		}
@@ -318,8 +321,14 @@ func (s *Service) createDramaStyleLibraryEntry(actor *model.User, project *model
 	paletteJSON, _ := json.Marshal(palette)
 	now := time.Now()
 	row := model.DramaStyleLibraryEntry{
-		ID: newID(), ProjectType: projectType, Name: name, Description: description, StyleAnchorJSON: string(anchorJSON), MasterPaletteJSON: string(paletteJSON),
+		ScopeOwner: actor.ID,
+		ID:         newID(), ProjectType: projectType, Name: name, Description: description, StyleAnchorJSON: string(anchorJSON), MasterPaletteJSON: string(paletteJSON),
 		CoverResourceID: cover.ID, Source: source, CreatedBy: actor.ID, UpdatedBy: actor.ID, CreatedAt: now, UpdatedAt: now,
+	}
+	row.StyleProfileJSON, err = combinedDirectorProfile(project, anchor, palette, name, description, row.ID, nil)
+	if err != nil {
+		s.discardDramaStyleLibraryCover(cover.ID)
+		return DramaStyleLibraryItem{}, err
 	}
 	if err := s.repo.CreateDramaStyleLibraryEntry(&row); err != nil {
 		s.discardDramaStyleLibraryCover(cover.ID)
@@ -379,7 +388,7 @@ func (s *Service) UpdateDramaStyleLibraryEntry(actor *model.User, id string, req
 		if req.Name != nil {
 			candidate = *req.Name
 		}
-		if name, err = s.validStyleLibraryName(projectType, candidate, entry.ID); err != nil {
+		if name, err = s.validStyleLibraryName(projectType, candidate, entry.ID, entry.ScopeOwner); err != nil {
 			return DramaStyleLibraryItem{}, err
 		}
 		values["name"] = name
@@ -398,7 +407,10 @@ func (s *Service) UpdateDramaStyleLibraryEntry(actor *model.User, id string, req
 		encoded, _ := json.Marshal(req.StyleAnchor)
 		values["style_anchor_json"] = string(encoded)
 	}
-	_, palette := styleLibraryEntryStyle(entry)
+	anchor, palette := styleLibraryEntryStyle(entry)
+	if req.StyleAnchor != nil {
+		anchor = req.StyleAnchor
+	}
 	if req.MasterPalette != nil {
 		palette = drama.NormalizeMasterPalette(*req.MasterPalette)
 		if err := drama.ValidateMasterPalette(palette); err != nil {
@@ -407,6 +419,15 @@ func (s *Service) UpdateDramaStyleLibraryEntry(actor *model.User, id string, req
 		encoded, _ := json.Marshal(palette)
 		values["master_palette_json"] = string(encoded)
 	}
+	description := entry.Description
+	if value, ok := values["description"].(string); ok {
+		description = value
+	}
+	profileJSON, err := combinedDirectorProfile(&model.Project{StyleProfileJSON: entry.StyleProfileJSON}, anchor, palette, name, description, entry.ID, map[string]any{"description": description})
+	if err != nil {
+		return DramaStyleLibraryItem{}, err
+	}
+	values["style_profile_json"] = profileJSON
 	newCover := ""
 	if req.MasterPalette != nil || name != entry.Name {
 		cover, _, err := s.renderMasterPaletteResource(actor.ID, name, palette)
@@ -461,6 +482,9 @@ func (s *Service) PrepareDramaStyleLibraryCoverDelivery(actor *model.User, id st
 	}
 	if err != nil {
 		return nil, err
+	}
+	if !canReadDramaStyleLibrary(actor.ID, entry) {
+		return nil, NotFound("风格库里没有这一条")
 	}
 	if entry.CoverResourceID == "" {
 		return nil, NotFound("这个风格没有主色卡图")

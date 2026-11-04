@@ -130,10 +130,17 @@ func SectionID(scene string, no int) string { return fmt.Sprintf("%s-P%d", scene
 // PlanSections 把一个单元的正文按戏类切成小节；modelMax 是视频模型单段上限（秒，0 不收紧）；overrides 是改过戏类的剧本范围
 // （为空时整章按 genre 切）。正文为空返回空计划。
 func PlanSections(plainText string, title string, genre ShotGenre, modelMax int, overrides []GenreOverride) SectionPlan {
+	return PlanSectionsWithScript(plainText, title, genre, modelMax, overrides, nil)
+}
+
+func PlanSectionsWithScript(plainText string, title string, genre ShotGenre, modelMax int, overrides []GenreOverride, inventory *Script) SectionPlan {
 	lo, hi := genre.SectionLimits(modelMax)
 	plan := SectionPlan{Genre: genre, MaxSeconds: hi, MinSeconds: lo, Sections: []Section{}}
 	scenes := SplitScenes(plainText, title)
 	script := ScriptFromText(plainText, title)
+	if inventory != nil {
+		script = *inventory
+	}
 	for i, sc := range scenes {
 		if i >= len(script.Scenes) {
 			break
@@ -152,8 +159,12 @@ func PlanSections(plainText string, title string, genre ShotGenre, modelMax int,
 		var genres []ShotGenre
 		for j, b := range script.Scenes[i].Beats {
 			beat := SectionBeat{ID: b.ID, Kind: b.Kind, Speaker: b.Speaker, Text: b.Text}
-			if j < len(sc.BodyLines) {
-				beat.Line = sc.BodyLines[j]
+			sourceIndex := j
+			if b.SourceLine > 0 {
+				sourceIndex = b.SourceLine - 1
+			}
+			if sourceIndex < len(sc.BodyLines) {
+				beat.Line = sc.BodyLines[sourceIndex]
 			}
 			g := genreAt(beat.Line)
 			beat.Est = sectionBeatSeconds(beat, g)

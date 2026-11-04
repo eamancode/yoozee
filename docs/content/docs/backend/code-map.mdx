@@ -5,6 +5,10 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+- 声音台账：`drama/speech_ledger.go` 负责完整来源、逐字及重复发言校验；`app/project_speech.go` 编排独立技能和分镜前置；`repository/project_speech.go` 按正文做条件写入；前端 `speech-ledger-control.tsx` 展示台账，`chapter-segments.ts` 比对未落镜内容。
+- 子卡上传：`project-character-variants.tsx` 上传并绑定表征；`app/project_character.go` 生成新版本并保护手工替换状态。道具优先级在 `drama/asset_design.go`、`app/project_asset_priority.go`、资产出图和流水线进度中使用。
+- 风格：建项直接复用 `canvas-style-picker-modal.tsx`；`app/director_style_profile.go` 合并公共快照与导演规格；`drama_style_library.go` 和对应 repository 执行个人可见及名称隔离。迁移 93 增加声音台账、完整风格快照和个人名称作用域。
+
 资产附件设计由 internal/drama/asset_design.go 承载证据、索引及状态轨迹，project_drama_assets.go 完成落库和跨场合并；project_drama_image_queue.go / project_drama_image_retry.go 负责渠道暂停与批次恢复；前端 asset-design-evidence.tsx、asset-image-recovery.tsx 展示设计依据和恢复操作。
 
 - 同场景连续生成：`handler/project_video_chain_routes.go` 提供预览、发起、列表、续跑与停止接口；`app/project_video_chain*.go` 负责当前场景范围、报价、持久化检查点、逐组调度及参考素材上传；`repository/project_video_chain.go` 提供租约检查点与父链准入锁。`pages/projects/workbench/detail/video-chain-panel.tsx` 展示预览、进度、失败原因、末帧与重试入口。控制链使用独立任务类型，实际视频沿用标准计费与媒体保存流程。

@@ -74,18 +74,30 @@ export function segmentDurationRule(familyMaxSeconds: number, channel?: VideoCap
 const SCENE_CATEGORIES = new Set(["scene", "environment", "location"]);
 
 /** 台词覆盖率：章节里引号中的台词，有多少原样出现在本章各段的 lines 里。 */
-export function chapterDialogueCoverage(sourceText: string, shots: ProjectShot[], revisions: ShotRevision[]) {
-    const quoted = Array.from(sourceText.matchAll(/[“「"]([^”」"]{2,})[”」"]/g), (match) => normalizeLine(match[1])).filter(Boolean);
-    const expected = Array.from(new Set(quoted));
+export function chapterDialogueCoverage(sourceText: string, shots: ProjectShot[], revisions: ShotRevision[], ledger?: Array<{ text: string }>) {
+    const labelled = sourceText.split(/\r?\n/).flatMap((line) => {
+        if (/^\s*[△▲]/.test(line)) return [];
+        const match = line.trim().match(/^([^：:（(\s]{1,12})(?:[（(][^）)]*[）)])?\s*[：:]\s*(.+)$/);
+        if (!match || /^(场景|时间|地点|画面|动作|字幕|落版|落版字幕|镜头|音效|音乐|备注)$/.test(match[1])) return [];
+        return [stripQuotes(match[2].replace(/^(?:\s*[（(][^）)]*[）)])+\s*/, ""))];
+    });
+    const quoted = labelled.length ? labelled : Array.from(sourceText.matchAll(/[“「"]([^”」"]+)[”」"]/g), (match) => match[1]);
+    const expected = (ledger ? ledger.map((entry) => entry.text) : quoted).map(normalizeLine).filter(Boolean);
     const revisionById = new Map(revisions.map((revision) => [revision.id, revision]));
     const spoken = shots
         .flatMap((shot) => {
             const spec = parseSpec(revisionById.get(shot.currentRevisionId || "")?.specJson || "");
             return (spec?.shots || []).flatMap((sub) => (sub.lines || []).map((line) => normalizeLine(line.text)));
         })
-        .join("\n");
-    const covered = expected.filter((line) => spoken.includes(line));
-    return { expected: expected.length, covered: covered.length, missing: expected.filter((line) => !spoken.includes(line)) };
+        .join("");
+    let cursor = 0;
+    const missing: string[] = [];
+    for (const line of expected) {
+        const position = spoken.indexOf(line, cursor);
+        if (position < 0) missing.push(line);
+        else cursor = position + line.length;
+    }
+    return { expected: expected.length, covered: expected.length - missing.length, missing };
 }
 
 // 模型常把「没有台词」写成「无」「（无）」「-」：不能当成一句旁白，也不能当成接话。
@@ -101,8 +113,9 @@ export function parseDialogue(value: string): DramaLine[] {
             const match = /^([^：:]{1,12})[：:]\s*(.+)$/.exec(line);
             if (!match) return { speaker: "旁白", text: stripQuotes(line), vo: true };
             const speaker = match[1].replace(/[（(].*?[）)]/g, "").trim();
-            const vo = /画外|旁白|OS|VO/i.test(match[1]);
-            return { speaker: speaker || "旁白", text: stripQuotes(match[2]), ...(vo ? { vo: true } : {}) };
+            const cue = match[2].match(/^(?:\s*[（(][^）)]*[）)])+/)?.[0] || "";
+            const vo = /画外|旁白|\bOS\b|\bVO\b/i.test(match[1] + cue);
+            return { speaker: speaker || "旁白", text: stripQuotes(match[2].slice(cue.length)), ...(vo ? { vo: true } : {}) };
         });
 }
 

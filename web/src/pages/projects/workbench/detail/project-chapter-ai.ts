@@ -1,4 +1,5 @@
 import { backendProviderConfig } from "@/services/api/generation-task";
+import { getUnitSpeechLedger } from "@/services/api/project-speech";
 import {
     dramaAssetsExtractOutcomeOf,
     dramaRunProgressOf,
@@ -24,6 +25,19 @@ type ChapterTaskOptions = {
     /** 任务文本流到目前为止的全文（各场输出与回合标记），给流式镜头视图用。 */
     onStreamText?: (text: string) => void;
 };
+
+export async function generateUnitSpeechLedger(projectId: string, unitId: string, config: AiConfig, options?: ChapterTaskOptions) {
+    const model = config.textModel || config.model;
+    const selected = { ...config, model };
+    const { task } = await runDramaStep(projectId, unitId, "speech.extract", {
+        model,
+        ...(logicalModelIDForConfig(selected) ? { logicalModelId: logicalModelIDForConfig(selected) } : {}),
+        config: backendProviderConfig(selected, "text") as Record<string, unknown>,
+    });
+    announceCreatedGenerationTask(task);
+    options?.onTaskUpdate?.(task);
+    return followDramaRunTask(task, options);
+}
 
 export type ChapterTaskKind = "assets" | "storyboard";
 
@@ -65,6 +79,8 @@ const STORYBOARD_RUN_WAIT_MS = 8 * 60 * 60 * 1000;
  * 任务成功前解析、绑资产、写镜头表并装段。页面只订阅任务文本流显示进度，关掉页面也会写完。
  */
 export async function generateChapterStoryboard(input: ChapterStoryboardGenerationInput, options?: ChapterTaskOptions) {
+	const ledger = await getUnitSpeechLedger(input.projectId,input.chapterId);
+	if (!ledger.ready) await generateUnitSpeechLedger(input.projectId,input.chapterId,input.config, { onTaskUpdate: options?.onTaskUpdate });
     const model = input.config.textModel || input.config.model;
     const config = { ...input.config, model };
     const { task, usage } = await runDramaStep(input.projectId, input.chapterId, "chapter.shots", {

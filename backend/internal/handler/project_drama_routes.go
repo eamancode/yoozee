@@ -194,6 +194,19 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"shotlist": shotlist})
 	})
+	r.GET("/projects/:id/units/:unitId/drama/speech-ledger", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ledger, err := svc.GetUnitSpeechLedger(user.ID, c.Param("id"), c.Param("unitId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, ledger)
+	})
 	r.POST("/projects/:id/units/:unitId/drama/shotlist/repack", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

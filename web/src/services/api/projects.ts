@@ -14,6 +14,8 @@ export type ProjectStyleSource = { mode: "director"; brief?: string; refImageIds
 export type ProjectSourceAs = "idea" | "novel" | "script" | "blank";
 
 export type CreateProjectInput = {
+	stylePresetId?: string;
+	styleProfileJson?: string;
     name: string;
     sourceAs: ProjectSourceAs;
     source: { text?: string; units?: Array<{ title: string; sourceText: string }> };

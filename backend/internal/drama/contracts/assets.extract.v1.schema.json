@@ -55,6 +55,8 @@
               "identity_appearance": {"type":"string"},
               "clothing": {"type":"string"},
               "prop_design": {"type":"string"},
+                "production_priority": {"type":"string","enum":["high","medium","low"]},
+                "body_description": {"type":"string","description":"只描述道具本体及固定部件；不含使用者、关联道具、摆放关系或后续状态"},
               "spatial_layout": {"type":"string"},
               "characters": {"type":"array","items":{"type":"string"}},
               "props": {"type":"array","items":{"type":"string"}},
