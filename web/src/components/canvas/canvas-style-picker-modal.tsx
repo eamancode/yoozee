@@ -460,8 +460,9 @@ export function CanvasStylePickerModal({ open, value, currentProfile, visualType
             const task = await prepareBackendGenerationTask({mode:"image",prompt:"导演风格封面",config:{...effectiveConfig,model,count:"1"}});
             return generateStyleProfileCover(entity.id,{model:task.model || model,logicalModelId:task.logicalModelId,input:task.input || {}},entity.coverStatus === "ready");
         },
-        onSuccess: async () => { await queryClient.invalidateQueries({queryKey:["style-profiles"]}); message.success("风格封面已提交，生成后会自动显示"); },
+        onSuccess: () => { message.success("风格封面已提交，生成后会自动显示"); },
         onError: (error) => message.error(error instanceof Error ? error.message : "封面生成失败"),
+        onSettled: () => queryClient.invalidateQueries({queryKey:["style-profiles"]}),
     });
 
     useEffect(() => {

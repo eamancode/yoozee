@@ -155,7 +155,7 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		maxCharge = step.Quote.AmountMicrocredits
 	}
 	metadata, _ := input["metadata"].(map[string]any)
-	_, err = s.CreateTask(task.UserID, CreateTaskRequest{ProjectID: task.ProjectID, Type: "canvas_video", Operation: stringValue(metadata["videoEditOperation"]), Model: step.Model, LogicalModelID: step.LogicalModelID, Prompt: stringValue(input["prompt"]), Input: input, admission: &taskAdmission{ID: step.TaskID, MaxCharge: maxCharge, ParentControllerID: task.ID, ParentControllerLease: task.LeaseOwner}})
+	_, err = s.CreateTask(task.UserID, CreateTaskRequest{ProjectID: task.ProjectID, Type: "canvas_video", Operation: stringValue(metadata["videoEditOperation"]), Model: step.Model, LogicalModelID: step.LogicalModelID, Prompt: stringValue(input["prompt"]), Input: input, admission: &taskAdmission{ID: step.TaskID, MaxCharge: &maxCharge, ParentControllerID: task.ID, ParentControllerLease: task.LeaseOwner}})
 	if err != nil {
 		// A prior lease may have committed this exact task before its controller
 		// checkpoint. The deterministic ID is the idempotency boundary.

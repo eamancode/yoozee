@@ -110,6 +110,61 @@ func TestDirectorStyleCoverFailureRetriesWithoutTextOrDuplicateCard(t *testing.T
 	}
 }
 
+func TestDirectorStylePaidCoverReservesOnceAndExplicitZeroBudgetStillRejects(t *testing.T) {
+	s, db, project, template, calls := assetQueueFixture(t)
+	policy := defaultRuntimePolicy()
+	policy.Task.ActiveTaskLimit = 2
+	if _, err := s.UpdateRuntimePolicySetting(&model.User{ID: "admin", Role: model.UserRoleAdmin}, policy); err != nil {
+		t.Fatal(err)
+	}
+	config := template.Input["config"].(map[string]any)
+	capability, _ := json.Marshal(DefaultModelCapabilityConfigForModel("openai-image", "queue-image"))
+	for _, row := range []any{
+		&model.User{ID: "user-1", Username: "cover-user", Status: model.UserStatusActive, Role: model.UserRoleUser},
+		&model.ModelChannel{ID: "cover-channel", Scope: model.ChannelScopeSystem, Enabled: true, Name: "cover test", BaseURL: config["baseUrl"].(string)},
+		&model.ChannelModel{ID: "cover-model", ChannelID: "cover-channel", ModelKey: "queue-image", Capability: "image", Protocol: model.ChannelInterfaceOpenAIImage, CapabilityConfigJSON: string(capability), Enabled: true, PriceConfigured: true, BillingMode: "fixed_request"},
+		&model.ChannelModelPriceTier{ID: "cover-tier", ChannelModelID: "cover-model", SelectorKey: "{}", SelectorJSON: "{}", BillingMode: "fixed_request", UnitPriceMicrocredits: 1_000_000, Enabled: true, PriceConfigured: true},
+		&model.CreditAccount{UserID: "user-1", AvailableMicrocredits: 5_000_000},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	config["channelId"] = "cover-channel"
+	profile := lockDirectorFixture(t, s, project, nil)
+	cover, err := s.GenerateStyleProfileCover("user-1", profile.ID, DirectorStyleSaveRequest{ImageTask: &template})
+	if err != nil || cover.CoverTaskID == "" {
+		t.Fatal("priced cover was rejected by an invented Agent budget", err, cover)
+	}
+	again, err := s.GenerateStyleProfileCover("user-1", profile.ID, DirectorStyleSaveRequest{ImageTask: &template})
+	if err != nil || again.CoverTaskID != cover.CoverTaskID || calls.Load() != 0 {
+		t.Fatal("admission duplicated a cover or called upstream", err)
+	}
+	var account model.CreditAccount
+	if err := db.First(&account, "user_id = ?", "user-1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if account.AvailableMicrocredits != 4_000_000 || account.ReservedMicrocredits != 1_000_000 {
+		t.Fatal("cover did not use ordinary credit reservation exactly once", account)
+	}
+	input, _ := dramaImageTaskInput(template)
+	req := dramaImageTaskRequestOf(project.ID, template, "zero-budget test", input)
+	req.admission = &taskAdmission{ID: "missing-budget-cover", AgentRunID: "agent-run"}
+	if _, err := s.CreateTask("user-1", req); err == nil || !strings.Contains(err.Error(), "缺少本轮报价上限") {
+		t.Fatal("Agent request without an explicit budget was accepted", err)
+	}
+	req.admission = &taskAdmission{ID: "zero-budget-cover", MaxCharge: ptr(int64(0))}
+	if _, err := s.CreateTask("user-1", req); err == nil || !strings.Contains(err.Error(), "积分上限") {
+		t.Fatal("explicit zero Agent budget was bypassed", err)
+	}
+	var tasks, orders int64
+	db.Model(&model.Task{}).Where("type = ?", "canvas_image").Count(&tasks)
+	db.Model(&model.BillingOrder{}).Where("user_id = ?", "user-1").Count(&orders)
+	if tasks != 1 || orders != 1 {
+		t.Fatal("duplicate billing or task after a rejected request", tasks, orders)
+	}
+}
+
 func TestDirectorStyleLegacyMigrationPrivateAndIdempotent(t *testing.T) {
 	s, db := newDramaWorkerTestService(t)
 	output, _ := drama.StyleLockFromText(styleLockReply)

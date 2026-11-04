@@ -18,7 +18,7 @@ type taskAdmission struct {
 	ExpectedRouteRun      int
 	ParentControllerID    string
 	ID                    string
-	MaxCharge             int64
+	MaxCharge             *int64
 	AgentRunID            string
 	GenerationID          string
 	ApprovalID            string
@@ -36,6 +36,9 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	}
 	if req.admission == nil && (strings.HasPrefix(req.Operation, "cloud_agent") || req.Input["cloudAgent"] != nil) {
 		return nil, BadAuthRequest("Agent 任务必须通过 Agent 接口创建")
+	}
+	if req.admission != nil && (req.admission.AgentRunID != "" || req.admission.ParentControllerID != "") && req.admission.MaxCharge == nil {
+		return nil, BadAuthRequest("受控生成请求缺少本轮报价上限")
 	}
 	if s.IsDraining() {
 		return nil, &AppError{Status: 503, Code: 503, Message: "服务正在维护，暂不接受新的生成任务", Retryable: true}
@@ -220,8 +223,8 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 			return nil, err
 		}
 	}
-	if req.admission != nil && billingOrder != nil {
-		if billingOrder.AmountMicrocredits > req.admission.MaxCharge {
+	if req.admission != nil && req.admission.MaxCharge != nil && billingOrder != nil {
+		if billingOrder.AmountMicrocredits > *req.admission.MaxCharge {
 			return nil, BadAuthRequest("模型调用报价超过本轮 Agent 积分上限，尚未创建任务或扣费")
 		}
 		switch billingOrder.BillingMode {
