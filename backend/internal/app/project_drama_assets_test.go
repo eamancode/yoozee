@@ -90,7 +90,7 @@ func TestAttachmentStateVariantDoesNotForceCurrentAgeOrOutfit(t *testing.T) {
 		t.Fatalf("current age leaked or parent changed: %+v / %+v", child, parent)
 	}
 	clothing := child["clothing"].(string)
-	if !strings.Contains(clothing, look) || strings.Contains(clothing, "；服装同主卡：") || !strings.Contains(clothing, "仅在本子卡未明确指定服装时适用") {
+	if !strings.Contains(clothing, look) || strings.Contains(characterTurnaroundSetting(child), "深灰西装") {
 		t.Fatalf("state outfit overrides explicit difference: %s", clothing)
 	}
 	if got, _ := variantLookOf(assetVariantMeta{}, child); got != look {

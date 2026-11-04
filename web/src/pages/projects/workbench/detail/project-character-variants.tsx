@@ -192,6 +192,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                         alt={`${preview.title}完整图片`}
                         eager
                         className="block max-h-[75vh] w-full object-contain"
+                        loadingFallback={<p role="status">正在加载完整图片…</p>}
                         fallback={<p role="alert">图片暂时无法加载，请关闭后重新打开。</p>}
                     />
                 ) : null}

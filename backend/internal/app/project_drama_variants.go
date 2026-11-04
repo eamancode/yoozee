@@ -136,14 +136,11 @@ func variantDefinition(parent map[string]any, parentTitle string, label string, 
 		out["identityAppearance"] = identity
 		delete(out, "age")
 	}
-	parentClothing, _ := parent["clothing"].(string)
 	look = strings.TrimSpace(look)
 	if kind == drama.AssetVariantState {
-		clothing := "状态「" + label + "」：" + look
-		if c := strings.TrimSpace(parentClothing); c != "" {
-			clothing += "；服装同主卡（仅在本子卡未明确指定服装时适用）：" + c
-		}
-		out["clothing"] = clothing
+		// The required parent image preserves unchanged clothing. Repeating its
+		// outfit in text leaks items into explicit age/outfit changes (for example a tie).
+		out["clothing"] = "状态「" + label + "」：" + look
 	} else {
 		out["clothing"] = "服装「" + label + "」：" + look
 	}
