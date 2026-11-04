@@ -81,3 +81,15 @@ func TestSpeechLedgerCrossLineAndQuotedCue(t *testing.T) {
 		t.Fatal("invalid turn accepted")
 	}
 }
+
+func TestSpeechLedgerEmptyAndOffscreenClassification(t *testing.T) {
+	if _, err := ParseSpeechLedger("", "△纯动作。", "无对白"); err == nil {
+		t.Fatal("silent blank accepted")
+	}
+	if _, err := ParseSpeechLedger(`{"empty":true}`, "△纯动作。", "无对白"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseSpeechLedger(strings.Replace(speechEntriesText(), `"kind":"voiceover"`, `"kind":"dialogue"`, 1), speechScript, "随行鲜"); err == nil {
+		t.Fatal("explicit offscreen cue lost")
+	}
+}

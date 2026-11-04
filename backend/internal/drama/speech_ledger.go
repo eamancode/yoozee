@@ -56,6 +56,7 @@ func ParseSpeechLedger(output, source, title string) (SpeechLedger, error) {
 	for _, scene := range scenes {
 		sceneIndex[scene.ID] = scene
 	}
+	declaredEmpty := false
 	for _, raw := range strings.Split(output, "\n") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -65,6 +66,10 @@ func ParseSpeechLedger(output, source, title string) (SpeechLedger, error) {
 			Empty bool `json:"empty"`
 		}
 		if json.Unmarshal([]byte(raw), &empty) == nil && empty.Empty {
+			if declaredEmpty {
+				return ledger, fmt.Errorf("声音台账重复空结果标记")
+			}
+			declaredEmpty = true
 			continue
 		}
 		var entry SpeechEntry
@@ -107,6 +112,12 @@ func ParseSpeechLedger(output, source, title string) (SpeechLedger, error) {
 		}
 		ledger.Entries = append(ledger.Entries, entry)
 	}
+	if len(ledger.Entries) == 0 && !declaredEmpty {
+		return ledger, fmt.Errorf("声音台账为空，未声明无发言")
+	}
+	if len(ledger.Entries) > 0 && declaredEmpty {
+		return ledger, fmt.Errorf("声音台账同时声明有发言和无发言")
+	}
 	for _, scene := range scenes {
 		entries := []SpeechEntry{}
 		for _, entry := range ledger.Entries {
@@ -148,7 +159,7 @@ func ParseSpeechLedger(output, source, title string) (SpeechLedger, error) {
 				}
 				found := false
 				for _, entry := range entries {
-					if entry.Paragraph <= paragraph+1 && entry.ParagraphEnd >= paragraph+1 && entry.Speaker == beat.Speaker && strings.Contains(normLine(entry.Text), normLine(beat.Text)) {
+					if entry.Paragraph <= paragraph+1 && entry.ParagraphEnd >= paragraph+1 && entry.Speaker == beat.Speaker && strings.Contains(normLine(entry.Text), normLine(beat.Text)) && (beat.Kind != "vo" || entry.Kind != "dialogue") {
 						found = true
 						break
 					}
