@@ -1082,7 +1082,7 @@ func (s *Service) dramaVisualImageTaskRequest(userID string, project *model.Proj
 	if strings.TrimSpace(prompt) == "" {
 		return CreateTaskRequest{}, BadAuthRequest("资产缺少出图提示词")
 	}
-	label, tail := "道具", "完整展示单个道具主体的形状、材质与纹理，背景简洁，不出现人物，不添加无关物品。"
+	label, tail := "道具", "完整展示当前道具本体的形状、材质与纹理及固定部件，背景简洁，不出现人物。描述中提到的使用者、关联道具和可移动摆放物仅用于交代用途与关系，不随本体出图；承载台面、收纳空间保持空置，不把独立道具组合成套装。"
 	if asset.Category == model.AssetCategoryEnvironment {
 		label, tail = "场景", "展示场景的空间布局、建筑、材质与光照，不出现人物，便于后续分镜保持场景一致。"
 	}
