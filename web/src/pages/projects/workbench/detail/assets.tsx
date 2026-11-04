@@ -57,6 +57,7 @@ import { DramaAssetChecklist } from "./drama-panels";
 import { ProjectCharacterCard } from "./project-character-card";
 import { ProjectCharacterVariants } from "./project-character-variants";
 import { projectCharacterCover } from "./project-character-cover";
+import { characterDefinition, characterFields, type CharacterForm } from "./project-character-form";
 import { linkSelectedProjectAssets } from "./project-asset-linking";
 import { removeConfirmedCandidate } from "./project-cache";
 import { generateCharacterTurnaround, pendingTurnaroundAssetIds, turnaroundImageModel } from "./project-character-media";
@@ -71,15 +72,6 @@ import { categoryLabels, categoryLabel, mediaLabel, StatusPill, formatTime, text
 const categories = ["all", ...ASSET_CATEGORIES];
 const ALL_FOLDERS = "__all_folders__";
 const pickerCategoryLabels = { all: "全部素材", ...categoryLabels };
-const characterFields = [
-    ["role", "剧情定位与人物关系"], ["aliases", "别名"], ["appearance", "稳定外貌"], ["physique", "身高、体型与体态"],
-    ["clothing", "默认服装造型"], ["personality", "性格与表演基线"], ["props", "固定道具"],
-    ["consistencyPrompt", "跨镜头一致性约束"], ["multiViewPrompt", "三视图补充约束"],
-    ["voiceLanguage", "语言与口音"], ["voiceAge", "声音年龄感"], ["voiceTimbre", "音色气质"],
-] as const;
-
-type CharacterForm = { name: string } & Record<(typeof characterFields)[number][0], string>;
-
 export default function ProjectAssetsView({ detail, refreshProject }: ProjectDetailViewProps) {
     const { message, modal } = App.useApp();
     const personalAssets = useAssetStore((state) => state.assets);
@@ -387,7 +379,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const confirmingCandidateId = confirmMutation.isPending ? confirmMutation.variables?.candidateId || "" : "";
     const saveCharacter = useMutation({
         mutationFn: async (values: CharacterForm) => {
-            const definition = characterDefinition(values);
+            const definition = characterDefinition(values, editorAsset && editorAsset !== "new" ? editorAsset.character?.definition : undefined);
             return editorAsset === "new" ? createProjectCharacter(detail.project.id, { name: values.name, definition }) : updateProjectCharacter(detail.project.id, editorAsset!.id, { name: values.name, definition });
         },
         onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setEditorAsset(null); done(editorAsset === "new" ? "角色卡已创建" : "角色设定已保存并生成新版本"); },
@@ -920,12 +912,6 @@ function SceneAnchorsSection({ projectId, asset, onSaved }: { projectId: string;
             ) : <p>{anchors.length ? anchors.join("、") : "未填写（分镜站位会按镜头文字猜位置）"}</p>}
         </section>
     );
-}
-
-function characterDefinition(values: CharacterForm) {
-    const definition: Record<string, unknown> = Object.fromEntries(characterFields.map(([key]) => [key, values[key]?.trim() || (key === "aliases" ? [] : "")]));
-    definition.aliases = values.aliases?.split(/[，,]/).map((item) => item.trim()).filter(Boolean) || [];
-    return definition;
 }
 
 function fieldValue(value: unknown) { return Array.isArray(value) ? value.join("，") : typeof value === "string" ? value : ""; }
