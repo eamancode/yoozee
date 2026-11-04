@@ -7,7 +7,9 @@ function form(overrides: Partial<CharacterForm> = {}): CharacterForm {
 
 test("editing a main card preserves attachment identity, evidence, states and references", () => {
     const current = {
-        appearance: "原外貌", aliases: ["林总"], identityAppearance: "眉眼与脸型",
+        appearance: "原外貌",
+        aliases: ["林总"],
+        identityAppearance: "眉眼与脸型",
         extractionDesign: { evidence: [{ source: "第一场", type: "原文", text: "五年前" }], states: [{ scene: 1, state: "学生" }], props: ["旧保温杯"] },
     };
     const original = structuredClone(current);
