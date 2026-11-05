@@ -570,11 +570,12 @@ func (s *Service) resolveSystemChannelModelSelection(access *userGroupAccess, in
 	}
 	// capabilityOptions 是路由、校验和计价共同使用的请求规格；存在时必须覆盖 config 中的同名字段，
 	// 不能让两份客户端数据分别驱动计费与真实上游请求。
+	// providerConfig 的标量控件使用字符串；数字和布尔值只在能力意图中保留原类型。
 	if options, ok := input["capabilityOptions"].(map[string]any); ok {
 		for key, value := range options {
 			canonical := canonicalModelOptionName(channelModel.Capability, key)
 			if isCapabilityOptionFor(channelModel.Capability, canonical) {
-				nextConfig[canonical] = value
+				nextConfig[canonical] = providerConfigOptionValue(value)
 			}
 		}
 	}

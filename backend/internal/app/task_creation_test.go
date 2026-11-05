@@ -425,6 +425,34 @@ func newSelectionPriceTier(id string, selector string, providerModelKey string, 
 	}
 }
 
+func TestSystemChannelScalarOptionsDecodeAsProviderControls(t *testing.T) {
+	profile := DefaultModelCapabilityConfigForModel("seedance-videos-compatible", "seedance-2.5-test")
+	profile.Video.Duration = VideoDurationConfig{Selection: "range", Min: 1, Max: 30, Step: 1, Default: 15}
+	profile.Video.GenerateAudio.Supported = true
+	profile.Video.Watermark.Supported = true
+	svc, _, channel, cm := createSystemChannelSelectionFixture(t, "video", model.ChannelInterfaceType("seedance-videos-compatible"), profile, []model.ChannelModelPriceTier{newSelectionPriceTier("scalar-tier", "{}", "provider-video", "fixed_request")})
+	for _, seconds := range []any{25, float64(25), json.Number("25"), "25"} {
+		input := map[string]any{"mode": "video", "config": map[string]any{"channelId": channel.ID, "model": cm.ModelKey, "videoSeconds": "15"}, "capabilityOptions": map[string]any{"videoSeconds": seconds, "videoGenerateAudio": true, "videoWatermark": false}}
+		resolved, err := svc.resolveSystemChannelModelSelection(testGroupAccess(svc), input, "canvas_video", "text_to_video")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(resolved)
+		var generation canvasGenerationInput
+		if err := json.Unmarshal(raw, &generation); err != nil {
+			t.Fatalf("%T option produced incompatible provider controls: %v", seconds, err)
+		}
+		if generation.Config.VideoSeconds != "25" || generation.Config.VideoGenerateAudio != "true" || generation.Config.VideoWatermark != "false" {
+			t.Fatalf("explicit controls lost: %+v", generation.Config)
+		}
+		// Re-resolution, as performed between chain quotation and child admission,
+		// must preserve the same typed provider config and numeric capability intent.
+		if _, err := svc.resolveSystemChannelModelSelection(testGroupAccess(svc), resolved, "canvas_video", "text_to_video"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestImageResolutionPricingOnSystemChannel(t *testing.T) {
 	profile := DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceGeminiImage), "gemini-image-model")
 	profile.Image.Quality = ImageQualityConfig{Supported: false, Default: "auto"}
