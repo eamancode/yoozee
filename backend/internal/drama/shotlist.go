@@ -330,13 +330,12 @@ type ScriptScene struct {
 }
 
 type ScriptBeat struct {
-	SourceLine int    `json:"source_line,omitempty"`
-	ID         string `json:"id"`
-	Kind       string `json:"kind"`
-	Speaker    string `json:"speaker,omitempty"`
-	Text       string `json:"text"`
-	Tag        string `json:"tag,omitempty"`
-	PlantID    string `json:"plant_id,omitempty"`
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Speaker string `json:"speaker,omitempty"`
+	Text    string `json:"text"`
+	Tag     string `json:"tag,omitempty"`
+	PlantID string `json:"plant_id,omitempty"`
 }
 
 func (b ScriptBeat) isLine() bool { return b.Kind == "line" || b.Kind == "vo" }

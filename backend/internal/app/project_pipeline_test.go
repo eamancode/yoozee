@@ -164,12 +164,12 @@ func TestContinueAfterAssetsStartsShotsOnlyWhenReady(t *testing.T) {
 	}
 	setProjectRunMode(t, db, project.ID, drama.RunUntilVideo)
 	chained := svc.continueAfterAssets("user-1", project.ID, text, &finishing)
-	if chained == nil || chained.TaskID == "" || chained.Step != drama.StepSpeechExtract || chained.UnitID != eps[0].ID || chained.Remaining != 1 {
+	if chained == nil || chained.TaskID == "" || chained.Step != drama.StepChapterShots || chained.UnitID != eps[0].ID || chained.Remaining != 1 {
 		t.Fatalf("资产齐了从第 1 集生成分镜：%+v", chained)
 	}
 	first, _ := svc.repo.Task(chained.TaskID)
-	if meta := taskDramaPipeline(first.InputJSON); meta == nil || len(meta.Queue) != 2 || meta.Queue[0] != eps[0].ID || meta.Queue[1] != eps[1].ID {
-		t.Fatalf("声音台账完成后仍需生成本集分镜，再处理第 2 集：%s", first.InputJSON)
+	if meta := taskDramaPipeline(first.InputJSON); meta == nil || len(meta.Queue) != 1 || meta.Queue[0] != eps[1].ID {
+		t.Fatalf("第 2 集排在队列里：%s", first.InputJSON)
 	}
 	// 已经有分镜在生成时不再开一串。
 	if again := svc.continueAfterAssets("user-1", project.ID, text, nil); again != nil {

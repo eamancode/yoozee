@@ -241,8 +241,6 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 	}
 	var plan *dramaStepPlan
 	switch step.ID {
-	case drama.StepSpeechExtract:
-		plan, err = speechExtractPlan(in.project, in.unit, usage, skillRef)
 	case drama.StepScriptAdapt:
 		// 剧本优化的评测：这一章改编成一集。
 		plan, err = scriptAdaptPlan(in.project, []model.ProjectUnit{*in.unit}, drama.ScriptAdaptModeAdapt, 1, 0, nil, usage, skillRef)
@@ -693,14 +691,6 @@ func dramaStepEvalChapterResult(step drama.Step, c drama.StepEvalChapter, taskID
 	}
 	_ = json.Unmarshal([]byte(firstNonEmpty(task.ResultJSON, "{}")), &output)
 	switch step.ID {
-	case drama.StepSpeechExtract:
-		ledger, err := drama.ParseSpeechLedger(output.Text, chapterPlainText(in.unit.SourceText), in.unit.Title)
-		r.Parsed = err == nil
-		r.Rows = len(ledger.Entries)
-		if err != nil {
-			r.Failure = err.Error()
-		}
-		return r, ""
 	case drama.StepScriptAdapt:
 		return scriptAdaptEvalResult(r, in, output.Text), ""
 	case drama.StepStyleLock:

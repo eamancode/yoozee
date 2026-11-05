@@ -43,6 +43,9 @@ func (w *taskLifecycleCoordinator) retryTaskAdmitted(userID string, id string, a
 	if err != nil {
 		return nil, err
 	}
+	if meta := taskDramaStep(task.InputJSON); meta != nil && meta.Step == "speech.extract" {
+		return nil, BadAuthRequest("独立声音台账流程已还原，请回到章节页直接生成分镜")
+	}
 	if task.MediaRecoveryJSON != "" {
 		return nil, BadAuthRequest("作品已生成，请使用重试保存，不要重复生成")
 	}

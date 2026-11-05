@@ -324,14 +324,10 @@ func (s *Service) projectPipeline(userID string, project *model.Project, progres
 	}
 	facts[drama.StageAssets] = assets
 
-	shots := drama.PipelineFacts{Done: len(st.episodes) > 0 && len(st.withoutShotlist()) == 0, Running: len(st.active[drama.StepChapterShots]) > 0 || len(st.active[drama.StepSpeechExtract]) > 0}
+	shots := drama.PipelineFacts{Done: len(st.episodes) > 0 && len(st.withoutShotlist()) == 0, Running: len(st.active[drama.StepChapterShots]) > 0}
 	shots.Detail = fmt.Sprintf("%d/%d 集", len(st.episodes)-len(st.withoutShotlist()), len(st.episodes))
 	if !shots.Done {
 		for _, unitID := range st.withoutShotlist() {
-			if reason := st.failedLatest(drama.StepSpeechExtract, unitID); reason != "" {
-				shots.Problem = st.episodeLabel(unitID) + "声音台账提取失败：" + reason
-				break
-			}
 			if reason := st.failedLatest(drama.StepChapterShots, unitID); reason != "" {
 				shots.Problem = st.episodeLabel(unitID) + "生成分镜失败：" + reason
 				break
@@ -658,7 +654,7 @@ func (s *Service) continueAfterAssets(userID string, projectID string, text *Dra
 		}
 		st.active[drama.StepAssetsExtract] = slices.DeleteFunc(st.active[drama.StepAssetsExtract], func(t model.Task) bool { return t.ID == finishing.ID })
 	}
-	if len(st.active[drama.StepAssetsExtract]) > 0 || len(st.active[drama.StepChapterShots]) > 0 || len(st.active[drama.StepSpeechExtract]) > 0 || !st.assetsReady() {
+	if len(st.active[drama.StepAssetsExtract]) > 0 || len(st.active[drama.StepChapterShots]) > 0 || !st.assetsReady() {
 		return nil
 	}
 	queue := st.withoutShotlist()
@@ -678,24 +674,13 @@ func (s *Service) startShotsQueue(userID string, projectID string, text *DramaPi
 	chained := &DramaChainedTask{Step: drama.StepChapterShots}
 	for i, unitID := range queue {
 		req := DramaStepRunRequest{Model: text.Model, LogicalModelID: text.LogicalModelID, Config: text.Config, chainedFrom: from, pipelineQueue: slices.Clone(queue[i+1:])}
-		step := drama.StepChapterShots
-		unit, unitErr := s.repo.ProjectUnit(projectID, unitID)
-		if unitErr != nil {
-			chained.Error = unitErr.Error()
-			continue
-		}
-		if unitSpeechLedger(unit) == nil {
-			step = drama.StepSpeechExtract
-			req.pipelineQueue = slices.Clone(queue[i:])
-		}
-		result, err := s.RunDramaStep(userID, projectID, unitID, step, req)
+		result, err := s.RunDramaStep(userID, projectID, unitID, drama.StepChapterShots, req)
 		if err != nil {
 			chained.Error = userFacingTaskError(err.Error())
 			_ = s.log(userID, from, "warn", "没有接着生成分镜", chained.Error)
 			continue
 		}
 		chained.TaskID, chained.UnitID, chained.Error = result.Task.ID, unitID, ""
-		chained.Step = step
 		chained.Remaining = len(queue) - i - 1
 		return chained
 	}

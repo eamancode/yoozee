@@ -560,11 +560,6 @@ func dramaCheckContext(script *drama.Script, pc dramaProjectContext, assets []Pr
 
 // dramaShotlistScript 是写镜头表用的台词表：正文切不出场时为 nil。legacy 为 true 时按旧规则切（重装、评测规则改变前写的镜头表）。
 func dramaShotlistScript(unit *model.ProjectUnit, legacy bool) *drama.Script {
-	if !legacy {
-		if ledger := unitSpeechLedger(unit); ledger != nil {
-			return &ledger.Script
-		}
-	}
 	text := chapterPlainText(unit.SourceText)
 	parsed := drama.ScriptFromText(text, unit.Title)
 	if legacy {

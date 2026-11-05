@@ -325,7 +325,7 @@ func (s *Service) dramaScenesViews(userID string, project *model.Project, units 
 		if err != nil {
 			return nil, err
 		}
-		view := dramaScenesView(u, numbers[u.ID], fromChapters, scenes, drama.PlanSectionsWithScript(text, u.Title, genre, m.Duration.Max, overrides, dramaShotlistScript(&u, false)).ScenesOf())
+		view := dramaScenesView(u, numbers[u.ID], fromChapters, scenes, drama.PlanSections(text, u.Title, genre, m.Duration.Max, overrides).ScenesOf())
 		view.Genre = genreView
 		ready := unitSceneColorScript(project.BibleJSON, units, u.ID)
 		for i := range view.Scenes {

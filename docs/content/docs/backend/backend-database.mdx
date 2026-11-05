@@ -15,7 +15,7 @@ description: 柚子后端核心持久化表与状态边界
 
 ## 声音台账与个人导演风格（迁移 93）
 
-`project_units.speech_ledger_json` 保存完整剧本独立提取的声音台账：正文哈希、技能版本、带场/段出处的台词、画外、旁白及核对用 Script。写入同时校验项目归属和原正文，正文改变后旧台账立即失效，不能覆盖新正文。
+`project_units.speech_ledger_json` 是已还原的独立声音台账历史字段。保留列、历史内容及迁移 93 账本；当前流程不再读取或写入，不参与台词核对、分镜前置和切节。本次还原不新增迁移、不回退数据库版本，也不删除已生成台词或任务记录。
 
 `drama_style_library_entries.style_profile_json` 保存原风格中心完整快照与导演规格组合后的副本；原预置的参考资产、执行参数等不交给模型重写。`scope_owner` 对 director/analysis 回填创建人，公共 manual/seed 为空；名称唯一索引改为 `(project_type, name, scope_owner)`，不同用户的个人同名风格互不占位。个人条目包括管理员在内均只能由创建人访问，公共预置保持原可见性。
 

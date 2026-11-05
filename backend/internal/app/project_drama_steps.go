@@ -490,7 +490,7 @@ func (s *Service) planDramaStepWith(userID string, project *model.Project, unitI
 	if step.Scope == drama.StepScopeProject {
 		return nil, BadAuthRequest(fmt.Sprintf("「%s」是项目级步骤，请用 POST /projects/:id/drama/steps/%s/run", step.Label, step.ID))
 	}
-	if step.ID != drama.StepChapterShots && step.ID != drama.StepAssetsExtract && step.ID != drama.StepSpeechExtract {
+	if step.ID != drama.StepChapterShots && step.ID != drama.StepAssetsExtract {
 		return nil, BadAuthRequest(fmt.Sprintf("步骤 %s 还不能在服务端运行", step.ID))
 	}
 	unit, err := s.repo.ProjectUnit(project.ID, strings.TrimSpace(unitID))
@@ -499,9 +499,6 @@ func (s *Service) planDramaStepWith(userID string, project *model.Project, unitI
 	}
 	if err != nil {
 		return nil, err
-	}
-	if step.ID == drama.StepSpeechExtract {
-		return s.planSpeechExtract(project, unit, step)
 	}
 	if step.ID == drama.StepAssetsExtract {
 		usage, skill, err := s.dramaStepSkill(project, step, nil)

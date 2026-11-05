@@ -55,19 +55,6 @@
       ]
     },
     {
-      "id": "speech.extract",
-      "contract": "speech.extract@1",
-      "skillBudgetChars": 32000,
-      "skillLinkedFiles": 3,
-      "evalSet": [
-        {
-          "id": "qichuang-e01",
-          "profile": "live-realism",
-          "label": "《七床》第一集（独立提取全部声音）"
-        }
-      ]
-    },
-    {
       "id": "chapter.shots",
       "contract": "chapter.shots@3",
       "skillBudgetChars": 32000,

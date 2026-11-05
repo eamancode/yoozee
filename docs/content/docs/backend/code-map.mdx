@@ -8,7 +8,7 @@ description: 从产品功能快速定位主要代码入口
 - 分镜参考：`app/project_video_chain_assets.go` 构造带来源的截帧资产；`repository/storyboard_reference.go` 在父链租约下原子登记与绑定。`drama_segment_video.go` 用 FFmpeg 顺序读取到实际最后可读帧并记录时间。普通单组与整链统一走 `project_video_chain*`，`prepareOnly` 在创建视频任务前结束。
 - 我的导演风格：`app/director_style_cover.go` 归并旧个人记录、幂等保存个人档案及创建独立封面任务；`repository/director_style_profile.go` 负责版本、封面回调和快照条件写入；`prompts/style_profile.go` 保留结构化 director 并校验编辑版本。前端复用 `canvas-style-picker-modal.tsx`，项目区 `chapter-style-lock.tsx` 展示封面与重试。技能包 `yz-style-lock` 1.2.0 对齐原系统十二章节。
 
-- 声音台账：`drama/speech_ledger.go` 负责完整来源、逐字及重复发言校验；`app/project_speech.go` 编排独立技能和分镜前置；`repository/project_speech.go` 按正文做条件写入；前端 `speech-ledger-control.tsx` 展示台账，`chapter-segments.ts` 比对未落镜内容。
+- 台词核对：独立声音台账已还原。`drama/script.go`、`scenes.go`、`sections.go` 从原剧本解析并切节，`app/project_drama_shotlist.go` 不再读取台账；`chapter-segments.ts` 使用原引号台词覆盖检查。`task_lifecycle.go` 阻止重试已下线的独立声音任务。
 - 子卡上传：`project-character-variants.tsx` 上传并绑定表征；`app/project_character.go` 生成新版本并保护手工替换状态。道具优先级在 `drama/asset_design.go`、`app/project_asset_priority.go`、资产出图和流水线进度中使用。
 - 风格：建项直接复用 `canvas-style-picker-modal.tsx`；`app/director_style_profile.go` 合并公共快照与导演规格；`drama_style_library.go` 和对应 repository 执行个人可见及名称隔离。迁移 93 增加声音台账、完整风格快照和个人名称作用域。
 

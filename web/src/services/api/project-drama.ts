@@ -531,7 +531,7 @@ export function recommendDramaStyleProfile(styleMap: DramaStyleProfiles["styleMa
 }
 
 /** 短剧流程步骤：style.lock 是风格锁定、script.adapt 是剧本优化、scene.palette 是场次色卡（项目级），assets.extract 是资产设计、chapter.shots 是生成分段（按章节或剧集）。 */
-export type DramaStepId = "chapter.shots" | "style.lock" | "script.adapt" | "scene.palette" | "assets.extract" | "speech.extract";
+export type DramaStepId = "chapter.shots" | "style.lock" | "script.adapt" | "scene.palette" | "assets.extract";
 
 /** 一个项目跑这一步用哪个技能版本（风格档案查绑定；bound 为 false 时是步骤默认技能）。 */
 export type DramaStepUsage = {
@@ -569,7 +569,7 @@ export function getDramaStepUsage(projectId: string, step: DramaStepId, signal?:
 export function runDramaStep(
     projectId: string,
     unitId: string,
-    step: "chapter.shots" | "assets.extract" | "speech.extract",
+    step: "chapter.shots" | "assets.extract",
     input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule; resumeTaskId?: string; onlyScenes?: string[]; onlySections?: string[]; discard?: boolean; imageTask?: DramaImageTaskTemplate },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
