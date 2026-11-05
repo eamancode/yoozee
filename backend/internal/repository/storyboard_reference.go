@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"time"
@@ -29,6 +30,20 @@ func (r *Repository) RegisterStoryboardReference(controller *model.Task, revisio
 			return err
 		}
 		var existing int64
+		var storyboards []model.ShotArtifact
+		if err := tx.Where("shot_id = ? AND type = ? AND status = ? AND id <> ?", shot.ID, "storyboard", "ready", artifact.ID).Find(&storyboards).Error; err != nil {
+			return err
+		}
+		for _, previous := range storyboards {
+			var meta struct {
+				Role string `json:"role"`
+			}
+			if json.Unmarshal([]byte(previous.MetadataJSON), &meta) == nil && meta.Role == "continuity_reference" {
+				if err := tx.Model(&model.ShotArtifact{}).Where("id = ?", previous.ID).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": time.Now()}).Error; err != nil {
+					return err
+				}
+			}
+		}
 		if err := tx.Model(&model.ShotArtifact{}).Where("id = ?", artifact.ID).Count(&existing).Error; err != nil {
 			return err
 		}
@@ -43,6 +58,14 @@ func (r *Repository) RegisterStoryboardReference(controller *model.Task, revisio
 			}
 			artifact.Version, artifact.Selected = latest+1, selected == 0
 			if err := tx.Create(artifact).Error; err != nil {
+				return err
+			}
+		} else {
+			var selected int64
+			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ? AND selected = ? AND status = ? AND id <> ?", shot.ID, "storyboard", true, "ready", artifact.ID).Count(&selected).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&model.ShotArtifact{}).Where("id = ? AND (status <> ? OR selected <> ?)", artifact.ID, "ready", selected == 0).Updates(map[string]any{"status": "ready", "selected": selected == 0}).Error; err != nil {
 				return err
 			}
 		}

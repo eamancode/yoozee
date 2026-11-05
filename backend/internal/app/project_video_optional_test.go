@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
 )
@@ -123,5 +124,60 @@ func TestVideoChainWhiteFrameAttachmentPreservesExistingStoryboard(t *testing.T)
 	var meta map[string]any
 	if err := json.Unmarshal([]byte(artifacts[1].MetadataJSON), &meta); err != nil || meta["role"] != "continuity_reference" {
 		t.Fatal("missing frame provenance", err)
+	}
+}
+
+func TestVideoChainWhiteFrameSourceAndConsumerRevisionStayCurrent(t *testing.T) {
+	f := newVideoChainFixture(t, "A", "A")
+	chain := f.start(t)
+	first := f.untilTask(t, chain.ID, 0)
+	f.complete(t, first.Steps[0].TaskID)
+	f.tick(t, chain.ID)
+	state := f.untilTask(t, chain.ID, 1)
+	expires := time.Now().Add(time.Minute)
+	if err := f.db.Model(&model.Task{}).Where("id = ?", chain.ID).Updates(map[string]any{"status": model.TaskStatusRunning, "lease_owner": "attachment-test", "lease_expires_at": expires}).Error; err != nil {
+		t.Fatal(err)
+	}
+	parent, _ := f.s.repo.TaskForUser("user-1", chain.ID)
+	step := state.Steps[1]
+	step.SourceVideoResourceID, step.SourceVideoTaskID, step.FrameAssetID = "replacement-video", "replacement-task", ""
+	for _, row := range []any{
+		&model.Resource{ID: "replacement-video", UserID: "user-1", Kind: "video", MimeType: "video/mp4", Status: model.ResourceStatusReady},
+		&model.Task{ID: "replacement-task", UserID: "user-1", ProjectID: f.projectID, Type: "canvas_video", Status: model.TaskStatusSucceeded, Prompt: dramaSceneEnding, InputJSON: `{"metadata":{"_dramaVideoSubmission":{"endingApplied":true}}}`, ResultJSON: `{"video":{"resourceId":"replacement-video"}}`},
+		&model.ShotArtifact{ID: "replacement-output", ProjectID: f.projectID, UnitID: f.req.UnitID, ShotID: "s0", RevisionID: "rs0", Type: "video", Version: 1, ResourceID: "replacement-video", TaskID: "replacement-task", Status: "ready", Selected: true},
+	} {
+		if err := f.db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.s.registerVideoChainFrame(parent, &step); err != nil {
+		t.Fatal(err)
+	}
+	var artifacts []model.ShotArtifact
+	if err := f.db.Where("shot_id = ? AND type = ?", "s1", "storyboard").Order("version").Find(&artifacts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 2 || artifacts[0].Status != "stale" || artifacts[0].Selected || !artifacts[1].Selected || artifacts[1].Status != "ready" {
+		t.Fatal("old source white frame remained current", artifacts)
+	}
+	if err := f.db.Create(&model.ShotRevision{ID: "rs1-updated", ShotID: "s1", VideoPrompt: "修订后的镜头"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.Model(&model.Shot{}).Where("id = ?", "s1").Update("current_revision_id", "rs1-updated").Error; err != nil {
+		t.Fatal(err)
+	}
+	step.RevisionID = "rs1-updated"
+	if err := f.s.registerVideoChainFrame(parent, &step); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.registerVideoChainFrame(parent, &step); err != nil {
+		t.Fatal(err)
+	}
+	artifacts = nil
+	if err := f.db.Where("shot_id = ? AND type = ?", "s1", "storyboard").Order("version").Find(&artifacts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 3 || artifacts[1].Status != "stale" || artifacts[2].RevisionID != "rs1-updated" || !artifacts[2].Selected || artifacts[2].Status != "ready" {
+		t.Fatal("consumer revision reused stale attachment or duplicated it", artifacts)
 	}
 }

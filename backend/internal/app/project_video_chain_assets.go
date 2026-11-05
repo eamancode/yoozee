@@ -82,7 +82,7 @@ func (s *Service) registerVideoChainFrame(task *model.Task, step *videoChainStep
 	if err != nil {
 		return err
 	}
-	artifact := model.ShotArtifact{ID: videoChainHash([]string{"frame-storyboard", ref.ID})[:32], ProjectID: task.ProjectID, UnitID: source.UnitID, ShotID: step.ShotID, RevisionID: step.RevisionID, Type: "storyboard", ResourceID: step.FrameResourceID, Status: "ready", MetadataJSON: string(metadata), CreatedAt: now, UpdatedAt: now}
+	artifact := model.ShotArtifact{ID: videoChainHash([]string{"frame-storyboard", ref.ID, step.RevisionID})[:32], ProjectID: task.ProjectID, UnitID: source.UnitID, ShotID: step.ShotID, RevisionID: step.RevisionID, Type: "storyboard", ResourceID: step.FrameResourceID, Status: "ready", MetadataJSON: string(metadata), CreatedAt: now, UpdatedAt: now}
 	if err := s.repo.RegisterStoryboardReference(task, step.RevisionID, &asset, &version, &representation, &link, &ref, &artifact, step.FrameAssetID != ""); err != nil {
 		return err
 	}
