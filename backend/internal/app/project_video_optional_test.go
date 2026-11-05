@@ -167,11 +167,27 @@ func TestVideoChainWhiteFrameSourceAndConsumerRevisionStayCurrent(t *testing.T) 
 		t.Fatal(err)
 	}
 	step.RevisionID = "rs1-updated"
-	if err := f.s.registerVideoChainFrame(parent, &step); err != nil {
+	var projectBefore, projectAfter, projectRepeated model.Project
+	if err := f.db.First(&projectBefore, "id = ?", f.projectID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := f.s.registerVideoChainFrame(parent, &step); err != nil {
 		t.Fatal(err)
+	}
+	if err := f.db.First(&projectAfter, "id = ?", f.projectID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if projectAfter.Revision <= projectBefore.Revision {
+		t.Fatal("new attachment did not invalidate project cache")
+	}
+	if err := f.s.registerVideoChainFrame(parent, &step); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.First(&projectRepeated, "id = ?", f.projectID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if projectRepeated.Revision != projectAfter.Revision {
+		t.Fatal("idempotent reuse rewrote project revision")
 	}
 	artifacts = nil
 	if err := f.db.Where("shot_id = ? AND type = ?", "s1", "storyboard").Order("version").Find(&artifacts).Error; err != nil {

@@ -30,6 +30,7 @@ func (r *Repository) RegisterStoryboardReference(controller *model.Task, revisio
 			return err
 		}
 		var existing int64
+		attachmentChanged := false
 		var storyboards []model.ShotArtifact
 		if err := tx.Where("shot_id = ? AND type = ? AND status = ? AND id <> ?", shot.ID, "storyboard", "ready", artifact.ID).Find(&storyboards).Error; err != nil {
 			return err
@@ -42,6 +43,7 @@ func (r *Repository) RegisterStoryboardReference(controller *model.Task, revisio
 				if err := tx.Model(&model.ShotArtifact{}).Where("id = ?", previous.ID).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": time.Now()}).Error; err != nil {
 					return err
 				}
+				attachmentChanged = true
 			}
 		}
 		if err := tx.Model(&model.ShotArtifact{}).Where("id = ?", artifact.ID).Count(&existing).Error; err != nil {
@@ -60,18 +62,27 @@ func (r *Repository) RegisterStoryboardReference(controller *model.Task, revisio
 			if err := tx.Create(artifact).Error; err != nil {
 				return err
 			}
+			attachmentChanged = true
 		} else {
 			var selected int64
 			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ? AND selected = ? AND status = ? AND id <> ?", shot.ID, "storyboard", true, "ready", artifact.ID).Count(&selected).Error; err != nil {
 				return err
 			}
-			if err := tx.Model(&model.ShotArtifact{}).Where("id = ? AND (status <> ? OR selected <> ?)", artifact.ID, "ready", selected == 0).Updates(map[string]any{"status": "ready", "selected": selected == 0}).Error; err != nil {
-				return err
+			result := tx.Model(&model.ShotArtifact{}).Where("id = ? AND (status <> ? OR selected <> ?)", artifact.ID, "ready", selected == 0).Updates(map[string]any{"status": "ready", "selected": selected == 0})
+			if result.Error != nil {
+				return result.Error
 			}
+			attachmentChanged = attachmentChanged || result.RowsAffected > 0
 		}
 		if alreadyRegistered {
 			var bound model.ShotAssetReference
-			return tx.Where("id = ? AND shot_id = ? AND asset_version_id = ? AND status = ?", reference.ID, shot.ID, version.ID, "linked").First(&bound).Error
+			if err := tx.Where("id = ? AND shot_id = ? AND asset_version_id = ? AND status = ?", reference.ID, shot.ID, version.ID, "linked").First(&bound).Error; err != nil {
+				return err
+			}
+			if attachmentChanged {
+				return tx.Model(&model.Project{}).Where("id = ? AND user_id = ?", link.ProjectID, asset.UserID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error
+			}
+			return nil
 		}
 		for _, row := range []any{asset, version, representation, link} {
 			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(row).Error; err != nil {
