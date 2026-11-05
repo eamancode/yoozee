@@ -160,7 +160,7 @@ func TestVideoChainWhiteFrameSourceAndConsumerRevisionStayCurrent(t *testing.T) 
 	if len(artifacts) != 2 || artifacts[0].Status != "stale" || artifacts[0].Selected || !artifacts[1].Selected || artifacts[1].Status != "ready" {
 		t.Fatal("old source white frame remained current", artifacts)
 	}
-	if err := f.db.Create(&model.ShotRevision{ID: "rs1-updated", ShotID: "s1", VideoPrompt: "修订后的镜头"}).Error; err != nil {
+	if err := f.db.Create(&model.ShotRevision{ID: "rs1-updated", ShotID: "s1", Version: 1, VideoPrompt: "修订后的镜头"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := f.db.Model(&model.Shot{}).Where("id = ?", "s1").Update("current_revision_id", "rs1-updated").Error; err != nil {
