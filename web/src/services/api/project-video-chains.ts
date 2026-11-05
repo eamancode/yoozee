@@ -27,6 +27,8 @@ export interface VideoChainStep {
     status: string;
     phase: string;
     error?: string;
+    referenceWarning?: string;
+    referenceSkipped?: boolean;
     taskId?: string;
     videoResourceId?: string;
     frameResourceId?: string;

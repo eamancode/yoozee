@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -42,6 +43,8 @@ type ProjectVideoChainStep struct {
 	Status                string             `json:"status"`
 	Phase                 string             `json:"phase"`
 	Error                 string             `json:"error,omitempty"`
+	ReferenceWarning      string             `json:"referenceWarning,omitempty"`
+	ReferenceSkipped      bool               `json:"referenceSkipped,omitempty"`
 	TaskID                string             `json:"taskId,omitempty"`
 	VideoResourceID       string             `json:"videoResourceId,omitempty"`
 	FrameResourceID       string             `json:"frameResourceId,omitempty"`
@@ -97,6 +100,12 @@ func videoChainHash(value any) string {
 }
 
 func videoChainOperation(unitID string) string { return "video-chain:" + unitID }
+
+func videoChainActiveConflict(id string) *AppError {
+	conflict := NewAppError(http.StatusConflict, "本章节已有执行中的生成链，请查看该链进度或停止后续生成")
+	conflict.Details = map[string]any{"activeVideoChainId": id}
+	return conflict
+}
 
 func (s *Service) videoChainState(task *model.Task) (videoChainState, error) {
 	var state videoChainState
@@ -250,7 +259,7 @@ func (s *Service) CreateProjectVideoChain(userID, projectID string, req ProjectV
 		return ProjectVideoChainView{}, err
 	}
 	if stored.PreviewHash != state.PreviewHash {
-		return ProjectVideoChainView{}, BadAuthRequest("本章节已有另一条连续生成链，请先查看或停止该链")
+		return ProjectVideoChainView{}, videoChainActiveConflict(saved.ID)
 	}
 	s.wakeTaskDispatcher()
 	return videoChainView(projectID, saved, stored), nil
@@ -337,6 +346,15 @@ func (s *Service) RetryProjectVideoChain(userID, projectID, id string) (ProjectV
 	}
 	if task.Status != model.TaskStatusFailed {
 		return ProjectVideoChainView{}, BadAuthRequest("只有已暂停失败的连续生成链可以重试")
+	}
+	chains, err := s.repo.ProjectVideoChains(userID, projectID, task.Operation)
+	if err != nil {
+		return ProjectVideoChainView{}, err
+	}
+	for _, other := range chains {
+		if other.ID != id && (other.Status == model.TaskStatusQueued || other.Status == model.TaskStatusRunning) {
+			return ProjectVideoChainView{}, videoChainActiveConflict(other.ID)
+		}
 	}
 	fresh, err := s.prepareProjectVideoChain(userID, projectID, old.Request)
 	if err != nil {

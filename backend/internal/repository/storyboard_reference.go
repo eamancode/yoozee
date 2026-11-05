@@ -14,19 +14,37 @@ func (r *Repository) StoryboardReferenceConsumers(projectID, versionID string) (
 }
 
 // Registration shares the cancellation and lease fence with child admission.
-func (r *Repository) RegisterStoryboardReference(controller *model.Task, revisionID string, asset *model.Asset, version *model.AssetVersion, representation *model.AssetRepresentation, link *model.ProjectAssetLink, reference *model.ShotAssetReference, alreadyRegistered bool) error {
+func (r *Repository) RegisterStoryboardReference(controller *model.Task, revisionID string, asset *model.Asset, version *model.AssetVersion, representation *model.AssetRepresentation, link *model.ProjectAssetLink, reference *model.ShotAssetReference, artifact *model.ShotArtifact, alreadyRegistered bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		fence := &model.Task{UserID: controller.UserID, ProjectID: controller.ProjectID, ParentControllerID: controller.ID, ParentControllerLease: controller.LeaseOwner}
 		if err := requireVideoChainParent(tx, fence); err != nil {
 			return err
 		}
 		var shot model.Shot
-		if err := tx.Where("id = ? AND project_id = ? AND current_revision_id = ?", reference.ShotID, link.ProjectID, revisionID).First(&shot).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND project_id = ? AND current_revision_id = ?", reference.ShotID, link.ProjectID, revisionID).First(&shot).Error; err != nil {
 			return err
 		}
 		var resource model.Resource
 		if err := tx.Where("id = ? AND user_id = ? AND status = ?", representation.ResourceID, asset.UserID, model.ResourceStatusReady).First(&resource).Error; err != nil {
 			return err
+		}
+		var existing int64
+		if err := tx.Model(&model.ShotArtifact{}).Where("id = ?", artifact.ID).Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing == 0 {
+			var latest int
+			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", shot.ID, "storyboard").Select("COALESCE(MAX(version), 0)").Scan(&latest).Error; err != nil {
+				return err
+			}
+			var selected int64
+			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ? AND selected = ? AND status = ?", shot.ID, "storyboard", true, "ready").Count(&selected).Error; err != nil {
+				return err
+			}
+			artifact.Version, artifact.Selected = latest+1, selected == 0
+			if err := tx.Create(artifact).Error; err != nil {
+				return err
+			}
 		}
 		if alreadyRegistered {
 			var bound model.ShotAssetReference

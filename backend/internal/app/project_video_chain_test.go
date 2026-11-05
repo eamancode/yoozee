@@ -216,43 +216,50 @@ func TestVideoChainABCOrderingFramesAndIdempotency(t *testing.T) {
 	}
 }
 
-func TestVideoChainFailureResumesFrameAndUpload(t *testing.T) {
-	f := newVideoChainFixture(t, "A", "A", "A")
-	chain := f.start(t)
-	state := f.untilTask(t, chain.ID, 0)
-	f.complete(t, state.Steps[0].TaskID)
-	f.tick(t, chain.ID)
-	f.failFrame.Store(true)
-	f.tick(t, chain.ID)
-	parent, _ := f.s.repo.TaskForUser("user-1", chain.ID)
-	if parent.Status != model.TaskStatusFailed {
-		t.Fatal("frame failure did not pause")
-	}
-	if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID); err != nil {
-		t.Fatal(err)
-	}
-	f.tick(t, chain.ID) // successful extraction
-	f.failUpload.Store(true)
-	f.tick(t, chain.ID)
-	parent, _ = f.s.repo.TaskForUser("user-1", chain.ID)
-	if parent.Status != model.TaskStatusFailed {
-		t.Fatal("upload failure did not pause")
-	}
-	if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID); err != nil {
-		t.Fatal(err)
-	}
-	state = f.untilTask(t, chain.ID, 1)
-	if f.frames.Load() != 2 || f.uploads.Load() != 2 || state.Steps[1].FrameResourceID != f.frameID {
-		t.Fatal("successful frame repeated or discarded")
-	}
-	// An already generated A remains the same task; only B is submitted.
-	var count int64
-	f.db.Model(&model.Task{}).Where("type = ?", "canvas_video").Count(&count)
-	if count != 2 {
-		t.Fatal("recreated successful task", count)
-	}
-	if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID); err == nil {
-		t.Fatal("concurrent retry admitted")
+func TestVideoChainOptionalFrameAndUploadFailuresContinue(t *testing.T) {
+	for _, phase := range []string{"frame", "upload"} {
+		t.Run(phase, func(t *testing.T) {
+			f := newVideoChainFixture(t, "A", "A", "A")
+			chain := f.start(t)
+			state := f.untilTask(t, chain.ID, 0)
+			firstID := state.Steps[0].TaskID
+			f.complete(t, firstID)
+			f.tick(t, chain.ID)
+			if phase == "frame" {
+				f.failFrame.Store(true)
+			} else {
+				f.tick(t, chain.ID)
+				f.failUpload.Store(true)
+			}
+			state = f.untilTask(t, chain.ID, 1)
+			step := state.Steps[1]
+			child, _ := f.s.repo.TaskForUser("user-1", step.TaskID)
+			if !step.ReferenceSkipped || step.ReferenceWarning == "" || strings.Contains(child.Prompt, "【站位参考】") || f.frames.Load() != 1 {
+				t.Fatalf("optional failure blocked/repeated/lied about reference: %+v", step)
+			}
+			var input canvasGenerationInput
+			raw, _ := f.s.decryptTaskInputJSON(child.InputJSON)
+			if err := json.Unmarshal([]byte(raw), &input); err != nil || len(input.ReferenceImages) != 0 {
+				t.Fatal("missing frame remained in submission", err)
+			}
+			var count int64
+			f.db.Model(&model.Task{}).Where("type = ?", "canvas_video").Count(&count)
+			if count != 2 {
+				t.Fatal("completed video resubmitted", count)
+			}
+			for range 3 {
+				f.tick(t, chain.ID)
+			}
+			if f.frames.Load() != 1 {
+				t.Fatal("optional failure automatically retried")
+			}
+			if phase == "upload" {
+				f.db.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", "s1", "storyboard").Count(&count)
+				if count != 1 || step.FrameAssetID == "" || f.uploads.Load() != 1 {
+					t.Fatal("saved frame attachment lost or repeated", count)
+				}
+			}
+		})
 	}
 }
 
@@ -290,8 +297,8 @@ func TestVideoChainSingleAndUnsupportedReference(t *testing.T) {
 	f2 := newVideoChainFixture(t, "A", "A")
 	config := f2.req.Model.Input["config"].(map[string]any)
 	config["capabilityConfig"].(*ModelCapabilityConfig).Video.References.MaxImages = 0
-	if _, err := f2.s.PreviewProjectVideoChain("user-1", f2.projectID, f2.req); err == nil {
-		t.Fatal("ignored unsupported spatial image")
+	if preview, err := f2.s.PreviewProjectVideoChain("user-1", f2.projectID, f2.req); err != nil || !preview.Steps[1].ReferenceSkipped {
+		t.Fatal("unsupported optional spatial image blocked video", err)
 	}
 	for _, input := range []map[string]any{{videoChainMetadataKey: map[string]any{"controllerId": "forged"}}, {"referenceImages": []any{map[string]any{"_chainUploadId": "forged"}}}} {
 		if _, err := f.s.CreateTask("user-1", CreateTaskRequest{Type: "canvas_video", Input: input}); err == nil {

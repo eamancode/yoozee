@@ -28,6 +28,7 @@ import { createVideoChain, previewVideoChain } from "@/services/api/project-vide
 import { quoteModel, type LogicalModelQuote } from "@/services/api/logical-models";
 import { refreshGenerationTaskStatus, type GenerationTask } from "@/services/api/task-center";
 import { generationErrorMessage } from "@/lib/generation-error";
+import { ApiError } from "@/services/api/request";
 import { downloadBrowserMedia } from "@/services/browser-download";
 import {
     deleteProjectShot,
@@ -45,8 +46,10 @@ import {
 } from "@/services/api/projects";
 import { resourceFileUrl, resourceStorageKey } from "@/services/api/resources";
 import { skillRuntime } from "@/services/skill-runtime";
-import { configuredModelMatchesCapability, modelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { configuredModelMatchesCapability, modelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 import { useUserStore } from "@/stores/use-user-store";
+import { useDramaModelPreferencesStore } from "@/stores/use-drama-model-preferences-store";
 import { SkillRuntimePicker, useRememberedSkillSelection, useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
 
 import {
@@ -60,6 +63,7 @@ import {
 } from "./workflow-shared";
 import { shotTaskRunningLabel, shotVideoSeconds } from "./shot-generation";
 import { parseShotGenerationSettings, restoreShotGenerationSettings, shotGenerationSettingsKey, type ShotGenerationSettings } from "./shot-generation-settings";
+import { storyboardReferenceSource } from "./storyboard-reference";
 import { segmentDurationRule, segmentRefRole } from "./chapter-segments";
 import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { withSegmentRef } from "./segment-edit";
@@ -155,7 +159,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const shotFailureReason = shotTask?.status !== "failed" ? "" : failedTaskQuery.data?.error ? generationErrorMessage(failedTaskQuery.data.error) : failedTaskQuery.isLoading ? "正在读取失败原因…" : "没有读到失败原因，可到任务中心查看";
     const newestArtifact = artifacts.find((item) => item.selected) || artifacts[0];
     const previewArtifact = artifacts.find((item) => item.id === previewArtifactId) || newestArtifact;
+    const shotAssetReferenceContext = useMemo(() => buildShotAssetReferenceContext(detail, selectedShot?.id || ""), [detail, selectedShot?.id]);
     const generationCapability = activeStage === "video" ? "video" as const : "image" as const;
+    const recentModels = useDramaModelPreferencesStore((state) => state.models);
     const modelOptions = useMemo(() => selectableModelsByCapability(effectiveConfig, generationCapability), [effectiveConfig, generationCapability]);
     const dramaModels = useDramaModels();
     const dramaModel = findDramaModel(dramaModels.data, detail.project.generationModel);
@@ -168,8 +174,15 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const restoredSettings = useMemo(() => {
         let stored;
         try { stored = settingsKey ? parseShotGenerationSettings(sessionStorage.getItem(settingsKey)) : undefined; } catch { /* 浏览器禁用会话存储时仍可按产物恢复。 */ }
-        return restoreShotGenerationSettings({ stored, artifacts, defaultModel: defaultModel || modelOptions[0] || "", available: (model) => modelOptions.includes(model) });
-    }, [artifacts, defaultModel, modelOptions, settingsKey]);
+        const available = (model: string) => modelOptions.includes(model)
+            && (generationCapability !== "video" || !dramaModel || familyOf(model)?.id === dramaModel.id)
+            && !modelCompatibilityError(effectiveConfig, model, {
+                capability: generationCapability,
+                ...(generationCapability === "video" ? { videoContentSeconds: (selectedShot?.durationMs || 3000) / 1000 } : {}),
+                input: { textCount: 1, imageCount: shotAssetReferenceContext.referenceImages.length, videoCount: 0, audioCount: generationCapability === "video" ? shotAssetReferenceContext.referenceAudios.length : 0, characterCount: 0 },
+            });
+        return restoreShotGenerationSettings({ stored, artifacts, defaultModel: [defaultModel, ...modelOptions].find(available) || "", recentModel: recentModels[generationCapability], available });
+    }, [artifacts, defaultModel, modelOptions, settingsKey, recentModels, generationCapability, dramaModel, effectiveConfig, selectedShot?.durationMs, shotAssetReferenceContext]);
     const initialModel = restoredSettings.settings.model;
     const [selectedModel, setSelectedModel] = useState(initialModel);
     const selectedModelRef = useRef(initialModel);
@@ -181,7 +194,6 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const [imageQuality, setImageQuality] = useState(effectiveConfig.quality || "auto");
     const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
     const [selectedSkillIds, setSelectedSkillIds] = useRememberedSkillSelection("shot-generation", availableSkills, skillsLoading);
-    const shotAssetReferenceContext = useMemo(() => buildShotAssetReferenceContext(detail, selectedShot?.id || ""), [detail, selectedShot?.id]);
     const referenceByVersionId = useMemo(() => {
         const references = (detail.shotReferences || []).filter((reference) => reference.shotId === selectedShot?.id && (reference.role === "reference" || reference.role === "style") && reference.status === "linked");
         return new Map(references.flatMap((reference) => [
@@ -582,6 +594,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 const requestId = singleSubmissionRef.current.get(preview.previewHash) || crypto.randomUUID();
                 singleSubmissionRef.current.set(preview.previewHash, requestId);
                 await createVideoChain(projectId, { ...request, previewHash: preview.previewHash, requestId });
+                useDramaModelPreferencesStore.getState().remember("video", routedModel, userId);
                 singleSubmissionRef.current.delete(preview.previewHash);
                 await queryClient.invalidateQueries({ queryKey: ["project-video-chains", projectId, unitId] });
                 setVideoChainOpen(true);
@@ -593,6 +606,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
             message.success(`${productionStageCopy[activeStage as "storyboard" | "previz" | "video"].label}任务已提交`);
         } catch (error) {
             // 表单校验失败时 antd 抛的不是 Error，要把具体字段的提示说出来，不能只报「提交失败」。
+            if (error instanceof ApiError && typeof error.details?.activeVideoChainId === "string") {
+                await queryClient.invalidateQueries({ queryKey: ["project-video-chains", projectId, unitId] });
+                setVideoChainOpen(true);
+            }
             const fieldError = (error as { errorFields?: Array<{ errors?: string[] }> } | undefined)?.errorFields?.[0]?.errors?.[0];
             message.error(error instanceof Error ? error.message : fieldError ? `还不能生成：${fieldError}` : "生成任务提交失败");
         } finally {
@@ -707,7 +724,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                 <div className="workflow-settings-section">
                                     <div className="workflow-settings-section-title">生成规格</div>
                                     <Form.Item label="生成模型">
-                                        <ModelPicker
+                                        <ModelPicker preferenceScope="short-drama"
                                             config={generationConfig}
                                             value={selectedModel}
                                             capability={generationCapability}
@@ -792,6 +809,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         />
                     </header>
                     <div className="workflow-preview-scroll thin-scrollbar">
+                        {activeStage === "video" ? <p className="mb-3 text-xs text-foreground/65">分镜图与动作预演均为可选，可直接生成视频。白模站位参考不可用时，保留原正文与参考图继续。</p> : null}
                         {shotFailureReason ? <div className="workflow-failure-note" role="status"><CircleAlert aria-hidden /><div className="min-w-0"><strong>上次{stageCopy.label}生成失败</strong><p>{shotFailureReason}</p><Link to="/tasks?status=failed">到任务中心查看详情</Link></div></div> : null}
                         {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
                         <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? `${formatDuration(selectedShot.durationMs)} · ${resolution}p · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
@@ -925,15 +943,16 @@ function LatestPreview({ artifact, emptyText, onPreviewImage }: { artifact?: Sho
     if (!artifact?.resourceId) return <div className="workflow-media-empty"><span><Play className="size-7" /></span><p>{emptyText}</p></div>;
     const src = resourceFileUrl(artifact.resourceId);
     if (artifact.type === "video") return <VideoArtifactPreview src={src} title="镜头视频" />;
-    return <button type="button" className="workflow-preview-media-button" onClick={() => onPreviewImage(artifact)} aria-label={artifact.type === "action_board" ? "点击预览动作预演" : "点击预览分镜图"}>
+    const reference = storyboardReferenceSource(artifact);
+    return <>{reference ? <p className="mb-2 text-xs text-foreground/65">上一组白模站位参考 · 来源：{reference.title}{reference.timeSeconds !== undefined ? ` · ${reference.timeSeconds.toFixed(3)} 秒` : ""}{reference.videoResourceId ? <a className="ml-2 underline" href={resourceFileUrl(reference.videoResourceId)} target="_blank" rel="noreferrer">查看来源视频</a> : null}</p> : null}<button type="button" className="workflow-preview-media-button" onClick={() => onPreviewImage(artifact)} aria-label={reference ? "点击预览上一组白模站位参考" : artifact.type === "action_board" ? "点击预览动作预演" : "点击预览分镜图"}>
         <img className={`workflow-preview-media ${artifact.type === "action_board" ? "grayscale" : ""}`} src={src} alt="镜头生成预览" loading="eager" />
         <span className="workflow-preview-expand" aria-hidden="true"><Maximize2 className="size-4" /></span>
-    </button>;
+    </button></>;
 }
 
 function ArtifactHistory({ artifacts, activeId, onSelect, compact = false }: { artifacts: ShotArtifact[]; activeId?: string; onSelect: (artifact: ShotArtifact) => void; compact?: boolean }) {
     if (!artifacts.length) return compact ? null : <EmptyState size="compact" title="暂无历史版本" />;
-    return <section className={`workflow-history ${compact ? "is-compact" : ""}`}><div className="workflow-history-title">历史版本</div>{artifacts.map((artifact) => <button key={artifact.id} type="button" className={artifact.id === activeId ? "is-active" : ""} onClick={() => onSelect(artifact)}>{artifact.resourceId ? artifact.type === "video" ? <video src={resourceFileUrl(artifact.resourceId)} muted preload="metadata" /> : <img src={resourceFileUrl(artifact.resourceId)} alt="" loading="lazy" /> : <span className="workflow-history-placeholder"><Layers3 /></span>}<span className="min-w-0 flex-1"><strong>v{artifact.version}{artifact.selected ? " · 当前" : ""}</strong><small>{new Date(artifact.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small></span><ArtifactStatus artifact={artifact} compact /></button>)}</section>;
+    return <section className={`workflow-history ${compact ? "is-compact" : ""}`}><div className="workflow-history-title">历史版本</div>{artifacts.map((artifact) => <button key={artifact.id} type="button" className={artifact.id === activeId ? "is-active" : ""} onClick={() => onSelect(artifact)}>{artifact.resourceId ? artifact.type === "video" ? <video src={resourceFileUrl(artifact.resourceId)} muted preload="metadata" /> : <img src={resourceFileUrl(artifact.resourceId)} alt="" loading="lazy" /> : <span className="workflow-history-placeholder"><Layers3 /></span>}<span className="min-w-0 flex-1"><strong>{storyboardReferenceSource(artifact) ? "白模参考 · " : ""}v{artifact.version}{artifact.selected ? " · 当前" : ""}</strong><small>{new Date(artifact.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small></span><ArtifactStatus artifact={artifact} compact /></button>)}</section>;
 }
 
 function ShotTimeline({ activeStage, detail, shots, selectedShotId, submittingShotIds, onSelectShot, onAddShot, addingShot }: { activeStage: ShortDramaWorkflowStage; detail: ProjectDetail; shots: ProjectShot[]; selectedShotId: string; submittingShotIds: Set<string>; onSelectShot: (id: string) => void; onAddShot: () => void; addingShot: boolean }) {

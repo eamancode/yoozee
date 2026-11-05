@@ -13,7 +13,7 @@ test("章节页直接生成分段到分镜制作，技能由项目风格档案�
     expect(source).toContain("/video`");
     expect(source).not.toContain("SkillRuntimePicker");
     expect(source).toContain('getDramaStepUsage(detail.project.id, "chapter.shots"');
-    expect(source.match(/<ModelPicker config=\{effectiveConfig\} capability="text"/g)).toHaveLength(1);
+    expect(source.match(/<ModelPicker preferenceScope="short-drama" config=\{effectiveConfig\} capability="text"/g)).toHaveLength(1);
     expect(source).toContain("const textModel = selectedTextModel");
     expect(source).toContain("generateChapterStoryboard");
     // 提取资产也走服务端步骤（assets.extract），页面不再解析模板输出、不再写待确认候选。

@@ -12,7 +12,8 @@ import { compileProjectShot, createDramaEvidence, downloadDramaDelivery, dramaSh
 import { listProjectAssets, type ShotArtifact } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
 import { waitForGenerationTask } from "@/services/api/task-center";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 import type { ReferenceImage } from "@/types/image";
 
 import { dramaRunModeLabel } from "../drama-model";

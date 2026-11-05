@@ -13,7 +13,8 @@ import { ApiError } from "@/services/api/request";
 import { API_ERROR_REASON } from "@/services/api/error-codes";
 import type { DramaImageStatus, ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 
 import { assetsExtractStreamFromResult, parseAssetsExtractStream, resumedAssetsExtractStream, type AssetsExtractStreamState, type AssetsStreamCategory } from "./assets-extract-stream";
 import { storyboardRunStop } from "./chapter-shot-stream";
@@ -214,9 +215,9 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
         setFollowUnitId("");
         setPrecheckError("");
         setSettings((current) => ({
-            textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
+            textModel: effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
             images: current.images,
-            imageModel: current.imageModel || defaultImageModel(),
+            imageModel: defaultImageModel(),
         }));
         setOpen(true);
     };
@@ -435,7 +436,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                     </div>
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
-                        <ModelPicker
+                        <ModelPicker preferenceScope="short-drama"
                             config={effectiveConfig}
                             capability="text"
                             value={settings.textModel}
@@ -461,7 +462,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                             />
                         </label>
                         {settings.images ? (
-                            <ModelPicker
+                            <ModelPicker preferenceScope="short-drama"
                                 config={effectiveConfig}
                                 capability="image"
                                 value={settings.imageModel}
@@ -519,7 +520,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                     resume ? (
                         <label className="block text-xs">
                             继续使用的文本模型
-                            <ModelPicker
+                            <ModelPicker preferenceScope="short-drama"
                                 config={effectiveConfig}
                                 capability="text"
                                 value={settings.textModel || effectiveConfig.textModel || effectiveConfig.model}

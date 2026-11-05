@@ -78,10 +78,10 @@ func briefPrevizGate(briefJSON string) string {
 	return drama.PrevizGateAuto
 }
 
-// withBriefPrevizGate 把预演闸门写进需求文档，其他字段原样保留；auto 时去掉这一项（跟生成模式）。
+// withBriefPrevizGate 保存历史预演偏好，其他字段原样保留；auto 使用默认的可选预演。
 func withBriefPrevizGate(briefJSON string, gate string) (string, error) {
 	if !drama.ValidPrevizGate(gate) {
-		return "", BadAuthRequest("预演闸门只能是 auto（跟生成模式）、on 或 off")
+		return "", BadAuthRequest("预演偏好只能是 auto（默认可选）、on 或 off；均不强制先生成预演")
 	}
 	doc := map[string]any{}
 	if raw := strings.TrimSpace(briefJSON); raw != "" {
@@ -104,7 +104,7 @@ func withBriefPrevizGate(briefJSON string, gate string) (string, error) {
 	return string(encoded), nil
 }
 
-// projectPrevizGate 是项目的预演闸门是否生效（previz_gate 覆盖，auto 跟生成模式）。
+// projectPrevizGate 保留进度合同；历史偏好不再作为视频硬前置。
 func projectPrevizGate(project *model.Project) bool {
 	return drama.PrevizGateEnabled(briefPrevizGate(project.BriefJSON), project.RunMode)
 }

@@ -74,11 +74,11 @@ export function withPrevizGate(document: Record<string, unknown>, gate: DramaPre
     return next;
 }
 
-/** 预演闸门的选项：auto 跟生成模式。 */
+/** 历史字段保留为预演偏好，不再强制拦截视频。 */
 export const PREVIZ_GATE_OPTIONS: Array<{ value: DramaPrevizGate; label: string }> = [
-    { value: "auto", label: "跟生成模式（跑到出视频前时关，另两档开）" },
-    { value: "on", label: "开：先选中黑白预演再生成视频" },
-    { value: "off", label: "关：直接生成视频" },
+    { value: "auto", label: "可选：直接生成视频（默认）" },
+    { value: "on", label: "偏好先查看预演（不强制）" },
+    { value: "off", label: "跳过预演，直接生成视频" },
 ];
 
 /** 只有「已确认」「默认，已授权」能拿去花钱，见 backend/internal/drama/brief.go 的 BriefStatuses。 */

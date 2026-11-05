@@ -78,7 +78,12 @@ func (s *Service) registerVideoChainFrame(task *model.Task, step *videoChainStep
 	representation := model.AssetRepresentation{ID: videoChainHash([]string{"frame-representation", id})[:32], TaskID: id, AssetVersionID: versionID, ResourceID: step.FrameResourceID, MediaType: "image", Role: "continuity_frame", MetadataJSON: string(definition), CreatedAt: now}
 	link := model.ProjectAssetLink{ID: videoChainHash([]string{"frame-project", id})[:32], ProjectID: task.ProjectID, AssetID: id, CreatedAt: now}
 	ref := model.ShotAssetReference{ID: videoChainHash([]string{"frame-binding", step.ShotID, versionID})[:32], ShotID: step.ShotID, AssetVersionID: versionID, Role: "continuity", Status: "linked", CreatedAt: now}
-	if err := s.repo.RegisterStoryboardReference(task, step.RevisionID, &asset, &version, &representation, &link, &ref, step.FrameAssetID != ""); err != nil {
+	metadata, err := json.Marshal(map[string]any{"role": "continuity_reference", "continuityReference": lineage})
+	if err != nil {
+		return err
+	}
+	artifact := model.ShotArtifact{ID: videoChainHash([]string{"frame-storyboard", ref.ID})[:32], ProjectID: task.ProjectID, UnitID: source.UnitID, ShotID: step.ShotID, RevisionID: step.RevisionID, Type: "storyboard", ResourceID: step.FrameResourceID, Status: "ready", MetadataJSON: string(metadata), CreatedAt: now, UpdatedAt: now}
+	if err := s.repo.RegisterStoryboardReference(task, step.RevisionID, &asset, &version, &representation, &link, &ref, &artifact, step.FrameAssetID != ""); err != nil {
 		return err
 	}
 	step.FrameAssetID = id

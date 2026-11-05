@@ -5,6 +5,12 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 可选预演与连续链参考
+
+预演偏好保留历史字段，但缺少动作预演不再触发 `previz_required` 阻止视频。连续链步骤可返回 `referenceSkipped` 和 `referenceWarning`：额外白模准备失败可继续，原参考输入仍须完整有效。只有实际上传的末帧才加入站位提醒。
+
+章节执行中链冲突返回 HTTP 409，`details.activeVideoChainId` 指向当前用户可查看的关联链。失败链不占用章节；创建和显式续跑均在项目锁下校验执行中互斥。同一提交标识仍幂等返回原链，不自动重试历史任务。
+
 ## 声音流程还原与风格权限
 
 独立 `speech.extract` 步骤及 `GET /api/projects/:id/units/:unitId/drama/speech-ledger` 接口已下线。分镜直接使用 `chapter.shots`，不再自动插入声音提取任务。历史独立声音任务保留，但通用重试会在创建订单前明确拒绝；章节、镜头中的原台词和既有生成记录不修改。

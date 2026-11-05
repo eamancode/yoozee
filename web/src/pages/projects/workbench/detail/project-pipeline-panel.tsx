@@ -6,7 +6,8 @@ import { Link } from "react-router";
 
 import { type DramaRunMode } from "@/services/api/project-drama";
 import { updateProject, type Project } from "@/services/api/projects";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 import { navigateToSettings } from "@/lib/settings-navigation";
 
 import { ChoiceGroup } from "../create/composer-sections";

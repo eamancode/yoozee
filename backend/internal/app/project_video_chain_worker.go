@@ -32,6 +32,15 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		return s.saveVideoChain(task, state, model.TaskStatusSucceeded, stage, "")
 	}
 	step := &state.Steps[index]
+	skipReference := func(cause error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		step.ReferenceSkipped = true
+		step.ReferenceWarning = "未使用上一组白模站位参考：" + sanitizeUserVisibleError(cause.Error())
+		step.Phase = "waiting"
+		return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" · 已跳过可选白模参考", "")
+	}
 	fail := func(cause error) error {
 		step.Status, step.Error = "failed", sanitizeUserVisibleError(cause.Error())
 		label := map[string]string{"waiting": "前置检查", "extracting": "末帧截取", "registering": "分镜参考登记与绑定", "uploading": "参考素材上传", "prepared": "提交准备", "submitting": "视频提交", "generating": "视频生成"}[step.Phase]
@@ -89,7 +98,7 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 	if len(fresh.Steps) != len(state.Steps) || fresh.Steps[index].Signature != step.Signature {
 		return fail(BadAuthRequest("镜头内容、叙事顺序或模型已变化，点击重试以最新内容继续"))
 	}
-	if step.SourceShotID != "" {
+	if step.SourceShotID != "" && !step.ReferenceSkipped {
 		if index > 0 {
 			previous := &state.Steps[index-1]
 			if previous.Status != "succeeded" || previous.VideoResourceID == "" {
@@ -100,7 +109,7 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		if step.FrameResourceID == "" {
 			step.Phase = "extracting"
 			if reused, err := s.reuseVideoChainFrame(task, step); err != nil {
-				return fail(err)
+				return skipReference(err)
 			} else if reused {
 				return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" · 已有片末参考已复用", "")
 			}
@@ -117,10 +126,10 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 				})
 			}
 			if err != nil {
-				return fail(err)
+				return skipReference(err)
 			}
 			if _, err := s.videoChainReadyResource(task.UserID, id, "image/"); err != nil {
-				return fail(err)
+				return skipReference(err)
 			}
 			step.FrameResourceID = id
 			step.FrameTimeSeconds, step.FrameSelection = observation.TimeSeconds, observation.Method
@@ -130,24 +139,45 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 			step.Phase = "registering"
 		}
 		if err := s.registerVideoChainFrame(task, step); err != nil {
-			return fail(fmt.Errorf("分镜参考保存或绑定已失效：%w", err))
+			return skipReference(fmt.Errorf("分镜参考保存或绑定已失效：%w", err))
 		}
 	}
 	input, err := s.videoChainInput(task, step)
 	if err != nil {
-		return fail(err)
+		return skipReference(err)
 	}
 	if step.Phase != "prepared" {
 		step.Phase = "uploading"
-		if err := s.uploadVideoChainReferences(ctx, task, &state, step, input); err != nil {
+		baseStep := *step
+		baseStep.ReferenceSkipped = true
+		baseInput, err := s.videoChainInput(task, &baseStep)
+		if err != nil {
 			return fail(err)
+		}
+		// Original references are required; only the extra continuity frame may
+		// fail open. Checkpoint originals first so fallback never retries a failure.
+		if err := s.uploadVideoChainReferences(ctx, task, &state, step, baseInput); err != nil {
+			return fail(err)
+		}
+		if !step.ReferenceSkipped && step.FrameResourceID != "" {
+			input, err = s.videoChainInput(task, step)
+			if err != nil {
+				return skipReference(err)
+			}
+			if err := s.uploadVideoChainReferences(ctx, task, &state, step, input); err != nil {
+				return skipReference(err)
+			}
 		}
 		step.Phase = "prepared"
 		return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" · 参考素材已准备", "")
 	}
 	if state.Request.PrepareOnly {
 		step.Status, step.Phase = "succeeded", "reference_ready"
-		return s.saveVideoChain(task, state, model.TaskStatusSucceeded, "站位参考已准备，未提交视频生成", "")
+		stage := "站位参考已准备，未提交视频生成"
+		if step.ReferenceSkipped {
+			stage = "没有可用站位参考，未提交视频生成"
+		}
+		return s.saveVideoChain(task, state, model.TaskStatusSucceeded, stage, "")
 	}
 	step.Phase = "submitting"
 	maxCharge := int64(0)

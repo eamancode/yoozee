@@ -13,7 +13,8 @@ import { listProjectAssetsPage, updateProject, type ProjectVisualType } from "@/
 import { getDramaBrief, getDramaProgress, putDramaBrief, type DramaRunMode } from "@/services/api/project-drama";
 import { uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store";
+import { modelDisplayName } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 
 import { sourceTypeLabel, type ProjectDetailViewProps } from "./shared";
 import { projectLockedStyle } from "./chapter-style-lock";
@@ -179,13 +180,13 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                     <Field label="生成模式"><Select className="w-full" value={runMode} options={DRAMA_RUN_MODES.map(({ label, value }) => ({ label, value }))} onChange={setRunMode} /></Field>
                     <Field label="风格档案"><Select className="w-full" loading={styleProfiles.isLoading} value={dramaProfile || undefined} options={dramaStyleProfileOptions(styleProfiles.data)} onChange={setDramaProfile} /></Field>
                     <Field label="单段最长时长"><Select className="w-full" value={segmentSeconds} disabled={!briefQuery.isSuccess} options={[{ label: `不限（按模型上限 ${selectedDramaModel?.duration.max ?? "-"} 秒）`, value: 0 }, ...SEGMENT_SECONDS_OPTIONS.map((value) => ({ label: `${value} 秒`, value, disabled: Boolean(selectedDramaModel && value > selectedDramaModel.duration.max) }))]} onChange={setSegmentSeconds} /></Field>
-                    <Field label="视频前预演闸门"><Select className="w-full" value={previzGate} disabled={!briefQuery.isSuccess} options={PREVIZ_GATE_OPTIONS} onChange={setPrevizGate} /></Field>
+                    <Field label="动作预演偏好（可选）"><Select className="w-full" value={previzGate} disabled={!briefQuery.isSuccess} options={PREVIZ_GATE_OPTIONS} onChange={setPrevizGate} /></Field>
                     <Field label="每集时长（秒）"><InputNumber className="w-full" min={EPISODE_SECONDS_RANGE.min} max={EPISODE_SECONDS_RANGE.max} step={10} precision={0} value={episodeSeconds} disabled={!briefQuery.isSuccess} placeholder="不限" onChange={(value) => setEpisodeSeconds(typeof value === "number" ? value : null)} /></Field>
                 </div>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_STYLE_PROFILE_HINT}</p>
                 {segmentSecondsShrunk ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">单段最长时长改小后，下次装段生效；已经装好的段不会自动重拆，可在章节页「进度」侧栏里点「重新装段」。</div> : null}
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">单段最长时长只能比生成模型一段的上限更严，装段时按两者里小的那个切段。</p>
-                <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">预演闸门开着时，每一段要先生成并选中黑白动作预演，才能生成视频（制作台和 Agent 都按这个拦）；跟生成模式时，跑到出视频前关，另两档开。</p>
+                <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">分镜图与动作预演均为可选，可直接生成视频。此偏好不自动创建预演任务，也不因缺少预演阻止生成。</p>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">每集时长写进生成分镜的提示词（镜头估时合计不超过它的 1.1 倍），保存分镜时按它检查分段合计；不填就不限。</p>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_RUN_MODES.find((item) => item.value === runMode)?.hint}。改生成模式只影响之后的接续，已经停住的环节不会自动补做。{DRAMA_VIDEO_STOP_NOTE}</p>
                 {selectedDramaModel && dramaFamilies && !dramaFamilies.has(selectedDramaModel.id) ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">当前没有 {selectedDramaModel.label} 的视频渠道，分镜制作页无法按这个模型生成视频。请先配置渠道，或改用已有渠道的模型。</div> : null}
@@ -197,13 +198,13 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                 <div className="grid gap-4 md:grid-cols-2">
                     <Field label="默认生图模型">
                         <div className="flex items-center gap-2">
-                            <ModelPicker config={effectiveConfig} value={defaultImageModel} capability="image" onChange={setDefaultImageModel} fullWidth placeholder={`跟随全局 · ${modelDisplayName(effectiveConfig, effectiveConfig.imageModel) || "未配置"}`} showSelectedPrice />
+                            <ModelPicker preferenceScope="short-drama" config={effectiveConfig} value={defaultImageModel} capability="image" onChange={setDefaultImageModel} fullWidth placeholder={`跟随全局 · ${modelDisplayName(effectiveConfig, effectiveConfig.imageModel) || "未配置"}`} showSelectedPrice />
                             {defaultImageModel ? <Button type="text" size="small" onClick={() => setDefaultImageModel("")}>跟随全局</Button> : null}
                         </div>
                     </Field>
                     <Field label="默认视频模型">
                         <div className="flex items-center gap-2">
-                            <ModelPicker config={effectiveConfig} value={defaultVideoModel} capability="video" onChange={setDefaultVideoModel} fullWidth placeholder={`跟随全局 · ${modelDisplayName(effectiveConfig, effectiveConfig.videoModel) || "未配置"}`} showSelectedPrice />
+                            <ModelPicker preferenceScope="short-drama" config={effectiveConfig} value={defaultVideoModel} capability="video" onChange={setDefaultVideoModel} fullWidth placeholder={`跟随全局 · ${modelDisplayName(effectiveConfig, effectiveConfig.videoModel) || "未配置"}`} showSelectedPrice />
                             {defaultVideoModel ? <Button type="text" size="small" onClick={() => setDefaultVideoModel("")}>跟随全局</Button> : null}
                         </div>
                     </Field>

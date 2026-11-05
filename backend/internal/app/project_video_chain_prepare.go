@@ -2,9 +2,11 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	"gorm.io/gorm"
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
 )
@@ -129,6 +131,19 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 			operation = "video_to_video"
 		}
 		hasPosition := i > sceneFirst
+		var prior *model.ShotArtifact
+		referenceWarning := ""
+		usePosition := hasPosition
+		if hasPosition && req.Scope == "single" {
+			prior, err = s.videoChainExistingPredecessor(userID, projectID, shots[i-1])
+			if err != nil {
+				return state, err
+			}
+			if prior == nil {
+				usePosition = false
+				referenceWarning = "上一组没有可用的白模来源视频，本次使用原正文与参考图"
+			}
+		}
 		if !hasPosition && len(videos) == 0 {
 			for _, item := range images {
 				media, _ := item.(map[string]any)
@@ -136,13 +151,6 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 					operation = "image_to_video"
 				}
 			}
-		}
-		if hasPosition && operation == "text_to_video" {
-			operation = "reference_to_video"
-		}
-		if hasPosition {
-			images = append(images, map[string]any{"id": "pending-position", "role": "reference", "type": "image/png", "mimeType": "image/png"})
-			input["referenceImages"] = images
 		}
 		input["metadata"] = map[string]any{"domainProjectId": projectID, "unitId": req.UnitID, "shotId": shot.ID, "shotRevisionId": shot.CurrentRevisionID, "artifactType": "video", "role": "output", "source": "project-video-chain", "videoEditOperation": operation, "artifactMetadata": map[string]any{"model": choice.Model, "contentDurationSeconds": content.Dur}}
 		if err := s.enforceDramaPrevizGate(userID, input); err != nil {
@@ -175,25 +183,29 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 		if options, ok := input["capabilityOptions"].(map[string]any); ok {
 			options["videoSeconds"] = generation
 		}
-		if hasPosition {
-			if !containsCapabilityString(profile.Operations, "reference_to_video") && operation != "video_to_video" {
-				return state, BadAuthRequest(fmt.Sprintf("%s 的模型不支持站位参考图输入，请选择支持参考生视频的模型", shot.Title))
-			}
+		if usePosition && (!containsCapabilityString(profile.Operations, "reference_to_video") && operation != "video_to_video" || len(images)+1 > profile.References.MaxImages) {
+			usePosition = false
+			referenceWarning = "所选模型不支持额外站位图或参考图容量已满，本次保留原参考图并跳过白模"
 		}
-		if len(images) > profile.References.MaxImages {
-			return state, BadAuthRequest(fmt.Sprintf("%s 需要保留 %d 张原参考图并新增 1 张站位图，超过模型最多 %d 张的限制；请调整参考图或模型", shot.Title, len(images)-1, profile.References.MaxImages))
+		if usePosition {
+			images = append(images, map[string]any{"id": "pending-position", "role": "reference", "type": "image/png", "mimeType": "image/png"})
+			input["referenceImages"] = images
+			if operation == "text_to_video" {
+				operation = "reference_to_video"
+			}
+			input["metadata"].(map[string]any)["videoEditOperation"] = operation
 		}
 		m, err := projectDramaModel(project)
 		if err != nil {
 			return state, err
 		}
 		tag := ""
-		if hasPosition {
+		if usePosition {
 			tag = drama.ReferenceImageTag(m, len(images))
 		}
 		original := compiled.Result.Prompt
 		finalPrompt := original
-		if hasPosition {
+		if usePosition {
 			finalPrompt = videoChainPositionPrompt(tag) + "\n\n" + finalPrompt
 		}
 		ending := i < sceneLast
@@ -230,21 +242,18 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 		}
 		// The placeholder participates only in capability/quote checks. Runtime
 		// adds the actual predecessor frame and compiles its real reference tag.
-		if hasPosition {
+		if usePosition {
 			images = images[:len(images)-1]
 		}
 		input["referenceImages"] = images
 		input["prompt"] = original
 		signature := videoChainHash([]any{shot.ID, shot.CurrentRevisionID, scene, content.Dur, ending, input, previousSignature})
 		step := videoChainStepState{ProjectVideoChainStep: ProjectVideoChainStep{ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Title: shot.Title, Scene: scene, ContentSeconds: content.Dur, GenerationSeconds: generation, Model: choice.Model, Status: "waiting", Phase: "waiting", ReferenceCount: len(images), ReferenceTag: tag, Ending: ending, Quote: quote}, Input: input, LogicalModelID: choice.LogicalModelID, Signature: signature, Uploads: map[string]string{}}
+		step.ReferenceSkipped, step.ReferenceWarning = hasPosition && !usePosition, referenceWarning
 		if hasPosition {
 			step.SourceShotID = shots[i-1].ID
 			step.SourceRevisionID = shots[i-1].CurrentRevisionID
-			if req.Scope == "single" {
-				prior, err := s.videoChainExistingPredecessor(userID, projectID, shots[i-1])
-				if err != nil {
-					return state, err
-				}
+			if prior != nil {
 				step.SourceVideoResourceID, step.SourceVideoTaskID = prior.ResourceID, prior.TaskID
 				step.Signature = videoChainHash([]any{signature, prior.ID, prior.ResourceID, prior.TaskID})
 			}
@@ -276,22 +285,29 @@ func (s *Service) videoChainExistingPredecessor(userID, projectID string, shot m
 		}
 	}
 	if selected == nil {
-		return nil, failedPrecondition("上一镜头组尚无当前版本的可用视频，请先生成上一组或显式发起同场景连续生成")
+		return nil, nil
 	}
 	task, err := s.repo.TaskForUser(userID, selected.TaskID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	var input map[string]any
 	if err := json.Unmarshal([]byte(task.InputJSON), &input); err != nil {
-		return nil, err
+		return nil, nil
 	}
 	metadata, _ := input["metadata"].(map[string]any)
 	submission, _ := metadata[dramaSubmissionKey].(map[string]any)
 	if task.Status != model.TaskStatusSucceeded || submission["endingApplied"] != true || !strings.Contains(task.Prompt, "无贴图的哑光白色三维白模") {
-		return nil, failedPrecondition("上一组历史视频未保证含白模结束段，请重新生成上一组或显式发起新链")
+		return nil, nil
 	}
 	if _, err := s.videoChainReadyResource(userID, selected.ResourceID, "video/"); err != nil {
+		var unavailable *AppError
+		if errors.As(err, &unavailable) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return selected, nil

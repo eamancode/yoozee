@@ -17,8 +17,10 @@ import { ModelLogo } from "@/components/model-logo";
 import { ModelTags } from "@/components/model-tags";
 import { videoReferenceCapabilityTag } from "@/lib/model-tags";
 import { quoteModel, type LogicalModelQuote, type PublicChannelModelAvailability } from "@/services/api/logical-models";
+import { useDramaModelPreferencesStore } from "@/stores/use-drama-model-preferences-store";
 
 type ModelPickerProps = {
+    preferenceScope?: "short-drama";
     config: AiConfig;
     value?: string;
     onChange: (model: string) => void;
@@ -39,6 +41,7 @@ type ModelPickerProps = {
 };
 
 export function ModelPicker({
+    preferenceScope,
     config,
     value,
     onChange,
@@ -57,6 +60,7 @@ export function ModelPicker({
     modelDisabledReason,
 }: ModelPickerProps) {
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
+    const recentModels = useDramaModelPreferencesStore((state) => state.models);
     const pickerId = useId();
     // 双保险：即使 store merge 写出非法 theme，这里也兜底到 dark，避免 "reading 'node'" 崩溃
     const rawTheme = useActiveTheme();
@@ -75,6 +79,11 @@ export function ModelPicker({
     const options = useMemo(() => Array.from(new Set(selectableModelsByCapability(config, capability).filter((model) => Boolean(model) && (!modelFilter || modelFilter(model))))), [capability, config, modelFilter]);
     const optionGroups = useMemo(() => groupModelsForPicker(config, options), [config, options]);
     const storedCurrent = value?.trim() || "";
+    const recent = capability && capability !== "audio" ? recentModels[capability] : undefined;
+    const preferenceNotice = preferenceScope !== "short-drama" ? "" : recent && recent !== storedCurrent && (!options.includes(recent) || modelCompatibilityError(config, recent, requirements) || modelDisabledReason?.(recent))
+        ? "上次使用的模型已不可用或不适配本次任务，请核对当前模型和费用。"
+        : capability === "text" && !recent && !options.some((model) => modelOptionName(model).toLowerCase() === "gpt-6.1-sol" || configuredModelDisplayName(config, model).toLowerCase() === "gpt-6.1-sol")
+          ? "默认文本模型 gpt-6.1-sol 当前不可用，请使用当前可用模型。" : "";
     // 参数档位会在选中模型后由调用方归一到其能力配置，不能因为旧模型留下的参数而禁止切换。
     const selectionRequirements = requirements ? { ...requirements, videoSeconds: undefined, imageSize: undefined, options: undefined } : undefined;
     const resolvedCurrent = isDirectSystemModel(config, storedCurrent) ? storedCurrent : resolveCompatibleModel(config, storedCurrent, selectionRequirements) || storedCurrent;
@@ -347,6 +356,7 @@ export function ModelPicker({
                     <ChevronDown className={cn("canvas-model-picker-chevron", open && "is-open")} aria-hidden="true" />
                 </button>
             </Popover>
+            {preferenceNotice ? <p role="status" className="mt-1 text-xs text-foreground/60">{preferenceNotice}</p> : null}
         </div>
     );
 }

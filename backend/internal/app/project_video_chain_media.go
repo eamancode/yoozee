@@ -57,7 +57,7 @@ func videoChainReference(resource *model.Resource, name string) map[string]any {
 func (s *Service) videoChainInput(task *model.Task, step *videoChainStepState) (map[string]any, error) {
 	input := cloneVideoChainInput(step.Input)
 	marker := map[string]any{"controllerId": task.ID}
-	if step.SourceShotID != "" {
+	if step.SourceShotID != "" && !step.ReferenceSkipped && step.FrameResourceID != "" {
 		resource, err := s.videoChainReadyResource(task.UserID, step.FrameResourceID, "image/")
 		if err != nil {
 			return nil, err
@@ -67,6 +67,26 @@ func (s *Service) videoChainInput(task *model.Task, step *videoChainStepState) (
 		marker["frameResourceId"], marker["referenceTag"] = resource.ID, step.ReferenceTag
 		marker["sourceShotId"], marker["sourceVideoResourceId"] = step.SourceShotID, step.SourceVideoResourceID
 		marker["sourceRevisionId"], marker["frameAssetId"] = step.SourceRevisionID, step.FrameAssetID
+	}
+	if step.ReferenceSkipped {
+		images, _ := input["referenceImages"].([]any)
+		videos, _ := input["referenceVideos"].([]any)
+		operation := "text_to_video"
+		if len(images) > 0 {
+			operation = "reference_to_video"
+		}
+		for _, image := range images {
+			media, _ := image.(map[string]any)
+			if role := stringValue(media["role"]); role == "first_frame" || role == "last_frame" {
+				operation = "image_to_video"
+			}
+		}
+		if len(videos) > 0 {
+			operation = "video_to_video"
+		}
+		if metadata, ok := input["metadata"].(map[string]any); ok {
+			metadata["videoEditOperation"] = operation
+		}
 	}
 	input[videoChainMetadataKey] = marker
 	for _, group := range []string{"referenceImages", "referenceVideos", "referenceAudios"} {

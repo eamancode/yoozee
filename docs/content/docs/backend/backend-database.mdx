@@ -5,6 +5,12 @@ description: 柚子后端核心持久化表与状态边界
 
 # 后端数据库
 
+## 可选白模的分镜附件
+
+不增加迁移。白模沿用现有资源、分镜参考资产及 continuity 绑定，另向下一镜头的 `shot_artifacts` 写入 `type=storyboard` 的幂等附件。`metadata_json.role=continuity_reference`、`continuityReference` 保存来源镜头、视频、截帧时间和控制器。与已有分镜图共用版本序列；已有选中且 ready 的分镜图保持选中。附件、资产和绑定在同一事务内检查当前版本、资源归属及控制器租约。
+
+控制器检查点记录白模跳过标志和非阻塞原因；不伪造上传成功。历史 failed 控制器不参与新建占用，但与 queued/running 的续跑互斥仍在事务中保证。
+
 ## 统一个人风格与分镜参考（迁移 94）
 
 原风格中心的个人档案统一存入 `style_profiles`。新增 `source_project_id`、`source_library_id`、`source_fingerprint` 记录来源及重放指纹；新增 `cover_task_id`、`cover_resource_id`、`cover_status`、`cover_error`、`cover_revision`、`cover_image_revision`、`cover_attempt` 管理独立图片封面任务及对应版本。`profile_json.director` 保存结构化导演风格锚、主基调色卡与画面类型，原 selection、执行资产、许可和执行策略一并保留。文本更新使用版本条件写入；封面回调同时匹配用户、任务和档案版本。项目只更新仍匹配原快照的封面，其他项目历史快照不跟随修改。

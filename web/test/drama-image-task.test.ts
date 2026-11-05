@@ -54,7 +54,7 @@ describe("短剧出图模板", () => {
             config: { ...config, model: selected, imageModel: encodeChannelModel("system-image", "fake-image") },
         });
         expect(request.config.model).toBe(projectModel);
-        expect(() => turnaroundImageModel(config, "missing-channel::image")).toThrow("项目默认图片模型不可用");
+        expect(turnaroundImageModel(config, "missing-channel::image")).toBe(encodeChannelModel("system-image", "fake-image"));
     });
     test("渠道暂停计入出图摘要", () => {
         expect(dramaImageSummaryText(["failed", "paused", "paused"], "个", "资产上")).toContain("2 个因图片渠道不可用已暂停");

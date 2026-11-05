@@ -216,8 +216,8 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 	}
 	prompt = basePrompt
 	marker, _ := input[videoChainMetadataKey].(map[string]any)
-	if previousID != "" && (stringValue(marker["sourceShotId"]) != previousID || stringValue(marker["sourceRevisionId"]) != previousRevisionID || stringValue(marker["frameResourceId"]) == "" || stringValue(marker["sourceVideoResourceId"]) == "") {
-		return "", failedPrecondition("本镜头组需要上一组末帧站位参考，请从分镜制作重新生成或发起同场景连续生成；不会自动省略参考图")
+	if stringValue(marker["frameResourceId"]) != "" && (stringValue(marker["sourceShotId"]) != previousID || stringValue(marker["sourceRevisionId"]) != previousRevisionID || stringValue(marker["sourceVideoResourceId"]) == "") {
+		return "", failedPrecondition("站位参考的来源与当前相邻镜头不一致，请重新准备")
 	}
 	if previousID == "" && stringValue(marker["frameResourceId"]) != "" {
 		return "", failedPrecondition("场景归属或叙事顺序已变化，请重新准备生成；不跨场景继承末帧")

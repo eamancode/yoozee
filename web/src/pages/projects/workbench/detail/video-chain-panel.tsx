@@ -5,7 +5,11 @@ import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Callout } from "@/components/ui/product/callout";
 import { createVideoChain, cancelVideoChain, listVideoChains, previewVideoChain, retryVideoChain, type VideoChain, type VideoChainModel, type VideoChainRequest } from "@/services/api/project-video-chains";
 import { resourceFileUrl } from "@/services/api/resources";
-import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store";
+import { modelDisplayName } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
+import { ApiError } from "@/services/api/request";
+import { getActiveUserScope } from "@/lib/user-scope";
+import { useDramaModelPreferencesStore } from "@/stores/use-drama-model-preferences-store";
 
 const phaseLabels: Record<string, string> = {
     waiting: "等待前序镜头",
@@ -50,10 +54,11 @@ export function VideoChainPanel({
     const chains = useQuery({ queryKey: ["project-video-chains", projectId, unitId], queryFn: ({ signal }) => listVideoChains(projectId, unitId, signal), enabled: open, refetchInterval: open ? 2000 : false });
     const existing =
         chains.data?.chains.find((chain) => chain.id === selectedId) ||
-        chains.data?.chains.find((chain) => ["queued", "running", "failed"].includes(chain.status)) ||
+        chains.data?.chains.find((chain) => ["queued", "running"].includes(chain.status)) ||
         (!preview ? chains.data?.chains.find((chain) => chain.steps.some((step) => step.shotId === shotId)) : undefined);
     const chain = existing || preview;
     const active = chain?.status === "queued" || chain?.status === "running";
+    const referenceAttachments = chain?.steps.map((step) => step.frameAssetId || "").join(",") || "";
 
     useEffect(() => {
         session.current++;
@@ -66,6 +71,9 @@ export function VideoChainPanel({
     useEffect(() => {
         if (chain?.status === "succeeded" || chain?.status === "failed") void onRefresh().catch(() => setProblem("生成进度已保存，刷新产物列表失败，请稍后刷新页面"));
     }, [chain?.id, chain?.status]);
+    useEffect(() => {
+        if (referenceAttachments.replaceAll(",", "")) void onRefresh().catch(() => setProblem("白模附件已保存，刷新分镜图失败，请稍后刷新页面"));
+    }, [chain?.id, referenceAttachments]);
 
     const run = async (action: () => Promise<void>) => {
         if (gate.current) return;
@@ -75,6 +83,15 @@ export function VideoChainPanel({
         try {
             await action();
         } catch (error) {
+            if (error instanceof ApiError && typeof error.details?.activeVideoChainId === "string") {
+                setSelectedId(error.details.activeVideoChainId);
+                setPreview(undefined);
+                await chains.refetch();
+            } else if (error instanceof ApiError && error.status === 409) {
+                const refreshed = await chains.refetch();
+                const activeChain = refreshed.data?.chains.find((item) => item.status === "queued" || item.status === "running");
+                if (activeChain) { setSelectedId(activeChain.id); setPreview(undefined); }
+            }
             setProblem(error instanceof Error ? error.message : "连续生成操作失败，请重试");
         } finally {
             gate.current = false;
@@ -95,9 +112,11 @@ export function VideoChainPanel({
     const start = () =>
         run(async () => {
             if (!request.current) throw new Error("请先预览镜头组与费用");
+            const scope = getActiveUserScope();
             // Keep this idempotency key after timeouts so a repeated click finds the
             // original controller rather than scheduling another paid chain.
             const { chain } = await createVideoChain(projectId, request.current);
+            useDramaModelPreferencesStore.getState().remember("video", request.current.model.model, scope);
             setSelectedId(chain.id);
             setPreview(undefined);
             await chains.refetch();
@@ -121,7 +140,7 @@ export function VideoChainPanel({
 
     return (
         <AppModal open={open} centered title="同场景连续生成" width={820} onCancel={onClose} footer={null} styles={{ body: { maxHeight: "calc(100dvh - 160px)", overflowY: "auto" } }}>
-            <p className="mb-4 text-foreground/65">按叙事顺序串联当前场景的连续镜头组。后一组等待前一组完成，再截取片末画面作为站位参考；保留原参考图。切换场景时结束本链。</p>
+            <p className="mb-4 text-foreground/65">按叙事顺序串联当前场景的连续镜头组。后一组等待前一组视频完成，尽量使用片末白模作为站位参考；白模缺失或准备失败时，保留原参考图继续生成。切换场景时结束本链。</p>
             <p className="mb-4 text-xs text-foreground/55">片末最后 1 秒硬切至 45° 俯视白模大全景，机位与构图固定，人物仅保留轻微呼吸和自然晃动。最后一组不添加片末结束段。</p>
             {problem || chains.error ? (
                 <div role="alert" className="mb-3">
@@ -165,8 +184,9 @@ export function VideoChainPanel({
                                     {step.scene || "未指定场景"} · 内容 {step.contentSeconds} 秒 → 生成 {step.generationSeconds} 秒 · {modelDisplayName(config, step.model)}
                                 </p>
                                 <p className="mt-1 text-xs text-foreground/55">
-                                    {step.sourceShotId ? `保留 ${step.referenceCount} 张原参考图，新增站位图 ${step.referenceTag}` : `保留 ${step.referenceCount} 张参考图`} · {step.ending ? "追加片末结束段" : "不追加片末结束段"}
+                                    {step.sourceShotId && !step.referenceSkipped ? `保留 ${step.referenceCount} 张原参考图，尝试新增站位图 ${step.referenceTag}` : `保留 ${step.referenceCount} 张参考图`} · {step.ending ? "追加片末结束段" : "不追加片末结束段"}
                                 </p>
+                                {step.referenceWarning ? <p role="status" className="mt-2 text-sm text-foreground/65">{step.referenceWarning}</p> : null}
                                 {step.error ? (
                                     <p role="alert" className="mt-2 text-red-600 dark:text-red-400">
                                         {step.error}
@@ -225,14 +245,14 @@ export function VideoChainPanel({
                         从失败步骤继续
                     </Button>
                 ) : null}
-                {!active && chain?.status !== "failed" ? (
+                {!active ? (
                     <Button loading={busy} onClick={() => void preparePosition()}>
                         仅准备本组站位参考
                     </Button>
                 ) : null}
-                {!active && chain?.status !== "failed" ? (
+                {!active ? (
                     <Button loading={busy} onClick={() => void refreshPreview()}>
-                        预览当前场景与费用
+                        {chain?.status === "failed" ? "预览新任务与费用" : "预览当前场景与费用"}
                     </Button>
                 ) : null}
                 {chain?.status === "preview" ? (

@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
-import { configuredModelMatchesCapability, modelDisplayName, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { configuredModelMatchesCapability, modelDisplayName, selectableModelsByCapability, type AiConfig } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
+import { useDramaModelPreferencesStore } from "@/stores/use-drama-model-preferences-store";
 import { getDramaStyleProfiles, listDramaModels, recommendDramaStyleProfile, type DramaModel, type DramaPipelineStageKey, type DramaRegistry, type DramaRunMode, type DramaStyleProfiles } from "@/services/api/project-drama";
 
 /** models.json 的默认值；目录还没读到时用它占位，最终以服务端校验为准。 */
@@ -122,6 +124,8 @@ export function dramaModelOptions(registry?: DramaRegistry, available?: Set<stri
  * 最后是全局默认。章节装段要按它的时长档位取段长。
  */
 export function projectVideoModel(config: AiConfig, projectDefault: string | undefined, registry: DramaRegistry | undefined, family: DramaModel | undefined) {
+    const recent = useDramaModelPreferencesStore.getState().models.video;
+    if (recent && configuredModelMatchesCapability(config, recent, "video") && (!family || dramaFamilyOf(registry, recent, modelDisplayName(config, recent))?.id === family.id)) return recent;
     if (projectDefault && configuredModelMatchesCapability(config, projectDefault, "video")) return projectDefault;
     const options = selectableModelsByCapability(config, "video");
     const sameFamily = family ? options.find((value) => dramaFamilyOf(registry, value, modelDisplayName(config, value))?.id === family.id) : undefined;

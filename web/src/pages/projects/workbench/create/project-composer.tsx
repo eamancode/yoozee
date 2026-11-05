@@ -9,7 +9,8 @@ import { detectProjectSource, formatSourceChars, plainTextToHtml, sourceCharCoun
 import { projectVisualTypeLabel, styleProfileSupportsVisualType } from "@/lib/project-visual-type";
 import { listDramaStyleLibrary, dramaStyleLibraryCoverUrl, dramaStyleLibraryKey, sortDramaStyleLibrary, type DramaStyleLibraryItem } from "@/services/api/drama-style-library";
 import type { CreateProjectInput, ProjectVisualType } from "@/services/api/projects";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 import { useUserStore } from "@/stores/use-user-store";
 
 import { continueProjectPipeline } from "../detail/project-chapter-ai";

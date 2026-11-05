@@ -47,10 +47,12 @@ import {
 } from "@/services/api/projects";
 import { sceneAnchorList } from "@/lib/canvas/scene-anchors";
 import { listGenerationTasks } from "@/services/api/task-center";
-import { queueDramaAssetImages, resynthesizeDramaPalettes } from "@/services/api/project-drama";
+import { resynthesizeDramaPalettes } from "@/services/api/project-drama";
+import { queueDramaAssetImages } from "@/services/drama-model-submission";
 import { loadAssetsForUse, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { useAssetStore, type Asset, type AssetCategory, type AssetStatus, type EntityAsset, type ImageAsset } from "@/stores/use-asset-store";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 import { CanvasNodeType, type CanvasFolderStyle, type CanvasFolderTheme, type CanvasNodeData } from "@/types/canvas";
 
 import { DramaAssetChecklist } from "./drama-panels";

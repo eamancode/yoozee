@@ -9,6 +9,7 @@ import { CANVAS_HISTORY_STORE_KEY, useCanvasHistoryStore } from "@/stores/canvas
 import { ASSET_STORE_KEY, flushAssetStorePersistence, useAssetStore, withAssetStorePersistenceSuppressed } from "@/stores/use-asset-store";
 import { CONFIG_STORE_KEY, defaultConfig, normalizeConfigSnapshot, useConfigStore, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import { CREATION_PREFERENCES_STORE_KEY, useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
+import { useDramaModelPreferencesStore } from "@/stores/use-drama-model-preferences-store";
 import { defaultModelCapabilityConfig, STANDARD_IMAGE_SIZE_VALUES, type ModelCapabilityConfig } from "@/lib/model-capabilities";
 import { imageSizeConfigWithPresets } from "@/lib/image-size-presets";
 import { useUserStore } from "@/stores/use-user-store";
@@ -71,6 +72,7 @@ function resetUserScopedMemory() {
     useConfigStore.setState({ config: normalizeConfigSnapshot({ config: defaultConfig }).config });
     usePluginStore.setState({ hydrated: false, installations: [], runtimeStatuses: {}, pluginStates: {} });
     useCreationPreferencesStore.setState({ hydrated: false, preferences: {} });
+    useDramaModelPreferencesStore.setState({ models: {} });
     // 全局 Agent 的开合与待投递消息属于账号会话，切换账号必须清空。
     useGlobalAgentStore.getState().reset();
 }
@@ -94,6 +96,7 @@ async function hydrateUserSessionData(payload: AuthSessionPayload, generation: n
         useConfigStore.persist.rehydrate(),
         usePluginStore.persist.rehydrate(),
         useCreationPreferencesStore.persist.rehydrate(),
+        useDramaModelPreferencesStore.persist.rehydrate(),
     ]);
     if (!isCurrentSession(generation, userId)) return;
     // Zustand 在目标 scope 没有快照时会保留旧内存，必须显式恢复该 scope 的空状态。

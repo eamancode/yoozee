@@ -11,7 +11,8 @@ import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaRunProgressOf, dramaSceneCode, dramaScenePaletteOutcomeOf, getDramaStepUsage, type DramaScenePaletteOutcome } from "@/services/api/project-drama";
 import type { ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 
 import { followChainedAssetsExtract } from "./chapter-assets-extract";
 import { storyboardRunStop } from "./chapter-shot-stream";
@@ -171,8 +172,8 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
         setSettings((current) => ({
             ...current,
             sourceIds: candidates.map((unit) => unit.id),
-            textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
-            imageModel: current.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel),
+            textModel: effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
+            imageModel: turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel),
         }));
         setOpen(true);
     };
@@ -361,7 +362,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                     </div>
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
-                        <ModelPicker
+                        <ModelPicker preferenceScope="short-drama"
                             config={effectiveConfig}
                             capability="text"
                             value={settings.textModel}
@@ -393,7 +394,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                                     />
                                 </label>
                                 {settings.chainImages ? (
-                                    <ModelPicker
+                                    <ModelPicker preferenceScope="short-drama"
                                         config={effectiveConfig}
                                         capability="image"
                                         value={settings.imageModel}

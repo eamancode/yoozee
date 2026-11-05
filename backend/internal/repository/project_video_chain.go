@@ -56,7 +56,10 @@ func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int) (*mode
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", task.ProjectID, task.UserID).First(&project).Error; err != nil {
 			return err
 		}
-		err := tx.Where("user_id = ? AND project_id = ? AND type = ? AND (id = ? OR (operation = ? AND status IN ?))", task.UserID, task.ProjectID, model.TaskTypeProjectVideoChain, task.ID, task.Operation, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning, model.TaskStatusFailed}).First(&existing).Error
+		err := tx.Where("user_id = ? AND project_id = ? AND type = ? AND id = ?", task.UserID, task.ProjectID, model.TaskTypeProjectVideoChain, task.ID).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = tx.Where("user_id = ? AND project_id = ? AND type = ? AND operation = ? AND status IN ?", task.UserID, task.ProjectID, model.TaskTypeProjectVideoChain, task.Operation, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).First(&existing).Error
+		}
 		if err == nil {
 			return nil
 		}
@@ -110,15 +113,31 @@ func (r *Repository) CheckpointProjectVideoChain(task *model.Task, input string)
 }
 
 func (r *Repository) ResumeProjectVideoChain(userID, id, expectedInput, nextInput string) error {
-	result := r.db.Model(&model.Task{}).Where("id = ? AND user_id = ? AND type = ? AND status = ? AND input_json = ?", id, userID, model.TaskTypeProjectVideoChain, model.TaskStatusFailed, expectedInput).
-		Updates(map[string]any{"input_json": nextInput, "status": model.TaskStatusQueued, "stage": "等待继续连续生成", "error": "", "next_poll_at": nil, "completed_at": nil, "lease_owner": "", "lease_expires_at": nil, "updated_at": time.Now()})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return ErrTaskStateConflict
-	}
-	return nil
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var task model.Task
+		if err := tx.Where("id = ? AND user_id = ? AND type = ?", id, userID, model.TaskTypeProjectVideoChain).First(&task).Error; err != nil {
+			return err
+		}
+		var project model.Project
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", task.ProjectID, userID).First(&project).Error; err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&model.Task{}).Where("id <> ? AND user_id = ? AND project_id = ? AND type = ? AND operation = ? AND status IN ?", id, userID, task.ProjectID, model.TaskTypeProjectVideoChain, task.Operation, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return ErrTaskStateConflict
+		}
+		result := tx.Model(&model.Task{}).Where("id = ? AND user_id = ? AND status = ? AND input_json = ?", id, userID, model.TaskStatusFailed, expectedInput).Updates(map[string]any{"input_json": nextInput, "status": model.TaskStatusQueued, "stage": "等待继续连续生成", "error": "", "next_poll_at": nil, "completed_at": nil, "lease_owner": "", "lease_expires_at": nil, "updated_at": time.Now()})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrTaskStateConflict
+		}
+		return nil
+	})
 }
 
 func (r *Repository) CancelProjectVideoChain(userID, id string) error {

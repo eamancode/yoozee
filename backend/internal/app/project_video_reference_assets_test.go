@@ -80,21 +80,21 @@ func TestVideoChainSingleRequiresAndTransfersCurrentPredecessor(t *testing.T) {
 	}
 }
 
-func TestVideoChainSingleMissingOrStalePredecessorNeverSubmits(t *testing.T) {
+func TestVideoChainSingleMissingPredecessorAllowsVideo(t *testing.T) {
 	f := newVideoChainFixture(t, "A", "A")
 	f.req.Scope, f.req.ShotID = "single", "s1"
-	if _, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req); err == nil || !strings.Contains(err.Error(), "上一镜头组") {
-		t.Fatal("missing predecessor silently ignored", err)
+	chain := f.start(t)
+	state := f.untilTask(t, chain.ID, 0)
+	if !state.Steps[0].ReferenceSkipped || state.Steps[0].ReferenceWarning == "" {
+		t.Fatal("missing optional reference not explained", state)
 	}
 	input := cloneVideoChainInput(f.req.Model.Input)
 	input["metadata"] = map[string]any{"domainProjectId": f.projectID, "shotId": "s1"}
-	if _, err := f.s.prepareDramaVideoSubmission("user-1", input, "完整正文", false); err == nil {
-		t.Fatal("generic entry bypassed dependency")
+	if _, err := f.s.prepareDramaVideoSubmission("user-1", input, "完整正文", false); err != nil {
+		t.Fatal("generic entry still requires predecessor", err)
 	}
-	var count int64
-	f.db.Model(&model.Task{}).Count(&count)
-	if count != 0 || f.frames.Load() != 0 || f.uploads.Load() != 0 {
-		t.Fatal("dependency failure caused a paid task or preparation")
+	if f.frames.Load() != 0 || f.uploads.Load() != 0 {
+		t.Fatal("missing reference caused preparation attempts")
 	}
 }
 

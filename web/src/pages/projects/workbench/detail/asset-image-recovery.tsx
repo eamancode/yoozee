@@ -36,7 +36,7 @@ export function AssetImageRecovery({
         >
             <div className="space-y-4">
                 <Alert type="info" showIcon title="选择本次图片渠道与资产" description="已成功的图片不会重出。子卡需等待主卡图片，请同时选择尚未出图的主卡。鉴权或余额异常会暂停本批后续任务，可修复渠道后在此继续。" />
-                <ModelPicker config={config} capability="image" value={model} onChange={setModel} fullWidth showSelectedPrice />
+                <ModelPicker preferenceScope="short-drama" config={config} capability="image" value={model} onChange={setModel} fullWidth showSelectedPrice />
                 <Checkbox checked={ids.length === assets.length} indeterminate={ids.length > 0 && ids.length < assets.length} onChange={(event) => setIds(event.target.checked ? assets.map((asset) => asset.id) : [])}>
                     全选待出图资产
                 </Checkbox>

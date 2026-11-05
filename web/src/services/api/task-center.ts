@@ -3,6 +3,7 @@ import { http, apiBaseURL, type BackendEnvelope } from "@/services/api/request";
 import { consumeTaskTextStream, createTaskTextStreamParser, type TaskTextStreamEvent } from "@/services/api/task-text-stream";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
 import { getActiveUserScope } from "@/lib/user-scope";
+import { rememberAcceptedDramaTask } from "@/stores/use-drama-model-preferences-store";
 
 export type { BackendEnvelope } from "@/services/api/request";
 
@@ -19,6 +20,7 @@ export type GenerationTaskOutput = {
 };
 
 export type GenerationTask = {
+    userId?: string;
     id: string;
     clientOperationId?: string;
     retryOf?: string;
@@ -151,6 +153,7 @@ export function createGenerationTask(input: CreateTaskInput) {
 
 /** 任务建好后的统一通知：诊断记录、画布任务订阅、钱包余额。由别的接口代建任务（如短剧流程步骤）时也要调用。 */
 export function announceCreatedGenerationTask(task: GenerationTask) {
+    rememberAcceptedDramaTask(task);
     recordDiagnosticEvent({ level: "info", category: "task", message: "任务已创建", taskId: task.id, projectId: task.projectId });
     notifyCanvasTaskCreated(task);
     // 创建任务时积分已被预占，不能等任务结束后才刷新可用余额。

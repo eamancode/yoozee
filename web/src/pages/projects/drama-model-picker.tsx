@@ -5,7 +5,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { dramaChoiceKey, dramaChoiceKeys, dramaChoiceToModel, dramaVideoRatioIssue, dramaVideoResolutionIssue, modelToDramaChoice } from "@/lib/drama/model-choice";
 import { cn } from "@/lib/utils";
 import { getDramaModels, type DramaCapability, type DramaModelChoice } from "@/services/api/drama";
-import { useEffectiveConfig } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 
 export function useDramaModelCatalog() {
     return useQuery({ queryKey: ["drama-models"], queryFn: getDramaModels, staleTime: 60_000 });
@@ -68,7 +68,7 @@ export function DramaModelPicker({
     const current = dramaChoiceToModel(config, capability, value);
 
     return (
-        <ModelPicker
+        <ModelPicker preferenceScope="short-drama"
             config={config}
             value={current}
             capability={capability}

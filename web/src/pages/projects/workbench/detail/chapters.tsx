@@ -68,7 +68,8 @@ import {
     type ProjectDetail,
     type ProjectUnit,
 } from "@/services/api/projects";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { dramaEpisodesKey, dramaScenesKey, dramaRunProgressOf, dramaShotGenreLabel, dramaStepOutcomeOf, getDramaBrief, getDramaEpisodes, getDramaScenes, getDramaShotlist, getDramaStepUsage, repackDramaShotlist, segmentsDiscardRequired, shotlistCheckFailure, type DramaScriptAdaptOutcome, type DramaSegmentDiscard } from "@/services/api/project-drama";
 
@@ -880,7 +881,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     {storyboardImpact.shotCount ? <Callout tone="warning" title={`本章已有 ${storyboardImpact.shotCount} 段`}>继续后会先生成新分段；生成成功后，再整体替换旧段及其关联数据。</Callout> : null}
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
-                        <ModelPicker config={effectiveConfig} capability="text" value={selectedTextModel} onChange={setSelectedTextModel} variant="creation" fullWidth placeholder="选择用于生成分镜的文本模型" showSelectedPrice={false} onMissingConfig={() => navigateToSettings({ continueCreation: true })} />
+                        <ModelPicker preferenceScope="short-drama" config={effectiveConfig} capability="text" value={selectedTextModel} onChange={setSelectedTextModel} variant="creation" fullWidth placeholder="选择用于生成分镜的文本模型" showSelectedPrice={false} onMissingConfig={() => navigateToSettings({ continueCreation: true })} />
                     </label>
                     {storyboardStepQuery.isError ? (
                         <Callout tone="error" title="读不到本步使用的技能">{storyboardStepQuery.error instanceof Error ? storyboardStepQuery.error.message : "请稍后重试"}</Callout>

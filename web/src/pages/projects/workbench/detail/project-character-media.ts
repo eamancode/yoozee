@@ -2,20 +2,17 @@ import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-gene
 import { PromptTemplateOperation, promptTemplateTaskPlaceholder } from "@/lib/prompts";
 import { resolveStyleExecutionPlan, serializeStyleProfile, type StyleProfileSnapshot } from "@/lib/canvas/style-profile";
 import type { GenerationTask } from "@/services/api/task-center";
+import { preferredDramaModel } from "@/lib/drama-model-preferences";
+import { useDramaModelPreferencesStore } from "@/stores/use-drama-model-preferences-store";
 import { configuredModelMatchesCapability, logicalModelIDForConfig, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 type ProjectStylePrompt = { id: string; title: string; prompt: string; profile?: StyleProfileSnapshot };
 
 const CHARACTER_TURNAROUND_NODE_PREFIX = "character-turnaround:";
 
-/** 项目指定模型不可用时明确阻断，不能悄悄改走全局渠道。 */
+/** 最近使用优先；失效时按项目和全局默认选择可用模型。 */
 export function turnaroundImageModel(config: AiConfig, projectDefaultImageModel?: string) {
-    const projectModel = projectDefaultImageModel?.trim() || "";
-    if (projectModel) {
-        if (!configuredModelMatchesCapability(config, projectModel, "image")) throw new Error("项目默认图片模型不可用，请在项目设置中选择可用模型");
-        return projectModel;
-    }
-    return config.imageModel || config.model;
+	return preferredDramaModel(config, "image", useDramaModelPreferencesStore.getState().models, projectDefaultImageModel);
 }
 
 /**

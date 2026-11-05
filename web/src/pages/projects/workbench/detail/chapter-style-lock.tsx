@@ -11,10 +11,12 @@ import { projectVisualTypeLabel } from "@/lib/project-visual-type";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaRunProgressOf, dramaStyleLockOutcomeOf, getDramaStepUsage, masterPaletteColors, type DramaBible } from "@/services/api/project-drama";
 import { lockDramaStyle } from "@/services/api/drama-style-library";
-import { generateStyleProfileCover, listStyleProfiles, saveProjectDirectorStyle } from "@/services/api/style-profiles";
+import { listStyleProfiles, saveProjectDirectorStyle } from "@/services/api/style-profiles";
+import { generateStyleProfileCover } from "@/services/drama-model-submission";
 import type { ProjectDetail } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 
 import { STYLE_LOCK_TEXT_CHARS, StyleReferenceImagesPicker, uploadStyleReferenceImages } from "../project-style-inputs";
 import { storyboardRunStop } from "./chapter-shot-stream";
@@ -123,7 +125,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         setSettings((value) => ({
             text: value.text || previous?.text || "",
             images: value.images,
-            textModel: value.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
+            textModel: effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
         }));
         setOpen(true);
     };
@@ -287,7 +289,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                     </div>
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
-                        <ModelPicker
+                        <ModelPicker preferenceScope="short-drama"
                             config={effectiveConfig}
                             capability="text"
                             value={settings.textModel}

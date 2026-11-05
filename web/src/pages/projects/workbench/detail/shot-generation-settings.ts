@@ -18,11 +18,13 @@ export function parseShotGenerationSettings(value: string | null): ShotGeneratio
     }
 }
 
-export function restoreShotGenerationSettings(input: { stored?: ShotGenerationSettings; artifacts: ShotArtifact[]; defaultModel: string; available: (model: string) => boolean }): {
+export function restoreShotGenerationSettings(input: { stored?: ShotGenerationSettings; artifacts: ShotArtifact[]; defaultModel: string; recentModel?: string; available: (model: string) => boolean }): {
     settings: ShotGenerationSettings;
     source: "remembered" | "artifact" | "default";
     notice?: string;
 } {
+    if (input.recentModel && input.available(input.recentModel)) return { settings: input.stored?.model === input.recentModel ? input.stored : { model: input.recentModel }, source: "remembered", notice: "默认最近使用的模型，请核对本次规格与费用。" };
+    if (input.recentModel) return { settings: { model: input.available(input.defaultModel) ? input.defaultModel : "" }, source: "default", notice: "最近使用的模型已不可用或不适配，已按当前项目选择可用模型，请核对费用。" };
     if (input.stored && input.available(input.stored.model)) return { settings: input.stored, source: "remembered" as const };
     const artifacts = input.artifacts
         .filter((artifact) => artifact.status === "ready")

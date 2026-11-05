@@ -20,7 +20,8 @@ import {
 } from "@/services/api/project-drama";
 import type { ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 
 import { storyboardRunStop } from "./chapter-shot-stream";
 import { assetImageTaskTemplate } from "./drama-image-task";
@@ -118,8 +119,8 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
         setSettings((current) => ({
             ...current,
             mode: defaultMode(episodesQuery.data?.adaptedChapterIds),
-            textModel: current.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
-            imageModel: current.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel),
+            textModel: effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
+            imageModel: turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel),
         }));
         setOpen(true);
     };
@@ -377,7 +378,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                     ) : null}
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
-                        <ModelPicker
+                        <ModelPicker preferenceScope="short-drama"
                             config={effectiveConfig}
                             capability="text"
                             value={settings.textModel}
@@ -406,7 +407,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                             写完剧集后要不要接着做下一步（导演定画风、场次色卡、按集提取资产）看项目的生成模式；开着时每集提取完直接给新资产出图（角色三视图，场景、道具概念图），不用再到资产页点「继续出图」。
                         </p>
                         {settings.images ? (
-                            <ModelPicker
+                            <ModelPicker preferenceScope="short-drama"
                                 config={effectiveConfig}
                                 capability="image"
                                 value={settings.imageModel}

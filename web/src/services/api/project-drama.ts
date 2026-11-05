@@ -150,7 +150,7 @@ export type DramaSegmentProgress = {
 
 export type DramaEndState = { key: string; label: string; done: boolean; detail: string; skill: string };
 
-/** 视频前的预演闸门（brief_json.previz_gate）：auto 跟生成模式（跑到出视频前跳过，另两档强制）。 */
+/** 历史预演偏好（brief_json.previz_gate）：所有取值均允许直接生成视频。 */
 export type DramaPrevizGate = "auto" | "on" | "off";
 
 export type DramaProgress = {

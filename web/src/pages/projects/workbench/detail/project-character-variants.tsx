@@ -5,10 +5,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { AppModal } from "@/components/ui/product/app-modal";
-import { getProjectDramaScenes, queueDramaAssetImages, type DramaImageTaskTemplate } from "@/services/api/project-drama";
+import { getProjectDramaScenes, type DramaImageTaskTemplate } from "@/services/api/project-drama";
+import { queueDramaAssetImages } from "@/services/drama-model-submission";
 import { createDramaAssetVariant, deleteDramaAssetVariant, replaceProjectCharacterRepresentations, updateDramaAssetVariant, type DramaAssetVariantInput, type DramaAssetVariantKind, type ProjectAsset } from "@/services/api/projects";
 import { resourceFileUrl, uploadResourceFile } from "@/services/api/resources";
-import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 
 import { assetImageTaskTemplate } from "./drama-image-task";
 import { projectCharacterCover } from "./project-character-cover";

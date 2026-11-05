@@ -53,7 +53,7 @@ type Brief struct {
 	EpisodeSeconds *float64 `json:"episode_seconds,omitempty"`
 	// SegmentSeconds 是单段最长秒数（建项目选 15 / 30，项目设置可改）：装段时只收紧生成模型一段的上限，不放宽。
 	SegmentSeconds *int `json:"segment_seconds,omitempty"`
-	// PrevizGate 是视频前的预演闸门（auto / on / off，不写是 auto）：auto 跟生成模式，跑到出视频前跳过，另两档要先有选中的黑白预演。
+	// PrevizGate 保留 auto / on / off 偏好字段；所有取值均不强制先生成预演。
 	PrevizGate    string          `json:"previz_gate,omitempty"`
 	Episodes      []BriefEpisode  `json:"episodes,omitempty"`
 	Purpose       *BriefFact      `json:"purpose,omitempty"`
@@ -73,7 +73,7 @@ type Brief struct {
 var BriefStatuses = []string{"已确认", "默认，待确认", "默认，已授权", "待答"}
 
 // BriefShape 是写给 Agent 和人看的字段说明，出错时一并返回。
-const BriefShape = "需求文档字段：title；video_model；run_mode（生成模式：until_video 跑到出视频前 / review_from_assets 资产我要过目 / every_step 每步都问我）；purpose、platform、duration、taste、budget、acceptance 各是 {value, status, quote?, date?}，status 只能是 已确认 / 默认，待确认 / 默认，已授权 / 待答；items 是 [{id: R-001, content, status, quote?, date?, segments?}]；questions 是 [{id: Q-001, question, blocking, status}]；not_doing、constraints、decided_for_you 是字符串数组；episode_seconds 是每集目标秒数（数字）；segment_seconds 是单段最长秒数（整数，不超过生成模型一段的上限）；episodes 是 [{no, target_seconds?, hook_requirement?}]；style_profile 是 yoozee 风格档案 ID（不写按项目画风对照）；previz_gate 是视频前的预演闸门 auto / on / off（不写是 auto，跟生成模式）。画幅、平台写进 platform，片长写进 duration。"
+const BriefShape = "需求文档字段：title；video_model；run_mode（生成模式：until_video 跑到出视频前 / review_from_assets 资产我要过目 / every_step 每步都问我）；purpose、platform、duration、taste、budget、acceptance 各是 {value, status, quote?, date?}，status 只能是 已确认 / 默认，待确认 / 默认，已授权 / 待答；items 是 [{id: R-001, content, status, quote?, date?, segments?}]；questions 是 [{id: Q-001, question, blocking, status}]；not_doing、constraints、decided_for_you 是字符串数组；episode_seconds 是每集目标秒数（数字）；segment_seconds 是单段最长秒数（整数，不超过生成模型一段的上限）；episodes 是 [{no, target_seconds?, hook_requirement?}]；style_profile 是 yoozee 风格档案 ID（不写按项目画风对照）；previz_gate 是可选预演偏好 auto / on / off（所有取值均不强制先生成预演）。画幅、平台写进 platform，片长写进 duration。"
 
 var (
 	briefItemID     = regexp.MustCompile(`^R-[0-9]{3}$`)
@@ -252,13 +252,7 @@ func ValidPrevizGate(value string) bool {
 	return value == PrevizGateAuto || value == PrevizGateOn || value == PrevizGateOff
 }
 
-// PrevizGateEnabled 是闸门是否生效：on 强制、off 跳过；auto（或没写）跟生成模式，跑到出视频前跳过，另两档（空也算）强制。
+// 预演现在是可选辅助产物。保留历史偏好字段，但任何偏好都不再成为视频提交的硬前置。
 func PrevizGateEnabled(setting string, runMode string) bool {
-	switch setting {
-	case PrevizGateOn:
-		return true
-	case PrevizGateOff:
-		return false
-	}
-	return runMode != RunUntilVideo
+	return false
 }
