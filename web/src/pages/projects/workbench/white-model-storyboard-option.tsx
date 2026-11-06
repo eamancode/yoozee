@@ -1,6 +1,6 @@
 import { Checkbox } from "antd";
 import { CircleHelp } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { IconButton } from "@/components/ui/base/buttons";
 import { AntTooltip } from "@/components/ui/base/tooltip/ant-tooltip";
@@ -11,6 +11,7 @@ const SETTINGS_HELP = "修改后对新提交的生成请求生效，已开始的
 /** 建项和项目设置共用的白模选项；说明按钮位于 checkbox label 外，避免误切换。 */
 export function WhiteModelStoryboardOption({ checked, onChange, settings = false }: { checked: boolean; onChange: (checked: boolean) => void; settings?: boolean }) {
     const [helpOpen, setHelpOpen] = useState(false);
+    const pinned = useRef(false);
     return (
         <div className="inline-flex items-center gap-1.5" data-slot="white-model-storyboard-option">
             <Checkbox className="[&_.ant-checkbox-label]:pe-0" checked={checked} onChange={(event) => onChange(event.target.checked)}>
@@ -22,7 +23,9 @@ export function WhiteModelStoryboardOption({ checked, onChange, settings = false
                 placement="top"
                 autoAdjustOverflow
                 open={helpOpen}
-                onOpenChange={setHelpOpen}
+                onOpenChange={(open) => {
+                    if (open || !pinned.current) setHelpOpen(open);
+                }}
                 styles={{ root: { maxWidth: "min(360px, calc(100vw - 32px))" } }}
             >
                 <IconButton
@@ -30,11 +33,19 @@ export function WhiteModelStoryboardOption({ checked, onChange, settings = false
                     size="xs"
                     aria-label="白模分镜说明"
                     className="focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => setHelpOpen(true)}
+                    onClick={() => {
+                        pinned.current = true;
+                        setHelpOpen(true);
+                    }}
+                    onBlur={() => {
+                        pinned.current = false;
+                        setHelpOpen(false);
+                    }}
                     onKeyDown={(event) => {
                         if (event.key === "Escape") {
                             event.preventDefault();
                             event.stopPropagation();
+                            pinned.current = false;
                             setHelpOpen(false);
                         }
                     }}

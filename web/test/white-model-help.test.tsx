@@ -62,7 +62,16 @@ test("说明按钮首次聚焦后点击仍打开，Esc 关闭，不切换选项�
         expect(host.querySelector("input")?.checked).toBe(false);
         expect(changes).toEqual([]);
         expect(submissions).toBe(0);
+        await act(async () => {
+            button.dispatchEvent(new dom.MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body }));
+            await new Promise((resolve) => setTimeout(resolve, 150));
+        });
+        expect(button.getAttribute("aria-describedby")).toBeTruthy();
         await act(async () => button.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+        expect(button.getAttribute("aria-describedby")).toBeNull();
+        await act(async () => button.click());
+        expect(button.getAttribute("aria-describedby")).toBeTruthy();
+        await act(async () => button.blur());
         expect(button.getAttribute("aria-describedby")).toBeNull();
     } finally {
         await act(async () => root.unmount());
