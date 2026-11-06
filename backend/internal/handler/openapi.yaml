@@ -32,6 +32,30 @@ tags:
   - name: referral
     description: 推广中心：推广码、邀请记录与返佣
 paths:
+  /projects/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string}}
+    get:
+      tags: [projects]
+      summary: 读取当前用户的短剧项目详情
+      responses:
+        "200": {description: "成功信封 data.project 含 whiteModelStoryboardEnabled；历史项目迁移后为 true"}
+        "404": {$ref: "#/components/responses/Error"}
+    patch:
+      tags: [projects]
+      summary: 更新当前用户的短剧项目设置
+      description: 白模开关只影响新提交；已接受链及显式续跑沿用提交快照。不修改或自动重试历史任务。
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                whiteModelStoryboardEnabled: {type: boolean, description: 省略保留；false 关闭自动白模结束段、截帧、资产登记、上传和站位提醒，普通参考及连续生成保留}
+      responses:
+        "200": {$ref: "#/components/responses/Envelope"}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
   /projects/{id}/director-style:
     post:
       tags: [projects]
@@ -81,7 +105,7 @@ paths:
     post:
       tags: [projects]
       summary: 发起同场景连续生成
-      description: 校验当前预览指纹；同章节最多一条进行中或失败待处理链。requestId 用于重复提交去重，控制链不调用模型，视频子任务分别计费。
+      description: 校验包含白模开关的当前预览指纹；同章节最多一条 queued/running 链，failed 不占用。requestId 用于去重；链保存白模开关快照，控制链不调用模型，视频子任务分别计费。
       requestBody:
         required: true
         content:
@@ -107,7 +131,7 @@ paths:
           application/json:
             schema: {$ref: "#/components/schemas/ProjectVideoChainRequest"}
       responses:
-        "200": {description: "成功信封 data={chain}；含 previewHash、steps、totalMicrocredits，不调用模型"}
+        "200": {description: "成功信封 data={chain}；含 whiteModelStoryboardEnabled、previewHash、steps、totalMicrocredits，不调用模型"}
         "400": {$ref: "#/components/responses/Error"}
         "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
@@ -2346,6 +2370,7 @@ paths:
                 aspectRatio: {type: string, enum: ["9:16", "16:9", "1:1", "4:3"], default: "9:16"}
                 generationModel: {type: string, description: kb-dialects/models.json 的模型族 id}
                 segmentSeconds: {type: integer, minimum: 1, description: 单段最长秒数（建项目选 15 / 30），写进 brief_json.segment_seconds；不超过生成模型一段的上限；不传按模型上限}
+                whiteModelStoryboardEnabled: {type: boolean, default: false, description: 是否开启同场景自动白模分镜；独立于生成模式}
                 styleProfile: {type: string, description: 不传按画风对照表推荐}
       responses:
         "200":
