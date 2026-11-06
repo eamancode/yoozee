@@ -1,4 +1,4 @@
-import { Button, Checkbox, Input } from "antd";
+import { Button, Input } from "antd";
 import { AlertTriangle, Check } from "lucide-react";
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -13,6 +13,7 @@ import type { ProjectVisualType } from "@/services/api/projects";
 
 import { DRAMA_RUN_MODES, DRAMA_VIDEO_STOP_NOTE } from "../drama-model";
 import { PipelineStrip } from "../pipeline-strip";
+import { WhiteModelStoryboardOption } from "../white-model-storyboard-option";
 import { STYLE_LOCK_TEXT_CHARS, StyleReferenceImagesPicker } from "../project-style-inputs";
 import type { ComposerSection } from "./create-project-flow";
 
@@ -391,10 +392,7 @@ export function ProductionSection(props: {
                 />
                 <PipelineStrip stops={selectedMode.stops} />
                 <p className="project-create-note">{DRAMA_VIDEO_STOP_NOTE}</p>
-                <Checkbox checked={props.whiteModelStoryboardEnabled} onChange={(event) => props.onWhiteModelStoryboardEnabled(event.target.checked)}>
-                    白模分镜
-                </Checkbox>
-                <p className="project-create-note">开启后，同场景连续镜头自动使用上一组片末白模作为站位参考；参考不可用时仍可继续生成视频。</p>
+                <WhiteModelStoryboardOption checked={props.whiteModelStoryboardEnabled} onChange={props.onWhiteModelStoryboardEnabled} />
             </div>
         </div>
     );

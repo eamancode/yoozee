@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Checkbox, Input, InputNumber, Modal } from "antd";
+import { App, Button, Input, InputNumber, Modal } from "antd";
 import { useBlocker } from "react-router";
 import { Select } from "@/components/ui/base/select";
 import { Archive, Check, FolderOpen, Image as ImageIcon, Lock, Save, ShieldAlert, Trash2 } from "lucide-react";
@@ -18,6 +18,7 @@ import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-mod
 
 import { sourceTypeLabel, type ProjectDetailViewProps } from "./shared";
 import { projectLockedStyle } from "./chapter-style-lock";
+import { WhiteModelStoryboardOption } from "../white-model-storyboard-option";
 import { DRAMA_RUN_MODES, DRAMA_STYLE_PROFILE_HINT, DRAMA_VIDEO_STOP_NOTE, SEGMENT_SECONDS_OPTIONS, dramaModelOptions, dramaStyleProfileOptions, findDramaModel, useDramaChannelFamilies, useDramaFamilyRatios, useDramaModels, useDramaStyleProfiles } from "../drama-model";
 import { briefEpisodeSeconds, briefPrevizGate, briefSegmentSeconds, dramaBriefKey, EPISODE_SECONDS_RANGE, PREVIZ_GATE_OPTIONS, withEpisodeSeconds, withPrevizGate, withSegmentSeconds } from "./drama-brief";
 
@@ -187,7 +188,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                     <Field label="每集时长（秒）"><InputNumber className="w-full" min={EPISODE_SECONDS_RANGE.min} max={EPISODE_SECONDS_RANGE.max} step={10} precision={0} value={episodeSeconds} disabled={!briefQuery.isSuccess} placeholder="不限" onChange={(value) => setEpisodeSeconds(typeof value === "number" ? value : null)} /></Field>
                 </div>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_STYLE_PROFILE_HINT}</p>
-				<div className="mt-3"><Checkbox checked={whiteModelStoryboardEnabled} onChange={(event) => setWhiteModelStoryboardEnabled(event.target.checked)}>白模分镜</Checkbox><p className="mt-1 text-[var(--fs-label)] leading-5 text-foreground/48">开启后，同场景连续镜头自动使用上一组片末白模作为站位参考；参考不可用时仍可继续生成视频。修改后对新提交的生成请求生效，已开始的生成链沿用提交时设置。</p></div>
+				<div className="mt-3"><WhiteModelStoryboardOption checked={whiteModelStoryboardEnabled} onChange={setWhiteModelStoryboardEnabled} settings /></div>
                 {segmentSecondsShrunk ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">单段最长时长改小后，下次装段生效；已经装好的段不会自动重拆，可在章节页「进度」侧栏里点「重新装段」。</div> : null}
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">单段最长时长只能比生成模型一段的上限更严，装段时按两者里小的那个切段。</p>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">分镜图与动作预演均为可选，可直接生成视频。此偏好不自动创建预演任务，也不因缺少预演阻止生成。</p>
