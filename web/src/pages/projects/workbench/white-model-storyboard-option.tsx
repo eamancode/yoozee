@@ -13,15 +13,10 @@ export function WhiteModelStoryboardOption({ checked, onChange, settings = false
     const [helpOpen, setHelpOpen] = useState(false);
     return (
         <div className="inline-flex items-center gap-1.5" data-slot="white-model-storyboard-option">
-            <Checkbox className="[&_.ant-checkbox-label]:pe-0" checked={checked} onChange={(event) => onChange(event.target.checked)}>白模分镜</Checkbox>
-            <AntTooltip
-                title={WHITE_MODEL_HELP + (settings ? SETTINGS_HELP : "")}
-                trigger={["hover", "focus", "click"]}
-                placement="topLeft"
-                open={helpOpen}
-                onOpenChange={setHelpOpen}
-                styles={{ root: { maxWidth: "min(360px, calc(100vw - 32px))" } }}
-            >
+            <Checkbox className="[&_.ant-checkbox-label]:pe-0" checked={checked} onChange={(event) => onChange(event.target.checked)}>
+                白模分镜
+            </Checkbox>
+            <AntTooltip title={WHITE_MODEL_HELP + (settings ? SETTINGS_HELP : "")} trigger={["hover", "focus", "click"]} placement="topLeft" open={helpOpen} onOpenChange={setHelpOpen} styles={{ root: { maxWidth: "min(360px, calc(100vw - 32px))" } }}>
                 <IconButton
                     icon={CircleHelp}
                     size="xs"
