@@ -45,7 +45,7 @@ export interface VideoChainStep {
     quote?: LogicalModelQuote;
 }
 export interface VideoChain {
-	whiteModelStoryboardEnabled: boolean;
+    whiteModelStoryboardEnabled: boolean;
     scope?: "scene" | "single";
     prepareOnly?: boolean;
     id?: string;
