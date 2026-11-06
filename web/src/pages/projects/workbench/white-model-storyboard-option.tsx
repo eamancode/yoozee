@@ -22,6 +22,7 @@ export function WhiteModelStoryboardOption({ checked, onChange, settings = false
                     size="xs"
                     aria-label="白模分镜说明"
                     className="focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setHelpOpen(true)}
                     onKeyDown={(event) => {
                         if (event.key === "Escape") {
                             event.preventDefault();
