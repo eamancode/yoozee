@@ -121,7 +121,8 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 	if projectID == "" || shotID == "" {
 		return prompt, nil
 	}
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
 		return "", err
 	}
 	shot, err := s.repo.ShotForProject(projectID, shotID)
@@ -141,12 +142,28 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		return "", BadAuthRequest("镜头内容已更新，请刷新镜头组后重新提交")
 	}
 	basePrompt := prompt
+	enabled := project.WhiteModelStoryboardEnabled
 	if retry {
 		if previous, ok := metadata[dramaSubmissionKey].(map[string]any); ok {
+			enabled = true
+			if snapshot, ok := previous["whiteModelStoryboardEnabled"].(bool); ok {
+				enabled = snapshot
+			}
 			if base, ok := previous["basePrompt"].(string); ok {
 				basePrompt = base
 			}
 		}
+	}
+	marker, _ := input[videoChainMetadataKey].(map[string]any)
+	if controllerID := stringValue(marker["controllerId"]); controllerID != "" {
+		_, state, err := s.videoChainTaskForUser(userID, projectID, controllerID)
+		if err != nil {
+			return "", err
+		}
+		enabled = state.WhiteModelStoryboardEnabled == nil || *state.WhiteModelStoryboardEnabled
+	}
+	if !enabled && stringValue(marker["frameResourceId"]) != "" {
+		return "", BadAuthRequest("白模分镜已关闭，请重新准备生成请求")
 	}
 	segment := segmentSubmissionContent(*shot, revision)
 	if !isPositiveVideoSeconds(segment.Dur) {
@@ -215,7 +232,6 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		break
 	}
 	prompt = basePrompt
-	marker, _ := input[videoChainMetadataKey].(map[string]any)
 	if stringValue(marker["frameResourceId"]) != "" && (stringValue(marker["sourceShotId"]) != previousID || stringValue(marker["sourceRevisionId"]) != previousRevisionID || stringValue(marker["sourceVideoResourceId"]) == "") {
 		return "", failedPrecondition("站位参考的来源与当前相邻镜头不一致，请重新准备")
 	}
@@ -254,10 +270,10 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 			prompt = videoChainPositionPrompt(tag) + "\n\n" + prompt
 		}
 	}
-	if sameScene && !strings.Contains(prompt, dramaSceneEnding) {
+	if enabled && sameScene && !strings.Contains(prompt, dramaSceneEnding) {
 		prompt += "\n\n" + dramaSceneEnding
 	}
-	metadata[dramaSubmissionKey] = map[string]any{"basePrompt": basePrompt, "endingApplied": sameScene, "nextShotId": nextID, "contentSeconds": segment.Dur, "submissionSeconds": seconds}
+	metadata[dramaSubmissionKey] = map[string]any{"basePrompt": basePrompt, "endingApplied": enabled && sameScene, "whiteModelStoryboardEnabled": enabled, "nextShotId": nextID, "contentSeconds": segment.Dur, "submissionSeconds": seconds}
 	metadata["shotRevisionId"] = shot.CurrentRevisionID
 	if artifact, ok := metadata["artifactMetadata"].(map[string]any); ok {
 		artifact["contentDurationSeconds"] = segment.Dur

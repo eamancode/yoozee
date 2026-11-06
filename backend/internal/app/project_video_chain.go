@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/repository"
 )
 
 const videoChainMetadataKey = "_projectVideoChain"
@@ -62,17 +64,18 @@ type ProjectVideoChainStep struct {
 }
 
 type ProjectVideoChainView struct {
-	Scope             string                  `json:"scope,omitempty"`
-	PrepareOnly       bool                    `json:"prepareOnly,omitempty"`
-	ID                string                  `json:"id,omitempty"`
-	ProjectID         string                  `json:"projectId"`
-	UnitID            string                  `json:"unitId"`
-	Status            string                  `json:"status"`
-	Stage             string                  `json:"stage"`
-	Error             string                  `json:"error,omitempty"`
-	PreviewHash       string                  `json:"previewHash"`
-	TotalMicrocredits int64                   `json:"totalMicrocredits"`
-	Steps             []ProjectVideoChainStep `json:"steps"`
+	WhiteModelStoryboardEnabled bool                    `json:"whiteModelStoryboardEnabled"`
+	Scope                       string                  `json:"scope,omitempty"`
+	PrepareOnly                 bool                    `json:"prepareOnly,omitempty"`
+	ID                          string                  `json:"id,omitempty"`
+	ProjectID                   string                  `json:"projectId"`
+	UnitID                      string                  `json:"unitId"`
+	Status                      string                  `json:"status"`
+	Stage                       string                  `json:"stage"`
+	Error                       string                  `json:"error,omitempty"`
+	PreviewHash                 string                  `json:"previewHash"`
+	TotalMicrocredits           int64                   `json:"totalMicrocredits"`
+	Steps                       []ProjectVideoChainStep `json:"steps"`
 }
 
 type videoChainStepState struct {
@@ -86,11 +89,12 @@ type videoChainStepState struct {
 }
 
 type videoChainState struct {
-	UnitID       string                   `json:"unitId"`
-	AnchorShotID string                   `json:"anchorShotId"`
-	Request      ProjectVideoChainRequest `json:"request"`
-	PreviewHash  string                   `json:"previewHash"`
-	Steps        []videoChainStepState    `json:"steps"`
+	WhiteModelStoryboardEnabled *bool                    `json:"whiteModelStoryboardEnabled,omitempty"`
+	UnitID                      string                   `json:"unitId"`
+	AnchorShotID                string                   `json:"anchorShotId"`
+	Request                     ProjectVideoChainRequest `json:"request"`
+	PreviewHash                 string                   `json:"previewHash"`
+	Steps                       []videoChainStepState    `json:"steps"`
 }
 
 func videoChainHash(value any) string {
@@ -115,6 +119,10 @@ func (s *Service) videoChainState(task *model.Task) (videoChainState, error) {
 	}
 	err = json.Unmarshal([]byte(raw), &state)
 	if err == nil {
+		if state.WhiteModelStoryboardEnabled == nil {
+			enabled := true // Chains accepted before the project switch always used white frames.
+			state.WhiteModelStoryboardEnabled = &enabled
+		}
 		for i := range state.Steps {
 			for key, value := range state.Steps[i].Uploads {
 				if strings.HasPrefix(value, encryptedSettingPrefix) {
@@ -132,6 +140,7 @@ func (s *Service) videoChainState(task *model.Task) (videoChainState, error) {
 
 func videoChainView(projectID string, task *model.Task, state videoChainState) ProjectVideoChainView {
 	view := ProjectVideoChainView{Scope: state.Request.Scope, PrepareOnly: state.Request.PrepareOnly, ProjectID: projectID, UnitID: state.UnitID, Status: "preview", PreviewHash: state.PreviewHash, Steps: []ProjectVideoChainStep{}}
+	view.WhiteModelStoryboardEnabled = state.WhiteModelStoryboardEnabled == nil || *state.WhiteModelStoryboardEnabled
 	if task != nil {
 		view.ID = task.ID
 		view.Status = string(task.Status)
@@ -248,9 +257,12 @@ func (s *Service) CreateProjectVideoChain(userID, projectID string, req ProjectV
 	}
 	var saved *model.Task
 	if err == nil {
-		saved, err = s.repo.CreateProjectVideoChain(&task, policy.Task.ActiveTaskLimit)
+		saved, err = s.repo.CreateProjectVideoChain(&task, policy.Task.ActiveTaskLimit, *state.WhiteModelStoryboardEnabled)
 	}
 	s.storageMu.Unlock()
+	if errors.Is(err, repository.ErrTaskStateConflict) {
+		return ProjectVideoChainView{}, BadAuthRequest("白模分镜设置已变化，请刷新预览后重新提交")
+	}
 	if err != nil {
 		return ProjectVideoChainView{}, err
 	}
@@ -356,7 +368,7 @@ func (s *Service) RetryProjectVideoChain(userID, projectID, id string) (ProjectV
 			return ProjectVideoChainView{}, videoChainActiveConflict(other.ID)
 		}
 	}
-	fresh, err := s.prepareProjectVideoChain(userID, projectID, old.Request)
+	fresh, err := s.prepareProjectVideoChainWithWhiteModel(userID, projectID, old.Request, old.WhiteModelStoryboardEnabled)
 	if err != nil {
 		return ProjectVideoChainView{}, err
 	}
@@ -425,5 +437,5 @@ func (s *Service) RetryProjectVideoChain(userID, projectID, id string) (ProjectV
 }
 
 func videoChainPositionPrompt(tag string) string {
-	return fmt.Sprintf("【站位参考】参考图片「%s」为上一镜头组的片末白模画面。请以该图中的人物位置、朝向、彼此距离，以及场景结构和道具位置，作为本镜起始状态的空间参考；后续动作与运镜按照本镜正文执行。人物外观、服装、场景材质、色彩和光照遵循本镜正文及其他对应参考图，白模材质和参考图机位不作为本镜的画面风格或起始机位要求。", tag)
+	return fmt.Sprintf("【站位参考】请以「%s」该图中的人物位置、朝向、彼此距离，以及场景结构和道具位置，作为本镜起始状态的空间参考；", tag)
 }

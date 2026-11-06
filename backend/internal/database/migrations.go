@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 94
+const CurrentSchemaVersion int64 = 95
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -338,6 +338,17 @@ var schemaMigrations = []migration{
 	{version: 92, name: "agent_memory_document_columns", checksum: "sha256:agent-memory-document-columns-v77-20261028", apply: migrateAgentMemoryDocumentColumns},
 	{version: 93, name: "personal_director_style_scope", checksum: "sha256:personal-director-style-scope-v93", apply: migratePersonalDirectorStyleScope},
 	{version: 94, name: "director_style_profile_cover", checksum: "sha256:director-style-profile-cover-v94", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.StyleProfile{}) }},
+	{version: 95, name: "project_white_model_storyboard", checksum: "sha256:project-white-model-storyboard-v95", apply: migrateProjectWhiteModelStoryboard},
+}
+
+func migrateProjectWhiteModelStoryboard(tx *gorm.DB) error {
+	if !tx.Migrator().HasColumn(&model.Project{}, "WhiteModelStoryboardEnabled") {
+		if err := tx.Migrator().AddColumn(&model.Project{}, "WhiteModelStoryboardEnabled"); err != nil {
+			return err
+		}
+	}
+	// Existing projects keep their enabled behavior; subsequent creates default off.
+	return tx.Model(&model.Project{}).Where("1 = 1").UpdateColumn("white_model_storyboard_enabled", true).Error
 }
 
 func migratePersonalDirectorStyleScope(tx *gorm.DB) error {

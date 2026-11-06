@@ -12,6 +12,10 @@ import (
 )
 
 func (s *Service) prepareProjectVideoChain(userID, projectID string, req ProjectVideoChainRequest) (videoChainState, error) {
+	return s.prepareProjectVideoChainWithWhiteModel(userID, projectID, req, nil)
+}
+
+func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID string, req ProjectVideoChainRequest, snapshot *bool) (videoChainState, error) {
 	state := videoChainState{UnitID: req.UnitID, AnchorShotID: req.ShotID, Request: req, Steps: []videoChainStepState{}}
 	if req.PrepareOnly && req.Scope != "single" {
 		return state, BadAuthRequest("仅准备站位参考必须指定单组范围，不会生成前序视频")
@@ -22,6 +26,14 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return state, err
+	}
+	enabled := project.WhiteModelStoryboardEnabled
+	if snapshot != nil {
+		enabled = *snapshot
+	}
+	state.WhiteModelStoryboardEnabled = &enabled
+	if req.PrepareOnly && !enabled {
+		return state, failedPrecondition("白模分镜已关闭，无需准备站位参考")
 	}
 	if _, err := s.repo.ProjectUnit(projectID, req.UnitID); err != nil {
 		return state, err
@@ -130,7 +142,7 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 		if len(videos) > 0 {
 			operation = "video_to_video"
 		}
-		hasPosition := i > sceneFirst
+		hasPosition := enabled && i > sceneFirst
 		var prior *model.ShotArtifact
 		referenceWarning := ""
 		usePosition := hasPosition
@@ -208,7 +220,7 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 		if usePosition {
 			finalPrompt = videoChainPositionPrompt(tag) + "\n\n" + finalPrompt
 		}
-		ending := i < sceneLast
+		ending := enabled && i < sceneLast
 		if ending && !strings.Contains(finalPrompt, dramaSceneEnding) {
 			finalPrompt += "\n\n" + dramaSceneEnding
 		}
@@ -261,7 +273,7 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 		state.Steps = append(state.Steps, step)
 		previousSignature = signature
 	}
-	fingerprint := []any{projectID, req.UnitID, req.Scope, req.PrepareOnly}
+	fingerprint := []any{projectID, req.UnitID, req.Scope, req.PrepareOnly, enabled}
 	for _, step := range state.Steps {
 		fingerprint = append(fingerprint, step.Signature, step.Quote)
 	}

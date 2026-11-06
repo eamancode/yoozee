@@ -5,6 +5,12 @@ description: 柚子后端核心持久化表与状态边界
 
 # 后端数据库
 
+## 白模分镜项目开关（迁移 95）
+
+`projects.white_model_storyboard_enabled` 为非空布尔值，数据库默认 false。迁移 95 将已有项目明确设为 true，保留升级前白模衔接行为，不改变项目更新时间、原文或声音台账；迁移后新项目默认关闭，创建时可显式开启。设置保存通过项目权限校验，关闭值也必须写入数据库。
+
+`project_video_chain` 检查点保存 `whiteModelStoryboardEnabled` 快照；已接受链与显式续跑沿用该快照。上线前未包含该快照的历史链按原开启行为读取，不重写或自动续跑。预览哈希包含开关，创建链事务再次校验当前项目开关；配置变更后旧预览不可提交。普通视频任务在 `_dramaVideoSubmission.whiteModelStoryboardEnabled` 保存提交时设置。
+
 ## 可选白模的分镜附件
 
 不增加迁移。白模沿用现有资源、分镜参考资产及 continuity 绑定，另向下一镜头的 `shot_artifacts` 写入 `type=storyboard` 的幂等附件。`metadata_json.role=continuity_reference`、`continuityReference` 保存来源镜头、视频、截帧时间和控制器。与已有分镜图共用版本序列；已有选中且 ready 的分镜图保持选中。附件、资产和绑定在同一事务内检查当前版本、资源归属及控制器租约。

@@ -1,4 +1,4 @@
-import { Button, Input } from "antd";
+import { Button, Checkbox, Input } from "antd";
 import { AlertTriangle, Check } from "lucide-react";
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -258,6 +258,8 @@ function ratioIconStyle(ratio: string) {
 
 /** 段 4 · 怎么做：画幅、每段时长、视频模型、生成模式（都有默认值）。 */
 export function ProductionSection(props: {
+	whiteModelStoryboardEnabled: boolean;
+	onWhiteModelStoryboardEnabled: (enabled: boolean) => void;
     aspectRatio: string;
     segmentSeconds: number;
     segmentEstimate?: number;
@@ -389,6 +391,8 @@ export function ProductionSection(props: {
                 />
                 <PipelineStrip stops={selectedMode.stops} />
                 <p className="project-create-note">{DRAMA_VIDEO_STOP_NOTE}</p>
+				<Checkbox checked={props.whiteModelStoryboardEnabled} onChange={(event) => props.onWhiteModelStoryboardEnabled(event.target.checked)}>白模分镜</Checkbox>
+				<p className="project-create-note">开启后，同场景连续镜头自动使用上一组片末白模作为站位参考；参考不可用时仍可继续生成视频。</p>
             </div>
         </div>
     );

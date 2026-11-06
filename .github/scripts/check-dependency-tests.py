@@ -5,6 +5,7 @@ import sys
 
 REQUIRED = {
     ("database", "TestPostgresAssetIDMigration"),
+    ("database", "TestProjectWhiteModelPostgresMigration"),
     ("canvas", "TestRepairAssetBytesPostgres"),
     ("repository", "TestCanvasRevision/postgres"),
     ("platform", "TestRuntimeCoordinatorRedisLeasePreservesLongestTTL"),
@@ -32,4 +33,4 @@ if __name__ == "__main__":
         missing = missing_tests(json.loads(line) for line in stream if line.strip())
     if missing:
         sys.exit("Dependency tests missing, skipped or failed: " + repr(sorted(missing)))
-    print("All five dependency-backed tests ran and passed.")
+    print(f"All {len(REQUIRED)} dependency-backed tests ran and passed.")

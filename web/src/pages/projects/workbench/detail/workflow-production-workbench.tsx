@@ -673,7 +673,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     return (
         <div className="workflow-production-shell">
-            {activeStage === "video" ? <VideoChainPanel open={videoChainOpen} projectId={projectId} unitId={unitId} shotId={selectedShot.id} onClose={() => setVideoChainOpen(false)} onRefresh={onRefresh} buildModel={async () => {
+            {activeStage === "video" ? <VideoChainPanel open={videoChainOpen} projectId={projectId} whiteModelStoryboardEnabled={detail.project.whiteModelStoryboardEnabled === true} unitId={unitId} shotId={selectedShot.id} onClose={() => setVideoChainOpen(false)} onRefresh={onRefresh} buildModel={async () => {
                 if (editorDirty) throw new Error("请先保存镜头修改，再准备站位参考或启动连续生成");
                 const task = await prepareBackendGenerationTask({ projectId, mode: "video", prompt: "连续生成预览", config: generationConfig });
                 return { model: task.model || routedModel, logicalModelId: task.logicalModelId, input: task.input || {} };
@@ -809,7 +809,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         />
                     </header>
                     <div className="workflow-preview-scroll thin-scrollbar">
-                        {activeStage === "video" ? <p className="mb-3 text-xs text-foreground/65">分镜图与动作预演均为可选，可直接生成视频。白模站位参考不可用时，保留原正文与参考图继续。</p> : null}
+                        {activeStage === "video" ? <p className="mb-3 text-xs text-foreground/65">分镜图与动作预演均为可选，可直接生成视频。白模分镜：{detail.project.whiteModelStoryboardEnabled ? "开启，站位参考不可用时，保留原正文与参考图继续。" : "关闭，本次不自动添加白模结束段或传递片末站位参考。"}</p> : null}
                         {shotFailureReason ? <div className="workflow-failure-note" role="status"><CircleAlert aria-hidden /><div className="min-w-0"><strong>上次{stageCopy.label}生成失败</strong><p>{shotFailureReason}</p><Link to="/tasks?status=failed">到任务中心查看详情</Link></div></div> : null}
                         {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
                         <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? `${formatDuration(selectedShot.durationMs)} · ${resolution}p · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>

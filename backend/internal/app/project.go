@@ -36,9 +36,10 @@ type CreateProjectRequest struct {
 	// GenerationModel 是视频生成模型族（seedance-2.0 …），决定一段最长几秒；空则用默认。没有视频渠道也能建项。
 	GenerationModel string `json:"generationModel"`
 	// RunMode 是生成模式：until_video（默认）/ review_from_assets / every_step。
-	RunMode           string `json:"runMode"`
-	DefaultImageModel string `json:"defaultImageModel"`
-	DefaultVideoModel string `json:"defaultVideoModel"`
+	RunMode                     string `json:"runMode"`
+	DefaultImageModel           string `json:"defaultImageModel"`
+	DefaultVideoModel           string `json:"defaultVideoModel"`
+	WhiteModelStoryboardEnabled bool   `json:"whiteModelStoryboardEnabled"`
 }
 
 // ProjectSourceRequest 是要拍什么的正文：创意是 Text（原话，存进项目简介）；小说、剧本是 Units——前端用章节页导入的同一套解析
@@ -81,8 +82,9 @@ type UpdateProjectRequest struct {
 	// SegmentSeconds 改单段最长秒数（brief_json.segment_seconds）；0 去掉这一项。
 	SegmentSeconds *int `json:"segmentSeconds"`
 	// PrevizGate 改视频前的预演闸门（brief_json.previz_gate：auto / on / off）；auto 去掉这一项（跟生成模式）。
-	PrevizGate *string `json:"previzGate"`
-	Status     string  `json:"status"`
+	PrevizGate                  *string `json:"previzGate"`
+	WhiteModelStoryboardEnabled *bool   `json:"whiteModelStoryboardEnabled"`
+	Status                      string  `json:"status"`
 }
 
 type CreateProjectUnitRequest struct {
@@ -338,6 +340,9 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 			return model.Project{}, modelErr
 		}
 		project.GenerationModel = generationModel
+	}
+	if req.WhiteModelStoryboardEnabled != nil {
+		project.WhiteModelStoryboardEnabled = *req.WhiteModelStoryboardEnabled
 	}
 	if req.RunMode != nil {
 		runMode, modeErr := normalizeProjectRunMode(*req.RunMode)

@@ -66,7 +66,8 @@ func (r *Repository) UpdateProject(project *model.Project, briefChanged bool) er
 		"style_preset_id": project.StylePresetID, "style_profile_json": project.StyleProfileJSON,
 		"default_image_model": project.DefaultImageModel, "default_video_model": project.DefaultVideoModel,
 		"generation_model": project.GenerationModel, "run_mode": project.RunMode, "style_profile": project.StyleProfile,
-		"status": project.Status, "revision": project.Revision, "updated_at": project.UpdatedAt,
+		"white_model_storyboard_enabled": project.WhiteModelStoryboardEnabled,
+		"status":                         project.Status, "revision": project.Revision, "updated_at": project.UpdatedAt,
 	}
 	if briefChanged {
 		values["brief_json"] = project.BriefJSON

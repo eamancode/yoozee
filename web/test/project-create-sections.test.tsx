@@ -116,6 +116,8 @@ describe("段 4 · 怎么做", () => {
             <ProductionSection
                 aspectRatio="9:16"
                 segmentSeconds={15}
+                whiteModelStoryboardEnabled={false}
+                onWhiteModelStoryboardEnabled={noop}
                 models={models}
                 recommendedModel="seedance-2.0"
                 model={models[0]}
@@ -131,6 +133,9 @@ describe("段 4 · 怎么做", () => {
         expect(html).toContain("建项后不可改");
         for (const label of ["跑到出视频前", "资产我要过目", "每步都问我"]) expect(html).toContain(label);
         expect(html).toContain("出视频要花钱，任何模式都会在这里停下，带上预估花费等你点。");
+        expect(html).toContain("白模分镜");
+        expect(html).toMatch(/type="checkbox"/);
+        expect(html).not.toMatch(/type="checkbox"[^>]*checked=""/);
         expect(html).toContain("推荐");
         expect(html).not.toContain("未校准");
         expect(html).not.toContain("授权档位");
@@ -141,6 +146,8 @@ describe("段 4 · 怎么做", () => {
             <ProductionSection
                 aspectRatio="9:16"
                 segmentSeconds={30}
+                whiteModelStoryboardEnabled={true}
+                onWhiteModelStoryboardEnabled={noop}
                 models={models}
                 recommendedModel="seedance-2.0"
                 model={models[0]}
@@ -154,6 +161,7 @@ describe("段 4 · 怎么做", () => {
         );
         expect(html).toContain("seedance-2.0 最长 15 秒");
         expect(html).toContain("换成 seedance-2.5？");
+        expect(html).toMatch(/type="checkbox"[^>]*checked=""/);
         expect(html).toMatch(/aria-checked="true"[^>]*>[\s\S]*?seedance-2\.0/);
     });
 });

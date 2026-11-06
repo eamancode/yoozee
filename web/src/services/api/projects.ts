@@ -26,11 +26,13 @@ export type CreateProjectInput = {
     aspectRatio: string;
     /** 每段时长（15 / 30 秒），不能超过视频模型一段的上限。 */
     segmentSeconds: number;
+	whiteModelStoryboardEnabled?: boolean;
     generationModel: string;
     runMode: DramaRunMode;
 };
 
 export type Project = {
+	whiteModelStoryboardEnabled?: boolean;
     id: string;
     userId: string;
     name: string;
@@ -551,7 +553,7 @@ export function createProject(input: CreateProjectInput, signal?: AbortSignal) {
 }
 
 /** segmentSeconds 改单段最长秒数（0 去掉这一项），与生成模型一起按模型上限校验；previzGate 改视频前的预演闸门（写进 brief_json.previz_gate）。 */
-export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "runMode" | "styleProfile" | "status" | "visualType">> & { segmentSeconds?: number; previzGate?: "auto" | "on" | "off" }) {
+export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "generationModel" | "runMode" | "styleProfile" | "status" | "visualType" | "whiteModelStoryboardEnabled">> & { segmentSeconds?: number; previzGate?: "auto" | "on" | "off" }) {
     return http.patch<{ project: Project }>(`/projects/${encodeURIComponent(projectId)}`, input);
 }
 

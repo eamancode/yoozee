@@ -100,6 +100,7 @@ func TestRecoveredMigrationLedgerPreservesHistory(t *testing.T) {
 		{92, "agent_memory_document_columns", "sha256:agent-memory-document-columns-v77-20261028"},
 		{93, "personal_director_style_scope", "sha256:personal-director-style-scope-v93"},
 		{94, "director_style_profile_cover", "sha256:director-style-profile-cover-v94"},
+		{95, "project_white_model_storyboard", "sha256:project-white-model-storyboard-v95"},
 	}
 	if len(expected) != len(schemaMigrations) {
 		t.Fatalf("migration count %d, want %d", len(schemaMigrations), len(expected))

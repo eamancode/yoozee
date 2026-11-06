@@ -27,6 +27,7 @@ const phaseLabels: Record<string, string> = {
 export function VideoChainPanel({
     open,
     projectId,
+	whiteModelStoryboardEnabled,
     unitId,
     shotId,
     buildModel,
@@ -35,6 +36,7 @@ export function VideoChainPanel({
 }: {
     open: boolean;
     projectId: string;
+	whiteModelStoryboardEnabled: boolean;
     unitId: string;
     shotId: string;
     buildModel: () => Promise<VideoChainModel>;
@@ -68,6 +70,11 @@ export function VideoChainPanel({
         request.current = undefined;
         prepareRequest.current = undefined;
     }, [open, projectId, unitId, shotId]);
+	useEffect(() => {
+		setPreview(undefined);
+		request.current = undefined;
+		prepareRequest.current = undefined;
+	}, [whiteModelStoryboardEnabled]);
     useEffect(() => {
         if (chain?.status === "succeeded" || chain?.status === "failed") void onRefresh().catch(() => setProblem("生成进度已保存，刷新产物列表失败，请稍后刷新页面"));
     }, [chain?.id, chain?.status]);
@@ -140,8 +147,8 @@ export function VideoChainPanel({
 
     return (
         <AppModal open={open} centered title="同场景连续生成" width={820} onCancel={onClose} footer={null} styles={{ body: { maxHeight: "calc(100dvh - 160px)", overflowY: "auto" } }}>
-            <p className="mb-4 text-foreground/65">按叙事顺序串联当前场景的连续镜头组。后一组等待前一组视频完成，尽量使用片末白模作为站位参考；白模缺失或准备失败时，保留原参考图继续生成。切换场景时结束本链。</p>
-            <p className="mb-4 text-xs text-foreground/55">片末最后 1 秒硬切至 45° 俯视白模大全景，机位与构图固定，人物仅保留轻微呼吸和自然晃动。最后一组不添加片末结束段。</p>
+            <p className="mb-4 text-foreground/65">按叙事顺序串联当前场景的连续镜头组，后一组等待前一组视频完成。开启白模分镜时尝试传递片末站位参考；缺失或准备失败时保留原参考图继续。切换场景时结束本链。</p>
+			<p className="mb-4 text-xs text-foreground/55">白模分镜：{(chain?.whiteModelStoryboardEnabled ?? whiteModelStoryboardEnabled) ? "开启。片末最后 1 秒硬切至 45° 俯视白模大全景，最后一组不添加片末结束段。" : "关闭。本次不自动添加白模结束段或传递片末站位参考。"}{chain?.id ? "（本链提交时设置）" : "（当前项目设置）"}</p>
             {problem || chains.error ? (
                 <div role="alert" className="mb-3">
                     <Callout tone="error">{problem || (chains.error as Error).message}</Callout>
@@ -245,7 +252,7 @@ export function VideoChainPanel({
                         从失败步骤继续
                     </Button>
                 ) : null}
-                {!active ? (
+                {!active && whiteModelStoryboardEnabled ? (
                     <Button loading={busy} onClick={() => void preparePosition()}>
                         仅准备本组站位参考
                     </Button>

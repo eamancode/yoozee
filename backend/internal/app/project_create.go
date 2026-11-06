@@ -121,7 +121,8 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 	project := model.Project{
 		ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceAs, Description: description,
 		VisualType: visualType, RunMode: runMode, StyleSource: style, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel,
-		GenerationModel: generationModel, StyleProfile: drama.VisualTypeProfile(visualType), BriefJSON: briefJSON,
+		WhiteModelStoryboardEnabled: req.WhiteModelStoryboardEnabled,
+		GenerationModel:             generationModel, StyleProfile: drama.VisualTypeProfile(visualType), BriefJSON: briefJSON,
 		StylePresetID: presetID, StyleProfileJSON: publicProfile,
 		Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now,
 	}

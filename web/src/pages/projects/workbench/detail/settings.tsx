@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Input, InputNumber, Modal } from "antd";
+import { App, Button, Checkbox, Input, InputNumber, Modal } from "antd";
 import { useBlocker } from "react-router";
 import { Select } from "@/components/ui/base/select";
 import { Archive, Check, FolderOpen, Image as ImageIcon, Lock, Save, ShieldAlert, Trash2 } from "lucide-react";
@@ -43,6 +43,9 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     const [generationModel, setGenerationModel] = useState(project.generationModel || "");
     const savedRunMode: DramaRunMode = (DRAMA_RUN_MODES.find((item) => item.value === project.runMode) || DRAMA_RUN_MODES[0]).value;
     const [runMode, setRunMode] = useState<DramaRunMode>(savedRunMode);
+	const [whiteModelStoryboardEnabled, setWhiteModelStoryboardEnabled] = useState(project.whiteModelStoryboardEnabled === true);
+	useEffect(() => { setWhiteModelStoryboardEnabled(project.whiteModelStoryboardEnabled === true); }, [project.id, project.whiteModelStoryboardEnabled]);
+	const whiteModelDirty = whiteModelStoryboardEnabled !== (project.whiteModelStoryboardEnabled === true);
     const [dramaProfile, setDramaProfile] = useState(project.styleProfile || "");
     const styleProfiles = useDramaStyleProfiles();
     const savedGenerationModel = project.generationModel || dramaModels.data?.default || "";
@@ -78,7 +81,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     });
     const projectCoverAssets = coverAssetsQuery.data?.assets || [];
     useEffect(() => { setName(project.name); setDescription(project.description || ""); setDefaultImageModel(project.defaultImageModel || ""); setDefaultVideoModel(project.defaultVideoModel || ""); setGenerationModel(project.generationModel || ""); setRunMode(savedRunMode); setDramaProfile(project.styleProfile || ""); }, [project, savedRunMode]);
-    const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || defaultImageModel !== (project.defaultImageModel || "") || defaultVideoModel !== (project.defaultVideoModel || "") || (generationModel !== "" && generationModel !== savedGenerationModel) || runMode !== savedRunMode || dramaProfile !== (project.styleProfile || "") || episodeSecondsDirty || segmentSecondsDirty || previzGateDirty, [runMode, savedRunMode, dramaProfile, defaultImageModel, defaultVideoModel, description, episodeSecondsDirty, generationModel, name, previzGateDirty, project, savedGenerationModel, segmentSecondsDirty]);
+    const dirty = useMemo(() => whiteModelDirty || name.trim() !== project.name || description !== (project.description || "") || defaultImageModel !== (project.defaultImageModel || "") || defaultVideoModel !== (project.defaultVideoModel || "") || (generationModel !== "" && generationModel !== savedGenerationModel) || runMode !== savedRunMode || dramaProfile !== (project.styleProfile || "") || episodeSecondsDirty || segmentSecondsDirty || previzGateDirty, [whiteModelDirty, runMode, savedRunMode, dramaProfile, defaultImageModel, defaultVideoModel, description, episodeSecondsDirty, generationModel, name, previzGateDirty, project, savedGenerationModel, segmentSecondsDirty]);
     const lockedStyle = useMemo(() => projectLockedStyle(project.bibleJson), [project.bibleJson]);
     const coverPickerItems = useMemo<AssetLibraryPickerItem[]>(() => {
         const result: AssetLibraryPickerItem[] = [];
@@ -120,7 +123,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     const currentCoverItemId = coverPickerItems.find((item) => coverResourceByItemId.get(item.id) === project.coverResourceId)?.id;
     const saveMutation = useMutation({
         mutationFn: async () => {
-            await updateProject(project.id, { name: name.trim(), description, defaultImageModel, defaultVideoModel, runMode, ...(generationModel ? { generationModel } : {}), ...(dramaProfile ? { styleProfile: dramaProfile } : {}), ...(segmentSecondsDirty ? { segmentSeconds } : {}), ...(previzGateDirty ? { previzGate } : {}) });
+            await updateProject(project.id, { name: name.trim(), description, defaultImageModel, defaultVideoModel, runMode, ...(whiteModelDirty ? { whiteModelStoryboardEnabled } : {}), ...(generationModel ? { generationModel } : {}), ...(dramaProfile ? { styleProfile: dramaProfile } : {}), ...(segmentSecondsDirty ? { segmentSeconds } : {}), ...(previzGateDirty ? { previzGate } : {}) });
             // 项目字段先存：需求文档写回时不带生成模型和生成模式，不会把刚存的项目字段改回去；单段秒数、预演闸门已随项目写入，这里带上新值。
             if (episodeSecondsDirty && briefQuery.data) {
                 const { document } = await putDramaBrief(project.id, withEpisodeSeconds(withPrevizGate(withSegmentSeconds(briefQuery.data, segmentSeconds), previzGate), episodeSeconds));
@@ -184,6 +187,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                     <Field label="每集时长（秒）"><InputNumber className="w-full" min={EPISODE_SECONDS_RANGE.min} max={EPISODE_SECONDS_RANGE.max} step={10} precision={0} value={episodeSeconds} disabled={!briefQuery.isSuccess} placeholder="不限" onChange={(value) => setEpisodeSeconds(typeof value === "number" ? value : null)} /></Field>
                 </div>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">{DRAMA_STYLE_PROFILE_HINT}</p>
+				<div className="mt-3"><Checkbox checked={whiteModelStoryboardEnabled} onChange={(event) => setWhiteModelStoryboardEnabled(event.target.checked)}>白模分镜</Checkbox><p className="mt-1 text-[var(--fs-label)] leading-5 text-foreground/48">开启后，同场景连续镜头自动使用上一组片末白模作为站位参考；参考不可用时仍可继续生成视频。修改后对新提交的生成请求生效，已开始的生成链沿用提交时设置。</p></div>
                 {segmentSecondsShrunk ? <div className="mt-2 rounded-md bg-amber-500/5 px-3 py-2 text-[var(--fs-label)] leading-5 text-amber-600 dark:text-amber-400">单段最长时长改小后，下次装段生效；已经装好的段不会自动重拆，可在章节页「进度」侧栏里点「重新装段」。</div> : null}
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">单段最长时长只能比生成模型一段的上限更严，装段时按两者里小的那个切段。</p>
                 <p className="mt-2 text-[var(--fs-label)] leading-5 text-foreground/48">分镜图与动作预演均为可选，可直接生成视频。此偏好不自动创建预演任务，也不因缺少预演阻止生成。</p>

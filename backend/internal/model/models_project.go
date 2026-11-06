@@ -229,7 +229,8 @@ type Project struct {
 	VisualType string `json:"visualType" gorm:"size:24"`
 	// RunMode 是生成模式：until_video 跑到出视频前；review_from_assets 资产我要过目；every_step 每步都问我。
 	// 一步做完后服务端按它决定要不要自动接下一步，出视频在任何模式下都要人点（drama.ShouldAutoContinue）。
-	RunMode string `json:"runMode" gorm:"size:24"`
+	RunMode                     string `json:"runMode" gorm:"size:24"`
+	WhiteModelStoryboardEnabled bool   `json:"whiteModelStoryboardEnabled" gorm:"not null;default:false"`
 	// StyleSource 是建项时选的画风来源：交给导演分析（可带一句描述和参考图）或从风格中心挑一条。导演定画风那一步按它跑。
 	StyleSource ProjectStyleSource `json:"style" gorm:"column:style_source;serializer:json;type:text"`
 	// StyleProfile 是 yoozee 风格档案（live-realism、anime-3d …，五选一，与 StyleProfileJSON 的画风快照不是一回事）：

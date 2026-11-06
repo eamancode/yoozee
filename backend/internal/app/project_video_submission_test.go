@@ -54,6 +54,9 @@ func TestProjectFixedVideoDurations(t *testing.T) {
 
 func TestProjectSceneEndingUsesLatestOrderAndNeverStacks(t *testing.T) {
 	svc, db, project, unit := newProjectDramaTestService(t, "seedance-2.0")
+	if err := db.Model(&project).Update("white_model_storyboard_enabled", true).Error; err != nil {
+		t.Fatal(err)
+	}
 	for i, scene := range []string{"A", "A", "A", "B"} {
 		shot := model.Shot{ID: fmt.Sprint(i), ProjectID: project.ID, UnitID: unit.ID, CurrentRevisionID: fmt.Sprint("r", i), Position: i, DurationMs: 10000}
 		revision := model.ShotRevision{ID: shot.CurrentRevisionID, ShotID: shot.ID, VideoPrompt: "原文", SpecJSON: fmt.Sprintf(`{"scene":%q,"dur":10}`, scene)}

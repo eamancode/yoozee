@@ -49,7 +49,7 @@ func (r *Repository) ProjectVideoChains(userID, projectID, operation string) ([]
 
 // The project lock serializes controller creation. Child admission and cancellation
 // share the parent-task lock; its lease fences stale controllers before charging.
-func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int) (*model.Task, error) {
+func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int, expectedWhiteModel bool) (*model.Task, error) {
 	var existing model.Task
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var project model.Project
@@ -65,6 +65,9 @@ func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int) (*mode
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		if project.WhiteModelStoryboardEnabled != expectedWhiteModel {
+			return ErrTaskStateConflict
 		}
 		var count int64
 		if err := tx.Model(&model.Task{}).Where("user_id = ? AND type = ? AND status IN ?", task.UserID, model.TaskTypeProjectVideoChain, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).Count(&count).Error; err != nil {

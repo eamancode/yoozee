@@ -26,6 +26,7 @@ export type ProjectCreateDraft = {
     publicStyle?: StyleProfileSnapshot;
     aspectRatio: string;
     segmentSeconds: number;
+    whiteModelStoryboardEnabled: boolean;
     generationModel?: string;
     runMode: DramaRunMode;
 };
@@ -40,6 +41,7 @@ export const EMPTY_PROJECT_DRAFT: ProjectCreateDraft = {
     styleBrief: "",
     aspectRatio: "9:16",
     segmentSeconds: 15,
+    whiteModelStoryboardEnabled: false,
     runMode: "until_video",
 };
 

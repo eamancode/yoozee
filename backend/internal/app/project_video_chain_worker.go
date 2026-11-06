@@ -91,7 +91,7 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 	}
 	// Re-read scene order and compilation before every new child. Changed plans
 	// pause before charging; explicit retry rebuilds from the current project state.
-	fresh, err := s.prepareProjectVideoChain(task.UserID, task.ProjectID, state.Request)
+	fresh, err := s.prepareProjectVideoChainWithWhiteModel(task.UserID, task.ProjectID, state.Request, state.WhiteModelStoryboardEnabled)
 	if err != nil {
 		return fail(err)
 	}

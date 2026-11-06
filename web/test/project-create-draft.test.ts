@@ -23,9 +23,12 @@ test("切号后到达的建项草稿保存、读取和清理始终属于原账�
         await saveProjectDraft("alice", { ...EMPTY_PROJECT_DRAFT, text: "Alice 的剧本" });
         setActiveUserScope("bob");
         await saveProjectDraft("bob", { ...EMPTY_PROJECT_DRAFT, text: "Bob 的剧本" });
-        await saveProjectDraft("alice", { ...EMPTY_PROJECT_DRAFT, text: "Alice 延迟完成的草稿" });
+        await saveProjectDraft("alice", { ...EMPTY_PROJECT_DRAFT, text: "Alice 延迟完成的草稿", whiteModelStoryboardEnabled: true });
         expect((await loadProjectDraft("bob"))?.text).toBe("Bob 的剧本");
         expect((await loadProjectDraft("alice"))?.text).toBe("Alice 延迟完成的草稿");
+        expect((await loadProjectDraft("alice"))?.whiteModelStoryboardEnabled).toBe(true);
+        expect((await loadProjectDraft("bob"))?.whiteModelStoryboardEnabled).toBe(false);
+        expect(EMPTY_PROJECT_DRAFT.whiteModelStoryboardEnabled).toBe(false);
         await clearProjectDraft("alice");
         expect(await loadProjectDraft("alice")).toBeUndefined();
         expect((await loadProjectDraft("bob"))?.text).toBe("Bob 的剧本");
