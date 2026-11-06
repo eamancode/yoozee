@@ -16,7 +16,15 @@ export function WhiteModelStoryboardOption({ checked, onChange, settings = false
             <Checkbox className="[&_.ant-checkbox-label]:pe-0" checked={checked} onChange={(event) => onChange(event.target.checked)}>
                 白模分镜
             </Checkbox>
-            <AntTooltip title={WHITE_MODEL_HELP + (settings ? SETTINGS_HELP : "")} trigger={["hover", "focus", "click"]} placement="top" autoAdjustOverflow open={helpOpen} onOpenChange={setHelpOpen} styles={{ root: { maxWidth: "min(360px, calc(100vw - 32px))" } }}>
+            <AntTooltip
+                title={WHITE_MODEL_HELP + (settings ? SETTINGS_HELP : "")}
+                trigger={["hover", "focus", "click"]}
+                placement="top"
+                autoAdjustOverflow
+                open={helpOpen}
+                onOpenChange={setHelpOpen}
+                styles={{ root: { maxWidth: "min(360px, calc(100vw - 32px))" } }}
+            >
                 <IconButton
                     icon={CircleHelp}
                     size="xs"
