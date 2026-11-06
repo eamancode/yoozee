@@ -1,0 +1,10 @@
+@media (max-width: 767px) {
+    .project-white-model-help-tooltip {
+        inset-inline: var(--space-4) !important;
+        width: auto !important;
+    }
+
+    .project-white-model-help-tooltip .ant-tooltip-arrow {
+        display: none;
+    }
+}

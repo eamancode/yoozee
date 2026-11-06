@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 
 import { IconButton } from "@/components/ui/base/buttons";
 import { AntTooltip } from "@/components/ui/base/tooltip/ant-tooltip";
+import "./white-model-storyboard-option.css";
 
 const WHITE_MODEL_HELP = "开启后，同场景连续镜头自动使用上一组片末白模作为站位参考；参考不可用时仍可继续生成视频。";
 const SETTINGS_HELP = "修改后对新提交的生成请求生效，已开始的生成链沿用提交时设置。";
@@ -22,6 +23,7 @@ export function WhiteModelStoryboardOption({ checked, onChange, settings = false
                 trigger={["hover", "focus", "click"]}
                 placement="top"
                 autoAdjustOverflow
+                classNames={{ root: "project-white-model-help-tooltip" }}
                 open={helpOpen}
                 onOpenChange={(open) => {
                     if (open || !pinned.current) setHelpOpen(open);
