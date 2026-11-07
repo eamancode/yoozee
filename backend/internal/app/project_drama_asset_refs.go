@@ -52,6 +52,13 @@ func (s *Service) versionImageResource(versionID string, roles ...string) (strin
 // dramaAssetImageRefs 是一个资产出图要带的参考图（按优先级排：主卡三视图、本场色卡、主基调色卡）。
 func (s *Service) dramaAssetImageRefs(userID string, project *model.Project, asset model.Asset, definition map[string]any) ([]dramaImageRef, error) {
 	var refs []dramaImageRef
+	if asset.Category == model.AssetCategoryEnvironment {
+		propRefs, err := s.spatialPropRefs(userID, project, definition)
+		if err != nil {
+			return nil, err
+		}
+		refs = append(refs, propRefs...)
+	}
 	if asset.ParentAssetID != "" {
 		parent, err := s.repo.AssetForUser(userID, asset.ParentAssetID)
 		if err != nil {
@@ -64,7 +71,11 @@ func (s *Service) dramaAssetImageRefs(userID string, project *model.Project, ass
 		if id == "" {
 			return nil, BadAuthRequest(fmt.Sprintf("请先完成主卡「%s」的三视图，再重试子卡出图", parent.Title))
 		}
-		refs = append(refs, dramaImageRef{ResourceID: id, Label: fmt.Sprintf("主卡「%s」已确认的三视图：脸型、五官、发型、肤色、体型与它完全一致，只换服装或状态", parent.Title)})
+		label := fmt.Sprintf("主卡「%s」已确认的三视图：脸型、五官、发型、肤色、体型与它完全一致，只换服装或状态", parent.Title)
+		if project.WorkflowID == drama.WorkflowIntegrated {
+			label = fmt.Sprintf("主卡「%s」已确认的四宫格：保持同一人物的面部辨识与肤色；年龄阶段、服装、发型及临时状态以当前子卡明确差异为准，不叠加主卡默认服装", parent.Title)
+		}
+		refs = append(refs, dramaImageRef{ResourceID: id, Label: label})
 	}
 	if asset.Category == model.AssetCategoryEnvironment {
 		ref, err := s.sceneEnvironmentPaletteRef(userID, project, asset, definition)
@@ -221,7 +232,7 @@ func (s *Service) withDramaImageRefs(userID string, input map[string]any, refs [
 		}
 	}
 	if required > 0 && (level >= dramaRefsNone || (limit >= 0 && limit < required)) {
-		return "", BadAuthRequest("子卡出图必须保留主卡参考图片，请选择支持参考图片的模型后重试")
+		return "", BadAuthRequest("出图必须保留身份或空间参考图片，请选择支持所需参考图片数量的模型后重试")
 	}
 	kept, dropped := pickDramaImageRefs(refs, limit, level)
 	inputs, used, err := s.dramaImageRefInputs(userID, kept)

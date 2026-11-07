@@ -45,7 +45,8 @@ func (s *Service) bindProjectAssetImage(userID, projectID, assetID string, req B
 	if strings.TrimSpace(req.ResourceID) == "" || strings.TrimSpace(req.ExpectedVersionID) == "" {
 		return false, BadAuthRequest("图片资源与预期资产版本不能为空")
 	}
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
 		return false, err
 	}
 	asset, err := s.repo.AssetForUser(userID, assetID)
@@ -140,6 +141,10 @@ func (s *Service) bindProjectAssetImage(userID, projectID, assetID string, req B
 	}
 	asset.Kind, asset.PayloadJSON, asset.PrimaryVersionID, asset.Status, asset.UpdatedAt = "image", string(encoded), version.ID, model.AssetVersionStatusConfirmed, now
 	representation := model.AssetRepresentation{ID: newID(), AssetVersionID: version.ID, TaskID: operationID, ResourceID: resource.ID, MediaType: "image", Role: "primary", MetadataJSON: "{}", CreatedAt: now}
+	if project.WorkflowID == "pipeline-1" && asset.Category == model.AssetCategoryEnvironment {
+		info, _ := json.Marshal(assetWorkflowLayoutMetadata("spatial-master"))
+		representation.MetadataJSON = string(info)
+	}
 	applied, err := s.repo.CommitProjectAssetImage(projectID, req.ExpectedVersionID, asset, &version, &representation)
 	if err != nil {
 		// 多实例对同一任务收尾时只允许一个提交；其他实例按重放处理。

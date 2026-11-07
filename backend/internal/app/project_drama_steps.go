@@ -38,11 +38,12 @@ type DramaStepSkillRef struct {
 
 // DramaStepUsage 是一个项目跑某一步时用哪个技能（弹窗里显示「本步使用：…」）。
 type DramaStepUsage struct {
-	Step      string            `json:"step"`
-	StepLabel string            `json:"stepLabel"`
-	Contract  string            `json:"contract"`
-	Profile   DramaProfileRef   `json:"profile"`
-	Skill     DramaStepSkillRef `json:"skill"`
+	Workflow  drama.AssetWorkflow `json:"workflow"`
+	Step      string              `json:"step"`
+	StepLabel string              `json:"stepLabel"`
+	Contract  string              `json:"contract"`
+	Profile   DramaProfileRef     `json:"profile"`
+	Skill     DramaStepSkillRef   `json:"skill"`
 	// Bound 为 false 表示绑定表里没配这一格，用的是步骤默认技能。
 	Bound bool `json:"bound"`
 	// Genre 是生成分段这次用的戏类（按项目视频模型单段上限选：文戏 15 / 文戏 30）；BindingStep 是绑定表里实际查的那一格
@@ -179,12 +180,31 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *
 		binding, genre = variant, &DramaStepGenre{ID: g.ID, Label: g.Label, MaxSeconds: hi, Model: m.Label}
 	}
 	profileID := projectDramaContext(project).profileID()
-	skill, bound, err := s.dramaBoundSkill(profileID, binding)
+	workflow, ok := drama.Workflow(project.WorkflowID)
+	if !ok || (project.WorkflowVersion != "" && project.WorkflowVersion != workflow.Version) {
+		return DramaStepUsage{}, drama.StepSkill{}, BadAuthRequest("项目工作流版本不可用")
+	}
+	if step.ID == drama.StepAssetsExtract && workflow.AssetsSkill != "" {
+		binding.DefaultSkill, binding.Contract = workflow.AssetsSkill, workflow.AssetsContract
+	}
+	var skill drama.StepSkill
+	var bound bool
+	var err error
+	if step.ID == drama.StepAssetsExtract && workflow.AssetsSkill != "" {
+		loaded, loadErr := s.assetWorkflowSkill(workflow)
+		err, bound = loadErr, false
+		if loadErr == nil {
+			skill = loaded
+		}
+	} else {
+		skill, bound, err = s.dramaBoundSkill(profileID, binding)
+	}
 	if err != nil {
 		return DramaStepUsage{}, drama.StepSkill{}, err
 	}
 	usage := DramaStepUsage{
-		Step: step.ID, StepLabel: step.Label, Contract: binding.Contract, Bound: bound,
+		Workflow: workflow,
+		Step:     step.ID, StepLabel: step.Label, Contract: binding.Contract, Bound: bound,
 		Profile: dramaProfileRef(profileID),
 		Skill:   DramaStepSkillRef{ID: skill.ID, Name: skill.Name, VersionID: skill.VersionID, Version: skill.Version, ContentHash: skill.ContentHash},
 	}
@@ -376,6 +396,7 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 		skillVersions = append(skillVersions, map[string]any{"skillId": sk.ID, "versionId": sk.VersionID, "version": sk.Version})
 	}
 	metadata := map[string]any{
+		"assetWorkflow":   plan.usage.Workflow,
 		"domainProjectId": projectID,
 		"source":          step.TaskSource,
 		"skillIds":        skillIDs,

@@ -65,6 +65,7 @@ import { removeConfirmedCandidate } from "./project-cache";
 import { generateCharacterTurnaround, pendingTurnaroundAssetIds, turnaroundImageModel } from "./project-character-media";
 import { generateProjectVisualImage, projectVisualTaskAssetId } from "./project-visual-asset";
 import { ProjectVisualAssetCard } from "./project-visual-asset-card";
+import { SceneSpatialTools } from "./scene-spatial-tools";
 import { GroupedPaletteSwatches, MASTER_PALETTE_SOURCE_LABELS, paletteImageStatusLabel, ProjectPaletteCard } from "./project-palette-card";
 import { MasterPaletteGroups, StyleAnchorSummary } from "@/components/drama/master-palette";
 import { assetImageTaskTemplate } from "./drama-image-task";
@@ -75,6 +76,7 @@ const categories = ["all", ...ASSET_CATEGORIES];
 const ALL_FOLDERS = "__all_folders__";
 const pickerCategoryLabels = { all: "全部素材", ...categoryLabels };
 export default function ProjectAssetsView({ detail, refreshProject }: ProjectDetailViewProps) {
+	const characterImageLabel = detail.project.workflowId === "pipeline-1" ? "四宫格" : "三视图";
     const { message, modal } = App.useApp();
     const personalAssets = useAssetStore((state) => state.assets);
     const addAsset = useAssetStore((state) => state.addAsset);
@@ -418,8 +420,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, projectStyle, config });
             return getProjectCharacter(detail.project.id, asset.id);
         },
-        onSuccess: (result) => { if (result) { syncPersonalCharacterProjection(result.asset); done("三视图已生成并绑定到新角色版本"); } },
-        onError: failed("三视图生成失败"),
+        onSuccess: (result) => { if (result) { syncPersonalCharacterProjection(result.asset); done(`${characterImageLabel}已生成并绑定到新角色版本`); } },
+        onError: failed(`${characterImageLabel}生成失败`),
     });
     const generateVisualMutation = useMutation({
         mutationKey: ["project-visual-image", detail.project.id],
@@ -483,13 +485,13 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             const latest = useAssetStore.getState().assets;
             const pickerItem = imagePickerItems.find((item) => item.id === selectedAssetId);
             const selected = latest.find((asset) => asset.id === selectedAssetId) || (pickerItem?.external ? await externalAssetSources.importExternalAsset(pickerItem.external) : undefined);
-            if (selected?.kind !== "image") throw new Error("请选择一张包含正面、侧面和背面的三视图设定图");
+            if (selected?.kind !== "image") throw new Error(`请选择一张完整的角色${characterImageLabel}设定图`);
             const resourceId = resourceIdFromStorageKey((selected as ImageAsset).data.storageKey);
             if (!resourceId) throw new Error("所选图片尚未同步到后端资源库");
             return replaceProjectCharacterRepresentations(detail.project.id, imageAsset.id, [{ role: "turnaround_sheet", resourceId, metadata: { sourceAssetId: selected.id } }, { role: "primary", resourceId, metadata: { source: "turnaround_sheet", sourceAssetId: selected.id } }]);
         },
-        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setImageAsset(null); done("三视图已绑定到新角色版本"); },
-        onError: failed("三视图绑定失败"),
+        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setImageAsset(null); done(`${characterImageLabel}已绑定到新角色版本`); },
+        onError: failed(`${characterImageLabel}绑定失败`),
     });
     const bindVoiceMutation = useMutation({ mutationFn: () => voiceAsset && voiceSample ? bindProjectCharacterVoice(detail.project.id, voiceAsset.id, { sampleResourceId: voiceSample.resourceId, voiceName: voiceSample.name, instructions: voiceInstructions }) : Promise.reject(new Error("请选择一份声音素材")), onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setVoiceAsset(null); setVoiceSample(null); done("声音素材已绑定到新角色版本"); }, onError: failed("声音绑定失败") });
     const unbindVoiceMutation = useMutation({ mutationFn: () => voiceAsset ? unbindProjectCharacterVoice(detail.project.id, voiceAsset.id) : Promise.reject(new Error("未选择角色")), onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setVoiceAsset(null); done("声音绑定已解除并生成新角色版本"); }, onError: failed("声音解绑失败") });
@@ -545,6 +547,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                             <h2 className="text-[var(--fs-heading-lg)] font-semibold leading-6">角色与资产</h2>
+							<span className="text-xs text-foreground/60">{detail.project.workflowId === "pipeline-1" ? "流水线一 · 四宫格 / 微缩场景" : "流水线二 · 三视图 / 场景概念图"}</span>
                             <span className="rounded bg-foreground/[.055] px-1.5 py-1 text-[var(--fs-tiny)] font-medium tabular-nums text-foreground/45">{totalAssetCount} 张主卡已保存（子卡在人物下展开）</span>
                         </div>
                         <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[var(--fs-label)] text-foreground/48">
@@ -618,7 +621,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                         </section>
                     ) : null}
                     <div className="mb-2 flex items-center justify-between text-xs text-foreground/45"><span>{currentFolder?.name || (folderId === ALL_FOLDERS ? (category === "all" ? "全部资产" : categoryLabel(category)) : "根目录内容")}</span><span>{assetsQuery.data?.total || 0} 项已保存</span></div>
-                    {assetsQuery.isLoading ? <WorkspaceState icon="assets" compact title="正在读取资产" description="按当前目录、分类和关键词加载这一页。" /> : assets.length ? <><div className="project-assets-grid assets-library-grid">{visibleAssets.map((asset) => asset.category === "palette" ? <ProjectPaletteCard key={asset.id} asset={asset} folderItems={folderMoveItems} resynthesizing={paletteResynthesizeMutation.isPending && paletteResynthesizeMutation.variables?.id === asset.id} busy={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onResynthesize={() => paletteResynthesizeMutation.mutate(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : asset.category === "character" ? <ProjectCharacterCard key={asset.id} asset={asset} folderItems={folderMoveItems} generating={generatingAssetIds.has(asset.id)} removing={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onEdit={() => openCharacterEditor(asset)} onGenerate={() => generateMutation.mutate(asset)} onBindImages={() => openImages(asset)} onBindVoice={() => openVoice(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} footer={asset.variant ? null : <ProjectCharacterVariants projectId={detail.project.id} parent={asset} defaultImageModel={detail.project.defaultImageModel} />} /> : asset.visual ? <ProjectVisualAssetCard key={asset.id} asset={asset} folderItems={folderMoveItems} generating={generatingVisualAssetIds.has(asset.id)} busy={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id) || (bindVisualMutation.isPending && imageAsset?.id === asset.id)} onOpen={() => setPreviewAsset(asset)} onGenerate={() => generateVisualMutation.mutate(asset)} onBind={() => openImages(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : <MediaAssetCard key={asset.id} asset={asset} personalAsset={personalAssets.find((item) => item.id === asset.id)} folderItems={folderMoveItems} onOpen={() => setPreviewAsset(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onCategoryChange={(next) => categoryMutation.mutate({ id: asset.id, next })} onVersion={() => versionMutation.mutate(asset.id)} onRemove={() => unlinkMutation.mutate(asset.id)} loading={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (categoryMutation.isPending && categoryMutation.variables?.id === asset.id) || (versionMutation.isPending && versionMutation.variables === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} />)}</div><PaginationBar current={page} pageSize={pageSize} total={assetsQuery.data?.total || 0} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} /></> : childFolders.length || (showPendingCandidates && pendingCandidates.length) ? null : <WorkspaceState icon="assets" compact title={debouncedKeyword ? "没有找到匹配资产" : "这个文件夹还没有内容"} description={debouncedKeyword ? "换一个关键词，或调整左侧分类与目录筛选。" : "可以新建子文件夹、引用个人素材，或把画布产物归档到这里。"} />}
+                    {assetsQuery.isLoading ? <WorkspaceState icon="assets" compact title="正在读取资产" description="按当前目录、分类和关键词加载这一页。" /> : assets.length ? <><div className="project-assets-grid assets-library-grid">{visibleAssets.map((asset) => asset.category === "palette" ? <ProjectPaletteCard key={asset.id} asset={asset} folderItems={folderMoveItems} resynthesizing={paletteResynthesizeMutation.isPending && paletteResynthesizeMutation.variables?.id === asset.id} busy={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onResynthesize={() => paletteResynthesizeMutation.mutate(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : asset.category === "character" ? <ProjectCharacterCard key={asset.id} asset={asset} fourPanel={detail.project.workflowId === "pipeline-1"} folderItems={folderMoveItems} generating={generatingAssetIds.has(asset.id)} removing={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onEdit={() => openCharacterEditor(asset)} onGenerate={() => generateMutation.mutate(asset)} onBindImages={() => openImages(asset)} onBindVoice={() => openVoice(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} footer={asset.variant ? null : <ProjectCharacterVariants fourPanel={detail.project.workflowId === "pipeline-1"} projectId={detail.project.id} parent={asset} defaultImageModel={detail.project.defaultImageModel} />} /> : asset.visual ? <ProjectVisualAssetCard key={asset.id} asset={asset} spatialTools={detail.project.workflowId === "pipeline-1" && asset.category === "environment" ? <SceneSpatialTools projectId={detail.project.id} asset={asset} /> : undefined} folderItems={folderMoveItems} generating={generatingVisualAssetIds.has(asset.id)} busy={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id) || (bindVisualMutation.isPending && imageAsset?.id === asset.id)} onOpen={() => setPreviewAsset(asset)} onGenerate={() => generateVisualMutation.mutate(asset)} onBind={() => openImages(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : <MediaAssetCard key={asset.id} asset={asset} personalAsset={personalAssets.find((item) => item.id === asset.id)} folderItems={folderMoveItems} onOpen={() => setPreviewAsset(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onCategoryChange={(next) => categoryMutation.mutate({ id: asset.id, next })} onVersion={() => versionMutation.mutate(asset.id)} onRemove={() => unlinkMutation.mutate(asset.id)} loading={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (categoryMutation.isPending && categoryMutation.variables?.id === asset.id) || (versionMutation.isPending && versionMutation.variables === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} />)}</div><PaginationBar current={page} pageSize={pageSize} total={assetsQuery.data?.total || 0} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} /></> : childFolders.length || (showPendingCandidates && pendingCandidates.length) ? null : <WorkspaceState icon="assets" compact title={debouncedKeyword ? "没有找到匹配资产" : "这个文件夹还没有内容"} description={debouncedKeyword ? "换一个关键词，或调整左侧分类与目录筛选。" : "可以新建子文件夹、引用个人素材，或把画布产物归档到这里。"} />}
                 </div>
             </div>
 
@@ -656,10 +659,10 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                 footerNote={externalAssetSources.error || undefined}
                 multiple={false}
                 eyebrow="绑定图片"
-                title={imageAsset?.title || "角色三视图"}
+                title={imageAsset?.title || `角色${characterImageLabel}`}
                 confirmLabel={() => "绑定并生成新版本"}
                 emptyTitle="没有可绑定的图片"
-                emptyDescription={imageAsset?.visual ? "选择一张场景或道具参考图片。" : "需要一张包含正面、侧面、背面的角色设定图。"}
+                emptyDescription={imageAsset?.visual ? "选择一张场景或道具参考图片。" : characterImageLabel === "四宫格" ? "需要一张包含正面头像、侧脸、正面身体与完整背面的四宫格设定图。" : "需要一张包含正面、侧面、背面的角色设定图。"}
                 onClose={() => setImageAsset(null)}
                 onConfirm={async (ids, pickedItems) => {
                     if (!ids[0]) throw new Error("请选择一张图片");

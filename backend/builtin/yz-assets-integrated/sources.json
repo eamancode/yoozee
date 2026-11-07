@@ -1,0 +1,12 @@
+{
+  "owner":"yingce-system",
+  "reviewCadence":"每次技能或输出契约发布时",
+  "input_files":[
+    {"name":"小墨个人资产提取SKILL.md","version":"1.3.0","sha256":"23011cdc56d714fa7dfc397a07361415c2dbb12d536fe05a2e33edd2b9254b79"},
+    {"name":"character-asset-prompts/SKILL.md","sha256":"ff2adf523ca8eb3264b6e63a725ad828da8fef0ac167625ba99d4e5c62c3f31b"},
+    {"name":"chinese-scene-diorama-storyboard","version":"1.1.0","sha256":"dc4fdf3ccb129cbf4ca239177907c5fc13d977132fa7445cb40a401cb8494fa4"}
+  ],
+  "inputKind":"file-backed fixture",
+  "output contract":"assets.extract@2",
+  "rollback boundary":"项目工作流和任务版本快照；不得用原流程覆盖已生成四宫格和空间母版"
+}

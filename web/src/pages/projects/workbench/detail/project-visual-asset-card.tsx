@@ -1,4 +1,5 @@
 import { Button, Dropdown, Popconfirm } from "antd";
+import type { ReactNode } from "react";
 import { Image as ImageIcon, MoveRight, Sparkles, Trash2 } from "lucide-react";
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
 import { CachedResourceImage } from "@/components/cached-resource-image";
@@ -18,8 +19,10 @@ export function ProjectVisualAssetCard({
     onBind,
     onMove,
     onRemove,
+    spatialTools,
 }: {
     asset: ProjectAsset;
+    spatialTools?: ReactNode;
     generating: boolean;
     busy: boolean;
     folderItems: Array<{ key: string; label: string }>;
@@ -54,7 +57,9 @@ export function ProjectVisualAssetCard({
                 </div>
             </AssetLibraryCardMedia>
             <div className="p-3">
+                {asset.visual?.definition.imageLayout === "spatial-master" ? <p className="mb-2 text-xs text-foreground/60">微缩场景图</p> : null}
                 <AssetDesignEvidence definition={asset.visual?.definition} />
+                {spatialTools}
                 <button type="button" className="w-full truncate text-left text-sm font-semibold" onClick={onOpen}>
                     {asset.title}
                 </button>

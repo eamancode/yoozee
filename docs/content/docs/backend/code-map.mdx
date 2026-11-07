@@ -5,6 +5,14 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## 项目资产双流水线
+
+- 工作流配置与契约：`internal/drama/workflows.go`、`contracts/assets.extract.v2.schema.json`；旧提取契约保留。
+- 项目创建与历史迁移：`app/project_create.go`、`model/models_project.go`、数据库迁移 96。
+- 技能和图片配方：`builtin/yz-assets-integrated`；`app/project_asset_workflow_skill.go` 固定版本并记录配方来源，`project_asset_workflow.go` 统一自动/手动图片提交。
+- 实际引用与派生：`project_drama_asset_refs.go`、`project_spatial_image.go`、`repository/project_spatial_image.go`；场景版本保存九宫格与重绘表现。
+- 界面：创建页 `composer-sections.tsx`，资产页人物/子卡与 `scene-spatial-tools.tsx`，使用既有 API 和任务服务。
+
 - 分镜参考：`app/project_video_chain_assets.go` 构造带来源的截帧资产；`repository/storyboard_reference.go` 在父链租约下原子登记与绑定。`drama_segment_video.go` 用 FFmpeg 顺序读取到实际最后可读帧并记录时间。普通单组与整链统一走 `project_video_chain*`，`prepareOnly` 在创建视频任务前结束。
 - 我的导演风格：`app/director_style_cover.go` 归并旧个人记录、幂等保存个人档案及创建独立封面任务；`repository/director_style_profile.go` 负责版本、封面回调和快照条件写入；`prompts/style_profile.go` 保留结构化 director 并校验编辑版本。前端复用 `canvas-style-picker-modal.tsx`，项目区 `chapter-style-lock.tsx` 展示封面与重试。技能包 `yz-style-lock` 1.2.0 对齐原系统十二章节。
 

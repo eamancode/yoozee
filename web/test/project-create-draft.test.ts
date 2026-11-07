@@ -22,9 +22,11 @@ test("切号后到达的建项草稿保存、读取和清理始终属于原账�
         setActiveUserScope("alice");
         await saveProjectDraft("alice", { ...EMPTY_PROJECT_DRAFT, text: "Alice 的剧本" });
         setActiveUserScope("bob");
-        await saveProjectDraft("bob", { ...EMPTY_PROJECT_DRAFT, text: "Bob 的剧本" });
+        await saveProjectDraft("bob", { ...EMPTY_PROJECT_DRAFT, text: "Bob 的剧本", workflowId: "pipeline-2" });
         await saveProjectDraft("alice", { ...EMPTY_PROJECT_DRAFT, text: "Alice 延迟完成的草稿", whiteModelStoryboardEnabled: true });
         expect((await loadProjectDraft("bob"))?.text).toBe("Bob 的剧本");
+        expect((await loadProjectDraft("bob"))?.workflowId).toBe("pipeline-2");
+        expect((await loadProjectDraft("alice"))?.workflowId).toBe("pipeline-1");
         expect((await loadProjectDraft("alice"))?.text).toBe("Alice 延迟完成的草稿");
         expect((await loadProjectDraft("alice"))?.whiteModelStoryboardEnabled).toBe(true);
         expect((await loadProjectDraft("bob"))?.whiteModelStoryboardEnabled).toBe(false);

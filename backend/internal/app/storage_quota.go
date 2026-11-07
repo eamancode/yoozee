@@ -151,8 +151,9 @@ func (s *Service) commitTaskCompletionWithinStorageQuota(task *model.Task, resul
 	completed.CompletedAt = ptr(time.Now())
 	var register func(*repository.Repository) error
 	visualImage := strings.Contains(task.InputJSON, "project_asset_image")
+	spatialImage := strings.Contains(task.InputJSON, "project_spatial_reference")
 	styleCover := strings.Contains(task.InputJSON, "director-style-cover")
-	if task.MediaRecoveryJSON != "" || visualImage || styleCover {
+	if task.MediaRecoveryJSON != "" || visualImage || spatialImage || styleCover {
 		completed.MediaStage = "completed"
 		register = func(repo *repository.Repository) error {
 			writer := &Service{repo: repo, dataDir: s.dataDir}
@@ -173,12 +174,18 @@ func (s *Service) commitTaskCompletionWithinStorageQuota(task *model.Task, resul
 				}
 				completed.ResultJSON = string(encoded)
 			}
-			if visualImage {
+			if visualImage || spatialImage {
 				var result map[string]interface{}
 				if err := json.Unmarshal(resultJSON, &result); err != nil {
 					return err
 				}
-				if _, err := writer.finalizeProjectAssetImageTask(*task, result); err != nil {
+				var finalizeErr error
+				if spatialImage {
+					_, finalizeErr = writer.finalizeProjectSpatialImage(*task, result)
+				} else {
+					_, finalizeErr = writer.finalizeProjectAssetImageTask(*task, result)
+				}
+				if err := finalizeErr; err != nil {
 					return err
 				}
 				encoded, err := json.Marshal(result)

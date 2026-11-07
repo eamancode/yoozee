@@ -28,12 +28,13 @@ const assetVariantKey = "assetVariant"
 // assetVariantMeta 是子卡 payload.metadata.assetVariant：变体种类、用这套形象的场编号、怎么来的（extract / manual），
 // 和生成设定时用的服装 / 状态描述、英文提示词原文（改子卡时按它们判断外观变没变；早期建的子卡没有，从设定里拆）。
 type assetVariantMeta struct {
-	StartAfter string   `json:"startAfter,omitempty"`
-	Kind       string   `json:"kind"`
-	Scenes     []string `json:"scenes"`
-	Source     string   `json:"source,omitempty"`
-	Look       string   `json:"look,omitempty"`
-	PromptEn   string   `json:"promptEn,omitempty"`
+	GenerationPrompt string   `json:"generationPrompt,omitempty"`
+	StartAfter       string   `json:"startAfter,omitempty"`
+	Kind             string   `json:"kind"`
+	Scenes           []string `json:"scenes"`
+	Source           string   `json:"source,omitempty"`
+	Look             string   `json:"look,omitempty"`
+	PromptEn         string   `json:"promptEn,omitempty"`
 }
 
 func assetVariantMetaOf(asset *model.Asset) assetVariantMeta {
@@ -124,6 +125,9 @@ var variantIdentityKeys = []string{"role", "appearance", "physique", "personalit
 // multiViewPrompt 是这一套的三视图提示词（没写时用主卡的接上变体说明）。
 func variantDefinition(parent map[string]any, parentTitle string, label string, kind string, look string, promptEn string) map[string]any {
 	out := map[string]any{"aliases": []string{}}
+	if layout, _ := parent["imageLayout"].(string); layout != "" {
+		out["imageLayout"] = layout
+	}
 	for _, key := range variantIdentityKeys {
 		if value, ok := parent[key]; ok && !emptyCharacterDefinitionValue(value) {
 			out[key] = value
@@ -206,6 +210,9 @@ func variantPayload(asset *model.Asset, meta assetVariantMeta, imageState string
 // newVariantAsset 组一张子卡（不落库）：资产、第 1 个版本。
 func newVariantAsset(userID string, parent model.Asset, parentDefinition map[string]any, label string, kind string, look string, promptEn string, meta assetVariantMeta, imageState string, now time.Time) (model.Asset, model.AssetVersion, error) {
 	definition := variantDefinition(parentDefinition, parent.Title, label, kind, look, promptEn)
+	if meta.GenerationPrompt != "" {
+		definition["generationPrompt"] = meta.GenerationPrompt
+	}
 	title := drama.AssetVariantTitle(parent.Title, label)
 	definition["name"] = title
 	encoded, err := json.Marshal(definition)
@@ -423,6 +430,11 @@ func (s *Service) UpdateDramaAssetVariant(userID string, projectID string, varia
 	next["name"] = title
 	oldLook, oldPrompt := variantLookOf(meta, current)
 	lookChanged := req.Look != oldLook || req.PromptEn != oldPrompt
+	if !lookChanged {
+		if full, _ := current["generationPrompt"].(string); full != "" {
+			next["generationPrompt"] = full
+		}
+	}
 	encoded, err := json.Marshal(next)
 	if err != nil {
 		return result, err
@@ -437,6 +449,9 @@ func (s *Service) UpdateDramaAssetVariant(userID string, projectID string, varia
 		return result, err
 	}
 	meta.Kind, meta.Scenes, meta.Look, meta.PromptEn = req.Kind, req.Scenes, req.Look, req.PromptEn
+	if lookChanged {
+		meta.GenerationPrompt = ""
+	}
 	meta.StartAfter = req.StartAfter
 	if err := s.setDramaImageState(userID, child.ID, func(payload map[string]any) {
 		metadata := payloadMetadata(payload)

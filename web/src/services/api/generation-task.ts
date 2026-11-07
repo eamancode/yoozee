@@ -21,6 +21,7 @@ export { logicalModelIDForConfig };
 export type BackendGenerationMode = "text" | "image" | "video" | "audio";
 
 export type BackendGenerationResult = {
+	spatialImageStatus?: "bound" | "stale";
     projectAssetImageStatus?: "bound" | "stale";
     mode?: BackendGenerationMode;
     images?: Array<{ dataUrl: string; storageKey?: string; width?: number; height?: number; bytes?: number; mimeType?: string }>;

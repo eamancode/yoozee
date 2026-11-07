@@ -36,6 +36,14 @@ func projectSectionError(reason ErrorReason, message string) *AppError {
 }
 
 func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.Project, error) {
+	workflowID := strings.TrimSpace(req.WorkflowID)
+	if workflowID == "" {
+		workflowID = drama.WorkflowIntegrated
+	}
+	workflow, validWorkflow := drama.Workflow(workflowID)
+	if !validWorkflow {
+		return model.Project{}, projectSectionError(ReasonProjectProductionInvalid, "请选择有效的工作流")
+	}
 	if err := s.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
 		return model.Project{}, err
 	}
@@ -119,6 +127,7 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 	}
 	now := time.Now()
 	project := model.Project{
+		WorkflowID: workflow.ID, WorkflowVersion: workflow.Version,
 		ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceAs, Description: description,
 		VisualType: visualType, RunMode: runMode, StyleSource: style, DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel,
 		WhiteModelStoryboardEnabled: req.WhiteModelStoryboardEnabled,

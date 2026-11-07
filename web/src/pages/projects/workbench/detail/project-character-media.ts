@@ -63,7 +63,8 @@ export function characterTurnaroundRequest(input: {
 }
 
 export async function generateCharacterTurnaround(input: Parameters<typeof characterTurnaroundRequest>[0]) {
-    await runBackendCanvasGenerationTask(characterTurnaroundRequest(input));
+    const result = await runBackendCanvasGenerationTask(characterTurnaroundRequest(input));
+    if (result.projectAssetImageStatus === "stale") throw new Error("图片已生成并保留在任务结果中，但人物设定已变化，未覆盖当前形象。");
 }
 
 function characterTurnaroundVariables(name: string, definition: Record<string, unknown>, projectStyle?: ProjectStylePrompt) {

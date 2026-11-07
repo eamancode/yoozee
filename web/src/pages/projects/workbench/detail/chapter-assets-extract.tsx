@@ -147,6 +147,7 @@ function imagesText(outcome: DramaAssetsExtractOutcome, statuses?: DramaImageSta
  * 技能由项目风格档案的绑定决定。进度侧栏按场流式显示资产行，写完显示新增 / 合并 / 跳过并可去资产页。资产直接是已确认的，不用再确认。
  */
 export function AssetsExtractControl({ detail, unit: selectedUnit, units, paletteReady, unitNoun, tasks, disabled, disabledReason }: AssetsExtractControlProps) {
+	const integrated = detail.project.workflowId === "pipeline-1";
     const { message } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -450,7 +451,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                     </label>
                     <div className="grid gap-2">
                         <label className="flex items-center justify-between gap-3 text-xs">
-                            <span className="font-medium text-foreground/68">写完后给新资产出图（角色三视图，场景、道具概念图）</span>
+                            <span className="font-medium text-foreground/68">{integrated ? "写完后给新资产出图（角色四宫格、微缩场景图、独立道具图）" : "写完后给新资产出图（角色三视图，场景、道具概念图）"}</span>
                             <Switch
                                 size="small"
                                 checked={settings.images}
@@ -494,7 +495,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                                         本步使用：<span className="font-medium text-foreground/85">{usage.skill.name}</span> {usage.skill.version}（{usage.profile.label}）
                                     </div>
                                     <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">
-                                        技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡（角色、道具用）和本集场次色卡（场景用，道具也可取所在场的颜色）；角色换装或换状态时拆成子卡「名·变体」。出图带色卡图作参考，子卡另带主卡三视图。
+                                        {integrated ? "流水线一使用三技能整合包：保留原文依据、关联及状态；人物采用四宫格，场景采用实际空间类型的微缩母版。子卡带主卡图片，微缩图保留关联关键道具参考；色卡与项目画风继续生效。" : "技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡和本集场次色卡；角色换装或换状态时拆成子卡。出图带色卡图，子卡另带主卡三视图。"}
                                     </div>
                                 </>
                             ) : (

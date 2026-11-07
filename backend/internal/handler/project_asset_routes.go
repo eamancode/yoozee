@@ -12,6 +12,19 @@ import (
 )
 
 func registerProjectAssetRoutes(r *gin.RouterGroup, svc *service.Service) {
+	r.GET("/projects/:id/assets/:assetId/spatial-references", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		items, err := svc.ProjectSpatialReferences(user.ID, c.Param("id"), c.Param("assetId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"items": items})
+	})
 	r.PUT("/projects/:id/assets/:assetId/image", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

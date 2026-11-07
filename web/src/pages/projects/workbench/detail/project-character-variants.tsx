@@ -31,7 +31,8 @@ function variantForm(asset?: ProjectAsset): VariantForm {
  * 角色卡下的子卡（M8 卡 D）：同一角色不同服装 / 状态各一张独立的角色资产「名·变体」，脸型体型继承主卡、只换服装或状态。
  * 折叠显示，可新增（服务端按主卡设定继承生成定义，勾了出图时带主卡三视图作参考出三视图）、改、删（被镜头引用时服务端拒删并列出镜头）、出图。
  */
-export function ProjectCharacterVariants({ projectId, parent, defaultImageModel }: { projectId: string; parent: ProjectAsset; defaultImageModel?: string }) {
+export function ProjectCharacterVariants({ projectId, parent, defaultImageModel, fourPanel }: { projectId: string; parent: ProjectAsset; defaultImageModel?: string; fourPanel?: boolean }) {
+	const imageLabel = fourPanel || parent.character?.definition.imageLayout === "four-panel" ? "四宫格" : "三视图";
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const effectiveConfig = useEffectiveConfig();
@@ -168,7 +169,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                                 </div>
                                 <div className="mt-1 flex min-w-0 items-center gap-0.5">
                                     <span className={`min-w-0 flex-1 truncate text-[var(--fs-micro)] ${ready ? "text-emerald-700 dark:text-emerald-300" : "text-foreground/45"}`} title={variant.image?.error || undefined}>
-                                        {queue ? `三视图${queue}${variant.image?.error ? `：${variant.image.error}` : ""}` : ready ? "三视图已绑定" : "三视图未出"}
+                                        {queue ? `${imageLabel}${queue}${variant.image?.error ? `：${variant.image.error}` : ""}` : ready ? `${imageLabel}已绑定` : `${imageLabel}未出`}
                                     </span>
                                     <Button
                                         type="text"
@@ -177,7 +178,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                                         icon={<Sparkles className="size-3.5" />}
                                         loading={imageMutation.isPending && imageMutation.variables?.id === variant.id}
                                         onClick={() => imageMutation.mutate(variant)}
-                                        aria-label={`${ready ? "重新出" : "出"}子卡「${variant.title}」的三视图`}
+                                        aria-label={`${ready ? "重新出" : "出"}子卡「${variant.title}」的${imageLabel}`}
                                     />
                                     <Button type="text" size="small" className="!h-6 !px-1" icon={<Pencil className="size-3.5" />} onClick={() => open(variant)} aria-label={`编辑子卡「${variant.title}」`} />
                                     <Upload
@@ -272,8 +273,8 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                         />
                     </label>
                     <label className="grid gap-1.5">
-                        <span className="font-medium text-foreground/68">英文三视图提示词（可空）</span>
-                        <Input.TextArea rows={2} value={form.promptEn} placeholder="空着时用主卡的三视图提示词接上这套服装 / 状态" onChange={(event) => setForm((current) => ({ ...current, promptEn: event.target.value }))} />
+                        <span className="font-medium text-foreground/68">英文{imageLabel}提示词（可空）</span>
+                        <Input.TextArea rows={2} value={form.promptEn} placeholder={`空着时按主卡身份与本子卡的差异生成${imageLabel}`} onChange={(event) => setForm((current) => ({ ...current, promptEn: event.target.value }))} />
                     </label>
                     <label className="grid gap-1.5">
                         <span className="font-medium text-foreground/68">用在哪几场</span>
@@ -283,7 +284,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel 
                         {form.startAfter ? <p className="mt-2 text-xs text-foreground/60">此子卡仅在指定动作后适用，不会按场次覆盖整场；请在对应镜头选择，避免提前换装。</p> : null}
                     </label>
                     <Checkbox checked={form.image} onChange={(event) => setForm((current) => ({ ...current, image: event.target.checked }))}>
-                        {editing === "new" ? "保存后出三视图" : "外观改了时重出三视图"}
+                        {editing === "new" ? `保存后出${imageLabel}` : `外观改了时重出${imageLabel}`}
                     </Checkbox>
                 </div>
             </Modal>

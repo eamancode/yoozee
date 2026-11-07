@@ -80,8 +80,10 @@ type CharacterVoiceSummary struct {
 
 type characterTurnaroundTaskInput struct {
 	Metadata struct {
-		Operation        string `json:"operation"`
-		CharacterAssetID string `json:"characterAssetId"`
+		ImageLayout            string `json:"imageLayout"`
+		ResolvedAssetVersionID string `json:"resolvedAssetVersionId"`
+		Operation              string `json:"operation"`
+		CharacterAssetID       string `json:"characterAssetId"`
 	} `json:"metadata"`
 }
 
@@ -435,12 +437,18 @@ func (s *Service) finalizeCharacterTurnaroundTask(task model.Task, result map[st
 	if err != nil {
 		return false, err
 	}
+	if input.Metadata.ImageLayout == "four-panel" && input.Metadata.ResolvedAssetVersionID != "" && input.Metadata.ResolvedAssetVersionID != asset.PrimaryVersionID {
+		result["projectAssetImageStatus"] = "stale"
+		return false, nil
+	}
 	resourceID := strings.TrimSpace(output.Images[0].ResourceID)
 	resource, err := s.repo.ResourceForUser(task.UserID, resourceID)
 	if err != nil || resource.Kind != "image" || resource.Status != model.ResourceStatusReady {
 		return false, BadAuthRequest("三视图任务生成的图片资源不可用")
 	}
-	sheetMetadata, err := json.Marshal(map[string]any{"prompt": task.Prompt, "source": "character_turnaround"})
+	sheetInfo := assetWorkflowLayoutMetadata(input.Metadata.ImageLayout)
+	sheetInfo["prompt"], sheetInfo["source"] = task.Prompt, "character_turnaround"
+	sheetMetadata, err := json.Marshal(sheetInfo)
 	if err != nil {
 		return false, fmt.Errorf("序列化三视图表现元数据失败：%w", err)
 	}
@@ -453,12 +461,32 @@ func (s *Service) finalizeCharacterTurnaroundTask(task model.Task, result map[st
 		{ID: newID(), TaskID: task.ID, ResourceID: resourceID, MediaType: "image", Role: "turnaround_sheet", MetadataJSON: string(sheetMetadata), CreatedAt: now},
 		{ID: newID(), TaskID: task.ID, ResourceID: resourceID, MediaType: "image", Role: "primary", MetadataJSON: string(primaryMetadata), CreatedAt: now},
 	}
-	if _, err := s.createNextCharacterVersion(projectID, asset, asset.Title, "", representations, nil, false); err != nil {
+	definitionJSON := ""
+	if input.Metadata.ImageLayout != "" {
+		current, err := s.repo.AssetVersion(asset.PrimaryVersionID)
+		if err != nil {
+			return false, err
+		}
+		definition := map[string]any{}
+		if err := json.Unmarshal([]byte(current.DefinitionJSON), &definition); err != nil {
+			return false, err
+		}
+		definition["imageLayout"] = input.Metadata.ImageLayout
+		encoded, err := json.Marshal(definition)
+		if err != nil {
+			return false, err
+		}
+		definitionJSON = string(encoded)
+	}
+	if _, err := s.createNextCharacterVersion(projectID, asset, asset.Title, definitionJSON, representations, nil, false); err != nil {
 		// 多实例同时收尾时，唯一任务视角约束只允许一个事务成功；其余实例按已绑定处理。
 		if bound, checkErr := s.characterTurnaroundTaskBound(task.ID); checkErr == nil && bound {
 			return false, nil
 		}
 		return false, err
+	}
+	if input.Metadata.ImageLayout == "four-panel" {
+		result["projectAssetImageStatus"] = "bound"
 	}
 	return true, nil
 }
@@ -617,6 +645,21 @@ func (s *Service) prepareNextCharacterVersion(asset *model.Asset, name string, d
 	}
 	if strings.TrimSpace(definitionJSON) == "" {
 		definitionJSON = current.DefinitionJSON
+	}
+	var before, after map[string]any
+	if json.Unmarshal([]byte(current.DefinitionJSON), &before) == nil && json.Unmarshal([]byte(definitionJSON), &after) == nil {
+		if old, _ := before["generationPrompt"].(string); old != "" && after["generationPrompt"] == old {
+			for _, key := range []string{"appearance", "clothing", "physique", "multiViewPrompt", "identityAppearance", "consistencyPrompt", "props", "age"} {
+				left, _ := json.Marshal(before[key])
+				right, _ := json.Marshal(after[key])
+				if string(left) != string(right) {
+					delete(after, "generationPrompt")
+					encoded, _ := json.Marshal(after)
+					definitionJSON = string(encoded)
+					break
+				}
+			}
+		}
 	}
 	now := time.Now()
 	next := model.AssetVersion{ID: newID(), AssetID: asset.ID, Version: nextNumber, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: definitionJSON, Prompt: current.Prompt, Note: current.Note, CreatedAt: now, UpdatedAt: now}

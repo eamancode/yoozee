@@ -1,0 +1,4 @@
+interface:
+  display_name: "流水线一资产设计"
+  short_description: "原文依据驱动的人物四宫格、微缩场景和独立道具设计"
+  default_prompt: "按项目画风和原文证据提取资产，输出assets.extract@2；不自行创建生成任务或授予执行权限。"

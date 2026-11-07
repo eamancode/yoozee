@@ -12,8 +12,9 @@ import { assetImageQueueLabel } from "./project-visual-asset";
 import { textValue } from "./shared";
 import { AssetDesignEvidence } from "./asset-design-evidence";
 
-export function ProjectCharacterCard({ asset, folderItems, generating, removing, onOpen, onEdit, onGenerate, onBindImages, onBindVoice, onMove, onRemove, footer }: {
+export function ProjectCharacterCard({ asset, fourPanel, folderItems, generating, removing, onOpen, onEdit, onGenerate, onBindImages, onBindVoice, onMove, onRemove, footer }: {
     asset: ProjectAsset;
+    fourPanel?: boolean;
     folderItems: Array<{ key: string; label: string }>;
     generating: boolean;
     removing: boolean;
@@ -28,11 +29,12 @@ export function ProjectCharacterCard({ asset, folderItems, generating, removing,
     footer?: ReactNode;
 }) {
     const character = asset.character;
+	const imageLabel = fourPanel || character?.definition.imageLayout === "four-panel" ? "四宫格" : "三视图";
     const cover = projectCharacterCover(character?.representations);
     const role = textValue(character?.definition.role) || "未填写剧情定位";
     const appearance = textValue(character?.definition.appearance) || textValue(character?.definition.consistencyPrompt) || "角色设定待完善";
     const queue = generating ? "出图中" : assetImageQueueLabel(asset.image);
-    const imageStatus = queue ? `三视图${queue}${!generating && asset.image?.error ? `：${asset.image.error}` : ""}` : character?.visualStatus === "ready" ? "图片已绑定" : character?.visualStatus === "partial" ? "图片待补全" : "图片未绑定";
+    const imageStatus = queue ? `${imageLabel}${queue}${!generating && asset.image?.error ? `：${asset.image.error}` : ""}` : character?.visualStatus === "ready" ? "图片已绑定" : character?.visualStatus === "partial" ? "图片待补全" : "图片未绑定";
     const multiViewPrompt = textValue(character?.definition.multiViewPrompt);
     const voiceStatus = character?.voiceStatus === "ready" ? `声音已绑定 · ${character.voice?.profile.name}` : character?.voiceStatus === "unavailable" ? "声音需处理" : "声音未绑定";
     const readinessLabel = character?.visualStatus === "ready" ? character.voiceStatus === "ready" ? "可直接用于生成" : "形象已就绪" : "设定进行中";
@@ -57,7 +59,7 @@ export function ProjectCharacterCard({ asset, folderItems, generating, removing,
                     <StatusLine icon={<Volume2 className="size-3.5" />} ready={character?.voiceStatus === "ready"} label={voiceStatus} action={character?.voiceStatus === "ready" ? "调整" : "选择"} onClick={onBindVoice} />
                 </div>
                 <div className="mt-3 flex min-w-0 gap-2 border-t border-border/60 pt-2">
-                    <Button size="small" className="min-w-0 flex-1" icon={<Sparkles className="size-3.5" />} loading={generating} disabled={removing} onClick={onGenerate}>{character?.visualStatus === "missing" ? "初始化三视图" : "重新生成三视图"}</Button><Dropdown trigger={["click"]} menu={{ selectedKeys: [asset.folderId || ""], items: folderItems, onClick: ({ key }) => onMove(key) }}><Button type="text" size="small" disabled={generating || removing} icon={<MoveRight className="size-3.5" />} aria-label={`移动 ${asset.title}`} /></Dropdown><Popconfirm title="移出项目角色？" description="已有画布或镜头引用时将无法移出。" okText="移出" cancelText="取消" onConfirm={onRemove}><Button type="text" danger size="small" loading={removing} disabled={generating} icon={<Trash2 className="size-3.5" />} aria-label={`移出 ${asset.title}`} /></Popconfirm>
+                    <Button size="small" className="min-w-0 flex-1" icon={<Sparkles className="size-3.5" />} loading={generating} disabled={removing} onClick={onGenerate}>{character?.visualStatus === "missing" ? `初始化${imageLabel}` : `重新生成${imageLabel}`}</Button><Dropdown trigger={["click"]} menu={{ selectedKeys: [asset.folderId || ""], items: folderItems, onClick: ({ key }) => onMove(key) }}><Button type="text" size="small" disabled={generating || removing} icon={<MoveRight className="size-3.5" />} aria-label={`移动 ${asset.title}`} /></Dropdown><Popconfirm title="移出项目角色？" description="已有画布或镜头引用时将无法移出。" okText="移出" cancelText="取消" onConfirm={onRemove}><Button type="text" danger size="small" loading={removing} disabled={generating} icon={<Trash2 className="size-3.5" />} aria-label={`移出 ${asset.title}`} /></Popconfirm>
                 </div>
                 {footer}
             </div>

@@ -75,6 +75,7 @@ type StepPackageRuleSet struct {
 }
 
 type StepPackageStepLimits struct {
+	Contracts        []string          `json:"contracts,omitempty"`
 	ID               string            `json:"id"`
 	Contract         string            `json:"contract"`
 	SkillBudgetChars int               `json:"skillBudgetChars"`
@@ -100,6 +101,9 @@ func StepPackageRules() StepPackageRuleSet {
 	}
 	for _, s := range steps {
 		out.Steps = append(out.Steps, StepPackageStepLimits{ID: s.ID, Contract: s.Contract, SkillBudgetChars: s.SkillBudgetChars, SkillLinkedFiles: s.SkillLinkedFiles, EvalSet: slices.Clone(s.EvalSet)})
+		if s.ID == StepAssetsExtract {
+			out.Steps[len(out.Steps)-1].Contracts = []string{ContractIntegratedAssets}
+		}
 	}
 	return out
 }
@@ -183,7 +187,7 @@ func CheckStepPackage(m StepPackageManifest, files map[string][]byte) []StepPack
 			known = append(known, s.ID)
 		}
 		add(PackageRuleStep, "", "step「%s」不在线上步骤表里（现有：%s）", m.Step, strings.Join(known, "、"))
-	} else if m.Contract != step.Contract {
+	} else if m.Contract != step.Contract && !(m.Step == StepAssetsExtract && m.Contract == ContractIntegratedAssets) {
 		add(PackageRuleContract, "", "清单声明满足契约 %s，线上「%s」这一步的契约是 %s", m.Contract, step.Label, step.Contract)
 	}
 	for _, id := range m.Profiles {

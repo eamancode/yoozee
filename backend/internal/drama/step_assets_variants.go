@@ -46,12 +46,13 @@ func NormalizeAssetVariantKind(kind string, label string) string {
 
 // AssetsVariant 是角色的一张子卡：Scenes 是用这套形象的场序（本单元，从 1 数，与 first_scene 同一套）。
 type AssetsVariant struct {
-	Label      string `json:"label"`
-	Kind       string `json:"kind"`
-	Scenes     []int  `json:"scenes"`
-	Appearance string `json:"appearance"`
-	PromptEn   string `json:"prompt_en"`
-	StartAfter string `json:"start_after,omitempty"`
+	GenerationPrompt string `json:"generation_prompt,omitempty"`
+	Label            string `json:"label"`
+	Kind             string `json:"kind"`
+	Scenes           []int  `json:"scenes"`
+	Appearance       string `json:"appearance"`
+	PromptEn         string `json:"prompt_en"`
+	StartAfter       string `json:"start_after,omitempty"`
 }
 
 // AssetVariantTitle 是子卡的资产名：「主卡名·变体名」。
@@ -84,6 +85,7 @@ func parseAssetsVariants(raw json.RawMessage) []AssetsVariant {
 			return ""
 		}
 		v := AssetsVariant{Label: str("label"), Appearance: str("appearance"), PromptEn: str("prompt_en"), StartAfter: str("start_after")}
+		v.GenerationPrompt = str("generation_prompt")
 		v.Kind = NormalizeAssetVariantKind(str("kind"), v.Label)
 		v.Scenes = assetsSceneList(obj["scenes"])
 		out = append(out, v)
@@ -124,7 +126,7 @@ func variantFromTitledRow(r AssetsExtractRow) (AssetsExtractRow, bool) {
 	if !ok {
 		return r, false
 	}
-	v := AssetsVariant{Label: label, Kind: NormalizeAssetVariantKind("", label), Appearance: r.Appearance, PromptEn: r.PromptEn}
+	v := AssetsVariant{Label: label, Kind: NormalizeAssetVariantKind("", label), Appearance: r.Appearance, PromptEn: r.PromptEn, GenerationPrompt: r.GenerationPrompt}
 	if r.FirstScene > 0 {
 		v.Scenes = []int{r.FirstScene}
 	}
@@ -143,6 +145,9 @@ func mergeAssetsVariants(prev []AssetsVariant, next []AssetsVariant) []AssetsVar
 			continue
 		}
 		p := &prev[i]
+		if p.GenerationPrompt == "" {
+			p.GenerationPrompt = v.GenerationPrompt
+		}
 		for _, n := range v.Scenes {
 			if !slices.Contains(p.Scenes, n) {
 				p.Scenes = append(p.Scenes, n)

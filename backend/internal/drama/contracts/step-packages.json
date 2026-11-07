@@ -42,6 +42,9 @@
       ]
     },
     {
+      "contracts": [
+        "assets.extract@2"
+      ],
       "id": "assets.extract",
       "contract": "assets.extract@1",
       "skillBudgetChars": 32000,

@@ -259,6 +259,8 @@ function ratioIconStyle(ratio: string) {
 
 /** 段 4 · 怎么做：画幅、每段时长、视频模型、生成模式（都有默认值）。 */
 export function ProductionSection(props: {
+	workflowId: "pipeline-1" | "pipeline-2";
+	onWorkflowId: (id: "pipeline-1" | "pipeline-2") => void;
     whiteModelStoryboardEnabled: boolean;
     onWhiteModelStoryboardEnabled: (enabled: boolean) => void;
     aspectRatio: string;
@@ -338,6 +340,14 @@ export function ProductionSection(props: {
                 ) : null}
             </div>
             <div className="project-create-field">
+				<span className="project-create-field-label">工作流</span>
+				<ChoiceGroup label="工作流" value={props.workflowId}
+					options={[{ value: "pipeline-1" }, { value: "pipeline-2" }]}
+					onChange={(id) => props.onWorkflowId(id as "pipeline-1" | "pipeline-2")}
+					className="project-choice-row" optionClassName="project-choice"
+					render={(id) => <><strong>{id === "pipeline-1" ? "流水线一 · 默认" : "流水线二"}</strong><span>{id === "pipeline-1" ? "新版资产提取 · 角色四宫格 · 微缩场景图" : "原版资产提取 · 角色三视图 · 场景概念图"}</span></>} />
+			</div>
+			<div className="project-create-field">
                 <span className="project-create-field-label">视频模型</span>
                 <ChoiceGroup
                     label="视频模型"

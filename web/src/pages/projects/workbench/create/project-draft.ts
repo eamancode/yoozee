@@ -1,11 +1,12 @@
 import { localForageStorageForScope } from "@/lib/localforage-storage";
 import type { ProjectSourceKind } from "@/lib/project-source";
 import type { DramaRunMode } from "@/services/api/project-drama";
-import type { ProjectVisualType } from "@/services/api/projects";
+import type { ProjectVisualType, ProjectAssetWorkflow } from "@/services/api/projects";
 import type { StyleProfileSnapshot } from "@/lib/canvas/style-profile";
 
 /** 建项草稿：按当前账号 scope 存进 localforage（不进 localStorage），刷新或换页回来接着填。参考图是本地文件，不进草稿。 */
 export type ProjectCreateDraft = {
+	workflowId: ProjectAssetWorkflow;
     text: string;
     /** 导入的文件名（文件卡显示）；粘贴的正文为空。 */
     fileName?: string;
@@ -34,6 +35,7 @@ export type ProjectCreateDraft = {
 const DRAFT_KEY = "yingce:project-create-draft";
 
 export const EMPTY_PROJECT_DRAFT: ProjectCreateDraft = {
+	workflowId: "pipeline-1",
     text: "",
     ideaEpisodes: 5,
     ideaEpisodeSeconds: 60,

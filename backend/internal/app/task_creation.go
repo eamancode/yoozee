@@ -31,6 +31,17 @@ type taskAdmission struct {
 // 这是常规模型生成任务的写入口：客户端只提交创作意图，模型、渠道、协议和计价信息必须由服务端目录重新解析，
 // 以保证“可展示的模型”与“实际执行及扣费的模型”来自同一份有效配置。
 func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task, error) {
+	if key := spatialTaskKey(req.ProjectID, req.Input); key != "" {
+		spatialAdmissionMu.Lock()
+		defer spatialAdmissionMu.Unlock()
+		existing, err := s.repo.ActiveSpatialTask(userID, req.ProjectID, key)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
+		}
+	}
 	if req.Type == model.TaskTypeProjectVideoChain || (req.admission == nil && (req.Input[videoChainMetadataKey] != nil || containsVideoChainUpload(req.Input))) {
 		return nil, BadAuthRequest("连续生成必须通过项目连续生成接口提交")
 	}
@@ -53,6 +64,10 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		return nil, err
 	}
 	if err := setServerDramaRun(normalizedInput, req.dramaRun); err != nil {
+		return nil, err
+	}
+	prompt, err = s.prepareProjectAssetWorkflow(userID, req.ProjectID, normalizedInput, prompt)
+	if err != nil {
 		return nil, err
 	}
 	prompt, err = s.prepareDramaVideoSubmission(userID, normalizedInput, prompt, false)

@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 95
+const CurrentSchemaVersion int64 = 96
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -339,6 +339,18 @@ var schemaMigrations = []migration{
 	{version: 93, name: "personal_director_style_scope", checksum: "sha256:personal-director-style-scope-v93", apply: migratePersonalDirectorStyleScope},
 	{version: 94, name: "director_style_profile_cover", checksum: "sha256:director-style-profile-cover-v94", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.StyleProfile{}) }},
 	{version: 95, name: "project_white_model_storyboard", checksum: "sha256:project-white-model-storyboard-v95", apply: migrateProjectWhiteModelStoryboard},
+	{version: 96, name: "project_asset_workflows", checksum: "sha256:project-asset-workflows-v96", apply: migrateProjectAssetWorkflows},
+}
+
+func migrateProjectAssetWorkflows(tx *gorm.DB) error {
+	for _, column := range []string{"WorkflowID", "WorkflowVersion"} {
+		if !tx.Migrator().HasColumn(&model.Project{}, column) {
+			if err := tx.Migrator().AddColumn(&model.Project{}, column); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func migrateProjectWhiteModelStoryboard(tx *gorm.DB) error {

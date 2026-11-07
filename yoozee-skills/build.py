@@ -295,7 +295,7 @@ def check_step_package(m, files, rules):
     step = steps.get(m["step"])
     if step is None:
         out.append(_problem("step", f"step「{m['step']}」不在线上步骤表里（现有：{'、'.join(steps)}）"))
-    elif m["contract"] != step["contract"]:
+    elif m["contract"] not in [step["contract"], *step.get("contracts", [])]:
         out.append(_problem("contract", f"清单声明满足契约 {m['contract']}，线上这一步的契约是 {step['contract']}"))
     for pid in m["profiles"]:
         if pid not in rules["profiles"]:

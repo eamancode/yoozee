@@ -15,6 +15,7 @@ import (
 
 // CreateProjectRequest 是建项目（首页一页四段）：要拍什么（sourceAs + source）、画面类型、画风从哪来、怎么做（画幅、每段时长、视频模型、生成模式）。
 type CreateProjectRequest struct {
+	WorkflowID  string `json:"workflowId"`
 	Name        string `json:"name"`
 	Type        string `json:"type"`
 	Description string `json:"description"`

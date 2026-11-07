@@ -5,6 +5,16 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 项目资产双流水线
+
+`POST /api/projects` 接受 `workflowId=pipeline-1|pipeline-2`，省略时选择流水线一；非法值以 `project_production_invalid` 返回。项目读取返回 `workflowId`、`workflowVersion`，已创建项目不支持通过更新接口切换工作流。历史项目经迁移 96 明确保持流水线二。工作流不改变生成模式的停点、视频时长、声音流程或白模开关。
+
+流水线一的 `assets.extract` 返回 `assets.extract@2` 契约及固定技能版本。JSON Lines 新增 `generation_prompt`，人物子卡也携带完整提示词；旧摘要字段继续使用原语义。普通图片任务仍通过任务接口创建，服务端根据项目解析四宫格、空间母版或道具配方，不信任客户端指定的三视图模板来覆盖项目输出规格。
+
+`GET /api/projects/:id/assets/:assetId/spatial-references` 返回 `{items}`，每项含 `resourceId`、`taskId`、`kind=grid|redraw`、`cell`、`source` 与 `createdAt`。读取校验项目归属和场景关联，只返回当前空间母版的有效产物。
+
+九宫格或重绘使用普通 `canvas_image` 任务，metadata.operation 为 `project_spatial_reference`，并传 `domainProjectId`、`projectAssetId`、`projectAssetVersionId`、`spatialKind=grid|redraw`；重绘另传 `gridResourceId` 与 `cell=1..9`（不含 5）。服务端验证来源并填入实际参考图片、提示词配方及版本。九宫格必须有母版，重绘必须有同一母版的九宫格；缺失、越权、过期版本或错误选格均在调用上游前拒绝。活动来源去重，成功收尾幂等，不自动重试历史失败任务。
+
 ## 白模分镜开关
 
 项目创建、更新与读取使用布尔字段 `whiteModelStoryboardEnabled`。创建省略时为 false；更新省略时保留原值，显式 false 关闭。历史项目迁移后为 true。项目更新仍校验资源归属，保存时增加项目修订。

@@ -60,6 +60,7 @@ type AssetsKnown struct {
 
 // AssetsExtractInput 是组装资产设计提示词的全部输入。
 type AssetsExtractInput struct {
+	Contract  string
 	UnitTitle string
 	// UnitLabel 是本单元叫什么（「第 2 集」「第 3 章」），UnitNoun 是集或章，用在用户任务里。
 	UnitLabel string
@@ -93,12 +94,16 @@ func AssetsExtractTask(label, noun, title, sourceText string) string {
 // BuildAssetsExtractPrompt 组装资产设计的提示词。
 func BuildAssetsExtractPrompt(in AssetsExtractInput) (StepPrompt, error) {
 	step, _ := StepByID(StepAssetsExtract)
-	contract, err := BuiltinContract(step.Contract)
+	contract, err := BuiltinContract(firstNonEmptyString(in.Contract, step.Contract))
 	if err != nil {
 		return StepPrompt{}, err
 	}
 	label, noun := firstNonEmptyString(in.UnitLabel, "本集"), firstNonEmptyString(in.UnitNoun, "集")
-	skillPrompt, files, ok := StepSkillPrompt(in.Skill, AssetsExtractTask(label, noun, in.UnitTitle, in.SourceText), step.SkillBudgetChars, step.SkillLinkedFiles)
+	task := AssetsExtractTask(label, noun, in.UnitTitle, in.SourceText)
+	if in.Contract == ContractIntegratedAssets {
+		task = strings.Join([]string{"剧本：" + label + "「" + in.UnitTitle + "」", in.SourceText, "流水线一：提取角色、场景、道具及原文依据和状态。人物主子卡采用四宫格，场景采用对应空间类型的微缩母版；同时输出完整generation_prompt，不将完整设计塞入摘要。"}, "\n\n")
+	}
+	skillPrompt, files, ok := StepSkillPrompt(in.Skill, task, step.SkillBudgetChars, step.SkillLinkedFiles)
 	if !ok {
 		return StepPrompt{}, fmt.Errorf("技能 %s 当前版本没有 SKILL.md", in.Skill.ID)
 	}
@@ -265,14 +270,15 @@ func AssetsExtractTurnPrompt(scenes []ShotsScene, k int) string {
 
 // AssetsExtractRow 是模型写的一行资产。
 type AssetsExtractRow struct {
-	Category    string       `json:"category"`
-	Name        string       `json:"name"`
-	Aliases     []string     `json:"aliases"`
-	Appearance  string       `json:"appearance"`
-	PromptEn    string       `json:"prompt_en"`
-	FirstScene  int          `json:"first_scene"`
-	PaletteHint string       `json:"palette_hint"`
-	Design      *AssetDesign `json:"design,omitempty"`
+	GenerationPrompt string       `json:"generation_prompt,omitempty"`
+	Category         string       `json:"category"`
+	Name             string       `json:"name"`
+	Aliases          []string     `json:"aliases"`
+	Appearance       string       `json:"appearance"`
+	PromptEn         string       `json:"prompt_en"`
+	FirstScene       int          `json:"first_scene"`
+	PaletteHint      string       `json:"palette_hint"`
+	Design           *AssetDesign `json:"design,omitempty"`
 	// Anchors 只有场景写：人物能站、能走到的位置（生成分段的站位和镜头表检查 R-SHOT-012 用）。
 	Anchors []string `json:"anchors,omitempty"`
 	// Variants 只有角色写：换了服装或状态的各套形象（收尾建成子卡「名·变体」）。
@@ -343,6 +349,11 @@ func AssetsExtractFromText(text string) ([]AssetsExtractRow, AssetsExtractParseS
 		}
 		row.Category, row.Name = NormalizeAssetCategory(str("category")), str("name")
 		row.Appearance, row.PromptEn, row.PaletteHint = str("appearance"), str("prompt_en"), str("palette_hint")
+		row.GenerationPrompt = str("generation_prompt")
+		if jsLen(row.GenerationPrompt) > 16000 {
+			stats.Invalid++
+			continue
+		}
 		if raw := obj["design"]; len(raw) > 0 {
 			var design AssetDesign
 			if json.Unmarshal(raw, &design) == nil {
@@ -665,6 +676,9 @@ func assetsRowKeys(r AssetsExtractRow) []string {
 
 // mergeAssetsRow 把同一资产的后一行并进前一行：别名合并（后一行的名字和前一行不同时也算别名），空字段用后一行补。
 func mergeAssetsRow(prev *AssetsExtractRow, next AssetsExtractRow) {
+	if prev.GenerationPrompt == "" {
+		prev.GenerationPrompt = next.GenerationPrompt
+	}
 	seen := map[string]bool{AssetNameKey(prev.Name): true}
 	for _, a := range prev.Aliases {
 		seen[AssetNameKey(a)] = true

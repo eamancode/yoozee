@@ -1,0 +1,34 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"assets.extract@2",
+  "title":"流水线一：完整资产设计与生图提示词",
+  "type":"object",
+  "required":["assets"],
+  "x-contract":{
+    "heading":"【受保护输出契约：流水线一】",
+    "layout":"lines","items":"assets","unit":"个资产",
+    "format":"输出JSON Lines，一行一个完整资产对象；不写外层数组、Markdown、解释或自检过程。",
+    "rowsIntro":"每行包含以下字段；已有资产复用标准名称，不重复初始设定，但补充证据、关系、状态和新子卡。",
+    "requirement":"每场至少输出发生地environment；首次建卡有中文外观、英文摘要和完整generation_prompt。",
+    "rules":[
+      "原文事实、推导、设计建议分开。人、物、场独立，主体不重复；name稳定，aliases禁止杯子、机器、小伙子等歧义泛称。已有确认身份与图片不覆盖。",
+      "角色主卡采用常见稳定形象，保留六要素；临时雨湿、年龄阶段及换装写variants。时间差核对年龄，人物身份不变不等于年龄发型服装永不改变。同场中途变化写start_after原文动作边界。",
+      "generation_prompt保存完整可执行生图提示词，不受prompt_en摘要长度影响：角色为正面头像、90度侧脸、颈部以下正面身体、含头背面全身四宫格；场景为空人物的微缩空间总览；道具为独立空置本体。媒介与项目一致，不能写相冲突的三视图要求。",
+      "微缩场景按真实空间类型设计：围合室内保留实际四墙和门窗，半室外保留顶棚与敞开边界，外景表达道路建筑地形，不能凭空添加四墙或宋式陈设。记录固定地标与可站立anchors，不为凑数虚构结构。",
+      "分析不漏物件，但仅有独立制作、跨镜识别、关键动作或特写价值的道具独立建卡。背景陈设在spatial_layout记录，普通消耗品合理归组。道具production_priority为high/medium/low，低优先级默认不排图。",
+      "design保存role、identity_appearance、clothing、body_description、prop_design、spatial_layout、production_priority，characters/props/environments引用真实资产标准名。evidence为{kind:原文/推导/设计建议,location,text}，states为{location,trigger,state}。阶段损伤磨亮换轮不得倒灌到初始图。",
+      "appearance为600字符以内中文摘要；prompt_en为1200字符以内英文摘要；generation_prompt保留完整设计，最多16000个JS字符串长度单位。颜色HEX仅使用实际色卡；palette_hint只写颜色名。",
+      "variants仅角色使用：{label,kind:costume/state,scenes,appearance,prompt_en,generation_prompt,start_after}，每个子卡generation_prompt描述该阶段完整四宫格，继承身份并只变授权差异。first_scene和scenes使用本轮给定的运行场序。"
+    ]
+  },
+  "properties":{"assets":{"type":"array","minItems":1,"items":{"type":"object","required":["category","name","aliases","appearance","prompt_en","generation_prompt","first_scene","palette_hint","design","anchors","variants"],"properties":{
+    "category":{"type":"string","enum":["character","environment","prop"]},
+    "name":{"type":"string"},"aliases":{"type":"array","items":{"type":"string"}},
+    "appearance":{"type":"string"},"prompt_en":{"type":"string"},
+    "generation_prompt":{"type":"string","description":"完整生图提示词：人物四宫格、场景微缩空间母版、独立道具本体；已有资产未改外观时可空"},
+    "first_scene":{"type":"integer","minimum":1},"palette_hint":{"type":"string"},
+    "design":{"type":"object","description":"包含人物身份与服装、道具本体及优先级、空间布局、原文证据、交叉引用和按时间记录的状态"},
+    "anchors":{"type":"array","items":{"type":"string"}},
+    "variants":{"type":"array","items":{"type":"object"}}
+  }}}}
+}

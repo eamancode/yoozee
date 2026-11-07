@@ -24,6 +24,7 @@ var contractFS embed.FS
 
 // contractFiles 是契约版本 → schema 文件。
 var contractFiles = map[string]string{
+	ContractIntegratedAssets: "contracts/assets.extract.v2.schema.json",
 	ContractCanvasStoryboard: "contracts/chapter.shots.v2.schema.json",
 	ContractChapterShots:     "contracts/chapter.shots.v3.schema.json",
 	ContractScriptAdapt:      "contracts/script.adapt.v1.schema.json",

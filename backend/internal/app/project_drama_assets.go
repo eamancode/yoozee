@@ -173,6 +173,7 @@ func assetsExtractPlan(project *model.Project, unit *model.ProjectUnit, units []
 	style := projectStyleSnapshot(project)
 	known, records := assetsKnownFromSummaries(assets)
 	in := drama.AssetsExtractInput{
+		Contract:  usage.Contract,
 		UnitTitle: unit.Title, UnitLabel: label, UnitNoun: noun, SourceText: text, Known: known, Anchor: anchor, Master: master,
 		ColorScript: assetsEpisodeColorScript(project.BibleJSON, units, episode),
 		Style:       drama.StepStyle{Title: style.Title, Prompt: style.Prompt}, Skill: skill,
@@ -420,6 +421,15 @@ func assetsRowDefinition(row drama.AssetsExtractRow, episode int, colors []drama
 		prompt += " Color accents: " + strings.Join(parts, ", ") + "."
 	}
 	definition := map[string]any{"aliases": slices.Clone(row.Aliases)}
+	if row.GenerationPrompt != "" {
+		definition["generationPrompt"] = row.GenerationPrompt
+		if row.Category == drama.AssetCharacter {
+			definition["imageLayout"] = "four-panel"
+		}
+		if row.Category == drama.AssetEnvironment {
+			definition["imageLayout"] = "spatial-master"
+		}
+	}
 	if row.Category == drama.AssetProp && row.Design != nil {
 		definition["productionPriority"] = row.Design.ProductionPriority
 		if strings.TrimSpace(row.Design.BodyDescription) != "" {
@@ -455,7 +465,7 @@ func assetsRowDefinition(row drama.AssetsExtractRow, episode int, colors []drama
 }
 
 // assetLookFields 是合并到已有资产时可以补的外观字段（空着才补）。
-var assetLookFields = []string{"appearance", "multiViewPrompt", "description", "prompt", "anchors", "role", "identityAppearance", "clothing"}
+var assetLookFields = []string{"appearance", "multiViewPrompt", "description", "prompt", "anchors", "role", "identityAppearance", "clothing", "generationPrompt"}
 
 // mergeIntoEntry 把一行并进已有资产的设定（只在内存里）：补别名（行的名字和已有名字不同也算），补空着的外观字段——
 // 场景、道具已经有图的不补（补了出图提示词也和图对不上），角色的图在形象里，补设定不影响它。不改名字，不动已绑的图。
@@ -516,6 +526,18 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	}
 	text, _ := result["text"].(string)
 	rows, stats := drama.AssetsExtractFromText(text)
+	if project.WorkflowID == drama.WorkflowIntegrated {
+		for _, row := range rows {
+			if row.HasLook() && row.GenerationPrompt == "" {
+				return DramaAssetsExtractOutcome{}, BadAuthRequest("流水线一资产缺少完整generation_prompt，没有写入：" + row.Name)
+			}
+			for _, variant := range row.Variants {
+				if variant.Appearance != "" && variant.GenerationPrompt == "" {
+					return DramaAssetsExtractOutcome{}, BadAuthRequest("流水线一子卡缺少完整generation_prompt：" + row.Name + "·" + variant.Label)
+				}
+			}
+		}
+	}
 	index, err := s.dramaAssetIndexOf(task.UserID, project.ID)
 	if err != nil {
 		return DramaAssetsExtractOutcome{}, err
@@ -732,7 +754,7 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 				outcome.Assets = append(outcome.Assets, DramaAssetsOutcomeItem{AssetID: child.asset.ID, Name: child.asset.Title, Category: drama.AssetCharacter, Action: action, ParentID: parent.asset.ID})
 				continue
 			}
-			asset, version, err := newVariantAsset(userID, parent.asset, parent.definition, v.Label, v.Kind, v.Appearance, v.PromptEn, assetVariantMeta{Scenes: codes, Source: "extract", StartAfter: v.StartAfter}, initial, now)
+			asset, version, err := newVariantAsset(userID, parent.asset, parent.definition, v.Label, v.Kind, v.Appearance, v.PromptEn, assetVariantMeta{Scenes: codes, Source: "extract", StartAfter: v.StartAfter, GenerationPrompt: v.GenerationPrompt}, initial, now)
 			if err != nil {
 				return nil, outcome, err
 			}
@@ -972,6 +994,23 @@ func (s *Service) queueDramaAssetImages(userID string, projectID string, templat
 		if state := dramaImageStateOf(&asset, assetImageKey); state.Status != dramaImageWaiting || state.BatchID != template.BatchID {
 			continue
 		}
+		if project.WorkflowID == drama.WorkflowIntegrated && asset.Category == model.AssetCategoryEnvironment {
+			version, err := s.repo.AssetVersion(asset.PrimaryVersionID)
+			if err != nil {
+				return result, err
+			}
+			definition := map[string]any{}
+			_ = json.Unmarshal([]byte(version.DefinitionJSON), &definition)
+			if _, err := s.spatialPropRefs(userID, project, definition); err != nil {
+				state := dramaImageStateOf(&asset, assetImageKey)
+				state.Error = err.Error()
+				if err := s.putDramaImageState(userID, asset.ID, assetImageKey, state); err != nil {
+					return result, err
+				}
+				waitingForParent = append(waitingForParent, asset.ID)
+				continue
+			}
+		}
 		// 子卡要带主卡的三视图：主卡还在等出图或正在出图时先不排，主卡出完图接着排时再排它。
 		if parent, ok := byID[asset.ParentAssetID]; ok && !parent.imaged {
 			if status := dramaImageStateOf(&parent.asset, assetImageKey).Status; status == dramaImageWaiting || (status == dramaImageQueued && s.dramaImageTaskActive(userID, dramaImageStateOf(&parent.asset, assetImageKey).TaskID)) {
@@ -1080,8 +1119,9 @@ func (s *Service) dramaCharacterImageTaskRequest(userID string, project *model.P
 	}
 	maps.Copy(metadata, map[string]any{
 		"operation": "character_turnaround", "promptTemplateOperation": "character_turnaround",
-		"promptTemplateVariables": map[string]string{"角色名称": asset.Title, "项目画风": characterStyleConstraint(style), "角色设定": setting},
-		"characterAssetId":        asset.ID, "domainProjectId": project.ID, "nodeId": "character-turnaround:" + asset.ID, "source": dramaAssetImageTaskSource,
+		"assetImageReferencePolicy": map[string]any{"maxImages": template.MaxReferenceImages, "level": level},
+		"promptTemplateVariables":   map[string]string{"角色名称": asset.Title, "项目画风": characterStyleConstraint(style), "角色设定": setting},
+		"characterAssetId":          asset.ID, "domainProjectId": project.ID, "nodeId": "character-turnaround:" + asset.ID, "source": dramaAssetImageTaskSource,
 		"resolvedCharacterVersions": []map[string]string{{"assetId": asset.ID, "versionId": version.ID}},
 		"dramaAsset":                map[string]any{"origin": origin},
 	})
@@ -1118,7 +1158,8 @@ func (s *Service) dramaVisualImageTaskRequest(userID string, project *model.Proj
 	text := strings.Join(slices.DeleteFunc(parts, func(p string) bool { return p == "" }), "\n\n")
 	maps.Copy(metadata, map[string]any{
 		"operation": "project_asset_image", "domainProjectId": project.ID, "projectAssetId": asset.ID, "projectAssetVersionId": version.ID,
-		"nodeId": "project-asset-image:" + asset.ID, "source": dramaAssetImageTaskSource, "dramaAsset": map[string]any{"origin": origin},
+		"assetImageReferencePolicy": map[string]any{"maxImages": template.MaxReferenceImages, "level": level},
+		"nodeId":                    "project-asset-image:" + asset.ID, "source": dramaAssetImageTaskSource, "dramaAsset": map[string]any{"origin": origin},
 	})
 	if style.PresetID != "" {
 		metadata["stylePresetId"] = style.PresetID
@@ -1157,7 +1198,7 @@ func (s *Service) afterDramaAssetImageTask(task model.Task, inputJSON string) {
 		Status string `json:"projectAssetImageStatus"`
 	}
 	_ = json.Unmarshal([]byte(task.ResultJSON), &result)
-	if input.Metadata.Operation == "project_asset_image" && result.Status != "bound" {
+	if result.Status == "stale" || (input.Metadata.Operation == "project_asset_image" && result.Status != "bound") {
 		state.Status, state.Error = dramaImageStale, "出图期间资产换了版本，图留在任务结果里，没有绑到当前版本"
 	}
 	if err := s.finishDramaImageState(task.UserID, assetID, state); err != nil {
