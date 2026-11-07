@@ -32,7 +32,7 @@ function variantForm(asset?: ProjectAsset): VariantForm {
  * 折叠显示，可新增（服务端按主卡设定继承生成定义，勾了出图时带主卡三视图作参考出三视图）、改、删（被镜头引用时服务端拒删并列出镜头）、出图。
  */
 export function ProjectCharacterVariants({ projectId, parent, defaultImageModel, fourPanel }: { projectId: string; parent: ProjectAsset; defaultImageModel?: string; fourPanel?: boolean }) {
-	const imageLabel = fourPanel || parent.character?.definition.imageLayout === "four-panel" ? "四宫格" : "三视图";
+    const imageLabel = fourPanel || parent.character?.definition.imageLayout === "four-panel" ? "四宫格" : "三视图";
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const effectiveConfig = useEffectiveConfig();

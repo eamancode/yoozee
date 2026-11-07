@@ -307,7 +307,7 @@ function AccountProjectComposer({ userId }: { userId: string }) {
                     ...(draft.publicStyle ? { stylePresetId: draft.publicStyle.presetId, styleProfileJson: serializeStyleProfile(draft.publicStyle) } : {}),
                     segmentSeconds: draft.segmentSeconds,
                     whiteModelStoryboardEnabled: draft.whiteModelStoryboardEnabled,
-					workflowId: draft.workflowId,
+                    workflowId: draft.workflowId,
                     generationModel: model?.id || recommendedModel,
                     runMode: draft.runMode,
                 },
@@ -584,8 +584,8 @@ function AccountProjectComposer({ userId }: { userId: string }) {
                             aspectRatio={draft.aspectRatio}
                             segmentSeconds={draft.segmentSeconds}
                             whiteModelStoryboardEnabled={draft.whiteModelStoryboardEnabled}
-							workflowId={draft.workflowId}
-							onWorkflowId={(workflowId) => update({ workflowId })}
+                            workflowId={draft.workflowId}
+                            onWorkflowId={(workflowId) => update({ workflowId })}
                             onWhiteModelStoryboardEnabled={(whiteModelStoryboardEnabled) => update({ whiteModelStoryboardEnabled })}
                             segmentEstimate={segmentEstimate}
                             models={dramaModels.data?.models || []}

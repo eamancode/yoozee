@@ -6,7 +6,27 @@ import { ProductionSection } from "@/pages/projects/workbench/create/composer-se
 import { EMPTY_PROJECT_DRAFT } from "@/pages/projects/workbench/create/project-draft";
 
 function production(workflowId: "pipeline-1" | "pipeline-2") {
-    return renderToStaticMarkup(<MemoryRouter><App><ProductionSection workflowId={workflowId} onWorkflowId={() => {}} whiteModelStoryboardEnabled={false} onWhiteModelStoryboardEnabled={() => {}} aspectRatio="9:16" segmentSeconds={15} models={[]} recommendedModel="" runMode="until_video" onAspectRatio={() => {}} onSegmentSeconds={() => {}} onModel={() => {}} onRunMode={() => {}} /></App></MemoryRouter>);
+    return renderToStaticMarkup(
+        <MemoryRouter>
+            <App>
+                <ProductionSection
+                    workflowId={workflowId}
+                    onWorkflowId={() => {}}
+                    whiteModelStoryboardEnabled={false}
+                    onWhiteModelStoryboardEnabled={() => {}}
+                    aspectRatio="9:16"
+                    segmentSeconds={15}
+                    models={[]}
+                    recommendedModel=""
+                    runMode="until_video"
+                    onAspectRatio={() => {}}
+                    onSegmentSeconds={() => {}}
+                    onModel={() => {}}
+                    onRunMode={() => {}}
+                />
+            </App>
+        </MemoryRouter>,
+    );
 }
 
 test("全新建项默认流水线一，白模与生成模式保持独立", () => {
