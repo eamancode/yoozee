@@ -9,7 +9,47 @@ import (
 	"gorm.io/gorm"
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/protocol"
 )
+
+func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
+	s, db := newDramaWorkerTestService(t)
+	project, _ := seedQichuang(t, s, db)
+	for _, wf := range []string{drama.WorkflowIntegrated, drama.WorkflowOriginal} {
+		if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("workflow_id", wf).Error; err != nil {
+			t.Fatal(err)
+		}
+		usage, err := s.DramaStepUsage("user-1", project.ID, drama.StepAssetsExtract, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if wf == drama.WorkflowIntegrated {
+			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.0" || usage.Contract != drama.ContractIntegratedAssets {
+				t.Fatal(usage)
+			}
+		} else if usage.Skill.ID != "yz-assets-extract" || usage.Contract != drama.ContractAssetsExtract {
+			t.Fatal(usage)
+		}
+	}
+}
+
+func TestWorkflowImageRatiosUseDeclaredProviderPixelMapping(t *testing.T) {
+	profile := DefaultModelCapabilityConfigForModel("opaque-provider", "opaque-model")
+	profile.Image.Parameters = []protocol.ImageParameter{{Name: "size", Label: "Size", Type: "string", Values: []any{"1024x1536", "1024x1024", "1536x864"}, Default: "1024x1024", Binding: "aspectRatio", Encoding: "pixels"}}
+	profile.Image.Size.Presets = []ImageSizePreset{{Tier: "1k", Ratio: "2:3", Width: 1024, Height: 1536, Size: "1024x1536"}, {Tier: "1k", Ratio: "1:1", Width: 1024, Height: 1024, Size: "1024x1024"}, {Tier: "1k", Ratio: "16:9", Width: 1536, Height: 864, Size: "1536x864"}}
+	if err := projectImageParameters(profile.Image); err != nil {
+		t.Fatal(err)
+	}
+	for ratio, pixels := range map[string]string{"2:3": "1024x1536", "1:1": "1024x1024", "16:9": "1536x864"} {
+		config := providerConfig{InterfaceType: "opaque-provider", Size: ratio, ImageParameters: map[string]any{"size": ratio}}
+		if err := applyImageParameterValues(&config, profile.Image); err != nil {
+			t.Fatal(ratio, err)
+		}
+		if config.Size != pixels || config.ImageParameters["size"] != pixels {
+			t.Fatalf("ratio/submit parameters differ: %+v", config)
+		}
+	}
+}
 
 func ensureWorkflowSkillFixture(t *testing.T, s *Service, db *gorm.DB) {
 	t.Helper()
