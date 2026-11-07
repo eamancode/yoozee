@@ -205,6 +205,35 @@ func assetDesignProps(definition map[string]any) []string {
 	return design.Props
 }
 
+// The compiler's tags refer to the actual ordered inputs, never a guessed image number.
+func (s *Service) spatialCompiledReferenceNote(userID string, project *model.Project, files []drama.CompiledFile) (string, error) {
+	if project.WorkflowID != drama.WorkflowIntegrated {
+		return "", nil
+	}
+	var notes []string
+	for _, file := range files {
+		version, err := s.repo.AssetVersion(file.File)
+		if err != nil {
+			continue
+		}
+		asset, err := s.repo.AssetForUser(userID, version.AssetID)
+		if err != nil || asset.Category != model.AssetCategoryEnvironment {
+			continue
+		}
+		var definition map[string]any
+		if json.Unmarshal([]byte(version.DefinitionJSON), &definition) != nil || definition["imageLayout"] != "spatial-master" {
+			continue
+		}
+		workflow, _ := drama.Workflow(project.WorkflowID)
+		note, err := s.assetWorkflowRecipe(workflow, map[string]any{}, "scene-reference")
+		if err != nil {
+			return "", err
+		}
+		notes = append(notes, strings.ReplaceAll(note, "{{reference}}", file.Tag))
+	}
+	return strings.Join(notes, "\n"), nil
+}
+
 func (s *Service) spatialPropRefs(userID string, project *model.Project, definition map[string]any) ([]dramaImageRef, error) {
 	if project.WorkflowID != drama.WorkflowIntegrated {
 		return nil, nil

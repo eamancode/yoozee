@@ -15,6 +15,7 @@ export type ShotAssetReferenceContext = {
 };
 
 export type ShotPromptAssetReference = {
+	spatialMaster?: boolean;
     assetId: string;
     title: string;
     category: string;
@@ -62,6 +63,7 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
             title: asset.title,
             category: asset.category,
             imageIndex: index + 1,
+			...(asset.visual?.definition.imageLayout === "spatial-master" ? { spatialMaster: true } : {}),
             ...(audioIndex ? { audioIndex } : {}),
             ...(asset.character ? { voiceDescription: characterVoiceDescription(asset) } : {}),
         } satisfies ShotPromptAssetReference;
@@ -151,6 +153,7 @@ export function compileShotAssetReferencePrompt(references: ShotPromptAssetRefer
         const media = [`${visualLabel}：图片${reference.imageIndex}`, reference.audioIndex ? `声音参考：音频${reference.audioIndex}` : ""].filter(Boolean).join("；");
         return [
             `- ${reference.title}：${media}`,
+			reference.spatialMaster ? "  空间布局母版：保持几何与道具位置；本镜使用真实尺度，不继承微缩底座、模型观感或母版俯视机位。" : "",
             reference.voiceDescription ? `  声音画像：${reference.voiceDescription}` : "",
             reference.dialogue ? `  镜头台词：${reference.dialogue}` : "",
         ].filter(Boolean);

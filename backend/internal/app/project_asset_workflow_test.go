@@ -33,6 +33,27 @@ func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
 	}
 }
 
+func TestSpatialCompilerReminderUsesActualVersionAndTag(t *testing.T) {
+	s, db, projectID, scene := seedProjectVisualAsset(t, model.AssetCategoryEnvironment)
+	ensureWorkflowSkillFixture(t, s, db)
+	if err := db.Model(&model.AssetVersion{}).Where("id = ?", scene.PrimaryVersionID).Update("definition_json", `{"imageLayout":"spatial-master"}`).Error; err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.repo.ProjectForUser("user-1", projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project.WorkflowID = drama.WorkflowIntegrated
+	note, err := s.spatialCompiledReferenceNote("user-1", project, []drama.CompiledFile{{File: scene.PrimaryVersionID, Tag: "@图片7"}})
+	if err != nil || !strings.Contains(note, "@图片7") || !strings.Contains(note, "真实尺度") || strings.Contains(note, "@图片1") {
+		t.Fatal(note, err)
+	}
+	project.WorkflowID = drama.WorkflowOriginal
+	if note, err = s.spatialCompiledReferenceNote("user-1", project, []drama.CompiledFile{{File: scene.PrimaryVersionID, Tag: "@图片7"}}); err != nil || note != "" {
+		t.Fatal("original workflow changed", note, err)
+	}
+}
+
 func TestWorkflowImageRatiosUseDeclaredProviderPixelMapping(t *testing.T) {
 	profile := DefaultModelCapabilityConfigForModel("opaque-provider", "opaque-model")
 	profile.Image.Parameters = []protocol.ImageParameter{{Name: "size", Label: "Size", Type: "string", Values: []any{"1024x1536", "1024x1024", "1536x864"}, Default: "1024x1024", Binding: "aspectRatio", Encoding: "pixels"}}

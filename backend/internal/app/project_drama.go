@@ -847,6 +847,15 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 		result = drama.WithScenePalette(result, m, *palette, req.MaxReferenceImages)
 	}
 	result.Issues = append(result.Issues, refIssues...)
+	spatialNote, err := s.spatialCompiledReferenceNote(userID, project, result.Files)
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	if spatialNote != "" {
+		result.Prompt += "\n\n" + spatialNote
+		result.Paste += "\n\n" + spatialNote
+		result.Chars += len([]rune("\n\n" + spatialNote))
+	}
 	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result, CompileProfile: compileProfileRef(phrases)}, nil
 }
 

@@ -4,7 +4,7 @@ import test from "node:test";
 import type { ProjectAsset, ProjectDetail, ShotAssetReference } from "@/services/api/projects";
 import type { ReferenceImage } from "@/types/image";
 
-import { buildShotAssetReferenceContext, referenceMediaForCompiledFiles, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, compileShotAssetReferencePrompt, referenceMediaForCompiledFiles, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
 
 const paletteAsset = {
     id: "palette-1",
@@ -36,6 +36,17 @@ const detail = (palette: ProjectAsset) =>
     }) as unknown as ProjectDetail;
 
 const image = (id: string): ReferenceImage => ({ id, name: id, type: "image/*", dataUrl: "" });
+
+test("微缩场景使用实际图片编号并提示真实尺度，普通场景不受影响", () => {
+    const spatial = { ...locationAsset, visual: { definition: { imageLayout: "spatial-master" } } } as unknown as ProjectAsset;
+    const context = buildShotAssetReferenceContext(compiledDetail([spatial]), "shot-1");
+    assert.equal(context.referenceImages[0].storageKey, "resource:res-loc");
+    const prompt = compileShotAssetReferencePrompt(context.assetReferences);
+    assert.match(prompt, /图片1/);
+    assert.match(prompt, /真实尺度/);
+    assert.match(prompt, /不继承微缩底座/);
+    assert.doesNotMatch(compileShotAssetReferencePrompt(buildShotAssetReferenceContext(compiledDetail([locationAsset]), "shot-1").assetReferences), /微缩底座/);
+});
 
 test("本场色卡不进角色 / 场景 / 道具的参考，单独给出图和色值", () => {
     const project = detail(paletteAsset);
