@@ -24,12 +24,50 @@ func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
 			t.Fatal(err)
 		}
 		if wf == drama.WorkflowIntegrated {
-			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.1" || usage.Contract != drama.ContractIntegratedAssets {
+			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.2" || usage.Contract != drama.ContractIntegratedAssets {
 				t.Fatal(usage)
 			}
 		} else if usage.Skill.ID != "yz-assets-extract" || usage.Contract != drama.ContractAssetsExtract {
 			t.Fatal(usage)
 		}
+	}
+}
+
+func TestIntegratedVariantContractGuidanceIsInjectedAndExecutable(t *testing.T) {
+	s, db, _, _ := seedProjectVisualAsset(t, model.AssetCategoryEnvironment)
+	ensureWorkflowSkillFixture(t, s, db)
+	wf, _ := drama.Workflow(drama.WorkflowIntegrated)
+	skill, err := s.assetWorkflowSkill(wf, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := drama.BuildAssetsExtractPrompt(drama.AssetsExtractInput{Contract: drama.ContractIntegratedAssets, UnitTitle: "归属验收", SourceText: "林深系上围裙，阿婆站在旁边。", Skill: skill})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"产品输出契约桥接", "复用母卡与复用子卡分开", "动作主体→原文动作→实际场序→变体差异", `"kind":"state"`, "三个字段不得留空"} {
+		if !strings.Contains(prompt.Text, required) {
+			t.Fatal("runtime prompt lost guidance", required)
+		}
+	}
+	if strings.Contains(prompt.Text, "kind:costume/state") {
+		t.Fatal("ambiguous executable enum instruction remains")
+	}
+	var example string
+	for _, file := range skill.Files {
+		if file.Path == "references/character-design.md" {
+			_, body, _ := strings.Cut(file.Content, "```json\n")
+			example, _, _ = strings.Cut(body, "\n```")
+		}
+	}
+	var variant drama.AssetsVariant
+	if err := json.Unmarshal([]byte(example), &variant); err != nil {
+		t.Fatal("skill example is not executable JSON", err)
+	}
+	row := drama.AssetsExtractRow{Category: drama.AssetCharacter, Name: "语法检查人物", Appearance: "明确外观", PromptEn: "explicit appearance", GenerationPrompt: "完整四宫格设计", Design: &drama.AssetDesign{Role: "主角", IdentityAppearance: "稳定眉眼", Clothing: "中性服装", Evidence: []drama.AssetEvidence{{Kind: "原文", Location: "第二场", Text: "人物出现"}}}, Variants: []drama.AssetsVariant{variant}}
+	raw, _ := json.Marshal(row)
+	if err := drama.ValidateIntegratedAssetsText(string(raw)); err != nil {
+		t.Fatal("skill example violates runtime contract", err)
 	}
 }
 
@@ -45,7 +83,7 @@ func TestWorkflowActivationAndFrozenImageRecipe(t *testing.T) {
 	if err := db.First(&candidate, "id = ?", active.VersionID).Error; err != nil {
 		t.Fatal(err)
 	}
-	candidate.ID, candidate.VersionLabel = newID(), "1.0.2"
+	candidate.ID, candidate.VersionLabel = newID(), "1.0.3"
 	if err := db.Create(&candidate).Error; err != nil {
 		t.Fatal(err)
 	}

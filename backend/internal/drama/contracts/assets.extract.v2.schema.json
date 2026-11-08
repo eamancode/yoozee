@@ -22,7 +22,7 @@
       "分析不漏物件，但仅有独立制作、跨镜识别、关键动作或特写价值的道具独立建卡。背景陈设在spatial_layout记录，普通消耗品合理归组。道具production_priority为high/medium/low，低优先级默认不排图。",
       "design保存role、identity_appearance、clothing、body_description、prop_design、spatial_layout、production_priority，characters/props/environments引用真实资产标准名。evidence为{kind:原文/推导/设计建议,location,text}，states为{location,trigger,state}。阶段损伤磨亮换轮不得倒灌到初始图。",
       "appearance为600字符以内中文摘要；prompt_en为1200字符以内英文摘要；generation_prompt保留完整设计，最多16000个JS字符串长度单位。颜色HEX仅使用实际色卡；palette_hint只写颜色名。",
-      "variants仅角色使用：{label,kind:costume/state,scenes,appearance,prompt_en,generation_prompt,start_after}，每个子卡generation_prompt描述该阶段完整四宫格，继承身份并只变授权差异。first_scene和scenes使用本轮给定的运行场序。"
+      "variants仅角色使用，每项写label、kind、scenes、appearance、prompt_en、generation_prompt、start_after。kind必须是单个字符串：服装变化写\"costume\"，状态或年龄阶段写\"state\"；只能选择其中一个，不允许斜杠组合或其他值。每项无论新增还是复用，都要完整重述appearance、prompt_en及本阶段四宫格generation_prompt，三个字段不得留空；复用母卡允许留空的规则不适用于variants内的这三个字段。继承身份并只变原文授权差异，先核对动作主体与子卡母卡一致。first_scene和scenes使用本轮给定的运行场序。"
     ]
   },
   "properties": {

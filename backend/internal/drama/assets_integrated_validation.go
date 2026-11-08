@@ -72,8 +72,26 @@ func ValidateIntegratedAssetsText(text string) error {
 				}
 			}
 			for _, variant := range row.Variants {
-				if row.Category != AssetCharacter || jsTrim(variant.Label) == "" || AssetVariantKindName(variant.Kind) == "" || len(variant.Scenes) == 0 || jsTrim(variant.Appearance) == "" || jsTrim(variant.PromptEn) == "" || jsTrim(variant.GenerationPrompt) == "" || jsLen(variant.GenerationPrompt) > 16000 {
-					return fail("variants完整四宫格及场序")
+				if row.Category != AssetCharacter {
+					return fail("variants仅属于人物，场景和道具请写空数组")
+				}
+				if jsTrim(variant.Label) == "" {
+					return fail("variants.label")
+				}
+				if AssetVariantKindName(variant.Kind) == "" {
+					return fail("variants.kind：只能选择字符串\"costume\"或\"state\"中的一个，不允许组合值")
+				}
+				if len(variant.Scenes) == 0 {
+					return fail("variants.scenes正整数数组")
+				}
+				if jsTrim(variant.Appearance) == "" {
+					return fail("variants.appearance（复用子卡也需重述本阶段外观）")
+				}
+				if jsTrim(variant.PromptEn) == "" {
+					return fail("variants.prompt_en（复用子卡也需完整英文摘要）")
+				}
+				if jsTrim(variant.GenerationPrompt) == "" || jsLen(variant.GenerationPrompt) > 16000 {
+					return fail("variants.generation_prompt（本阶段完整四宫格提示词，1～16000字符，复用子卡也不可留空）")
 				}
 				for _, scene := range variant.Scenes {
 					if scene < 1 {

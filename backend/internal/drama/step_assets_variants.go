@@ -130,7 +130,7 @@ func variantFromTitledRow(r AssetsExtractRow) (AssetsExtractRow, bool) {
 	if r.FirstScene > 0 {
 		v.Scenes = []int{r.FirstScene}
 	}
-	return AssetsExtractRow{Category: AssetCharacter, Name: name, Aliases: []string{}, FirstScene: r.FirstScene, Variants: append([]AssetsVariant{v}, r.Variants...)}, true
+	return AssetsExtractRow{SourceSkillVersionID: r.SourceSkillVersionID, Category: AssetCharacter, Name: name, Aliases: []string{}, FirstScene: r.FirstScene, Variants: append([]AssetsVariant{v}, r.Variants...)}, true
 }
 
 // AssetVariantKey 是变体名的比对键（与资产名同一规则）。
