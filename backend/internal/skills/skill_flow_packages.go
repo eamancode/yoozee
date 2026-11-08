@@ -407,6 +407,9 @@ func (s *Service) flowPackageVersions(skillID string) (*FlowPackageSummary, []Fl
 	}
 	if step, ok := drama.StepByID(summary.Step); ok {
 		summary.StepLabel, summary.StepContract = step.Label, step.Contract
+		if step.ID == drama.StepAssetsExtract && summary.Contract == drama.ContractIntegratedAssets {
+			summary.StepContract = summary.Contract
+		}
 	}
 	return summary, items, nil
 }

@@ -77,12 +77,17 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 			return "", BadAuthRequest("资产版本已变化，请刷新后再生成")
 		}
 	}
-	if op == "project_spatial_reference" {
-		return s.prepareSpatialImage(userID, project, asset, version, input, metadata)
-	}
 	definition := map[string]any{}
 	if err := json.Unmarshal([]byte(version.DefinitionJSON), &definition); err != nil {
 		return "", err
+	}
+	// Only the owned stored definition may select a frozen recipe version.
+	delete(metadata, "assetWorkflowSkillVersionId")
+	if source, _ := definition["assetWorkflowSkillVersionId"].(string); source != "" {
+		metadata["assetWorkflowSkillVersionId"] = source
+	}
+	if op == "project_spatial_reference" {
+		return s.prepareSpatialImage(userID, project, asset, version, input, metadata)
 	}
 	full, _ := definition["generationPrompt"].(string)
 	if len(utf16.Encode([]rune(full))) > 16000 {
@@ -225,7 +230,7 @@ func (s *Service) spatialCompiledReferenceNote(userID string, project *model.Pro
 			continue
 		}
 		workflow, _ := drama.Workflow(project.WorkflowID)
-		note, err := s.assetWorkflowRecipe(workflow, map[string]any{}, "scene-reference")
+		note, err := s.assetWorkflowRecipe(workflow, map[string]any{"assetWorkflowSkillVersionId": definition["assetWorkflowSkillVersionId"]}, "scene-reference")
 		if err != nil {
 			return "", err
 		}

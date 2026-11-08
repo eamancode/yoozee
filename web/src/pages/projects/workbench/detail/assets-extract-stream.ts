@@ -81,6 +81,45 @@ function assetRow(parsed: Record<string, unknown>): AssetsStreamRow | undefined 
     };
 }
 
+// Split only complete JSON objects; a broken tail invalidates the entire line.
+function assetObjects(line: string): Record<string, unknown>[] {
+    const objects: Record<string, unknown>[] = [];
+    let start = -1;
+    let depth = 0;
+    let quoted = false;
+    let escaped = false;
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (start < 0) {
+            if (/\s/.test(char)) continue;
+            if (char !== "{") return [];
+            start = i;
+        }
+        if (quoted) {
+            if (escaped) escaped = false;
+            else if (char === "\\") escaped = true;
+            else if (char === '"') quoted = false;
+            continue;
+        }
+        if (char === '"') quoted = true;
+        else if (char === "{" || char === "[") depth++;
+        else if (char === "}" || char === "]") {
+            depth--;
+            if (depth === 0) {
+                try {
+                    const parsed = record(JSON.parse(line.slice(start, i + 1)));
+                    if (!parsed) return [];
+                    objects.push(parsed);
+                } catch {
+                    return [];
+                }
+                start = -1;
+            }
+        }
+    }
+    return start < 0 ? objects : [];
+}
+
 /** 解析文本流里已经写完（以换行结尾）的行：回合标记开一场，其余带 name 的行是一个资产；没有回合标记时按 first_scene 分场。 */
 export function parseAssetsExtractStream(text: string, headings: string[] = []): AssetsExtractStreamState {
     const state: AssetsExtractStreamState = { total: 0, current: 0, scenes: [], rowCount: 0 };
@@ -99,28 +138,23 @@ export function parseAssetsExtractStream(text: string, headings: string[] = []):
     for (const raw of complete.split("\n")) {
         const line = raw.trim().replace(/,$/, "");
         if (!line.startsWith("{")) continue;
-        let parsed: Record<string, unknown> | undefined;
-        try {
-            parsed = record(JSON.parse(line));
-        } catch {
-            continue;
+        for (const parsed of assetObjects(line)) {
+            const marker = record(parsed[SHOT_TURN_MARKER]);
+            if (marker) {
+                markers = true;
+                state.total = Number(marker.total) || state.total;
+                open(Number(marker.index) || state.scenes.length + 1, typeof marker.heading === "string" ? marker.heading : "", Number(marker.attempt) || 1);
+                continue;
+            }
+            const row = assetRow(parsed);
+            if (!row) continue;
+            if (!markers) {
+                // 结果正文没有回合标记：按资产第一次出现的场分组。
+                const index = row.firstScene || 1;
+                scene = state.scenes.find((item) => item.index === index) || open(index, headings[index - 1] || "", 1);
+            }
+            (scene || open(1, headings[0] || "", 1)).rows.push(row);
         }
-        if (!parsed) continue;
-        const marker = record(parsed[SHOT_TURN_MARKER]);
-        if (marker) {
-            markers = true;
-            state.total = Number(marker.total) || state.total;
-            open(Number(marker.index) || state.scenes.length + 1, typeof marker.heading === "string" ? marker.heading : "", Number(marker.attempt) || 1);
-            continue;
-        }
-        const row = assetRow(parsed);
-        if (!row) continue;
-        if (!markers) {
-            // 结果正文没有回合标记：按资产第一次出现的场分组。
-            const index = row.firstScene || 1;
-            scene = state.scenes.find((item) => item.index === index) || open(index, headings[index - 1] || "", 1);
-        }
-        (scene || open(1, headings[0] || "", 1)).rows.push(row);
     }
     state.scenes.sort((a, b) => a.index - b.index);
     state.rowCount = state.scenes.reduce((sum, item) => sum + item.rows.length, 0);

@@ -191,7 +191,7 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *
 	var bound bool
 	var err error
 	if step.ID == drama.StepAssetsExtract && workflow.AssetsSkill != "" {
-		loaded, loadErr := s.assetWorkflowSkill(workflow)
+		loaded, loadErr := s.assetWorkflowSkill(workflow, "")
 		err, bound = loadErr, false
 		if loadErr == nil {
 			skill = loaded

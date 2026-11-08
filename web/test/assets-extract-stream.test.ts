@@ -8,6 +8,18 @@ const hall = JSON.stringify({ category: "scene", name: "病房走廊", aliases: 
 const lin = JSON.stringify({ category: "character", name: "林小满", aliases: "小满、林护士", appearance: "", prompt_en: "", first_scene: "S01", variants: [{ label: "淋湿", kind: "state", scenes: [1] }, { label: "" }] });
 
 describe("资产设计流式视图", () => {
+    test("缺少换行的完整对象无损展示，破损尾部不显示部分资产", () => {
+        const escaped = JSON.stringify({ category: "prop", name: '杯子{结构}"\\', appearance: '含有}和{与"引号"', first_scene: 1 });
+        const state = parseAssetsExtractStream(`${marker(1)}\n${hall}${escaped}\n${zhou} ${lin}\n`);
+        expect(state.rowCount).toBe(4);
+        expect(state.scenes[0].rows[1].name).toBe('杯子{结构}"\\');
+        expect(state.scenes[0].rows[1].appearance).toBe('含有}和{与"引号"');
+        for (const tail of ['{"name":', ' null', ' []', ', {}', ' garbage']) {
+            expect(parseAssetsExtractStream(`${hall}${tail}\n`).rowCount).toBe(0);
+        }
+        expect(parseAssetsExtractStream(`${hall}${escaped}`).rowCount).toBe(0);
+    });
+
     test("跨场复用的空外观行仍展示附件依据、状态和关联，不误判为缺失设计", () => {
         const reused = { category: "prop", name: "旧推车", first_scene: 2, appearance: "", design: { evidence: [{ kind: "原文", text: "轮子换过一只" }], states: [{ state: "五年后换轮" }], environments: ["市场"] } };
         const state = parseAssetsExtractStream([marker(1), hall, marker(2), JSON.stringify(reused), ""].join("\n"));

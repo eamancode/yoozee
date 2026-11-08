@@ -191,6 +191,40 @@ func newDramaStepEvalTestService(t *testing.T) (*Service, *gorm.DB, *model.User)
 
 var dramaStepEvalTestModel = DramaStepEvalModel{Model: "text-test", Config: map[string]any{"channelId": "channel", "model": "text-test"}}
 
+func TestAssetsEvaluationUsesPackageContractAndStrictValidation(t *testing.T) {
+	s, _, _ := newDramaStepEvalTestService(t)
+	step, _ := drama.StepByID(drama.StepAssetsExtract)
+	c := step.EvalSet[0]
+	for _, id := range []string{drama.IntegratedAssetsSkill, "yz-assets-extract"} {
+		pkg, err := s.skillDomain().StepSkillPackage(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, err := dramaStepEvalTaskRequest("new-eval", step, c, "candidate", pkg, dramaStepEvalTestModel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, _ := json.Marshal(req.Input)
+		meta := taskDramaStep(string(input))
+		want := drama.ContractAssetsExtract
+		if id == drama.IntegratedAssetsSkill {
+			want = drama.ContractIntegratedAssets
+			if !strings.Contains(req.Prompt, "完整generation_prompt") {
+				t.Fatal("evaluation missing integrated contract instructions")
+			}
+		}
+		if meta == nil || meta.Contract != want {
+			t.Fatal("evaluation differs from runtime contract", meta)
+		}
+		result, _ := json.Marshal(map[string]any{"text": `{"category":"prop","name":"测试杯","appearance":"白色杯身","prompt_en":"white cup","first_scene":1}`})
+		task := &model.Task{Status: model.TaskStatusSucceeded, InputJSON: string(input), ResultJSON: string(result)}
+		got, infra := dramaStepEvalChapterResult(step, c, "test", task, nil)
+		if infra != "" || got.Parsed != (id != drama.IntegratedAssetsSkill) {
+			t.Fatal("contract validation mismatch", id, got, infra)
+		}
+	}
+}
+
 // dramaStepEvalWorker 模拟任务执行：给一个已投出、还没结束的任务写结局。
 type dramaStepEvalWorker func(t *testing.T, task *model.Task, slot dramaStepEvalTask)
 

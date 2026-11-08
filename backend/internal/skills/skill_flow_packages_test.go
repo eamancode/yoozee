@@ -20,6 +20,23 @@ import (
 
 const chapterShotsSkillID = "yz-chapter-shots"
 
+func TestAssetPackageSummaryMatchesItsWorkflowContract(t *testing.T) {
+	s, _, admin := newBuiltinVersionTestService(t)
+	for _, id := range []string{drama.IntegratedAssetsSkill, "yz-assets-extract"} {
+		summary, _, err := s.AdminFlowPackageVersions(admin, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := drama.ContractAssetsExtract
+		if id == drama.IntegratedAssetsSkill {
+			want = drama.ContractIntegratedAssets
+		}
+		if summary.Contract != want || summary.StepContract != want {
+			t.Fatal("valid workflow reported as incompatible", summary)
+		}
+	}
+}
+
 // seedPackageFiles 是内置种子 backend/builtin/yz-chapter-shots（与 yoozee-skills/packages/yz-chapter-shots 一致）。
 func seedPackageFiles(t *testing.T) map[string][]byte {
 	t.Helper()

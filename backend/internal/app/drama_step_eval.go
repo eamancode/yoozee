@@ -235,6 +235,18 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 		return CreateTaskRequest{}, err
 	}
 	skillRef := stepSkillOf(pkg)
+	var manifestText string
+	for _, file := range pkg.Files {
+		if file.Path == drama.StepPackageManifestFile {
+			manifestText = file.Content
+			break
+		}
+	}
+	manifest, problems := drama.ParseStepPackageManifest([]byte(manifestText))
+	if len(problems) != 0 || manifest.Step != step.ID {
+		return CreateTaskRequest{}, BadAuthRequest("评测技能包清单无效")
+	}
+	step.Contract = manifest.Contract
 	usage := DramaStepUsage{
 		Step: step.ID, StepLabel: step.Label, Contract: step.Contract, Bound: true, Profile: dramaProfileRef(c.Profile),
 		Skill: DramaStepSkillRef{ID: skillRef.ID, Name: skillRef.Name, VersionID: skillRef.VersionID, Version: skillRef.Version, ContentHash: skillRef.ContentHash},
@@ -698,7 +710,13 @@ func dramaStepEvalChapterResult(step drama.Step, c drama.StepEvalChapter, taskID
 	case drama.StepScenePalette:
 		return scenePaletteEvalResult(r, in, output.Text), ""
 	case drama.StepAssetsExtract:
-		return assetsExtractEvalResult(r, in, output.Text), ""
+		r = assetsExtractEvalResult(r, in, output.Text)
+		if meta := taskDramaStep(task.InputJSON); meta != nil && meta.Contract == drama.ContractIntegratedAssets {
+			if err := drama.ValidateIntegratedAssetsText(output.Text); err != nil {
+				r.Parsed, r.Failure = false, err.Error()
+			}
+		}
+		return r, ""
 	}
 	rows, _, err := drama.StoryboardRowsFromText(output.Text)
 	if err != nil {

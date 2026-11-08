@@ -421,6 +421,9 @@ func assetsRowDefinition(row drama.AssetsExtractRow, episode int, colors []drama
 		prompt += " Color accents: " + strings.Join(parts, ", ") + "."
 	}
 	definition := map[string]any{"aliases": slices.Clone(row.Aliases)}
+	if row.SourceSkillVersionID != "" {
+		definition["assetWorkflowSkillVersionId"] = row.SourceSkillVersionID
+	}
 	if row.GenerationPrompt != "" {
 		definition["generationPrompt"] = row.GenerationPrompt
 		if row.Category == drama.AssetCharacter {
@@ -489,6 +492,9 @@ func mergeIntoEntry(entry *dramaAssetEntry, row drama.AssetsExtractRow, details 
 				continue
 			}
 			entry.definition[key] = value
+			if key == "generationPrompt" && row.SourceSkillVersionID != "" {
+				entry.definition["assetWorkflowSkillVersionId"] = row.SourceSkillVersionID
+			}
 			entry.content = true
 		}
 	}
@@ -527,10 +533,15 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	text, _ := result["text"].(string)
 	rows, stats := drama.AssetsExtractFromText(text)
 	if project.WorkflowID == drama.WorkflowIntegrated {
+		if meta.SkillID != drama.IntegratedAssetsSkill || meta.VersionID == "" || meta.Contract != drama.ContractIntegratedAssets {
+			return DramaAssetsExtractOutcome{}, BadAuthRequest("流水线一资产任务缺少有效技能版本")
+		}
 		if err := drama.ValidateIntegratedAssetsText(text); err != nil {
 			return DramaAssetsExtractOutcome{}, BadAuthRequest(err.Error())
 		}
-		for _, row := range rows {
+		for i := range rows {
+			rows[i].SourceSkillVersionID = meta.VersionID
+			row := rows[i]
 			if row.HasLook() && row.GenerationPrompt == "" {
 				return DramaAssetsExtractOutcome{}, BadAuthRequest("流水线一资产缺少完整generation_prompt，没有写入：" + row.Name)
 			}
@@ -757,7 +768,7 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 				outcome.Assets = append(outcome.Assets, DramaAssetsOutcomeItem{AssetID: child.asset.ID, Name: child.asset.Title, Category: drama.AssetCharacter, Action: action, ParentID: parent.asset.ID})
 				continue
 			}
-			asset, version, err := newVariantAsset(userID, parent.asset, parent.definition, v.Label, v.Kind, v.Appearance, v.PromptEn, assetVariantMeta{Scenes: codes, Source: "extract", StartAfter: v.StartAfter, GenerationPrompt: v.GenerationPrompt}, initial, now)
+			asset, version, err := newVariantAsset(userID, parent.asset, parent.definition, v.Label, v.Kind, v.Appearance, v.PromptEn, assetVariantMeta{Scenes: codes, Source: "extract", StartAfter: v.StartAfter, GenerationPrompt: v.GenerationPrompt, WorkflowSkillVersionID: row.SourceSkillVersionID}, initial, now)
 			if err != nil {
 				return nil, outcome, err
 			}

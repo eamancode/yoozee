@@ -33,6 +33,67 @@ func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
 	}
 }
 
+func TestWorkflowActivationAndFrozenImageRecipe(t *testing.T) {
+	s, db, projectID, scene := seedProjectVisualAsset(t, model.AssetCategoryEnvironment)
+	ensureWorkflowSkillFixture(t, s, db)
+	wf, _ := drama.Workflow(drama.WorkflowIntegrated)
+	active, err := s.assetWorkflowSkill(wf, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var candidate model.SkillVersion
+	if err := db.First(&candidate, "id = ?", active.VersionID).Error; err != nil {
+		t.Fatal(err)
+	}
+	candidate.ID, candidate.VersionLabel = newID(), "1.0.2"
+	if err := db.Create(&candidate).Error; err != nil {
+		t.Fatal(err)
+	}
+	var files []model.SkillFile
+	if err := db.Where("skill_version_id = ?", active.VersionID).Find(&files).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		file.ID, file.SkillVersionID = newID(), candidate.ID
+		if err := db.Create(&file).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := s.assetWorkflowSkill(wf, ""); err != nil || got.VersionID != active.VersionID {
+		t.Fatal("inactive candidate selected", got, err)
+	}
+	if err := db.Model(&model.Skill{}).Where("id = ?", wf.AssetsSkill).Update("current_version_id", candidate.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.assetWorkflowSkill(wf, ""); err != nil || got.VersionID != candidate.ID {
+		t.Fatal("activation not honored", got, err)
+	}
+	if err := db.Model(&model.Project{}).Where("id = ?", projectID).Update("workflow_id", wf.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	definition, _ := json.Marshal(map[string]any{"description": "完整市场", "assetWorkflowSkillVersionId": active.VersionID})
+	if err := db.Model(&model.AssetVersion{}).Where("id = ?", scene.PrimaryVersionID).Update("definition_json", string(definition)).Error; err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"config": map[string]any{}, "metadata": map[string]any{"operation": "project_asset_image", "projectAssetId": scene.ID, "assetWorkflowSkillVersionId": "forged"}}
+	if _, err := s.prepareProjectAssetWorkflow("user-1", projectID, input, ""); err != nil {
+		t.Fatal(err)
+	}
+	resolved := input["metadata"].(map[string]any)["assetWorkflowSkill"].(map[string]string)
+	if resolved["versionId"] != active.VersionID {
+		t.Fatal("image recipe changed with activation or client input", resolved)
+	}
+	row := drama.AssetsExtractRow{Category: drama.AssetCharacter, Name: "林深", SourceSkillVersionID: active.VersionID, GenerationPrompt: "完整设计"}
+	stored := assetsRowDefinition(row, 1, nil, drama.MasterPalette{})
+	if stored["assetWorkflowSkillVersionId"] != active.VersionID {
+		t.Fatal("extraction source lost", stored)
+	}
+	_, variant, err := newVariantAsset("user-1", model.Asset{ID: "parent", Title: "林深"}, stored, "雨湿", drama.AssetVariantState, "湿衣", "wet", assetVariantMeta{}, "", time.Now())
+	if err != nil || !strings.Contains(variant.DefinitionJSON, active.VersionID) {
+		t.Fatal("variant source lost", variant.DefinitionJSON, err)
+	}
+}
+
 func TestSpatialCompilerReminderUsesActualVersionAndTag(t *testing.T) {
 	s, db, projectID, scene := seedProjectVisualAsset(t, model.AssetCategoryEnvironment)
 	ensureWorkflowSkillFixture(t, s, db)

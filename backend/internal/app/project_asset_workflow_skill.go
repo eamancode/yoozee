@@ -5,33 +5,37 @@ import (
 	"yingce/backend/internal/drama"
 )
 
-func (s *Service) assetWorkflowSkill(workflow drama.AssetWorkflow) (drama.StepSkill, error) {
-	current, err := s.skillDomain().StepSkillPackage(workflow.AssetsSkill)
-	if err != nil {
-		return drama.StepSkill{}, err
+func (s *Service) assetWorkflowSkill(workflow drama.AssetWorkflow, versionID string) (drama.StepSkill, error) {
+	var selected drama.StepSkill
+	if versionID == "" {
+		current, err := s.skillDomain().StepSkillPackage(workflow.AssetsSkill)
+		if err != nil {
+			return selected, err
+		}
+		selected = stepSkillOf(current)
+	} else {
+		frozen, err := s.skillDomain().StepSkillPackageVersion(workflow.AssetsSkill, versionID)
+		if err != nil {
+			return selected, err
+		}
+		selected = stepSkillOf(frozen)
 	}
-	if current.Version == workflow.AssetsVersion {
-		return stepSkillOf(current), nil
-	}
-	versions, err := s.repo.SkillVersions(workflow.AssetsSkill)
-	if err != nil {
-		return drama.StepSkill{}, err
-	}
-	for _, version := range versions {
-		if version.VersionLabel != workflow.AssetsVersion {
+	for _, file := range selected.Files {
+		if file.Path != drama.StepPackageManifestFile {
 			continue
 		}
-		pkg, err := s.skillDomain().StepSkillPackageVersion(workflow.AssetsSkill, version.ID)
-		if err != nil {
-			return drama.StepSkill{}, err
+		manifest, problems := drama.ParseStepPackageManifest([]byte(file.Content))
+		if len(problems) == 0 && manifest.Step == drama.StepAssetsExtract && manifest.Contract == workflow.AssetsContract {
+			return selected, nil
 		}
-		return stepSkillOf(pkg), nil
+		break
 	}
-	return drama.StepSkill{}, BadAuthRequest("项目工作流指定的技能版本不可用，请检查流程技能包")
+	return drama.StepSkill{}, BadAuthRequest("已启用的资产技能包与项目工作流契约不符")
 }
 
 func (s *Service) assetWorkflowRecipe(workflow drama.AssetWorkflow, metadata map[string]any, name string) (string, error) {
-	skill, err := s.assetWorkflowSkill(workflow)
+	versionID, _ := metadata["assetWorkflowSkillVersionId"].(string)
+	skill, err := s.assetWorkflowSkill(workflow, versionID)
 	if err != nil {
 		return "", err
 	}

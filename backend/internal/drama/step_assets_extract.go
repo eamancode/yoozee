@@ -270,15 +270,16 @@ func AssetsExtractTurnPrompt(scenes []ShotsScene, k int) string {
 
 // AssetsExtractRow 是模型写的一行资产。
 type AssetsExtractRow struct {
-	GenerationPrompt string       `json:"generation_prompt,omitempty"`
-	Category         string       `json:"category"`
-	Name             string       `json:"name"`
-	Aliases          []string     `json:"aliases"`
-	Appearance       string       `json:"appearance"`
-	PromptEn         string       `json:"prompt_en"`
-	FirstScene       int          `json:"first_scene"`
-	PaletteHint      string       `json:"palette_hint"`
-	Design           *AssetDesign `json:"design,omitempty"`
+	SourceSkillVersionID string       `json:"-"`
+	GenerationPrompt     string       `json:"generation_prompt,omitempty"`
+	Category             string       `json:"category"`
+	Name                 string       `json:"name"`
+	Aliases              []string     `json:"aliases"`
+	Appearance           string       `json:"appearance"`
+	PromptEn             string       `json:"prompt_en"`
+	FirstScene           int          `json:"first_scene"`
+	PaletteHint          string       `json:"palette_hint"`
+	Design               *AssetDesign `json:"design,omitempty"`
 	// Anchors 只有场景写：人物能站、能走到的位置（生成分段的站位和镜头表检查 R-SHOT-012 用）。
 	Anchors []string `json:"anchors,omitempty"`
 	// Variants 只有角色写：换了服装或状态的各套形象（收尾建成子卡「名·变体」）。
@@ -324,54 +325,56 @@ func AssetsExtractFromText(text string) ([]AssetsExtractRow, AssetsExtractParseS
 		if !strings.HasPrefix(line, "{") {
 			continue
 		}
-		var obj map[string]json.RawMessage
-		if json.Unmarshal([]byte(line), &obj) != nil {
+		objects, err := assetJSONObjects(line)
+		if err != nil {
 			stats.Invalid++
 			continue
 		}
-		if _, marker := obj[ShotLinesMarkerKey]; marker {
-			continue
-		}
-		_, hasName := obj["name"]
-		_, hasCategory := obj["category"]
-		if !hasName && !hasCategory {
-			stats.Invalid++
-			continue
-		}
-		row := AssetsExtractRow{Aliases: []string{}}
-		str := func(key string) string {
-			var v any
-			_ = json.Unmarshal(obj[key], &v)
-			if s, ok := v.(string); ok {
-				return jsTrim(s)
+		for _, obj := range objects {
+			if _, marker := obj[ShotLinesMarkerKey]; marker {
+				continue
 			}
-			return ""
-		}
-		row.Category, row.Name = NormalizeAssetCategory(str("category")), str("name")
-		row.Appearance, row.PromptEn, row.PaletteHint = str("appearance"), str("prompt_en"), str("palette_hint")
-		row.GenerationPrompt = str("generation_prompt")
-		if jsLen(row.GenerationPrompt) > 16000 {
-			stats.Invalid++
-			continue
-		}
-		if raw := obj["design"]; len(raw) > 0 {
-			var design AssetDesign
-			if json.Unmarshal(raw, &design) == nil {
-				row.Design = &design
+			_, hasName := obj["name"]
+			_, hasCategory := obj["category"]
+			if !hasName && !hasCategory {
+				stats.Invalid++
+				continue
 			}
+			row := AssetsExtractRow{Aliases: []string{}}
+			str := func(key string) string {
+				var v any
+				_ = json.Unmarshal(obj[key], &v)
+				if s, ok := v.(string); ok {
+					return jsTrim(s)
+				}
+				return ""
+			}
+			row.Category, row.Name = NormalizeAssetCategory(str("category")), str("name")
+			row.Appearance, row.PromptEn, row.PaletteHint = str("appearance"), str("prompt_en"), str("palette_hint")
+			row.GenerationPrompt = str("generation_prompt")
+			if jsLen(row.GenerationPrompt) > 16000 {
+				stats.Invalid++
+				continue
+			}
+			if raw := obj["design"]; len(raw) > 0 {
+				var design AssetDesign
+				if json.Unmarshal(raw, &design) == nil {
+					row.Design = &design
+				}
+			}
+			row.Aliases = assetsAliasList(obj["aliases"], row.Name)
+			if row.Category == AssetEnvironment {
+				row.Anchors = assetsAliasList(obj["anchors"], "")
+			}
+			if row.Category == AssetCharacter {
+				row.Variants = parseAssetsVariants(obj["variants"])
+			}
+			var first any
+			_ = json.Unmarshal(obj["first_scene"], &first)
+			row.FirstScene = assetsSceneNo(first)
+			rows = append(rows, row)
+			stats.Rows++
 		}
-		row.Aliases = assetsAliasList(obj["aliases"], row.Name)
-		if row.Category == AssetEnvironment {
-			row.Anchors = assetsAliasList(obj["anchors"], "")
-		}
-		if row.Category == AssetCharacter {
-			row.Variants = parseAssetsVariants(obj["variants"])
-		}
-		var first any
-		_ = json.Unmarshal(obj["first_scene"], &first)
-		row.FirstScene = assetsSceneNo(first)
-		rows = append(rows, row)
-		stats.Rows++
 	}
 	return rows, stats
 }
