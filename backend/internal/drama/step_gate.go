@@ -11,10 +11,11 @@ import (
 
 // StepEvalChapterResult 是一章真跑这一步的结果。
 type StepEvalChapterResult struct {
-	Chapter string `json:"chapter"`
-	Label   string `json:"label"`
-	Profile string `json:"profile"`
-	TaskID  string `json:"taskId,omitempty"`
+	Contract string `json:"contract,omitempty"`
+	Chapter  string `json:"chapter"`
+	Label    string `json:"label"`
+	Profile  string `json:"profile"`
+	TaskID   string `json:"taskId,omitempty"`
 	// Parsed 是模型输出能解析出镜头行；Truncated 是输出达到上限被截断；Failure 是没得到可用结果的原因（任务失败、解析失败）。
 	Parsed    bool   `json:"parsed"`
 	Truncated bool   `json:"truncated"`

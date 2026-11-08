@@ -186,10 +186,17 @@ func (s *Service) StartDramaStepEval(actor *model.User, skillID string, versionI
 	result := DramaStepEvalResult{Candidate: []drama.StepEvalChapterResult{}, Baseline: []drama.StepEvalChapterResult{}}
 	var baseline *skills.StepPackage
 	if run.BaselineSkillVersionID != "" && run.BaselineSkillVersionID != version.ID {
-		if reused, runID := reusableDramaStepBaseline(recent, run.BaselineSkillVersionID, run.Model, chapters); reused != nil {
-			result.Baseline, result.BaselineRunID = reused, runID
-		} else if baseline, err = s.skillDomain().StepSkillPackageVersion(skill.ID, run.BaselineSkillVersionID); err != nil {
+		baseline, err = s.skillDomain().StepSkillPackageVersion(skill.ID, run.BaselineSkillVersionID)
+		if err != nil {
 			return nil, err
+		}
+		contract, err := dramaEvalPackageContract(step, baseline)
+		if err != nil {
+			return nil, err
+		}
+		if reused, runID := reusableDramaStepBaseline(recent, run.BaselineSkillVersionID, run.Model, chapters, contract); reused != nil {
+			result.Baseline, result.BaselineRunID = reused, runID
+			baseline = nil
 		}
 	}
 	// 先把每章的提示词组装一遍（数据或技能有问题就在记评测前报错）；任务由后台循环按并发上限逐个投出，投时再组装。
@@ -228,6 +235,20 @@ func (s *Service) StartDramaStepEval(actor *model.User, skillID string, versionI
 	return &view, nil
 }
 
+func dramaEvalPackageContract(step drama.Step, pkg *skills.StepPackage) (string, error) {
+	for _, file := range pkg.Files {
+		if file.Path != drama.StepPackageManifestFile {
+			continue
+		}
+		manifest, problems := drama.ParseStepPackageManifest([]byte(file.Content))
+		if len(problems) == 0 && manifest.Step == step.ID {
+			return manifest.Contract, nil
+		}
+		break
+	}
+	return "", BadAuthRequest("评测技能包清单无效")
+}
+
 // dramaStepEvalTaskRequest 组装一个任务位的文本任务：与「生成分段」同一条提示词组装路径，metadata 标成评测任务。
 func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalChapter, role string, pkg *skills.StepPackage, sel DramaStepEvalModel) (CreateTaskRequest, error) {
 	in, err := loadDramaEvalChapter(c)
@@ -235,18 +256,11 @@ func dramaStepEvalTaskRequest(runID string, step drama.Step, c drama.StepEvalCha
 		return CreateTaskRequest{}, err
 	}
 	skillRef := stepSkillOf(pkg)
-	var manifestText string
-	for _, file := range pkg.Files {
-		if file.Path == drama.StepPackageManifestFile {
-			manifestText = file.Content
-			break
-		}
+	contract, err := dramaEvalPackageContract(step, pkg)
+	if err != nil {
+		return CreateTaskRequest{}, err
 	}
-	manifest, problems := drama.ParseStepPackageManifest([]byte(manifestText))
-	if len(problems) != 0 || manifest.Step != step.ID {
-		return CreateTaskRequest{}, BadAuthRequest("评测技能包清单无效")
-	}
-	step.Contract = manifest.Contract
+	step.Contract = contract
 	usage := DramaStepUsage{
 		Step: step.ID, StepLabel: step.Label, Contract: step.Contract, Bound: true, Profile: dramaProfileRef(c.Profile),
 		Skill: DramaStepSkillRef{ID: skillRef.ID, Name: skillRef.Name, VersionID: skillRef.VersionID, Version: skillRef.Version, ContentHash: skillRef.ContentHash},
@@ -317,7 +331,7 @@ func (s *Service) dramaStepEvalModelOf(run *model.DramaEvalRun) (DramaStepEvalMo
 }
 
 // reusableDramaStepBaseline 找启用版本在同一模型、同一组章节上最近一次全部解析成功的结果（作为候选跑的，或一起跑的对照）。
-func reusableDramaStepBaseline(recent []model.DramaEvalRun, versionID string, modelLabel string, chapters []drama.StepEvalChapter) ([]drama.StepEvalChapterResult, string) {
+func reusableDramaStepBaseline(recent []model.DramaEvalRun, versionID string, modelLabel string, chapters []drama.StepEvalChapter, contract string) ([]drama.StepEvalChapterResult, string) {
 	for _, r := range recent {
 		if r.Model != modelLabel || (r.Status != DramaStepEvalPassed && r.Status != DramaStepEvalFailed) {
 			continue
@@ -341,7 +355,7 @@ func reusableDramaStepBaseline(recent []model.DramaEvalRun, versionID string, mo
 		}
 		out := make([]drama.StepEvalChapterResult, 0, len(chapters))
 		for _, c := range chapters {
-			if got, ok := byChapter[c.ID]; ok && got.Parsed {
+			if got, ok := byChapter[c.ID]; ok && got.Parsed && got.Contract == contract {
 				out = append(out, got)
 			}
 		}
@@ -672,10 +686,13 @@ func (s *Service) finishDramaStepEval(run *model.DramaEvalRun, tasks []dramaStep
 // dramaStepEvalChapterResult 把一章的任务结果交给解析器、资产绑定、镜头表检查和装段，得出门槛指标（剧本优化是剧集解析和检查）。
 // 第二个返回值非空表示任务没跑成（上游失败、任务不见了、数据坏了），不是包的问题。
 func dramaStepEvalChapterResult(step drama.Step, c drama.StepEvalChapter, taskID string, task *model.Task, phrases *drama.CompileProfile) (drama.StepEvalChapterResult, string) {
-	r := drama.StepEvalChapterResult{Chapter: c.ID, Label: c.Label, Profile: c.Profile, TaskID: taskID}
+	r := drama.StepEvalChapterResult{Chapter: c.ID, Label: c.Label, Profile: c.Profile, TaskID: taskID, Contract: step.Contract}
 	if task == nil {
 		r.Failure = "评测任务不见了"
 		return r, r.Failure
+	}
+	if meta := taskDramaStep(task.InputJSON); meta != nil {
+		r.Contract = meta.Contract
 	}
 	in, err := loadDramaEvalChapter(c)
 	if err != nil {

@@ -191,6 +191,18 @@ func newDramaStepEvalTestService(t *testing.T) (*Service, *gorm.DB, *model.User)
 
 var dramaStepEvalTestModel = DramaStepEvalModel{Model: "text-test", Config: map[string]any{"channelId": "channel", "model": "text-test"}}
 
+func TestAssetsEvaluationNeverReusesDifferentOrUnrecordedContract(t *testing.T) {
+	chapters := []drama.StepEvalChapter{{ID: "chapter"}}
+	for _, contract := range []string{"", drama.ContractAssetsExtract, drama.ContractIntegratedAssets} {
+		raw, _ := json.Marshal(DramaStepEvalResult{Baseline: []drama.StepEvalChapterResult{{Chapter: "chapter", Parsed: true, Contract: contract}}})
+		runs := []model.DramaEvalRun{{ID: "previous-eval", Model: "text-test", Status: DramaStepEvalFailed, BaselineSkillVersionID: "baseline", ResultJSON: string(raw)}}
+		got, id := reusableDramaStepBaseline(runs, "baseline", "text-test", chapters, drama.ContractIntegratedAssets)
+		if (got != nil) != (contract == drama.ContractIntegratedAssets) || (id != "") != (contract == drama.ContractIntegratedAssets) {
+			t.Fatal("baseline contract isolation failed", contract, got, id)
+		}
+	}
+}
+
 func TestAssetsEvaluationUsesPackageContractAndStrictValidation(t *testing.T) {
 	s, _, _ := newDramaStepEvalTestService(t)
 	step, _ := drama.StepByID(drama.StepAssetsExtract)
