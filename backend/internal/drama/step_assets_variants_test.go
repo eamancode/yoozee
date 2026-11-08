@@ -40,6 +40,27 @@ func TestAssetsVariantsParse(t *testing.T) {
 
 // 检查：同一角色几行的子卡按变体名并起来（场序合并、空字段补上）；没有变体名的、场序超出的去掉（warn）；
 // 角色名写成「林小满·受伤」的行并成林小满的子卡。
+func TestVariantsCanonicalLabelsMergeAcrossSceneTurns(t *testing.T) {
+	rows, stats := AssetsExtractFromText(strings.Join([]string{
+		`{"category":"character","name":"林小满","appearance":"稳定护士形象","prompt_en":"nurse","first_scene":1,"variants":[{"label":"林小满 · 林小满・淋湿","kind":"state","scenes":[1],"appearance":"湿制服","prompt_en":"wet uniform","generation_prompt":"完整雨湿四宫格"}]}`,
+		`{"category":"character","name":"林小满","first_scene":2,"variants":[{"label":"淋湿","kind":"state","scenes":[2],"appearance":"湿制服","prompt_en":"wet uniform"}]}`,
+	}, "\n"))
+	if stats.Invalid != 0 {
+		t.Fatal(stats)
+	}
+	got := CheckAssetsExtract(rows, AssetsExtractCheckContext{Scenes: 2})
+	if len(got.Rows) != 1 || len(got.Rows[0].Variants) != 1 {
+		t.Fatal("prefixed and bare labels created duplicate children", got.Rows)
+	}
+	v := got.Rows[0].Variants[0]
+	if v.Label != "淋湿" || len(v.Scenes) != 2 || v.GenerationPrompt != "完整雨湿四宫格" || AssetVariantTitle("林小满", v.Label) != "林小满·淋湿" {
+		t.Fatal("canonical child lost state, scenes, or full recipe", v)
+	}
+	if AssetVariantTitle("林小满", "周岸·护士服") != "林小满·周岸·护士服" {
+		t.Fatal("another person's name was stripped")
+	}
+}
+
 func TestCheckAssetsVariants(t *testing.T) {
 	rows, _ := AssetsExtractFromText(strings.Join([]string{variantsLin, variantsLinAgain, variantsTitled}, "\n"))
 	got := CheckAssetsExtract(rows, AssetsExtractCheckContext{Scenes: 3})

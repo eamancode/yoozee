@@ -66,7 +66,7 @@ export function assetImageQueueLabel(image?: ProjectAssetImageQueue) {
         case "paused":
             return "渠道不可用，已暂停";
         case "waiting":
-            return "等空位出图";
+            return image.error ? "待处理，暂未出图" : "等空位出图";
         case "queued":
             return image.autoRetryCount ? "自动重试中（1/1）" : "出图中";
         case "failed":

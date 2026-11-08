@@ -63,14 +63,16 @@
             }
           },
           "appearance": {
-            "type": "string"
+            "type": "string",
+            "description": "人物主卡写全篇默认形象的中文摘要，与prompt_en和generation_prompt为同一年龄阶段及同一服装状态；本轮临时外观只写variants，不追加到主卡摘要。"
           },
           "prompt_en": {
-            "type": "string"
+            "type": "string",
+            "description": "人物主卡为同一全篇默认形象的英文摘要，不能切换到当前场次变体；非默认造型写variants。"
           },
           "generation_prompt": {
             "type": "string",
-            "description": "完整生图提示词：人物四宫格、场景微缩空间母版、独立道具本体；已有资产未改外观时可空"
+            "description": "完整生图提示词：人物主卡与appearance及prompt_en为同一全篇默认形象，当前场次变体另写variants；人物四宫格、场景微缩空间母版、独立道具本体；已有资产未改外观时可空"
           },
           "first_scene": {
             "type": "integer",

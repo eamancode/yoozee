@@ -24,7 +24,7 @@ func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
 			t.Fatal(err)
 		}
 		if wf == drama.WorkflowIntegrated {
-			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.2" || usage.Contract != drama.ContractIntegratedAssets {
+			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.3" || usage.Contract != drama.ContractIntegratedAssets {
 				t.Fatal(usage)
 			}
 		} else if usage.Skill.ID != "yz-assets-extract" || usage.Contract != drama.ContractAssetsExtract {
@@ -45,7 +45,7 @@ func TestIntegratedVariantContractGuidanceIsInjectedAndExecutable(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"产品输出契约桥接", "复用母卡与复用子卡分开", "动作主体→原文动作→实际场序→变体差异", `"kind":"state"`, "三个字段不得留空"} {
+	for _, required := range []string{"产品输出契约桥接", "复用母卡与复用子卡分开", "动作主体→原文动作→实际场序→变体差异", `"kind":"state"`, "三个字段不得留空", "主卡字段与当前场次分开", "本场临时造型", "同一个全篇默认形象", "不加母卡姓名", "空间九宫格和选格重绘仍是可复用的空场景资产", "不能引用未输出或未存在的资产"} {
 		if !strings.Contains(prompt.Text, required) {
 			t.Fatal("runtime prompt lost guidance", required)
 		}
@@ -83,7 +83,7 @@ func TestWorkflowActivationAndFrozenImageRecipe(t *testing.T) {
 	if err := db.First(&candidate, "id = ?", active.VersionID).Error; err != nil {
 		t.Fatal(err)
 	}
-	candidate.ID, candidate.VersionLabel = newID(), "1.0.3"
+	candidate.ID, candidate.VersionLabel = newID(), "1.0.4"
 	if err := db.Create(&candidate).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -343,8 +343,9 @@ func TestSceneSpatialMotherGridRedrawAndIdempotentBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := map[string]any{"mode": "image", "config": map[string]any{}, "metadata": map[string]any{"operation": "project_spatial_reference", "domainProjectId": projectID, "projectAssetId": asset.ID, "projectAssetVersionId": bound.PrimaryVersionID, "spatialKind": "grid"}}
-	if _, err = s.prepareProjectAssetWorkflow("user-1", projectID, input, "grid"); err != nil {
-		t.Fatal(err)
+	gridPrompt, err := s.prepareProjectAssetWorkflow("user-1", projectID, input, "grid")
+	if err != nil || !strings.Contains(gridPrompt, "全部九格保持无人空景") || !strings.Contains(gridPrompt, "不将其中的故事、角色或示例转成画面内容") {
+		t.Fatal("space-only recipe not compiled with actual mother", gridPrompt, err)
 	}
 	if refs := input["referenceImages"].([]any); len(refs) != 1 || refs[0].(map[string]any)["storageKey"] != "resource:image-1" {
 		t.Fatal(refs)
@@ -372,8 +373,9 @@ func TestSceneSpatialMotherGridRedrawAndIdempotentBinding(t *testing.T) {
 	}
 	metadata := input["metadata"].(map[string]any)
 	metadata["spatialKind"], metadata["gridResourceId"], metadata["cell"] = "redraw", grid.ID, 1
-	if _, err = s.prepareProjectAssetWorkflow("user-1", projectID, input, "redraw"); err != nil {
-		t.Fatal(err)
+	redrawPrompt, err := s.prepareProjectAssetWorkflow("user-1", projectID, input, "redraw")
+	if err != nil || !strings.Contains(redrawPrompt, "输出无人空场景") || !strings.Contains(redrawPrompt, "人物由后续分镜单独绑定") {
+		t.Fatal("redraw recipe lost empty-scene boundary", redrawPrompt, err)
 	}
 	if len(input["referenceImages"].([]any)) != 2 {
 		t.Fatal("redraw did not receive mother and grid")

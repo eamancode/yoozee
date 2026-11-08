@@ -2,7 +2,7 @@
 name: "柚子 · 三技能资产设计与空间母版"
 description: "流水线一资产提取：以小墨原文分析为基础，整合人物四宫格设计和通用微缩空间母版；保留证据、身份、时序与道具制作价值，遵循项目媒介。"
 metadata:
-  version: "1.0.2"
+  version: "1.0.3"
   author: "柚子"
   owner: "yingce-system"
   skillId: "yz-assets-integrated"
@@ -16,6 +16,7 @@ metadata:
 必须先读取 `references/character-design.md`，设计人物主卡与子卡的四宫格图。
 必须先读取 `references/scene-spatial.md`，设计符合实际空间类型和项目媒介的微缩场景母版。
 按人物设计卡末尾的产品输出契约桥接检查：子卡kind只能是单个字符串"costume"或"state"，不能将二选一说明抄为"costume/state"。复用子卡仍需完整的三个外观提示字段，不以空字符串占位；复用不会要求产品重复生成图片。
+人物主卡的appearance、prompt_en、generation_prompt必须描述同一个全篇默认形象；逐场范围只决定谁出场和用哪张子卡，不能把本场临时造型塞回这三个主卡字段。先按人物设计卡的字段对照确定基准，再输出本轮变体。
 
 三张卡共用同一资产事实与标准名称，不是三次独立提取。用户确认的改编、原文事实、已有身份和项目画风约束设计，来源默认值不能覆盖它们。已确认图片与手工修改不覆盖。只输出受保护契约规定的JSON Lines，不输出内部思考或三份Markdown报告。
 

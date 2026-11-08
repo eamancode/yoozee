@@ -56,7 +56,21 @@ type AssetsVariant struct {
 }
 
 // AssetVariantTitle 是子卡的资产名：「主卡名·变体名」。
-func AssetVariantTitle(name string, label string) string { return jsTrim(name) + "·" + jsTrim(label) }
+func AssetVariantTitle(name string, label string) string {
+	return jsTrim(name) + "·" + assetVariantLabel(name, label)
+}
+
+// 模型可能把完整子卡名填进 label；比较与建卡前只去掉同一母卡的重复前缀。
+func assetVariantLabel(name string, label string) string {
+	label = jsTrim(label)
+	for {
+		parent, suffix, ok := SplitAssetVariantTitle(label)
+		if !ok || AssetNameKey(parent) != AssetNameKey(name) {
+			return label
+		}
+		label = suffix
+	}
+}
 
 // SplitAssetVariantTitle 把「林小满·淋湿」拆成主卡名和变体名；不是这种写法时 ok 为 false。
 func SplitAssetVariantTitle(title string) (name string, label string, ok bool) {
@@ -179,7 +193,7 @@ func checkAssetsVariants(r *AssetsExtractRow, scenes int, known func(label strin
 	}
 	var kept []AssetsVariant
 	for _, v := range r.Variants {
-		v.Label = jsTruncate(jsCompact(v.Label), assetsVariantLabelChars)
+		v.Label = jsTruncate(jsCompact(assetVariantLabel(r.Name, v.Label)), assetsVariantLabelChars)
 		v.StartAfter = jsTruncate(jsCompact(v.StartAfter), 600)
 		label := AssetVariantTitle(r.Name, firstNonEmptyString(v.Label, "（无名）"))
 		switch {

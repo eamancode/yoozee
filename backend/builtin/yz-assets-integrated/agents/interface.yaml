@@ -1,4 +1,4 @@
 interface:
   display_name: "流水线一资产设计"
   short_description: "原文依据驱动的人物四宫格、微缩场景和独立道具设计"
-  default_prompt: "按项目画风和原文证据提取资产，输出assets.extract@2；子卡kind仅costume或state，每项完整输出外观、英文摘要和四宫格提示词，核对动作归属；不自行创建生成任务或授予执行权限。"
+  default_prompt: "按项目画风和原文证据提取资产，输出assets.extract@2；主卡三个外观提示字段对应同一全篇基准，当前场次差异只进子卡；子卡kind仅costume或state，label不带母卡名前缀；场景、九宫格和重绘保持空景并复用同一实际空间；不自行创建生成任务或授予执行权限。"
