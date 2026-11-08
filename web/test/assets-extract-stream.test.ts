@@ -14,7 +14,7 @@ describe("资产设计流式视图", () => {
         expect(state.rowCount).toBe(4);
         expect(state.scenes[0].rows[1].name).toBe('杯子{结构}"\\');
         expect(state.scenes[0].rows[1].appearance).toBe('含有}和{与"引号"');
-        for (const tail of ['{"name":', ' null', ' []', ', {}', ' garbage']) {
+        for (const tail of ['{"name":', " null", " []", ", {}", " garbage"]) {
             expect(parseAssetsExtractStream(`${hall}${tail}\n`).rowCount).toBe(0);
         }
         expect(parseAssetsExtractStream(`${hall}${escaped}`).rowCount).toBe(0);
