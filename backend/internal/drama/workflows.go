@@ -24,7 +24,7 @@ type AssetWorkflow struct {
 func Workflow(id string) (AssetWorkflow, bool) {
 	switch strings.TrimSpace(id) {
 	case WorkflowIntegrated:
-		return AssetWorkflow{ID: WorkflowIntegrated, Version: WorkflowVersion, Label: "流水线一", AssetsSkill: IntegratedAssetsSkill, AssetsVersion: "1.0.0", AssetsContract: ContractIntegratedAssets, CharacterLayout: "four-panel", SceneLayout: "spatial-master"}, true
+		return AssetWorkflow{ID: WorkflowIntegrated, Version: WorkflowVersion, Label: "流水线一", AssetsSkill: IntegratedAssetsSkill, AssetsVersion: "1.0.1", AssetsContract: ContractIntegratedAssets, CharacterLayout: "four-panel", SceneLayout: "spatial-master"}, true
 	case WorkflowOriginal, "":
 		return AssetWorkflow{ID: WorkflowOriginal, Version: WorkflowVersion, Label: "流水线二", AssetsContract: ContractAssetsExtract, CharacterLayout: "turnaround", SceneLayout: "concept"}, true
 	default:

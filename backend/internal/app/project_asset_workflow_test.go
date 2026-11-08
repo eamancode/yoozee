@@ -24,7 +24,7 @@ func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
 			t.Fatal(err)
 		}
 		if wf == drama.WorkflowIntegrated {
-			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.0" || usage.Contract != drama.ContractIntegratedAssets {
+			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.1" || usage.Contract != drama.ContractIntegratedAssets {
 				t.Fatal(usage)
 			}
 		} else if usage.Skill.ID != "yz-assets-extract" || usage.Contract != drama.ContractAssetsExtract {

@@ -527,6 +527,9 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	text, _ := result["text"].(string)
 	rows, stats := drama.AssetsExtractFromText(text)
 	if project.WorkflowID == drama.WorkflowIntegrated {
+		if err := drama.ValidateIntegratedAssetsText(text); err != nil {
+			return DramaAssetsExtractOutcome{}, BadAuthRequest(err.Error())
+		}
 		for _, row := range rows {
 			if row.HasLook() && row.GenerationPrompt == "" {
 				return DramaAssetsExtractOutcome{}, BadAuthRequest("流水线一资产缺少完整generation_prompt，没有写入：" + row.Name)

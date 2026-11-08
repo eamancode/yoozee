@@ -1,18 +1,22 @@
 {
-  "$schema":"https://json-schema.org/draft/2020-12/schema",
-  "$id":"assets.extract@2",
-  "title":"流水线一：完整资产设计与生图提示词",
-  "type":"object",
-  "required":["assets"],
-  "x-contract":{
-    "heading":"【受保护输出契约：流水线一】",
-    "layout":"lines","items":"assets","unit":"个资产",
-    "format":"输出JSON Lines，一行一个完整资产对象；不写外层数组、Markdown、解释或自检过程。",
-    "rowsIntro":"每行包含以下字段；已有资产复用标准名称，不重复初始设定，但补充证据、关系、状态和新子卡。",
-    "requirement":"每场至少输出发生地environment；首次建卡有中文外观、英文摘要和完整generation_prompt。",
-    "rules":[
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "assets.extract@2",
+  "title": "流水线一：完整资产设计与生图提示词",
+  "type": "object",
+  "required": [
+    "assets"
+  ],
+  "x-contract": {
+    "heading": "【受保护输出契约：流水线一】",
+    "layout": "lines",
+    "items": "assets",
+    "unit": "个资产",
+    "format": "输出JSON Lines，一行一个完整资产对象；不写外层数组、Markdown、解释或自检过程。",
+    "rowsIntro": "每行包含以下字段；已有资产复用标准名称，不重复初始设定，但补充证据、关系、状态和新子卡。",
+    "requirement": "每场至少输出发生地environment；首次建卡有中文外观、英文摘要和完整generation_prompt。",
+    "rules": [
       "原文事实、推导、设计建议分开。人、物、场独立，主体不重复；name稳定，aliases禁止杯子、机器、小伙子等歧义泛称。已有确认身份与图片不覆盖。",
-      "角色主卡采用常见稳定形象，保留六要素；临时雨湿、年龄阶段及换装写variants。时间差核对年龄，人物身份不变不等于年龄发型服装永不改变。同场中途变化写start_after原文动作边界。",
+      "先通读全篇决定主卡：主叙事时段最常见的干燥、中性稳定形象为主卡，不能因回忆先出现就把年轻/淋湿定为主卡。其他年龄阶段、临时雨湿及换装分别写variants，scene绑定到实际发生轮次。主卡不抱独立道具；身份锚点跨子卡继承。",
       "generation_prompt保存完整可执行生图提示词，不受prompt_en摘要长度影响：角色为正面头像、90度侧脸、颈部以下正面身体、含头背面全身四宫格；场景为空人物的微缩空间总览；道具为独立空置本体。媒介与项目一致，不能写相冲突的三视图要求。",
       "微缩场景按真实空间类型设计：围合室内保留实际四墙和门窗，半室外保留顶棚与敞开边界，外景表达道路建筑地形，不能凭空添加四墙或宋式陈设。记录固定地标与可站立anchors，不为凑数虚构结构。",
       "分析不漏物件，但仅有独立制作、跨镜识别、关键动作或特写价值的道具独立建卡。背景陈设在spatial_layout记录，普通消耗品合理归组。道具production_priority为high/medium/low，低优先级默认不排图。",
@@ -21,14 +25,221 @@
       "variants仅角色使用：{label,kind:costume/state,scenes,appearance,prompt_en,generation_prompt,start_after}，每个子卡generation_prompt描述该阶段完整四宫格，继承身份并只变授权差异。first_scene和scenes使用本轮给定的运行场序。"
     ]
   },
-  "properties":{"assets":{"type":"array","minItems":1,"items":{"type":"object","required":["category","name","aliases","appearance","prompt_en","generation_prompt","first_scene","palette_hint","design","anchors","variants"],"properties":{
-    "category":{"type":"string","enum":["character","environment","prop"]},
-    "name":{"type":"string"},"aliases":{"type":"array","items":{"type":"string"}},
-    "appearance":{"type":"string"},"prompt_en":{"type":"string"},
-    "generation_prompt":{"type":"string","description":"完整生图提示词：人物四宫格、场景微缩空间母版、独立道具本体；已有资产未改外观时可空"},
-    "first_scene":{"type":"integer","minimum":1},"palette_hint":{"type":"string"},
-    "design":{"type":"object","description":"包含人物身份与服装、道具本体及优先级、空间布局、原文证据、交叉引用和按时间记录的状态"},
-    "anchors":{"type":"array","items":{"type":"string"}},
-    "variants":{"type":"array","items":{"type":"object"}}
-  }}}}
+  "properties": {
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "category",
+          "name",
+          "aliases",
+          "appearance",
+          "prompt_en",
+          "generation_prompt",
+          "first_scene",
+          "palette_hint",
+          "design",
+          "anchors",
+          "variants"
+        ],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "character",
+              "environment",
+              "prop"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "appearance": {
+            "type": "string"
+          },
+          "prompt_en": {
+            "type": "string"
+          },
+          "generation_prompt": {
+            "type": "string",
+            "description": "完整生图提示词：人物四宫格、场景微缩空间母版、独立道具本体；已有资产未改外观时可空"
+          },
+          "first_scene": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "palette_hint": {
+            "type": "string"
+          },
+          "design": {
+            "type": "object",
+            "description": "设计字段类型必须严格遵守下列定义：role、identity_appearance、clothing、prop_design、body_description、spatial_layout均为字符串，不嵌套对象；production_priority仅high/medium/low。无关字符串写空字符串，数组写空数组。新人物必须有role/identity_appearance/clothing；新道具必须有body_description/production_priority；新场景必须有spatial_layout。每行包含原文依据，已有资产仍补充本场依据与状态。",
+            "properties": {
+              "role": {
+                "type": "string"
+              },
+              "identity_appearance": {
+                "type": "string"
+              },
+              "clothing": {
+                "type": "string"
+              },
+              "prop_design": {
+                "type": "string"
+              },
+              "production_priority": {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              "body_description": {
+                "type": "string",
+                "description": "只描述道具本体及固定部件；不含使用者、关联道具、摆放关系或后续状态"
+              },
+              "spatial_layout": {
+                "type": "string"
+              },
+              "characters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "props": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "environments": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "location",
+                    "text"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "原文",
+                        "推导",
+                        "设计建议"
+                      ]
+                    },
+                    "location": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "states": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "location",
+                    "trigger",
+                    "state"
+                  ],
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    },
+                    "trigger": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "label",
+                "kind",
+                "scenes",
+                "appearance",
+                "prompt_en",
+                "generation_prompt"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "description": "变体名，如 护士服、淋湿"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "costume",
+                    "state"
+                  ],
+                  "description": "costume（服装）或 state（状态）"
+                },
+                "scenes": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "description": "用这套形象的场序"
+                },
+                "appearance": {
+                  "type": "string",
+                  "description": "和主形象不同的服装或状态"
+                },
+                "prompt_en": {
+                  "type": "string",
+                  "description": "该子卡四宫格英文摘要，禁止沿用三视图"
+                },
+                "start_after": {
+                  "type": "string",
+                  "description": "仅在场中动作之后生效时，逐字引用触发动作并写明段落；整场适用写空字符串。非空时禁止按整场自动替换，需在后续镜头按该动作边界选用。"
+                },
+                "generation_prompt": {
+                  "type": "string",
+                  "description": "该子卡本阶段完整四宫格提示词，不能只写差异"
+                }
+              }
+            },
+            "description": "只有角色写：换了服装或状态的各套形象（子卡）"
+          }
+        }
+      }
+    }
+  }
 }

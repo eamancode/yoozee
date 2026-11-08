@@ -83,8 +83,9 @@ type StepEvalChapter struct {
 // TurnContext 是校验一轮输出时可用的上下文。
 type TurnContext struct {
 	// Index 是第几轮（从 1 数）；Turn 是这一轮（场或集）。
-	Index int
-	Turn  ShotsScene
+	Index    int
+	Contract string
+	Turn     ShotsScene
 	// Prior 是前面各轮的输出按顺序拼接（场次色卡校验承接色用）。
 	Prior string
 	// Sources 是这次运行点名的来源单元（剧本优化校验 sources 用），其余步骤为空。

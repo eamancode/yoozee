@@ -5375,3 +5375,6 @@ SQLite 与 HTTP recorder 已验证；PostgreSQL 16／17、前端构建及浏览�
 - 已验证：`go test ./... -count=1 -timeout=20m`、`go vet ./...`、`go build ./...`、前端 2716 项测试、`bun run lint`、`bun run build` 通过；数据库与API迁移测试包含SQLite。四篇修改后的MDX逐篇编译及OpenAPI引用解析通过。
 - 环境阻塞：文档站 `bun run types:check` 在 MDX 扫描前失败，当前忽略的 `docs/node_modules/fdir/dist/index.mjs` 调用了 `Dirent.isPrevisy()`（Node Dirent 无此方法）；为避免改依赖，本轮未继续修补 node_modules。
 - [ ] 真实模型/收费生成与多次运行pass^k、provider缓存命中率、PostgreSQL 58迁移、浏览器记忆提案与历史撤销尚未人工验收。
+### 双流水线真实图片验收补强
+
+新版技能补丁 1.0.1 在逐场检查点与最终落库前校验 design 的嵌套类型、角色身份、道具制作优先级、场景布局和子卡完整提示词；异常结果通过当前轮结构化反馈修正，不能静默丢弃设计后直接排图。旧流水线保持原解析方式。新版技能检查点不跨技能版本续写。技能侧进一步明确主叙事时段的稳定主卡、临时状态子卡、道具同义归并与全空间俯览构图。随行鲜两流水线真实文本/图片验收仍在执行，当前初轮发现的质量问题不能记为通过；不调用真实视频模型、不重试历史失败任务。

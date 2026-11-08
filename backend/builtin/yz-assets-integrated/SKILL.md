@@ -2,7 +2,7 @@
 name: "柚子 · 三技能资产设计与空间母版"
 description: "流水线一资产提取：以小墨原文分析为基础，整合人物四宫格设计和通用微缩空间母版；保留证据、身份、时序与道具制作价值，遵循项目媒介。"
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
   author: "柚子"
   owner: "yingce-system"
   skillId: "yz-assets-integrated"

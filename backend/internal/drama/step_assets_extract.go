@@ -427,7 +427,12 @@ func assetsSceneNo(v any) int {
 }
 
 // CountAssetsExtractTurn 校验一轮（一场）的输出：至少一行能用的资产（名字非空、分类合法）；写了外观却没写出图提示词按不合格重试这一轮。
-func CountAssetsExtractTurn(text string, _ TurnContext) (int, error) {
+func CountAssetsExtractTurn(text string, turn TurnContext) (int, error) {
+	if turn.Contract == ContractIntegratedAssets {
+		if err := ValidateIntegratedAssetsText(text); err != nil {
+			return 0, err
+		}
+	}
 	rows, stats := AssetsExtractFromText(text)
 	valid := 0
 	for _, r := range rows {

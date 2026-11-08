@@ -219,6 +219,8 @@ func (s *Service) resumeDramaRun(userID string, projectID string, unitID string,
 	switch {
 	case previous.ProjectID != projectID || run == nil || meta == nil || meta.Step != plan.usage.Step || run.UnitID != unitID || !slices.Equal(run.Sources, fresh.Sources):
 		return dramaRunMeta{}, BadAuthRequest("要继续的任务不是这一次的" + label)
+	case meta.Contract == drama.ContractIntegratedAssets && (meta.Contract != plan.usage.Contract || meta.VersionID != plan.skill.VersionID):
+		return dramaRunMeta{}, BadAuthRequest("资产技能版本已更新，请重新提取，不能混用旧检查点")
 	case previous.Status != model.TaskStatusFailed && previous.Status != model.TaskStatusCancelled:
 		return dramaRunMeta{}, BadAuthRequest("只有失败或取消的" + label + "任务才能从中间继续")
 	case progress == nil || progress.Completed == 0 || len(progress.Turns) < progress.Completed:
@@ -385,6 +387,9 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 			}
 		}
 		check := drama.TurnContext{Index: k, Sources: run.Sources, Prior: dramaRunPriorText(progress.Turns)}
+		if meta := taskDramaStep(task.InputJSON); meta != nil {
+			check.Contract = meta.Contract
+		}
 		if k <= len(run.Scenes) {
 			check.Turn = run.Scenes[k-1]
 		}
