@@ -3,6 +3,7 @@ import { App, Button, Select } from "antd";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { CachedResourceImage } from "@/components/cached-resource-image";
+import { ModelPicker } from "@/components/model-picker";
 import { resourceFileUrl } from "@/services/api/resources";
 import { runBackendGenerationTask } from "@/services/api/generation-task";
 import { cancelGenerationTask } from "@/services/api/task-center";
@@ -13,6 +14,8 @@ import { turnaroundImageModel } from "./project-character-media";
 export function SceneSpatialTools({ projectId, asset }: { projectId: string; asset: ProjectAsset }) {
     const { message } = App.useApp();
     const config = useDramaModelConfig();
+    const [selectedModel, setSelectedModel] = useState<string>();
+    const model = selectedModel || turnaroundImageModel(config);
     const [gridId, setGridId] = useState<string>();
     const [cell, setCell] = useState(1);
     const [taskId, setTaskId] = useState<string>();
@@ -31,7 +34,6 @@ export function SceneSpatialTools({ projectId, asset }: { projectId: string; ass
             if (submitting.current) throw new Error("空间参考正在提交，请稍候");
             submitting.current = true;
             try {
-                const model = turnaroundImageModel(config);
                 if (!model) throw new Error("请先选择可用图片模型");
                 if (kind === "redraw" && !selectedGrid) throw new Error("请先生成九宫格");
                 setTaskId(undefined);
@@ -75,7 +77,13 @@ export function SceneSpatialTools({ projectId, asset }: { projectId: string; ass
     return (
         <div className="mt-3 grid gap-2 border-t border-border/60 pt-2">
             <p className="text-xs text-foreground/60">微缩空间母版 · 05格仅作布局锚点</p>
-            <Button size="small" disabled={asset.mediaType !== "image" || generate.isPending} loading={generate.isPending && generate.variables === "grid"} onClick={() => generate.mutate("grid")}>
+            <ModelPicker preferenceScope="short-drama" config={config} capability="image" value={model} onChange={setSelectedModel} fullWidth showSelectedPrice />
+            {generate.isError ? (
+                <p role="alert" className="break-words text-xs text-foreground/60">
+                    {generate.error instanceof Error ? generate.error.message : "空间参考生成失败"}
+                </p>
+            ) : null}
+            <Button size="small" disabled={!model || asset.mediaType !== "image" || generate.isPending} loading={generate.isPending && generate.variables === "grid"} onClick={() => generate.mutate("grid")}>
                 生成空间九宫格
             </Button>
             {references.isError ? (

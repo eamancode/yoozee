@@ -14,6 +14,7 @@ import { API_ERROR_REASON } from "@/services/api/error-codes";
 import type { DramaImageStatus, ProjectDetail, ProjectUnit } from "@/services/api/projects";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelPreferencesStore } from "@/stores/use-drama-model-preferences-store";
 import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 
 import { assetsExtractStreamFromResult, parseAssetsExtractStream, resumedAssetsExtractStream, type AssetsExtractStreamState, type AssetsStreamCategory } from "./assets-extract-stream";
@@ -147,7 +148,7 @@ function imagesText(outcome: DramaAssetsExtractOutcome, statuses?: DramaImageSta
  * 技能由项目风格档案的绑定决定。进度侧栏按场流式显示资产行，写完显示新增 / 合并 / 跳过并可去资产页。资产直接是已确认的，不用再确认。
  */
 export function AssetsExtractControl({ detail, unit: selectedUnit, units, paletteReady, unitNoun, tasks, disabled, disabledReason }: AssetsExtractControlProps) {
-	const integrated = detail.project.workflowId === "pipeline-1";
+    const integrated = detail.project.workflowId === "pipeline-1";
     const { message } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -272,6 +273,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 { projectId, unitId: unit.id, config, imageTask, resumeTaskId: options.resumeTaskId },
                 {
                     onTaskUpdate: (task) => {
+                        if (images && imageTask) useDramaModelPreferencesStore.getState().remember("image", imageModel, task.userId);
                         followedRef.current.add(task.id);
                         setStream((current) => ({ taskId: task.id, unitId: unit.id, text: current.taskId && current.taskId !== task.id ? "" : current.text }));
                     },
@@ -437,7 +439,8 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                     </div>
                     <label className="block">
                         <span className="mb-1.5 block text-xs font-medium text-foreground/68">文本模型</span>
-                        <ModelPicker preferenceScope="short-drama"
+                        <ModelPicker
+                            preferenceScope="short-drama"
                             config={effectiveConfig}
                             capability="text"
                             value={settings.textModel}
@@ -463,7 +466,8 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                             />
                         </label>
                         {settings.images ? (
-                            <ModelPicker preferenceScope="short-drama"
+                            <ModelPicker
+                                preferenceScope="short-drama"
                                 config={effectiveConfig}
                                 capability="image"
                                 value={settings.imageModel}
@@ -495,7 +499,9 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                                         本步使用：<span className="font-medium text-foreground/85">{usage.skill.name}</span> {usage.skill.version}（{usage.profile.label}）
                                     </div>
                                     <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">
-                                        {integrated ? "流水线一使用三技能整合包：保留原文依据、关联及状态；人物采用四宫格，场景采用实际空间类型的微缩母版。子卡带主卡图片，微缩图保留关联关键道具参考；色卡与项目画风继续生效。" : "技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡和本集场次色卡；角色换装或换状态时拆成子卡。出图带色卡图，子卡另带主卡三视图。"}
+                                        {integrated
+                                            ? "流水线一使用三技能整合包：保留原文依据、关联及状态；人物采用四宫格，场景采用实际空间类型的微缩母版。子卡带主卡图片，微缩图保留关联关键道具参考；色卡与项目画风继续生效。"
+                                            : "技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡和本集场次色卡；角色换装或换状态时拆成子卡。出图带色卡图，子卡另带主卡三视图。"}
                                     </div>
                                 </>
                             ) : (
@@ -521,7 +527,8 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                     resume ? (
                         <label className="block text-xs">
                             继续使用的文本模型
-                            <ModelPicker preferenceScope="short-drama"
+                            <ModelPicker
+                                preferenceScope="short-drama"
                                 config={effectiveConfig}
                                 capability="text"
                                 value={settings.textModel || effectiveConfig.textModel || effectiveConfig.model}
