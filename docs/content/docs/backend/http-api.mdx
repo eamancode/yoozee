@@ -17,7 +17,7 @@ description: 信封、错误码与 OpenAPI
 
 ## 项目资产双流水线
 
-`POST /api/projects` 接受 `workflowId=pipeline-1|pipeline-2|pipeline-3`，依次为「流水线一 本体论导演」「流水线二 资产一体化」「流水线三 原流程」，省略时选择流水线一；非法值以 `project_production_invalid` 返回。项目读取返回 `workflowId`、`workflowVersion`，已创建项目不支持通过更新接口切换工作流。迁移 97 将旧流水线一、二顺延为二、三，空 ID 按三读取。流水线一、二共用资产一体化技能、四宫格和空间母版；二、三保持原分镜行为。步骤用法响应的 `workflow` 含 `id`、`label`、资产契约及版式，流水线一定义另含 `storyboardSkill=yz-ontology-director`、`storyboardMode=ontology`；本体论分镜运行时接入前，分镜用法查询、提示词预览及运行入口明确返回「本体论导演分镜运行时未实现」，不会退回旧分镜。工作流不改变生成模式的停点、视频时长、声音流程或白模开关。
+`POST /api/projects` 接受 `workflowId=pipeline-1|pipeline-2|pipeline-3`，依次为「流水线一 本体论导演」「流水线二 资产一体化」「流水线三 原流程」，省略时选择流水线一；非法值以 `project_production_invalid` 返回。项目读取返回 `workflowId`、`workflowVersion`，已创建项目不支持通过更新接口切换工作流。迁移 97 将旧流水线一、二顺延为二、三，空 ID 按三读取。流水线一、二共用资产一体化技能、四宫格和空间母版；二、三保持原分镜行为。步骤用法响应的 `workflow` 含 `id`、`label`、资产契约及版式，流水线一定义另含 `storyboardSkill=yz-ontology-director`、`storyboardMode=ontology`；流水线一的「生成分段」（`POST /api/projects/:id/units/:unitId/drama/steps/chapter.shots/run`）改用本体论导演分镜，用法查询返回契约 `ontology.director@1`、技能 `yz-ontology-director`，不会退回旧分镜。工作流不改变生成模式的停点、视频时长、声音流程或白模开关。
 
 流水线一的 `assets.extract` 返回 `assets.extract@2` 契约及固定技能版本。JSON Lines 新增 `generation_prompt`，人物子卡也携带完整提示词；旧摘要字段继续使用原语义。普通图片任务仍通过任务接口创建，服务端根据项目解析四宫格、空间母版或道具配方，不信任客户端指定的三视图模板来覆盖项目输出规格。
 
@@ -1007,3 +1007,17 @@ install 的 Base URL、协议、能力和成本全部从服务端快照读取，
 - 预算口径：`GET /dramas/:id` 的 `production.spentMicrocredits` 是作品总花费，含关联画布上生成任务的花费；其中画布部分为 `canvasSpentMicrocredits`。画布花费在读取时汇总：任务的 `project_id` 是关联到作品的画布，按其计费订单下单金额计（已退款除外，在途订单也计入），口径与流水线一致。派发、继续制作与修改设置都按总花费判断预算；关联画布上创建生成任务时作品预算已用完返回 400 `drama_budget_exhausted`。
 - 资源保护：短剧表直接持有的资源（设定参考图、剧情段视频与尾帧、成片以及全部版本记录）在资源引用快照里记为 `短剧` 引用，素材“彻底删除”与 24 小时孤儿资源清理都会保留它们。
 - 段视图新增 `revision`（采用时的乐观并发校验）与 `videoSeconds`（当前视频进入成片的秒数，与成片时间线一致）。
+
+## 本体论导演分镜（流水线一）
+
+生成仍走 `POST /api/projects/:id/units/:unitId/drama/steps/chapter.shots/run`。流水线一的项目在一个任务里按环节分轮：项目还没有世界圣经卡时先立项（S0、S1），然后规划（S0、S2、S3，写出节奏总表后才知道单元数）、讲戏（S4、S5）、每个单元一轮（S6、S7）、质检（S8，并按 S1 写集交接卡）。每轮只装本轮环节文件，不截断，不读 `archive/`、`dist/`、`tests/`；轮与轮之间不带对话历史。单元卡不合格（时长超过 `min(30, 视频模型单段上限)`、粘贴提示词超过 15000 字符、缺「本段不使用背景音乐」、出现场次编号 /「同上」/ `@音频` / `@视频`、素材编号越界、参考图超限）时把校验意见回给模型重试，最多三次。进度按轮存进任务结果，失败或取消后可用 `resumeTaskId` 从中断处继续。任务结果 `result.ontology` 是各轮原样输出；收尾把单元卡写成段（`spec.verbatim` 存原文，段号 `S01…`，`title` 是单元编号），并写入 `project_ontology_documents`。自检表有硬失败（✗）时照常写段，`result.dramaStep.notes` 写明失败项，流水线不接下一集。
+
+编译（`POST /api/projects/:id/shots/:shotId/compile`）遇到带 `verbatim` 的段直接用原文，只把 `@图k` 换成模型的参考图编号写法，参考文件按 `refs` 顺序；不追加场次色卡和空间说明；参考资产没有图时返回 error 级问题。视频提交时这类段不追加白模收尾（粘贴提示词自带 1 秒站位交接镜头）。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/projects/:id/drama/ontology` | 返回 `bible`、`setup`（最新版本，可能为空）及各集 `episodes`、`handoffs` |
+| PUT | `/api/projects/:id/drama/ontology/bible` | 请求 `{ content }`，手改世界圣经卡写新版本，只影响之后生成的集；非流水线一项目返回 400 |
+| POST | `/api/projects/:id/units/:unitId/drama/ontology/repair` | 请求 `{ shotId, symptom, model, logicalModelId?, config }`，对一个本体论单元段跑返修回合，只替换这一段；返回 `{ task, usage }`，受任务创建限流 |
+
+后台流程技能包评测拒绝分环节多轮契约（`ontology.director@1`），请用真实项目验收。

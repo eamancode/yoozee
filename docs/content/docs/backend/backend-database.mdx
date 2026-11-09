@@ -9,7 +9,7 @@ description: 柚子后端核心持久化表与状态边界
 
 `projects.workflow_id`、`workflow_version` 保存项目选定的工作流及配置版本。`pipeline-1` 为「流水线一 本体论导演」，`pipeline-2` 为「流水线二 资产一体化」，`pipeline-3` 为「流水线三 原流程」。创建接口省略时写入 `pipeline-1`，数据库列默认 `pipeline-3` / `1`，读取空 ID 按流水线三；创建后不可切换。
 
-迁移 96 的历史默认值冻结为 `pipeline-2`；迁移 97 在同一事务中依次执行已有项目 `pipeline-2 → pipeline-3`、`pipeline-1 → pipeline-2`、空字符串或 NULL → `pipeline-3`，然后将列默认值改为 `pipeline-3`。项目时间戳和配置版本不变。事务同时写入 `schema_migrations` 的版本 97 记录，重复运行迁移入口不会再次顺延；失败整体回滚。支持 SQLite / PostgreSQL，升级前应停写备份并在生产副本演练。
+迁移 96 的历史默认值冻结为 `pipeline-2`；迁移 97 在同一事务中依次执行已有项目 `pipeline-2 → pipeline-3`、`pipeline-1 → pipeline-2`、空字符串或 NULL → `pipeline-3`，然后在 PostgreSQL 上原地把列默认值改为 `pipeline-3`（SQLite 改默认值需要重建整表，会丢掉 projects 的独立索引与唯一约束，因此 SQLite 旧库保留 `pipeline-2` 列默认；建项总是显式写入 `workflow_id`，不依赖列默认值）。项目时间戳和配置版本不变。事务同时写入 `schema_migrations` 的版本 97 记录，重复运行迁移入口不会再次顺延；失败整体回滚。支持 SQLite / PostgreSQL，升级前应停写备份并在生产副本演练。
 
 历史任务采用**迁移改写**，不在续跑时引入版本换算：工作流快照唯一持久化位置为 `tasks.input_json` 的 `metadata.assetWorkflow`（步骤任务、图片任务及技能评测共用任务表）。迁移分批仅改写其中 `id` 与显示 `label`，空 ID 按流水线三；保留快照配置版本、技能版本、契约、版式、加密配置、模型上游 `config.workflowId`、提示词、检查点、任务状态、结果及时间戳。没有快照或快照未包含 ID 的任务保持原文，快照损坏或 ID 非法则中止迁移且不输出任务正文。`drama_eval_runs.tasks_json` 仅保存任务位和任务 ID，结果保存契约；`workflow_step_instances.input_json` 和记忆提案输入不保存该工作流快照，无需改写。统一改写可覆盖重试、续跑和评测，避免依赖各读取入口正确判断旧编号。
 
@@ -592,3 +592,17 @@ Schema 32 为 `channel_models` 新增 `tags`（TEXT、NOT NULL、默认 `'[]'`�
 迁移 46 新增 skill_curation_settings、skill_curation_categories、skill_curation_assignments；默认关闭，不导入技能内容。表结构与事务规则见 [平台技能策展](./skill-curation)。
 
 迁移 47 依赖 46，新增 skill_curation_roots 与 skill_curation_root_assignments；保留原五个根 ID，根停用时使用派生默认桶，根表为空回落固定五类。
+
+## 本体论导演文档（迁移 98）
+
+`project_ontology_documents` 保存流水线一本体论导演分镜的文档，只追加版本，读取取最新版本：
+
+| 列 | 说明 |
+| --- | --- |
+| `id` | 主键 |
+| `project_id`、`unit_id`、`kind`、`version` | 联合唯一索引 `idx_project_ontology_docs_version`；`unit_id` 为空是项目级文档 |
+| `kind` | `bible` 世界圣经卡（项目级）、`setup` 立项待确认清单与补图建议（项目级）、`episode` 一集的七部分、`handoff` 一集的集交接卡 |
+| `content` | 文档原文（Markdown） |
+| `task_id`、`created_by`、`created_at` | 来源任务、写入人、时间；手改圣经卡没有 `task_id` |
+
+迁移 98 只建表，不改已有数据。单元段仍存 `shots` / `shot_revisions`：`spec_json` 新增可选字段 `verbatim`（粘贴提示词原文，`@图k` 与 `refs` 顺序一致），旧段没有该字段。
