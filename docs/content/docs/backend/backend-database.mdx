@@ -5,13 +5,17 @@ description: 柚子后端核心持久化表与状态边界
 
 # 后端数据库
 
-## 项目资产双流水线（迁移 96）
+## 三条流水线与编号顺延（迁移 97）
 
-`projects.workflow_id`、`workflow_version` 保存项目选定的资产工作流及配置版本。数据库列默认 `pipeline-2` / `1`，保证升级前的历史项目继续原提取、三视图和场景概念图。创建接口省略工作流时明确写入 `pipeline-1`，其人物采用四宫格，场景采用对应空间类型的微缩母版；创建后不提供跨流水线修改入口。
+`projects.workflow_id`、`workflow_version` 保存项目选定的工作流及配置版本。`pipeline-1` 为「流水线一 本体论导演」，`pipeline-2` 为「流水线二 资产一体化」，`pipeline-3` 为「流水线三 原流程」。创建接口省略时写入 `pipeline-1`，数据库列默认 `pipeline-3` / `1`，读取空 ID 按流水线三；创建后不可切换。
 
-流水线一使用独立技能包 `yz-assets-integrated` 和 `assets.extract@2`，不覆盖流水线二的 `yz-assets-extract` 或 `assets.extract@1`。完整 `generation_prompt` 写入资产版本定义的 `generationPrompt`，与原有短摘要分别保存。任务元数据记录工作流、技能版本、配方文件及其哈希，图片配方随技能包版本发布。
+迁移 96 的历史默认值冻结为 `pipeline-2`；迁移 97 在同一事务中依次执行已有项目 `pipeline-2 → pipeline-3`、`pipeline-1 → pipeline-2`、空字符串或 NULL → `pipeline-3`，然后将列默认值改为 `pipeline-3`。项目时间戳和配置版本不变。事务同时写入 `schema_migrations` 的版本 97 记录，重复运行迁移入口不会再次顺延；失败整体回滚。支持 SQLite / PostgreSQL，升级前应停写备份并在生产副本演练。
 
-新提取任务只读取已启用的技能版本。流水线一提取的资产版本定义另存 `assetWorkflowSkillVersionId`，人物子卡继承对应来源；主图、空间九宫格、选格重绘及分镜引用提示使用该固定版本的配方。客户端不能覆盖来源版本。没有提取来源的手工资产使用当前启用版本。此字段位于现有 JSON 定义内，不新增表或列。
+历史任务采用**迁移改写**，不在续跑时引入版本换算：工作流快照唯一持久化位置为 `tasks.input_json` 的 `metadata.assetWorkflow`（步骤任务、图片任务及技能评测共用任务表）。迁移分批仅改写其中 `id` 与显示 `label`，空 ID 按流水线三；保留快照配置版本、技能版本、契约、版式、加密配置、模型上游 `config.workflowId`、提示词、检查点、任务状态、结果及时间戳。没有快照或快照未包含 ID 的任务保持原文，快照损坏或 ID 非法则中止迁移且不输出任务正文。`drama_eval_runs.tasks_json` 仅保存任务位和任务 ID，结果保存契约；`workflow_step_instances.input_json` 和记忆提案输入不保存该工作流快照，无需改写。统一改写可覆盖重试、续跑和评测，避免依赖各读取入口正确判断旧编号。
+
+流水线一、二的资产部分共用 `yz-assets-integrated`、`assets.extract@2`、角色四宫格和空间母版，流水线三保留 `yz-assets-extract`、`assets.extract@1`、三视图和场景概念图。流水线二、三的分镜技能和契约保持原样；流水线一的工作流定义返回 `storyboardSkill=yz-ontology-director`、`storyboardMode=ontology`，运行时接入前明确报「本体论导演分镜运行时未实现」。这些路由字段属于服务端工作流配置，不新增数据库列。完整 `generation_prompt` 写入资产版本定义的 `generationPrompt`，与原有短摘要分别保存。任务元数据记录工作流、技能版本、配方文件及其哈希，图片配方随技能包版本发布。
+
+新提取任务只读取已启用的技能版本。流水线一、二提取的资产版本定义另存 `assetWorkflowSkillVersionId`，人物子卡继承对应来源；主图、空间九宫格、选格重绘及分镜引用提示使用该固定版本的配方。客户端不能覆盖来源版本。没有提取来源的手工资产使用当前启用版本。此字段位于现有 JSON 定义内，不新增表或列。
 
 技能评测的逐章结果 JSON 记录实际输出契约 `contract`，基线结果仅在技能版本、模型、章节及契约全部匹配时复用；契约不同或未记录契约的旧结果保留历史，不作为新评测的基线缓存。
 

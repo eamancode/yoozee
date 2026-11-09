@@ -162,9 +162,24 @@ func (s *Service) DramaStepUsage(userID string, projectID string, stepID string,
 	return usage, err
 }
 
-// dramaStepSkill 按项目风格档案查绑定（没配用步骤默认技能），读技能当前版本。生成分段按戏类查：项目视频模型单段上限
-// （叠上需求文档单段秒数和渠道段长规则 rule）选出戏类，查「chapter.shots#<戏类>」那一格。
+// projectStepWorkflow rejects unavailable storyboard runtimes before legacy planning or task creation.
+func projectStepWorkflow(project *model.Project, stepID string) (drama.AssetWorkflow, error) {
+	workflow, ok := drama.Workflow(project.WorkflowID)
+	if !ok || (project.WorkflowVersion != "" && project.WorkflowVersion != workflow.Version) {
+		return drama.AssetWorkflow{}, BadAuthRequest("项目工作流版本不可用")
+	}
+	if (stepID == drama.StepChapterShots || strings.HasPrefix(stepID, drama.StepChapterShots+"#")) && workflow.StoryboardMode == "ontology" {
+		return drama.AssetWorkflow{}, BadAuthRequest("本体论导演分镜运行时未实现")
+	}
+	return workflow, nil
+}
+
+// dramaStepSkill 按风格档案查技能绑定；生成分段按项目与渠道段长选择戏类。
 func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *DramaShotlistRule) (DramaStepUsage, drama.StepSkill, error) {
+	workflow, workflowErr := projectStepWorkflow(project, step.ID)
+	if workflowErr != nil {
+		return DramaStepUsage{}, drama.StepSkill{}, workflowErr
+	}
 	binding := step
 	var genre *DramaStepGenre
 	if step.ID == drama.StepChapterShots {
@@ -180,10 +195,6 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *
 		binding, genre = variant, &DramaStepGenre{ID: g.ID, Label: g.Label, MaxSeconds: hi, Model: m.Label}
 	}
 	profileID := projectDramaContext(project).profileID()
-	workflow, ok := drama.Workflow(project.WorkflowID)
-	if !ok || (project.WorkflowVersion != "" && project.WorkflowVersion != workflow.Version) {
-		return DramaStepUsage{}, drama.StepSkill{}, BadAuthRequest("项目工作流版本不可用")
-	}
 	if step.ID == drama.StepAssetsExtract && workflow.AssetsSkill != "" {
 		binding.DefaultSkill, binding.Contract = workflow.AssetsSkill, workflow.AssetsContract
 	}
@@ -282,6 +293,9 @@ func (s *Service) DramaStepPrompt(userID string, projectID string, unitID string
 func (s *Service) RunDramaStep(userID string, projectID string, unitID string, stepID string, req DramaStepRunRequest) (DramaStepRunResult, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
+		return DramaStepRunResult{}, err
+	}
+	if _, err := projectStepWorkflow(project, stepID); err != nil {
 		return DramaStepRunResult{}, err
 	}
 	// 整章生成分段收尾时整章替换段：本章段上已有产物就先要用户确认（续写、只重写几节、改戏类走保留装段，不在这里拦）。
@@ -506,6 +520,9 @@ func (s *Service) planDramaStep(userID string, project *model.Project, unitID st
 func (s *Service) planDramaStepWith(userID string, project *model.Project, unitID string, stepID string, rule *DramaShotlistRule, overrides *[]drama.GenreOverride) (*dramaStepPlan, error) {
 	step, err := dramaStep(stepID)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := projectStepWorkflow(project, step.ID); err != nil {
 		return nil, err
 	}
 	if step.Scope == drama.StepScopeProject {

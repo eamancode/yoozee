@@ -1,3 +1,4 @@
+import { projectWorkflow } from "@/lib/project-workflow";
 import { ImageSizePicker } from "@/components/image-size-picker";
 import { VideoArtifactPreview } from "./video-artifact-preview";
 import { SceneSpatialTools } from "./scene-spatial-tools";
@@ -627,7 +628,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const selectedShotSubmitting = submittingShotIds.has(selectedShot?.id || "");
 
     if (!selectedShot) {
-        return <div className="workflow-empty-shot"><EmptyState size="compact" title={detail.units.find((unit) => unit.id === unitId)?.kind === "episode" ? "当前剧集还没有分镜" : "当前章节还没有分镜"} action={<Button type="primary" icon={<Plus className="size-4" />} loading={addingShot} onClick={onAddShot}>新增第一个分镜</Button>} /></div>;
+        return <div className="workflow-empty-shot"><EmptyState size="compact" title={detail.units.find((unit) => unit.id === unitId)?.kind === "episode" ? "当前剧集还没有分镜" : "当前章节还没有分镜"} description={projectWorkflow(detail.project.workflowId).label} action={<Button type="primary" icon={<Plus className="size-4" />} loading={addingShot} onClick={onAddShot}>新增第一个分镜</Button>} /></div>;
     }
 
     const leaveEditor = (action: () => void, verb: string) => {
@@ -681,6 +682,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             }} /> : null}
             <div className="workflow-production-main">
                 <aside className="workflow-library-panel">
+                    <p className="mb-3 text-xs text-foreground/60">{projectWorkflow(detail.project.workflowId).label}</p>
                         <SegmentedControl
                         block
                         size="sm"
@@ -706,7 +708,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     </header>
                     <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate(values)}>
                         <div className="workflow-shot-form-scroll thin-scrollbar">
-                            {activeStage === "storyboard" && detail.project.workflowId === "pipeline-1" ? detail.assets.filter((asset) => asset.category === "environment" && referenceByVersionId.has(asset.primaryVersionId || "")).map((asset) => <details key={asset.id} className="mb-3 rounded-md border border-border p-3"><summary className="cursor-pointer text-sm">{asset.title} · 空间母版与机位规划</summary><SceneSpatialTools projectId={projectId} asset={asset} /></details>) : null}
+                            {activeStage === "storyboard" && projectWorkflow(detail.project.workflowId).integratedAssets ? detail.assets.filter((asset) => asset.category === "environment" && referenceByVersionId.has(asset.primaryVersionId || "")).map((asset) => <details key={asset.id} className="mb-3 rounded-md border border-border p-3"><summary className="cursor-pointer text-sm">{asset.title} · 空间母版与机位规划</summary><SceneSpatialTools projectId={projectId} asset={asset} /></details>) : null}
                             <div className="workflow-form-section-heading"><span>分段脚本</span><small>一段 = 一次生成；先写清段里发生什么，再调整生成参数</small></div>
                             {segmentSpecShots ? <p className="mb-3 rounded-md bg-surface-active px-3 py-2 text-[var(--fs-label)] leading-5 text-foreground/55">这一段由分段表维护（段内 {segmentSpecShots} 个镜头）。生成视频时提示词按 {dramaModel?.label || "项目生成模型"} 方言从分段表编译，下面的视频提示词只作备注；分镜卡按这一节的戏类版式显示，拆段、合并、移镜头和逐张改分镜卡都在下面的分镜卡上做，也可以让短剧 Agent 改分段表。</p> : null}
                             {segmentSpecShots ? <DramaSegmentCard projectId={projectId} unitId={unitId} shotId={selectedShot.id} revisionId={revision?.id} specJson={segmentSpecJson} estimate={activeStage === "video" && creditsEnabled && formattedGenerationCredits ? `${formattedGenerationCredits} 积分` : undefined} durationRule={segmentRule} genreRule={genreRule} takeCounts={segmentTakeCounts} busyShotIds={busySegmentShotIds} episode={unitEpisode} boundAssets={segmentAssets} onPickAssets={() => setAssetPickerOpen(true)} onEdited={async (selectShotId) => { if (selectShotId && selectShotId !== selectedShot.id) onSelectShot(selectShotId); await Promise.all([onRefresh(), invalidateDrama()]); }} /> : null}

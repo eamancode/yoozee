@@ -56,7 +56,7 @@ func TestIntegratedBuiltinPackageAndFullScriptContext(t *testing.T) {
 }
 
 func TestAssetWorkflowsSeparateLayoutsAndContracts(t *testing.T) {
-	for _, id := range []string{WorkflowIntegrated, WorkflowOriginal} {
+	for _, id := range []string{WorkflowOntology, WorkflowIntegrated, WorkflowOriginal} {
 		workflow, ok := Workflow(id)
 		if !ok {
 			t.Fatal(id)
@@ -66,7 +66,7 @@ func TestAssetWorkflowsSeparateLayoutsAndContracts(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := contract.Text(contract.DefaultRequirement(), ContractTextOptions{SkillShaped: true})
-		if id == WorkflowIntegrated {
+		if IntegratedAssets(id) {
 			if workflow.CharacterLayout != "four-panel" || workflow.SceneLayout != "spatial-master" || !strings.Contains(text, "generation_prompt") {
 				t.Fatal(workflow, text)
 			}
@@ -76,6 +76,28 @@ func TestAssetWorkflowsSeparateLayoutsAndContracts(t *testing.T) {
 	}
 	if _, ok := Workflow("unknown"); ok {
 		t.Fatal("invalid workflow accepted")
+	}
+}
+
+func TestWorkflowRenumberPreservesLegacyDefinitions(t *testing.T) {
+	integrated, ok := Workflow("pipeline-2")
+	if !ok || integrated != (AssetWorkflow{ID: "pipeline-2", Version: "1", Label: "流水线二 资产一体化", AssetsSkill: "yz-assets-integrated", AssetsContract: "assets.extract@2", CharacterLayout: "four-panel", SceneLayout: "spatial-master"}) {
+		t.Fatalf("old integrated definition changed: %+v", integrated)
+	}
+	original, ok := Workflow("pipeline-3")
+	if !ok || original != (AssetWorkflow{ID: "pipeline-3", Version: "1", Label: "流水线三 原流程", AssetsContract: "assets.extract@1", CharacterLayout: "turnaround", SceneLayout: "concept"}) {
+		t.Fatalf("old original definition changed: %+v", original)
+	}
+	if empty, ok := Workflow(""); !ok || empty != original {
+		t.Fatal("empty workflow must use original", empty)
+	}
+	ontology, ok := Workflow("pipeline-1")
+	if !ok || ontology.StoryboardMode != "ontology" || ontology.StoryboardSkill != "yz-ontology-director" {
+		t.Fatal("ontology storyboard route missing", ontology)
+	}
+	ontology.ID, ontology.Label, ontology.StoryboardMode, ontology.StoryboardSkill = integrated.ID, integrated.Label, "", ""
+	if ontology != integrated {
+		t.Fatal("ontology changed the integrated asset protocol", ontology, integrated)
 	}
 }
 

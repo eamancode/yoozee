@@ -532,9 +532,9 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	}
 	text, _ := result["text"].(string)
 	rows, stats := drama.AssetsExtractFromText(text)
-	if project.WorkflowID == drama.WorkflowIntegrated {
+	if drama.IntegratedAssets(project.WorkflowID) {
 		if meta.SkillID != drama.IntegratedAssetsSkill || meta.VersionID == "" || meta.Contract != drama.ContractIntegratedAssets {
-			return DramaAssetsExtractOutcome{}, BadAuthRequest("流水线一资产任务缺少有效技能版本")
+			return DramaAssetsExtractOutcome{}, BadAuthRequest("资产一体化流程的资产任务缺少有效技能版本")
 		}
 		if err := drama.ValidateIntegratedAssetsText(text); err != nil {
 			return DramaAssetsExtractOutcome{}, BadAuthRequest(err.Error())
@@ -543,11 +543,11 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 			rows[i].SourceSkillVersionID = meta.VersionID
 			row := rows[i]
 			if row.HasLook() && row.GenerationPrompt == "" {
-				return DramaAssetsExtractOutcome{}, BadAuthRequest("流水线一资产缺少完整generation_prompt，没有写入：" + row.Name)
+				return DramaAssetsExtractOutcome{}, BadAuthRequest("资产一体化流程的资产缺少完整generation_prompt，没有写入：" + row.Name)
 			}
 			for _, variant := range row.Variants {
 				if variant.Appearance != "" && variant.GenerationPrompt == "" {
-					return DramaAssetsExtractOutcome{}, BadAuthRequest("流水线一子卡缺少完整generation_prompt：" + row.Name + "·" + variant.Label)
+					return DramaAssetsExtractOutcome{}, BadAuthRequest("资产一体化流程的子卡缺少完整generation_prompt：" + row.Name + "·" + variant.Label)
 				}
 			}
 		}
@@ -1008,7 +1008,7 @@ func (s *Service) queueDramaAssetImages(userID string, projectID string, templat
 		if state := dramaImageStateOf(&asset, assetImageKey); state.Status != dramaImageWaiting || state.BatchID != template.BatchID {
 			continue
 		}
-		if project.WorkflowID == drama.WorkflowIntegrated && asset.Category == model.AssetCategoryEnvironment {
+		if drama.IntegratedAssets(project.WorkflowID) && asset.Category == model.AssetCategoryEnvironment {
 			version, err := s.repo.AssetVersion(asset.PrimaryVersionID)
 			if err != nil {
 				return result, err

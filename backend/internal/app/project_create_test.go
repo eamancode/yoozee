@@ -20,7 +20,7 @@ func newTestProject(t *testing.T, svc *Service, db *gorm.DB, userID string, req 
 		req.VisualType = drama.VisualLiveAction
 	}
 	// Existing fixtures exercise the original asset contract. New workflow tests
-	// call CreateProject directly or explicitly select pipeline-1.
+	// call CreateProject directly or explicitly select WorkflowOntology / WorkflowIntegrated.
 	if req.WorkflowID == "" {
 		req.WorkflowID = drama.WorkflowOriginal
 	}

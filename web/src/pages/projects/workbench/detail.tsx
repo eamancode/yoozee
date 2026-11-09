@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
+import { projectWorkflow } from "@/lib/project-workflow";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App } from "antd";
 import { ArrowLeft, Plus } from "lucide-react";
@@ -173,6 +174,7 @@ function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, 
                 </Link>
                 <div className="project-workspace-title">
                     <h1 title={detail.project.name}>{detail.project.name}</h1>
+                    <span className="text-xs text-foreground/60">{projectWorkflow(detail.project.workflowId).label}</span>
                     <span className={`project-workspace-status ${archived ? "is-archived" : "is-active"}`}>{archived ? "已归档" : "进行中"}</span>
                 </div>
             </div>

@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 96
+const CurrentSchemaVersion int64 = 97
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -340,12 +340,22 @@ var schemaMigrations = []migration{
 	{version: 94, name: "director_style_profile_cover", checksum: "sha256:director-style-profile-cover-v94", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.StyleProfile{}) }},
 	{version: 95, name: "project_white_model_storyboard", checksum: "sha256:project-white-model-storyboard-v95", apply: migrateProjectWhiteModelStoryboard},
 	{version: 96, name: "project_asset_workflows", checksum: "sha256:project-asset-workflows-v96", apply: migrateProjectAssetWorkflows},
+	{version: 97, name: "ontology_workflow_renumber", checksum: "sha256:ontology-workflow-renumber-v97", apply: migrateOntologyWorkflowRenumber},
 }
+
+// Freeze v96's default: a pre-workflow project must become the old original workflow
+// before v97 renumbers it. Do not use the current Project model for these columns.
+type projectAssetWorkflowV96 struct {
+	WorkflowID      string `gorm:"size:32;not null;default:pipeline-2"`
+	WorkflowVersion string `gorm:"size:24;not null;default:1"`
+}
+
+func (projectAssetWorkflowV96) TableName() string { return "projects" }
 
 func migrateProjectAssetWorkflows(tx *gorm.DB) error {
 	for _, column := range []string{"WorkflowID", "WorkflowVersion"} {
 		if !tx.Migrator().HasColumn(&model.Project{}, column) {
-			if err := tx.Migrator().AddColumn(&model.Project{}, column); err != nil {
+			if err := tx.Migrator().AddColumn(&projectAssetWorkflowV96{}, column); err != nil {
 				return err
 			}
 		}

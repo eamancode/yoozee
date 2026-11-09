@@ -38,7 +38,7 @@ func projectSectionError(reason ErrorReason, message string) *AppError {
 func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.Project, error) {
 	workflowID := strings.TrimSpace(req.WorkflowID)
 	if workflowID == "" {
-		workflowID = drama.WorkflowIntegrated
+		workflowID = drama.WorkflowOntology
 	}
 	workflow, validWorkflow := drama.Workflow(workflowID)
 	if !validWorkflow {

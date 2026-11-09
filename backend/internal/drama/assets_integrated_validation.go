@@ -18,7 +18,7 @@ func ValidateIntegratedAssetsText(text string) error {
 		}
 		objects, err := assetJSONObjects(line)
 		if err != nil {
-			return errors.New("流水线一资产行不是完整JSON对象")
+			return errors.New("资产一体化流程的资产行不是完整JSON对象")
 		}
 		for _, fields := range objects {
 			if _, marker := fields[ShotLinesMarkerKey]; marker {
@@ -29,13 +29,13 @@ func ValidateIntegratedAssetsText(text string) error {
 			if err := json.Unmarshal(encoded, &row); err != nil {
 				var fieldError *json.UnmarshalTypeError
 				if errors.As(err, &fieldError) {
-					return fmt.Errorf("流水线一字段 %s 类型应为 %s，请按契约修正后输出完整本轮", fieldError.Field, fieldError.Type)
+					return fmt.Errorf("资产一体化流程的字段 %s 类型应为 %s，请按契约修正后输出完整本轮", fieldError.Field, fieldError.Type)
 				}
-				return errors.New("流水线一资产字段无法按契约读取")
+				return errors.New("资产一体化流程的资产字段无法按契约读取")
 			}
 			row.Category = NormalizeAssetCategory(row.Category)
 			if strings.TrimSpace(row.Name) == "" || AssetCategoryName(row.Category) == "" {
-				return errors.New("流水线一资产必须包含有效name和category")
+				return errors.New("资产一体化流程的资产必须包含有效name和category")
 			}
 			fail := func(field string) error {
 				return fmt.Errorf("「%s」缺少有效 %s，请保留本轮全部资产并补齐", row.Name, field)
@@ -103,7 +103,7 @@ func ValidateIntegratedAssetsText(text string) error {
 		}
 	}
 	if records == 0 {
-		return errors.New("流水线一没有完整资产记录")
+		return errors.New("资产一体化流程没有完整资产记录")
 	}
 	return nil
 }

@@ -9,7 +9,8 @@ import { PROJECT_VISUAL_TYPES } from "@/lib/project-visual-type";
 import { settingsPath } from "@/lib/settings-navigation";
 import type { DramaModel, DramaRunMode } from "@/services/api/project-drama";
 import { dramaStyleLibraryCoverUrl, type DramaStyleLibraryItem } from "@/services/api/drama-style-library";
-import type { ProjectVisualType } from "@/services/api/projects";
+import type { ProjectVisualType, ProjectAssetWorkflow } from "@/services/api/projects";
+import { PROJECT_WORKFLOWS, projectWorkflow } from "@/lib/project-workflow";
 
 import { DRAMA_RUN_MODES, DRAMA_VIDEO_STOP_NOTE } from "../drama-model";
 import { PipelineStrip } from "../pipeline-strip";
@@ -259,8 +260,8 @@ function ratioIconStyle(ratio: string) {
 
 /** 段 4 · 怎么做：画幅、每段时长、视频模型、生成模式（都有默认值）。 */
 export function ProductionSection(props: {
-    workflowId: "pipeline-1" | "pipeline-2";
-    onWorkflowId: (id: "pipeline-1" | "pipeline-2") => void;
+    workflowId: ProjectAssetWorkflow;
+    onWorkflowId: (id: ProjectAssetWorkflow) => void;
     whiteModelStoryboardEnabled: boolean;
     onWhiteModelStoryboardEnabled: (enabled: boolean) => void;
     aspectRatio: string;
@@ -344,14 +345,14 @@ export function ProductionSection(props: {
                 <ChoiceGroup
                     label="工作流"
                     value={props.workflowId}
-                    options={[{ value: "pipeline-1" }, { value: "pipeline-2" }]}
-                    onChange={(id) => props.onWorkflowId(id as "pipeline-1" | "pipeline-2")}
+                    options={PROJECT_WORKFLOWS.map(({ value }) => ({ value }))}
+                    onChange={(id) => props.onWorkflowId(id as ProjectAssetWorkflow)}
                     className="project-choice-row"
                     optionClassName="project-choice"
                     render={(id) => (
                         <>
-                            <strong>{id === "pipeline-1" ? "流水线一 · 默认" : "流水线二"}</strong>
-                            <span>{id === "pipeline-1" ? "新版资产提取 · 角色四宫格 · 微缩场景图" : "原版资产提取 · 角色三视图 · 场景概念图"}</span>
+                            <strong>{projectWorkflow(id as ProjectAssetWorkflow).label}{id === "pipeline-1" ? " · 默认" : ""}</strong>
+                            <span>{projectWorkflow(id as ProjectAssetWorkflow).description}</span>
                         </>
                     )}
                 />
