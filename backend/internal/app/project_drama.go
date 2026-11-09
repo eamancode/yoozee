@@ -813,6 +813,9 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 	if err != nil {
 		return DramaCompileResult{}, BadAuthRequest(err.Error())
 	}
+	if strings.TrimSpace(seg.Verbatim) != "" {
+		return s.compileOntologyShot(userID, projectID, shot, seg, derived, m)
+	}
 	// 2.1 段写了风格档案（由镜头表装出）：默认风格块和表演块取档案的，与本机 compile.py 一致。
 	var profile *drama.Profile
 	if strings.TrimSpace(seg.Profile) != "" {

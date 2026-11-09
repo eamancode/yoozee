@@ -668,3 +668,24 @@ type BannerAnnouncement struct {
 	CreatedAt  time.Time  `json:"createdAt"`
 	UpdatedAt  time.Time  `json:"updatedAt"`
 }
+
+// 本体论导演分镜（流水线一）的文档种类。
+const (
+	OntologyDocBible   = "bible"   // 项目级世界圣经卡（UnitID 为空）
+	OntologyDocSetup   = "setup"   // 立项回合的待确认清单与补图建议（UnitID 为空）
+	OntologyDocEpisode = "episode" // 一集的七部分
+	OntologyDocHandoff = "handoff" // 一集的集交接卡，下一集的材料包读它
+)
+
+// ProjectOntologyDocument 是本体论导演分镜的文档。只追加：每次生成或编辑写一条新版本（Version 递增），读取取最新版本。
+type ProjectOntologyDocument struct {
+	ID        string    `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID string    `json:"projectId" gorm:"size:36;uniqueIndex:idx_project_ontology_docs_version,priority:1"`
+	UnitID    string    `json:"unitId" gorm:"size:36;uniqueIndex:idx_project_ontology_docs_version,priority:2"`
+	Kind      string    `json:"kind" gorm:"size:24;uniqueIndex:idx_project_ontology_docs_version,priority:3"`
+	Version   int       `json:"version" gorm:"uniqueIndex:idx_project_ontology_docs_version,priority:4"`
+	Content   string    `json:"content" gorm:"type:text"`
+	TaskID    string    `json:"taskId,omitempty" gorm:"size:36;index"`
+	CreatedBy string    `json:"createdBy,omitempty" gorm:"size:36"`
+	CreatedAt time.Time `json:"createdAt"`
+}

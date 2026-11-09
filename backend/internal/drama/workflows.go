@@ -9,6 +9,8 @@ const (
 	WorkflowVersion          = "1"
 	IntegratedAssetsSkill    = "yz-assets-integrated"
 	ContractIntegratedAssets = "assets.extract@2"
+	// StoryboardModeOntology 表示分镜环节由本体论导演分镜（yz-ontology-director）分轮生成。
+	StoryboardModeOntology = "ontology"
 )
 
 type AssetWorkflow struct {
@@ -29,7 +31,7 @@ func Workflow(id string) (AssetWorkflow, bool) {
 		workflow := AssetWorkflow{ID: strings.TrimSpace(id), Version: WorkflowVersion, Label: "流水线二 资产一体化", AssetsSkill: IntegratedAssetsSkill, AssetsContract: ContractIntegratedAssets, CharacterLayout: "four-panel", SceneLayout: "spatial-master"}
 		if workflow.ID == WorkflowOntology {
 			workflow.Label = "流水线一 本体论导演"
-			workflow.StoryboardSkill, workflow.StoryboardMode = "yz-ontology-director", "ontology"
+			workflow.StoryboardSkill, workflow.StoryboardMode = OntologySkillID, StoryboardModeOntology
 		}
 		return workflow, true
 	case WorkflowOriginal, "":

@@ -137,6 +137,8 @@ type dramaStepPlan struct {
 	// lock 是风格锁定的运行参数（metadata.dramaStyleLock）；referenceImages 是随任务发给模型的参考图（input.referenceImages）。
 	lock            *dramaStyleLockMeta
 	referenceImages []map[string]any
+	// ontology 是本体论导演分镜（流水线一）的运行参数（metadata.dramaOntology）。
+	ontology *dramaOntologyMeta
 }
 
 func dramaStep(stepID string) (drama.Step, error) {
@@ -168,9 +170,6 @@ func projectStepWorkflow(project *model.Project, stepID string) (drama.AssetWork
 	if !ok || (project.WorkflowVersion != "" && project.WorkflowVersion != workflow.Version) {
 		return drama.AssetWorkflow{}, BadAuthRequest("项目工作流版本不可用")
 	}
-	if (stepID == drama.StepChapterShots || strings.HasPrefix(stepID, drama.StepChapterShots+"#")) && workflow.StoryboardMode == "ontology" {
-		return drama.AssetWorkflow{}, BadAuthRequest("本体论导演分镜运行时未实现")
-	}
 	return workflow, nil
 }
 
@@ -179,6 +178,9 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *
 	workflow, workflowErr := projectStepWorkflow(project, step.ID)
 	if workflowErr != nil {
 		return DramaStepUsage{}, drama.StepSkill{}, workflowErr
+	}
+	if step.ID == drama.StepChapterShots && workflow.StoryboardMode == drama.StoryboardModeOntology {
+		return s.ontologyStepSkill(project, workflow, step)
 	}
 	binding := step
 	var genre *DramaStepGenre
@@ -449,6 +451,9 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	if plan.lock != nil {
 		metadata["dramaStyleLock"] = plan.lock
 	}
+	if plan.ontology != nil {
+		metadata["dramaOntology"] = plan.ontology
+	}
 	// 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
 	input := map[string]any{"mode": "text", "metadata": metadata}
 	for k, v := range plan.record {
@@ -555,6 +560,9 @@ func (s *Service) planDramaStepWith(userID string, project *model.Project, unitI
 	usage, skill, err := s.dramaStepSkill(project, step, rule)
 	if err != nil {
 		return nil, err
+	}
+	if usage.Workflow.StoryboardMode == drama.StoryboardModeOntology {
+		return s.planOntologyShots(userID, project, unit, usage, skill, rule, nil)
 	}
 	genre, m, err := projectShotGenre(project, rule)
 	if err != nil {

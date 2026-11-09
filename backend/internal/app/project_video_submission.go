@@ -100,6 +100,8 @@ func (s *Service) projectTaskVideoProfile(input map[string]any) (*VideoCapabilit
 type submissionSegment struct {
 	Scene string  `json:"scene"`
 	Dur   float64 `json:"dur"`
+	// Verbatim 非空是本体论导演的单元：粘贴提示词自带 1 秒站位交接镜头，不再追加白模收尾。
+	Verbatim string `json:"verbatim"`
 }
 
 func segmentSubmissionContent(shot model.Shot, revision *model.ShotRevision) submissionSegment {
@@ -270,10 +272,11 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 			prompt = videoChainPositionPrompt(tag) + "\n\n" + prompt
 		}
 	}
-	if enabled && sameScene && !strings.Contains(prompt, dramaSceneEnding) {
+	verbatim := strings.TrimSpace(segment.Verbatim) != ""
+	if enabled && sameScene && !verbatim && !strings.Contains(prompt, dramaSceneEnding) {
 		prompt += "\n\n" + dramaSceneEnding
 	}
-	metadata[dramaSubmissionKey] = map[string]any{"basePrompt": basePrompt, "endingApplied": enabled && sameScene, "whiteModelStoryboardEnabled": enabled, "nextShotId": nextID, "contentSeconds": segment.Dur, "submissionSeconds": seconds}
+	metadata[dramaSubmissionKey] = map[string]any{"basePrompt": basePrompt, "endingApplied": enabled && sameScene && !verbatim, "whiteModelStoryboardEnabled": enabled, "nextShotId": nextID, "contentSeconds": segment.Dur, "submissionSeconds": seconds}
 	metadata["shotRevisionId"] = shot.CurrentRevisionID
 	if artifact, ok := metadata["artifactMetadata"].(map[string]any); ok {
 		artifact["contentDurationSeconds"] = segment.Dur

@@ -89,6 +89,18 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 	}
 	switch meta.Step {
 	case drama.StepChapterShots:
+		if ontology := taskDramaOntology(task.InputJSON); ontology != nil {
+			outcome, err := s.applyOntologyShotsTask(task, meta, ontology, result)
+			if err != nil {
+				return false, err
+			}
+			// 有硬失败或是返修时不接下一集：停在分镜，等人看自检结果。
+			if target := taskProjectID(task); target != "" && ontology.Repair == nil && len(outcome.Notes) == 0 {
+				outcome.Chained = s.continueShotsQueue(task, target)
+			}
+			result["dramaStep"] = outcome
+			return true, nil
+		}
 		outcome, err := s.applyChapterShotsTask(task, meta, result)
 		if err != nil {
 			return false, err

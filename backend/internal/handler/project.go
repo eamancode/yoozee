@@ -38,6 +38,7 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 	registerProjectDramaRoutes(r, svc)
 	registerDramaCompileProfileRoutes(r, svc)
 	registerDramaStepRoutes(r, svc)
+	registerDramaOntologyRoutes(r, svc)
 	registerDramaStyleLibraryRoutes(r, svc)
 
 	registerDramaRoutes(r, svc)

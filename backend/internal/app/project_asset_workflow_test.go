@@ -302,23 +302,29 @@ func TestAssetWorkflowCreateDefaultsAndExplicitSelection(t *testing.T) {
 	}
 }
 
-func TestOntologyStoryboardFailsBeforeLegacyPlanning(t *testing.T) {
+func TestOntologyStoryboardNeverFallsBackToLegacyPlanning(t *testing.T) {
 	s, db := newDramaWorkerTestService(t)
 	project, unit := seedQichuang(t, s, db)
 	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).UpdateColumn("workflow_id", drama.WorkflowOntology).Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, step := range []string{drama.StepChapterShots, drama.StepChapterShots + "#wenxi15"} {
-		if _, err := s.DramaStepUsage("user-1", project.ID, step, nil); err == nil || !strings.Contains(err.Error(), "未实现") {
-			t.Fatal("ontology fell back to legacy skill", step, err)
-		}
+	usage, err := s.DramaStepUsage("user-1", project.ID, drama.StepChapterShots, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := s.DramaStepPrompt("user-1", project.ID, unit.ID, drama.StepChapterShots); err == nil || !strings.Contains(err.Error(), "未实现") {
-		t.Fatal("ontology generated a legacy prompt", err)
+	if usage.Skill.ID != drama.OntologySkillID || usage.Contract != drama.ContractOntologyDirector || usage.Genre != nil {
+		t.Fatalf("ontology storyboard must use the ontology skill: %+v", usage)
 	}
-	for _, req := range []DramaStepRunRequest{{}, {ResumeTaskID: "old-task"}, {OnlySections: []string{"E01S01-P1"}}} {
-		if _, err := s.RunDramaStep("user-1", project.ID, unit.ID, drama.StepChapterShots, req); err == nil || !strings.Contains(err.Error(), "未实现") {
-			t.Fatal("ontology created a legacy task", err)
+	prompt, err := s.DramaStepPrompt("user-1", project.ID, unit.ID, drama.StepChapterShots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt.Prompt, "【材料包】") || strings.Contains(prompt.Prompt, "一行就是一个镜头的完整 JSON 对象") {
+		t.Fatal("ontology generated a legacy prompt")
+	}
+	for _, f := range prompt.Files {
+		if strings.HasPrefix(f.Path, "archive/") || strings.HasPrefix(f.Path, "dist/") || strings.HasPrefix(f.Path, "tests/") {
+			t.Fatalf("ontology loaded excluded file %s", f.Path)
 		}
 	}
 }
@@ -334,7 +340,8 @@ func TestRenumberedWorkflowsKeepLegacyStoryboardSkill(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if usage.Workflow.ID != id || usage.Contract != "chapter.shots@3" || usage.Skill.ID != "yz-shots-wenxi15" || usage.Workflow.StoryboardMode != "" {
+		// 流水线二、三照旧按戏类选分镜技能（戏类随视频模型单段上限），不碰本体论导演。
+		if usage.Workflow.ID != id || usage.Workflow.StoryboardMode != "" || usage.Genre == nil || !strings.HasPrefix(usage.Skill.ID, "yz-shots-") || usage.Contract == drama.ContractOntologyDirector {
 			t.Fatalf("legacy storyboard changed: %+v", usage)
 		}
 	}

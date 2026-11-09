@@ -109,6 +109,7 @@ func Models() []any {
 		&model.ShotArtifact{},
 		&model.ShotEvidence{},
 		&model.DramaShotlist{},
+		&model.ProjectOntologyDocument{},
 		&model.DramaCompileProfile{},
 		&model.DramaEvalRun{},
 		&model.DramaStepBinding{},

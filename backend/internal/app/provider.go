@@ -268,6 +268,10 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 			return runAgentToolTask(ctx, input)
 		}
 		if run := metadataDramaRun(input.Metadata); run != nil {
+			// 本体论导演分镜（流水线一）按环节分轮，轮次在运行中才定。
+			if ontology := metadataDramaOntology(input.Metadata); ontology != nil {
+				return s.runOntologyRun(ctx, input, *run, ontology)
+			}
 			// 短剧流程步骤按场续写：同一任务内多轮调用，输出都进这个任务的文本流。
 			return s.runDramaRun(ctx, input, *run)
 		}

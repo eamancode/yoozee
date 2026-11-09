@@ -136,13 +136,13 @@ type OntologyMaterial struct {
 
 // OntologyBrief 是材料包「指定」部分。
 type OntologyBrief struct {
-	Genre          string
-	AspectRatio    string
-	Medium         string
-	EpisodeSeconds int
+	Genre          string `json:"genre,omitempty"`
+	AspectRatio    string `json:"aspectRatio,omitempty"`
+	Medium         string `json:"medium,omitempty"`
+	EpisodeSeconds int    `json:"episodeSeconds,omitempty"`
 	// MaxUnitSeconds 是平台硬约束：min(P01, 视频模型单段上限)。小于 30 时覆盖技能的 P01。
-	MaxUnitSeconds int
-	Extra          string
+	MaxUnitSeconds int    `json:"maxUnitSeconds"`
+	Extra          string `json:"extra,omitempty"`
 }
 
 // OntologyMaterialPackage 按技能 templates/01_材料包.md 组材料包。bible / handoff 为空时写"无"。

@@ -78,6 +78,8 @@ type dramaRunTurn struct {
 	// 原样输出（进对话历史），KeptRows 是镜头表里这一节原有的镜头行（一行一个 JSON，收尾直接用，保留分镜卡上的手改）。
 	Kept     bool   `json:"kept,omitempty"`
 	KeptRows string `json:"keptRows,omitempty"`
+	// Ontology 是本体论导演分镜这一轮的种类（project / plan / direct / unit / check / repair），单元轮的单元编号在 Scene。
+	Ontology string `json:"ontology,omitempty"`
 }
 
 // dramaRunProgress 是任务 result.dramaRun：运行进度。前端按 Completed / Total 显示「从第 N 场继续」。
@@ -110,6 +112,10 @@ type dramaTurnMarker struct {
 
 func newDramaRunMeta(plan *dramaStepPlan, unitID string) dramaRunMeta {
 	run := dramaRunMeta{RunID: newID(), Step: plan.usage.Step, UnitID: unitID, Scenes: plan.scenes, Turns: max(1, len(plan.scenes)), ResumeFrom: 1}
+	if plan.ontology != nil {
+		// 本体论分镜的轮数要等规划轮写出节奏总表才知道；这里是估计值，只用来放大预授权和任务墙钟，结算按实际调用。
+		run.Turns = plan.ontology.EstimatedTurns
+	}
 	if plan.adapt != nil && plan.adapt.Mode == drama.ScriptAdaptModeAdapt {
 		run.Sources = plan.adapt.SourceUnitIDs
 	}
