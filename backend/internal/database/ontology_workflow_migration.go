@@ -21,8 +21,12 @@ func migrateOntologyWorkflowRenumber(tx *gorm.DB) error {
 	if err := tx.Table("projects").Where("workflow_id IS NULL").UpdateColumn("workflow_id", drama.WorkflowOriginal).Error; err != nil {
 		return err
 	}
-	if err := tx.Migrator().AlterColumn(&model.Project{}, "WorkflowID"); err != nil {
-		return err
+	// 列默认值改成 pipeline-3。SQLite 改默认值要重建整张表（AlterColumn 会丢掉 projects 的独立索引和唯一约束），所以只在
+	// PostgreSQL 上原地改；SQLite 旧库保留 pipeline-2 默认，建项总是显式写 workflow_id，不依赖列默认值。
+	if tx.Dialector.Name() == "postgres" {
+		if err := tx.Exec("ALTER TABLE projects ALTER COLUMN workflow_id SET DEFAULT 'pipeline-3'").Error; err != nil {
+			return err
+		}
 	}
 	if !tx.Migrator().HasTable(&model.Task{}) {
 		return nil

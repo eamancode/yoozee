@@ -155,6 +155,10 @@ func (s *Service) StartDramaStepEval(actor *model.User, skillID string, versionI
 	if !ok {
 		return nil, BadAuthRequest(fmt.Sprintf("步骤 %s 不在线上步骤表里", manifest.Step))
 	}
+	// 分环节多轮的包（本体论导演）不能用单轮评测重放：评测集和解析器都是旧镜头行契约，跑出来的结果没有意义。
+	if slices.Contains(drama.StepPackageRules().StagedContracts(), manifest.Contract) {
+		return nil, BadAuthRequest(fmt.Sprintf("「%s」是分环节多轮生成的技能包，后台单轮评测不适用；请用流水线一的真实项目生成分镜验收", skill.Name))
+	}
 	chapters := step.EvalChapters(manifest.Profiles, manifest.Eval)
 	if len(chapters) == 0 {
 		return nil, BadAuthRequest("这个包覆盖的风格档案在评测集里没有章节")

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "assets.extract@2",
-  "title": "流水线一：完整资产设计与生图提示词",
+  "title": "资产一体化：完整资产设计与生图提示词",
   "type": "object",
   "required": [
     "assets"
   ],
   "x-contract": {
-    "heading": "【受保护输出契约：流水线一】",
+    "heading": "【受保护输出契约：资产一体化】",
     "layout": "lines",
     "items": "assets",
     "unit": "个资产",

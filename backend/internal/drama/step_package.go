@@ -353,3 +353,16 @@ func sortedKeys[V any](m map[string]V) []string {
 	slices.Sort(keys)
 	return keys
 }
+
+// StagedContracts 是分环节多轮装载的契约（按 runtime-context.json 校验，不走单轮预算和单轮评测）。
+func (r StepPackageRuleSet) StagedContracts() []string {
+	var out []string
+	for _, s := range r.Steps {
+		for _, c := range s.StagedContracts {
+			if !slices.Contains(out, c) {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
