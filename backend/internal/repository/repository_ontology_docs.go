@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"yingce/backend/internal/model"
 )
 
@@ -56,14 +55,11 @@ func (r *Repository) OntologyDocumentWrittenByTask(projectID string, unitID stri
 	return count > 0, err
 }
 
-// CountActiveShotArtifacts 是一个镜头未失败的产物数（与整集替换确认时的计数口径一致）。PostgreSQL 上先锁住镜头行，
-// 让同一事务里随后的删除与这次计数挨着发生。
+// CountActiveShotArtifacts 先锁住镜头行（与产物登记共用 lockShotRow），再数这个镜头未失败的产物（与整集替换确认时的计数口径一致）。
+// 必须在删段的同一事务里调用：锁一直持有到提交，期间不会有新产物登记进来。
 func (r *Repository) CountActiveShotArtifacts(projectID string, shotID string) (int64, error) {
-	if r.db.Dialector.Name() == "postgres" {
-		var shot model.Shot
-		if err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).First(&shot, "id = ? AND project_id = ?", shotID, projectID).Error; err != nil {
-			return 0, err
-		}
+	if err := lockShotRow(r.db.Where("project_id = ?", projectID), shotID); err != nil {
+		return 0, err
 	}
 	var count int64
 	err := r.db.Model(&model.ShotArtifact{}).Where("shot_id = ? AND status <> ?", shotID, "failed").Count(&count).Error

@@ -296,8 +296,27 @@ func (r *Repository) ProjectShotArtifacts(projectID string) ([]model.ShotArtifac
 	return artifacts, err
 }
 
+// ErrShotGone 表示要登记产物的镜头已经被删除（例如整集替换删掉了这一段）；不写孤立产物。
+var ErrShotGone = errors.New("镜头已删除，产物不再登记")
+
+// lockShotRow 在事务里锁住镜头行（空更新：PostgreSQL 取行锁，SQLite 取写锁），并确认镜头还在。产物登记和删段都先调用它，
+// 两边因此串行：删段的计数一定能看到已登记的产物，删段之后的登记看到镜头不在就放弃。
+func lockShotRow(tx *gorm.DB, shotID string) error {
+	result := tx.Model(&model.Shot{}).Where("id = ?", shotID).UpdateColumn("updated_at", gorm.Expr("updated_at"))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrShotGone
+	}
+	return nil
+}
+
 func (r *Repository) CreateShotArtifact(artifact *model.ShotArtifact) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockShotRow(tx, artifact.ShotID); err != nil {
+			return err
+		}
 		var currentVersion int
 		if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", artifact.ShotID, artifact.Type).Select("COALESCE(MAX(version), 0)").Scan(&currentVersion).Error; err != nil {
 			return err
@@ -553,6 +572,9 @@ func (r *Repository) RegisterTaskOutputRecords(projectID string, representation 
 			}
 		}
 		if artifact != nil {
+			if err := lockShotRow(tx, artifact.ShotID); err != nil {
+				return err
+			}
 			var currentVersion int
 			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", artifact.ShotID, artifact.Type).Select("COALESCE(MAX(version), 0)").Scan(&currentVersion).Error; err != nil {
 				return err

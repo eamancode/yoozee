@@ -7,6 +7,7 @@ import (
 
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/repository"
 )
 
 // 整集替换删旧段：事务里逐段复核产物后立即删除。有未确认产物、或确认后产物增加的段让整个删除回滚，一段都不删。
@@ -73,5 +74,17 @@ func TestOntologyRemovalRechecksArtifactsInsideTransaction(t *testing.T) {
 	db.Model(&model.ShotArtifact{}).Where("shot_id = ?", "shot-video").Count(&left)
 	if left != 0 {
 		t.Fatalf("artifacts of the deleted shot remain: %d", left)
+	}
+	// 段删掉之后才完成的生成任务：登记产物时看到镜头不在，放弃，不留孤立产物。
+	late := model.ShotArtifact{ID: newID(), ProjectID: project.ID, UnitID: unit.ID, ShotID: "shot-video", TaskID: "late-task", Type: drama.ArtifactVideo, Status: "ready", MetadataJSON: "{}", CreatedAt: now, UpdatedAt: now}
+	if err := svc.repo.RegisterTaskOutputRecords(project.ID, nil, nil, &late); !errors.Is(err, repository.ErrShotGone) {
+		t.Fatalf("registering an artifact for a deleted shot must fail with ErrShotGone: %v", err)
+	}
+	if err := svc.repo.CreateShotArtifact(&late); !errors.Is(err, repository.ErrShotGone) {
+		t.Fatalf("CreateShotArtifact for a deleted shot must fail with ErrShotGone: %v", err)
+	}
+	db.Model(&model.ShotArtifact{}).Where("shot_id = ?", "shot-video").Count(&left)
+	if left != 0 {
+		t.Fatalf("orphan artifact written: %d", left)
 	}
 }

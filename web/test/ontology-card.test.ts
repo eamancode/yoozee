@@ -41,6 +41,14 @@ describe("ontologyDirectorCard", () => {
         expect(card).not.toContain("集交接卡");
     });
 
+    test("accepts the heading spacing the backend accepts and matches unit ids exactly", () => {
+        const spaced = "###  单元卡  【s01-u1】｜总时长 12 秒｜2 镜｜节奏短剧档\n【导演分镜卡】\n甲\n【粘贴提示词】\n```\nx\n```\n### 单元卡 s01-u10｜总时长 9 秒｜1 镜｜节奏短剧档\n【导演分镜卡】\n乙";
+        expect(ontologyDirectorCard(spaced, "s01-u1")).toContain("甲");
+        expect(ontologyDirectorCard(spaced, "s01-u1")).not.toContain("乙");
+        expect(ontologyDirectorCard(spaced, "s01-u10")).toContain("乙");
+        expect(ontologyDirectorCard("### 单元卡 s01-u10｜总时长 9 秒\n【导演分镜卡】\n乙", "s01-u1")).toBe("");
+    });
+
     test("returns empty for unknown or missing units", () => {
         expect(ontologyDirectorCard(episode, "s09-u1")).toBe("");
         expect(ontologyDirectorCard(episode, "")).toBe("");

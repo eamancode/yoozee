@@ -50,6 +50,9 @@ func (r *Repository) RegisterStoryboardReference(controller *model.Task, revisio
 			return err
 		}
 		if existing == 0 {
+			if err := lockShotRow(tx, shot.ID); err != nil {
+				return err
+			}
 			var latest int
 			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", shot.ID, "storyboard").Select("COALESCE(MAX(version), 0)").Scan(&latest).Error; err != nil {
 				return err
