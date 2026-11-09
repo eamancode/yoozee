@@ -450,6 +450,9 @@ func CompileWithProfile(seg Segment, m Model, style, acting *string, profile *Pr
 
 // CompileWith 同 CompileWithProfile，文字取编译档案 phrases（nil 用内置默认）；风格块和表演块档案有覆盖时优先。
 func CompileWith(seg Segment, m Model, style, acting *string, profile *Profile, phrases *CompileProfile) (CompileResult, error) {
+	if strings.TrimSpace(seg.Verbatim) != "" {
+		return CompileVerbatim(seg, m), nil
+	}
 	cp := mustCompileProfile(phrases)
 	defaultStyle, defaultActing, err := cp.blocksFor(profile, m.Dialect())
 	if err != nil {

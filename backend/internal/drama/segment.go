@@ -41,6 +41,9 @@ type Segment struct {
 	// Section / Genre 是按小节生成的段对应的小节（一节一段）和戏类；旧镜头表装出的段为空。
 	Section string `json:"section,omitempty"`
 	Genre   string `json:"genre,omitempty"`
+	// Verbatim 是本体论导演（流水线一）单元卡的粘贴提示词原文，素材编号 @图k 与 Refs 顺序一致。非空时编译直接用它（CompileVerbatim），
+	// 不再按方言从镜头拼；Shots 只供分镜卡显示与时长、场次判断。
+	Verbatim string `json:"verbatim,omitempty"`
 }
 
 type Ref struct {
