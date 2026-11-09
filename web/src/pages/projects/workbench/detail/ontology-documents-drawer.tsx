@@ -4,6 +4,7 @@ import { App, Button, Input, Segmented, Tabs } from "antd";
 import { Copy, Wrench } from "lucide-react";
 
 import { AppDrawer } from "@/components/ui/product/app-drawer";
+import { ontologyDirectorCard } from "@/lib/ontology-card";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { EmptyState } from "@/components/ui/product/empty-state";
 import { useDramaModelConfig } from "@/hooks/use-drama-model-config";
@@ -90,54 +91,70 @@ function EpisodePanel({ detail, unitId, docs }: { detail: ProjectDetail; unitId:
     return (
         <div className="flex flex-col gap-3">
             <Segmented value={view} onChange={(value) => setView(value as typeof view)} options={[{ value: "segments", label: "单元段" }, { value: "episode", label: "七部分" }, { value: "handoff", label: "集交接卡" }]} />
-            {view === "segments" ? <SegmentList detail={detail} unitId={unitId} /> : null}
+            {view === "segments" ? <SegmentList detail={detail} unitId={unitId} episode={episode?.content || ""} /> : null}
             {view === "episode" ? (episode ? <DocumentText text={episode.content} /> : <EmptyState size="compact" title="本集还没有七部分" />) : null}
             {view === "handoff" ? (handoff ? <DocumentText text={handoff.content} /> : <EmptyState size="compact" title="本集还没有交接卡" />) : null}
         </div>
     );
 }
 
-function SegmentList({ detail, unitId }: { detail: ProjectDetail; unitId: string }) {
+function SegmentList({ detail, unitId, episode }: { detail: ProjectDetail; unitId: string; episode: string }) {
     const projectId = detail.project.id;
-    const segments = useQuery({ queryKey: ["drama-segments", projectId, unitId], queryFn: ({ signal }) => listDramaSegments(projectId, unitId, signal) });
+    const segments = useQuery({ queryKey: ontologySegmentsKey(projectId, unitId), queryFn: ({ signal }) => listDramaSegments(projectId, unitId, signal) });
     const [repairing, setRepairing] = useState<DramaSegmentView | null>(null);
-    const units = (segments.data?.segments || []).filter((segment) => segment.spec.verbatim);
     if (segments.isLoading) return <p className="text-[var(--fs-label)] text-foreground/55">正在读取…</p>;
+    // 读取失败不能显示成空态：否则会误导用户重新生成（要花钱）。
+    if (segments.isError) {
+        return <EmptyState size="compact" title="单元段读取失败" description={segments.error instanceof Error ? segments.error.message : "请稍后再试"} action={<Button onClick={() => void segments.refetch()}>重试</Button>} />;
+    }
+    const units = (segments.data?.segments || []).filter((segment) => segment.spec.verbatim);
     if (!units.length) return <EmptyState size="compact" title="本集没有本体论单元段" description="在章节页对本集「生成分段」后会出现在这里。" />;
     return (
         <div className="flex flex-col gap-3">
             {units.map((segment) => (
-                <SegmentCard key={segment.shotId} segment={segment} onRepair={() => setRepairing(segment)} />
+                <SegmentCard key={segment.shotId} segment={segment} card={ontologyDirectorCard(episode, segment.spec.title || "")} onRepair={() => setRepairing(segment)} />
             ))}
             {repairing ? <RepairModal detail={detail} unitId={unitId} segment={repairing} onClose={() => setRepairing(null)} /> : null}
         </div>
     );
 }
 
-function SegmentCard({ segment, onRepair }: { segment: DramaSegmentView; onRepair: () => void }) {
+function ontologySegmentsKey(projectId: string, unitId: string) {
+    // 放在 ["project", projectId] 下：生成分段、返修收尾后刷新项目时一起失效。
+    return ["project", projectId, "ontology-segments", unitId] as const;
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
     const { message } = App.useApp();
-    const verbatim = segment.spec.verbatim || "";
     const copy = async () => {
         try {
-            await navigator.clipboard.writeText(verbatim);
-            message.success("粘贴提示词已复制");
+            await navigator.clipboard.writeText(text);
+            message.success(`${label}已复制`);
         } catch {
             message.error("复制失败，请手动选中复制");
         }
     };
+    return <Button size="small" icon={<Copy className="size-3.5" />} onClick={copy} disabled={!text}>复制{label}</Button>;
+}
+
+function SegmentCard({ segment, card, onRepair }: { segment: DramaSegmentView; card: string; onRepair: () => void }) {
+    const verbatim = segment.spec.verbatim || "";
     return (
         <section className="rounded-md border border-border p-3">
             <header className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-sm font-semibold">{segment.spec.id} · {segment.spec.title} · {segment.spec.dur} 秒 · 参考图 {segment.spec.refs?.length || 0} 张</span>
-                <span className="flex gap-2">
-                    <Button size="small" icon={<Copy className="size-3.5" />} onClick={copy}>复制粘贴提示词</Button>
-                    <Button size="small" icon={<Wrench className="size-3.5" />} onClick={onRepair}>返修</Button>
-                </span>
+                <Button size="small" icon={<Wrench className="size-3.5" />} onClick={onRepair}>返修</Button>
             </header>
-            <details>
-                <summary className="cursor-pointer text-[var(--fs-label)] text-foreground/60">粘贴提示词（{[...verbatim].length} 字符）</summary>
-                <div className="mt-2"><DocumentText text={verbatim} /></div>
-            </details>
+            <div className="grid gap-3 lg:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2"><span className="text-[var(--fs-label)] text-foreground/60">导演分镜卡</span><CopyButton text={card} label="导演分镜卡" /></div>
+                    {card ? <DocumentText text={card} /> : <p className="text-[var(--fs-label)] text-foreground/55">七部分里没有找到这张单元卡。</p>}
+                </div>
+                <div className="flex min-w-0 flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2"><span className="text-[var(--fs-label)] text-foreground/60">粘贴提示词（{[...verbatim].length} 字符）</span><CopyButton text={verbatim} label="粘贴提示词" /></div>
+                    <DocumentText text={verbatim} />
+                </div>
+            </div>
         </section>
     );
 }
@@ -161,7 +178,7 @@ function RepairModal({ detail, unitId, segment, onClose }: { detail: ProjectDeta
         onSuccess: async () => {
             message.success(`${segment.spec.title} 已返修`);
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["drama-segments", detail.project.id, unitId] }),
+                queryClient.invalidateQueries({ queryKey: ontologySegmentsKey(detail.project.id, unitId) }),
                 queryClient.invalidateQueries({ queryKey: ontologyDocumentsKey(detail.project.id) }),
                 queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
             ]);

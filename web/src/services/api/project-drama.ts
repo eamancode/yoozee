@@ -897,7 +897,8 @@ export type OntologyDocument = { id: string; projectId: string; unitId: string; 
 export type OntologyDocuments = { bible?: OntologyDocument; setup?: OntologyDocument; episodes: OntologyDocument[]; handoffs: OntologyDocument[] };
 
 export function ontologyDocumentsKey(projectId: string) {
-    return ["project-ontology-documents", projectId] as const;
+    // 放在 ["project", projectId] 下：生成分段、返修收尾后刷新项目时一起失效。
+    return ["project", projectId, "ontology-documents"] as const;
 }
 
 /** 世界圣经卡（项目级）、立项待确认清单、各集七部分与集交接卡。 */

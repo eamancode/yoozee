@@ -2639,6 +2639,88 @@ paths:
           description: "{ code: 0, data: { shotlist: DramaShotlistView | null } }"
         "404":
           $ref: "#/components/responses/Error"
+  /projects/{id}/drama/ontology:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [drama]
+      summary: 读本体论导演分镜（流水线一）的文档
+      description: 返回世界圣经卡 bible、立项待确认清单 setup（最新版本，可能为空）及各集 episodes（七部分）、handoffs（集交接卡）。文档只追加版本，这里只给最新版本。
+      responses:
+        "200":
+          description: "{ code: 0, data: { bible?: OntologyDocument, setup?: OntologyDocument, episodes: OntologyDocument[], handoffs: OntologyDocument[] } }"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /projects/{id}/drama/ontology/bible:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    put:
+      tags: [drama]
+      summary: 手改世界圣经卡（写新版本，只影响之后生成的集）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1, maxLength: 60000, description: 圣经卡全文；请求体最大 1 MiB }
+      responses:
+        "200":
+          description: "{ code: 0, data: OntologyDocument }"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /projects/{id}/units/{unitId}/drama/ontology/repair:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: unitId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [drama]
+      summary: 对一个本体论单元段返修（只替换这一段）
+      description: 读这一集七部分里的原单元卡和生成时的素材清单，按症状跑返修回合（诊断 → 回责任环节重写 → 编译 → 自检），收尾只替换目标段并给七部分写新版本。受任务创建限流。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shotId, symptom, model, config]
+              properties:
+                shotId: { type: string }
+                symptom: { type: string, minLength: 1, maxLength: 2000 }
+                model: { type: string }
+                logicalModelId: { type: string }
+                config: { type: object, additionalProperties: true, description: 文本模型渠道配置（按任务加密存储） }
+      responses:
+        "200":
+          description: "{ code: 0, data: { task: GenerationTask, usage: DramaStepUsage } }"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
   /assets:
     get:
       tags: [assets]
