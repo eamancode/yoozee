@@ -1,5 +1,7 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { projectWorkflow } from "@/lib/project-workflow";
+import { BookOpen } from "lucide-react";
+import { OntologyDocumentsDrawer } from "./detail/ontology-documents-drawer";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App } from "antd";
 import { ArrowLeft, Plus } from "lucide-react";
@@ -164,6 +166,8 @@ export default function ProjectDetailPage() {
 
 function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, chapterHref, workflowHref, onCreateCanvas }: { detail: ProjectDetail; projectId: string; activeView: DetailView; unitId?: string; stage?: string; chapterHref: string; workflowHref: string; onCreateCanvas: () => void }) {
     const archived = detail.project.status === "archived";
+    const [ontologyOpen, setOntologyOpen] = useState(false);
+    const ontology = detail.project.workflowId === "pipeline-1";
     const createCanvasLabel = activeView === "chapters" && detail.units.length ? "新建当前章节画布" : "新建项目画布";
     return (
         <header className="project-workspace-header">
@@ -195,6 +199,13 @@ function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, 
                 })}
             </nav>
             <div className="project-workspace-actions">
+                {ontology ? (
+                    <button type="button" onClick={() => setOntologyOpen(true)} className="project-workspace-create" aria-label="本体论导演文档：世界圣经卡、各集七部分、单元返修" title="本体论导演文档">
+                        <BookOpen />
+                        <span>导演文档</span>
+                    </button>
+                ) : null}
+                {ontology ? <OntologyDocumentsDrawer detail={detail} open={ontologyOpen} onClose={() => setOntologyOpen(false)} /> : null}
                 {activeView === "workflow" ? (
                     <WorkflowChapterNavigator projectId={projectId} units={detail.units} unitId={unitId} stage={stage} />
                 ) : (

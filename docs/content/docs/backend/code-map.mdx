@@ -23,7 +23,8 @@ description: 从产品功能快速定位主要代码入口
 
 - 工作流配置与契约：`internal/drama/workflows.go`、`contracts/assets.extract.v2.schema.json`；旧提取契约保留。
 - 项目创建与历史迁移：`app/project_create.go`、`model/models_project.go`、数据库迁移 96 / 97；`database/ontology_workflow_migration.go` 顺延项目与任务快照编号，迁移账本保证只执行一次。
-- 分镜路由边界：`app/project_drama_steps.go` 的 `projectStepWorkflow`；新流水线一返回明确的未实现错误，等待本体论运行时接入，二、三沿用旧技能与契约。
+- 分镜路由边界：`app/project_drama_steps.go` 的 `dramaStepSkill` / `planDramaStepWith` 遇流水线一转到 `app/project_ontology.go`；二、三沿用旧技能与契约。
+- 本体论运行时：纯函数在 `drama/ontology.go`（环节上下文、材料包、各轮输出解析与校验、单元卡 → 段、`CompileVerbatim`）；编排、收尾、文档接口、返修在 `app/project_ontology.go`；文档表 `model.ProjectOntologyDocument` + `repository/repository_ontology_docs.go`；路由 `handler/drama_ontology_routes.go`。前端入口 `web/src/pages/projects/workbench/detail/ontology-documents-drawer.tsx`（项目头部「导演文档」）。
 - 技能和图片配方：`builtin/yz-assets-integrated`；`app/project_asset_workflow_skill.go` 固定版本并记录配方来源，`project_asset_workflow.go` 统一自动/手动图片提交。
 - 实际引用与派生：`project_drama_asset_refs.go`、`project_spatial_image.go`、`repository/project_spatial_image.go`；场景版本保存九宫格与重绘表现。
 - 界面：`lib/project-workflow.ts` 统一三项名称与资产模式；创建页 `composer-sections.tsx`、`project-draft.ts`（草稿版本 2 顺延旧编号），项目头部、设置、制作台与资产页共享映射。人物/子卡与 `scene-spatial-tools.tsx` 使用既有 API 和任务服务。

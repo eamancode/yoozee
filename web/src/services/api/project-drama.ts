@@ -98,6 +98,8 @@ export type DramaSegment = {
     /** 按小节生成（M8）：这一段对应的小节（一节一段，E01S02-P1）和戏类（wenxi15 / wenxi30 / wuxi）；旧镜头表装出的段没有。 */
     section?: string;
     genre?: DramaShotGenreId;
+    /** 本体论导演（流水线一）单元卡的粘贴提示词原文，@图k 与 refs 同序；非空时编译直接用它。 */
+    verbatim?: string;
 };
 
 /** 戏类：文戏 15（7.3 规则书）、文戏 30（即梦小节分镜）、武戏（skill-complete-v7）。默认按项目视频模型单段上限选文戏 15 / 30；武戏由分镜制作里把小节改过去。 */
@@ -888,4 +890,27 @@ export function dramaStyleLockOutcomeOf(task: Pick<GenerationTask, "resultJson">
 export function dramaScenePaletteOutcomeOf(task: Pick<GenerationTask, "resultJson">): DramaScenePaletteOutcome | undefined {
     const outcome = taskResultRecord(task).dramaStep as DramaScenePaletteOutcome | undefined;
     return outcome && outcome.step === "scene.palette" && typeof outcome.scenes === "number" ? outcome : undefined;
+}
+
+/** 本体论导演分镜（流水线一）的文档：每个文档只追加版本，接口返回最新版本。 */
+export type OntologyDocument = { id: string; projectId: string; unitId: string; kind: "bible" | "setup" | "episode" | "handoff"; version: number; content: string; taskId?: string; createdAt: string };
+export type OntologyDocuments = { bible?: OntologyDocument; setup?: OntologyDocument; episodes: OntologyDocument[]; handoffs: OntologyDocument[] };
+
+export function ontologyDocumentsKey(projectId: string) {
+    return ["project-ontology-documents", projectId] as const;
+}
+
+/** 世界圣经卡（项目级）、立项待确认清单、各集七部分与集交接卡。 */
+export function getOntologyDocuments(projectId: string, signal?: AbortSignal) {
+    return http.get<OntologyDocuments>(`/projects/${encodeURIComponent(projectId)}/drama/ontology`, { signal });
+}
+
+/** 手改世界圣经卡：写一个新版本，只影响之后生成的集。 */
+export function updateOntologyBible(projectId: string, content: string) {
+    return http.put<OntologyDocument>(`/projects/${encodeURIComponent(projectId)}/drama/ontology/bible`, { content });
+}
+
+/** 对一个本体论单元段返修：服务端读原单元卡和症状跑返修回合，只替换这一段。 */
+export function repairOntologySegment(projectId: string, unitId: string, input: { shotId: string; symptom: string; model: string; logicalModelId?: string; config: Record<string, unknown> }) {
+    return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/ontology/repair`, input);
 }
