@@ -23,6 +23,8 @@ const (
 	OntologyUnitMaxSeconds = 30
 	// OntologyNoMusicLine 是 R11：每条粘贴提示词必须写明的句子。
 	OntologyNoMusicLine = "本段不使用背景音乐"
+	// OntologyMaxUnits 是一集最多几个单元（P25 参考 4–7 个；上限防止单轮上下文和结果无界增长）。
+	OntologyMaxUnits = 16
 )
 
 // 一轮的种类。立项只在项目还没有世界圣经卡时跑；每集依次是 规划 → 讲戏 → 每个单元一轮 → 质检；返修单独一轮。
@@ -143,6 +145,25 @@ type OntologyBrief struct {
 	// MaxUnitSeconds 是平台硬约束：min(P01, 视频模型单段上限)。小于 30 时覆盖技能的 P01。
 	MaxUnitSeconds int    `json:"maxUnitSeconds"`
 	Extra          string `json:"extra,omitempty"`
+	// Style 是项目已锁定的画风、全局风格锚和主基调色卡（OntologyStyleText 组好），每条提示词都要遵守。
+	Style string `json:"style,omitempty"`
+}
+
+// OntologyStyleText 把项目锁定的画风说明、全局风格锚和主基调色卡写成材料包里的一段；都没有时为空。
+func OntologyStyleText(stylePrompt string, anchor *StyleAnchor, palette MasterPalette) string {
+	var parts []string
+	if t := strings.TrimSpace(stylePrompt); t != "" {
+		parts = append(parts, "画风："+t)
+	}
+	if t := strings.TrimSpace(styleAnchorPrompt(anchor, "全局风格锚（画面、光影、镜头语言和调色都按它写，禁用项一律不出现）：", true)); t != "" {
+		parts = append(parts, t)
+	}
+	if !palette.Empty() {
+		if t := strings.TrimSpace(MasterPalettePrompt(palette, "主基调色卡：")); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // OntologyMaterialPackage 按技能 templates/01_材料包.md 组材料包。bible / handoff 为空时写"无"。
@@ -159,6 +180,9 @@ func OntologyMaterialPackage(brief OntologyBrief, materials []OntologyMaterial, 
 	}
 	if strings.TrimSpace(brief.Extra) != "" {
 		fmt.Fprintf(&b, "其他要求：%s\n", strings.TrimSpace(brief.Extra))
+	}
+	if strings.TrimSpace(brief.Style) != "" {
+		fmt.Fprintf(&b, "\n【项目画风（已锁定的硬性视觉约束，写进每条粘贴提示词的全局设定）】\n%s\n", strings.TrimSpace(brief.Style))
 	}
 	b.WriteString("\n【素材清单】\n")
 	if len(materials) == 0 {
@@ -276,6 +300,9 @@ func OntologyRhythmUnits(plan string) ([]string, error) {
 	if len(units) == 0 {
 		return nil, errors.New("节奏总表里没有单元行（第一列应是 sXX-uN）")
 	}
+	if len(units) > OntologyMaxUnits {
+		return nil, fmt.Errorf("节奏总表有 %d 个单元，超过一集上限 %d：按 R4 同场合并、把单元时长用满后重排", len(units), OntologyMaxUnits)
+	}
 	return units, nil
 }
 
@@ -292,6 +319,14 @@ type OntologyUnitCard struct {
 	Paste string `json:"paste"`
 	// Text 是这张卡的完整原文（标题行起），拼七部分用。
 	Text string `json:"text"`
+	// Fenced 表示粘贴提示词放在代码块里（契约要求）。
+	Fenced bool `json:"-"`
+}
+
+// ontologyTableRow 是镜头表的一行：镜头号、起止秒。
+type ontologyTableRow struct {
+	N          int
+	Start, End float64
 }
 
 // ParseOntologyUnitCards 解析文本里的全部单元卡。
@@ -330,7 +365,7 @@ func ParseOntologyUnitCards(text string) ([]OntologyUnitCard, error) {
 		card.Card = strings.TrimSpace(body[cardAt+len("【导演分镜卡】") : pasteAt])
 		paste := body[pasteAt+len("【粘贴提示词】"):]
 		if m := ontologyFence.FindStringSubmatch(paste); m != nil {
-			card.Paste = strings.TrimSpace(m[1])
+			card.Paste, card.Fenced = strings.TrimSpace(m[1]), true
 		} else {
 			card.Paste = strings.TrimSpace(paste)
 		}
@@ -365,6 +400,15 @@ func ValidateOntologyUnit(card OntologyUnitCard, want string, lim OntologyUnitLi
 	}
 	if card.Shots <= 0 {
 		problems = append(problems, "标题行的镜头数无效")
+	}
+	if !card.Fenced {
+		problems = append(problems, "【粘贴提示词】必须放在一个代码块（```）里")
+	}
+	if err := ontologyCheckTable(card); err != nil {
+		problems = append(problems, err.Error())
+	}
+	if OntologyUnfinished(card.Text) {
+		problems = append(problems, "这张卡没写完（出现了未完续写标记），本轮必须一次写完整张卡")
 	}
 	paste := card.Paste
 	chars := len([]rune(paste))
@@ -584,4 +628,104 @@ func OntologyHardFailures(check string) []string {
 		}
 	}
 	return out
+}
+
+// ontologyTableRows 读【导演分镜卡】镜头表的镜头号和起止秒。
+func ontologyTableRows(card OntologyUnitCard) []ontologyTableRow {
+	var rows []ontologyTableRow
+	for _, line := range strings.Split(card.Card, "\n") {
+		m := ontologyShotRow.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
+			continue
+		}
+		n, _ := strconv.Atoi(m[1])
+		start, _ := strconv.ParseFloat(m[2], 64)
+		end, _ := strconv.ParseFloat(m[3], 64)
+		rows = append(rows, ontologyTableRow{N: n, Start: start, End: end})
+	}
+	return rows
+}
+
+// ontologyCheckTable 校验镜头表与标题行一致：行数是叙事镜头数（或再加 1 个站位交接镜头），镜头号从 1 连续，时间从 0 起首尾相接，
+// 最后一镜在总时长结束。
+func ontologyCheckTable(card OntologyUnitCard) error {
+	rows := ontologyTableRows(card)
+	if len(rows) == 0 {
+		return errors.New("【导演分镜卡】里没有读得出的镜头表（| 镜头 | 时间 | … |，时间写成 0–2 秒）")
+	}
+	if len(rows) != card.Shots && len(rows) != card.Shots+1 {
+		return fmt.Errorf("镜头表有 %d 行，标题行写的是 %d 镜（不含站位交接镜头）", len(rows), card.Shots)
+	}
+	const eps = 0.11
+	for i, r := range rows {
+		switch {
+		case r.N != i+1:
+			return fmt.Errorf("镜头表第 %d 行的镜头号是 %d，应从 1 连续编号", i+1, r.N)
+		case r.End <= r.Start:
+			return fmt.Errorf("镜头 %d 的结束秒不大于开始秒", r.N)
+		case i == 0 && math.Abs(r.Start) > eps:
+			return errors.New("镜头 1 应从 0 秒开始")
+		case i > 0 && math.Abs(r.Start-rows[i-1].End) > eps:
+			return fmt.Errorf("镜头 %d 从 %s 秒开始，与上一镜结束的 %s 秒接不上", r.N, secText(r.Start), secText(rows[i-1].End))
+		}
+	}
+	if last := rows[len(rows)-1].End; math.Abs(last-card.TotalSeconds) > 0.51 {
+		return fmt.Errorf("最后一镜在 %s 秒结束，标题行的总时长是 %s 秒", secText(last), secText(card.TotalSeconds))
+	}
+	return nil
+}
+
+var ontologyUnfinishedMarks = []string{`回复"继续"`, "回复“继续”", "【未完", "未完待续"}
+
+// OntologyUnfinished 判断输出里有没有技能的「未完，回复继续」续写标记。服务端按单元分轮，每轮都要求一次写完；出现标记按不合格重试。
+func OntologyUnfinished(text string) bool {
+	for _, m := range ontologyUnfinishedMarks {
+		if strings.Contains(text, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateOntologyCheck 校验质检轮：交接卡有正文，自检表有 H1–H11 列，每个单元一行。
+func ValidateOntologyCheck(text string, units []string) error {
+	if err := OntologyRequireSections(text, "六、本集交接卡", "七、自检结果与待确认清单"); err != nil {
+		return err
+	}
+	if body, _ := OntologySection(text, "六、本集交接卡"); strings.TrimSpace(body) == "" || strings.TrimSpace(body) == "本集无" {
+		return errors.New("本集交接卡为空")
+	}
+	table, _ := OntologySection(text, "七、自检结果与待确认清单")
+	header := false
+	seen := map[string]bool{}
+	for _, line := range strings.Split(table, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		for i := range cells {
+			cells[i] = strings.TrimSpace(cells[i])
+		}
+		if len(cells) > 1 && cells[0] == "单元" && cells[1] == "H1" {
+			header = slices.Contains(cells, "H11")
+			continue
+		}
+		if id := ontologyUnitID.FindString(cells[0]); id != "" {
+			seen[id] = true
+		}
+	}
+	if !header {
+		return errors.New("自检表缺少 | 单元 | H1 | … | H11 | 表头")
+	}
+	var missing []string
+	for _, u := range units {
+		if !seen[u] {
+			missing = append(missing, u)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("自检表缺少这些单元的行：%s", strings.Join(missing, "、"))
+	}
+	return nil
 }

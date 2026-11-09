@@ -671,10 +671,11 @@ type BannerAnnouncement struct {
 
 // 本体论导演分镜（流水线一）的文档种类。
 const (
-	OntologyDocBible   = "bible"   // 项目级世界圣经卡（UnitID 为空）
-	OntologyDocSetup   = "setup"   // 立项回合的待确认清单与补图建议（UnitID 为空）
-	OntologyDocEpisode = "episode" // 一集的七部分
-	OntologyDocHandoff = "handoff" // 一集的集交接卡，下一集的材料包读它
+	OntologyDocBible     = "bible"     // 项目级世界圣经卡（UnitID 为空）
+	OntologyDocSetup     = "setup"     // 立项回合的待确认清单与补图建议（UnitID 为空）
+	OntologyDocEpisode   = "episode"   // 一集的七部分
+	OntologyDocHandoff   = "handoff"   // 一集的集交接卡，下一集的材料包读它
+	OntologyDocMaterials = "materials" // 一集生成时的素材清单（JSON），返修按它解释原单元卡里的 @图N
 )
 
 // ProjectOntologyDocument 是本体论导演分镜的文档。只追加：每次生成或编辑写一条新版本（Version 递增），读取取最新版本。

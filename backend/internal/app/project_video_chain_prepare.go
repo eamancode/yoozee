@@ -220,7 +220,8 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 		if usePosition {
 			finalPrompt = videoChainPositionPrompt(tag) + "\n\n" + finalPrompt
 		}
-		ending := enabled && i < sceneLast
+		// 本体论单元的粘贴提示词自带 1 秒站位交接镜头，不再追加白模收尾。
+		ending := enabled && i < sceneLast && strings.TrimSpace(compiled.Spec.Verbatim) == ""
 		if ending && !strings.Contains(finalPrompt, dramaSceneEnding) {
 			finalPrompt += "\n\n" + dramaSceneEnding
 		}
@@ -312,7 +313,9 @@ func (s *Service) videoChainExistingPredecessor(userID, projectID string, shot m
 	}
 	metadata, _ := input["metadata"].(map[string]any)
 	submission, _ := metadata[dramaSubmissionKey].(map[string]any)
-	if task.Status != model.TaskStatusSucceeded || submission["endingApplied"] != true || !strings.Contains(task.Prompt, "无贴图的哑光白色三维白模") {
+	// 能当站位参考来源的前序视频：追加过白模收尾的旧段，或自带站位交接镜头的本体论单元。
+	whiteModel := submission["endingApplied"] == true && strings.Contains(task.Prompt, "无贴图的哑光白色三维白模")
+	if task.Status != model.TaskStatusSucceeded || !whiteModel && submission["handoffShot"] != true {
 		return nil, nil
 	}
 	if _, err := s.videoChainReadyResource(userID, selected.ResourceID, "video/"); err != nil {

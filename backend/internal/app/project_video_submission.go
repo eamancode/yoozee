@@ -276,7 +276,7 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 	if enabled && sameScene && !verbatim && !strings.Contains(prompt, dramaSceneEnding) {
 		prompt += "\n\n" + dramaSceneEnding
 	}
-	metadata[dramaSubmissionKey] = map[string]any{"basePrompt": basePrompt, "endingApplied": enabled && sameScene && !verbatim, "whiteModelStoryboardEnabled": enabled, "nextShotId": nextID, "contentSeconds": segment.Dur, "submissionSeconds": seconds}
+	metadata[dramaSubmissionKey] = map[string]any{"basePrompt": basePrompt, "endingApplied": enabled && sameScene && !verbatim, "handoffShot": enabled && sameScene && verbatim, "whiteModelStoryboardEnabled": enabled, "nextShotId": nextID, "contentSeconds": segment.Dur, "submissionSeconds": seconds}
 	metadata["shotRevisionId"] = shot.CurrentRevisionID
 	if artifact, ok := metadata["artifactMetadata"].(map[string]any); ok {
 		artifact["contentDurationSeconds"] = segment.Dur

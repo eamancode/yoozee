@@ -2,6 +2,7 @@ package drama
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -126,17 +127,36 @@ func TestOntologySegmentRenumbersImagesByUse(t *testing.T) {
 }
 
 func TestValidateOntologyUnitRules(t *testing.T) {
-	base := OntologyUnitCard{ID: "s01-u1", Scene: "s01", TotalSeconds: 10, Shots: 2, Paste: "10秒。" + OntologyNoMusicLine + "。"}
+	table := `| 镜头 | 时间 |
+|---|---|
+| 1 | 0–6 秒 |
+| 2 | 6–9 秒 |
+| 3 | 9–10 秒 |`
+	base := OntologyUnitCard{ID: "s01-u1", Scene: "s01", TotalSeconds: 10, Shots: 2, Card: table, Fenced: true, Paste: "10秒。" + OntologyNoMusicLine + "。"}
 	if err := ValidateOntologyUnit(base, "s01-u1", OntologyUnitLimits{Materials: 0}); err != nil {
 		t.Fatal(err)
 	}
+	with := func(edit func(*OntologyUnitCard)) OntologyUnitCard {
+		c := base
+		edit(&c)
+		return c
+	}
 	cases := map[string]OntologyUnitCard{
-		"本段不使用背景音乐": {ID: "s01-u1", TotalSeconds: 10, Shots: 2, Paste: "10秒。"},
-		"场次或单元编号":   {ID: "s01-u1", TotalSeconds: 10, Shots: 2, Paste: "接 s01-u0。" + OntologyNoMusicLine},
-		"同上":        {ID: "s01-u1", TotalSeconds: 10, Shots: 2, Paste: "服装同上。" + OntologyNoMusicLine},
-		"@音频":       {ID: "s01-u1", TotalSeconds: 10, Shots: 2, Paste: "音色参考@音频1。" + OntologyNoMusicLine},
-		"单元编号应为":    {ID: "s01-u2", TotalSeconds: 10, Shots: 2, Paste: OntologyNoMusicLine},
-		"超过上限":      {ID: "s01-u1", TotalSeconds: 10, Shots: 2, Paste: strings.Repeat("字", OntologyPromptMaxChars) + OntologyNoMusicLine},
+		"本段不使用背景音乐": with(func(c *OntologyUnitCard) { c.Paste = "10秒。" }),
+		"场次或单元编号":   with(func(c *OntologyUnitCard) { c.Paste = "接 s01-u0。" + OntologyNoMusicLine }),
+		"同上":        with(func(c *OntologyUnitCard) { c.Paste = "服装同上。" + OntologyNoMusicLine }),
+		"@音频":       with(func(c *OntologyUnitCard) { c.Paste = "音色参考@音频1。" + OntologyNoMusicLine }),
+		"单元编号应为":    with(func(c *OntologyUnitCard) { c.ID = "s01-u2" }),
+		"超过上限": with(func(c *OntologyUnitCard) {
+			c.Paste = strings.Repeat("字", OntologyPromptMaxChars) + OntologyNoMusicLine
+		}),
+		"代码块":        with(func(c *OntologyUnitCard) { c.Fenced = false }),
+		"没有读得出的镜头表":  with(func(c *OntologyUnitCard) { c.Card = "无表" }),
+		"标题行写的是 9 镜": with(func(c *OntologyUnitCard) { c.Shots = 9 }),
+		"标题行的总时长":    with(func(c *OntologyUnitCard) { c.TotalSeconds = 12 }),
+		"接不上":        with(func(c *OntologyUnitCard) { c.Card = strings.Replace(table, "6–9", "7–9", 1) }),
+		"连续编号":       with(func(c *OntologyUnitCard) { c.Card = strings.Replace(table, "| 2 |", "| 5 |", 1) }),
+		"没写完":        with(func(c *OntologyUnitCard) { c.Text = "【未完。回复\"继续\"，我从 s01-u2 接着写。】" }),
 	}
 	for want, card := range cases {
 		if err := ValidateOntologyUnit(card, "s01-u1", OntologyUnitLimits{}); err == nil || !strings.Contains(err.Error(), want) {
@@ -244,4 +264,45 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return raw
+}
+
+func TestOntologyCheckUnitsCapAndStyle(t *testing.T) {
+	good := `## 六、本集交接卡
+【集交接卡】第1集 → 第2集
+
+## 七、自检结果与待确认清单
+| 单元 | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| s01-u1 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+`
+	if err := ValidateOntologyCheck(good, []string{"s01-u1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateOntologyCheck(good, []string{"s01-u1", "s01-u2"}); err == nil || !strings.Contains(err.Error(), "s01-u2") {
+		t.Fatalf("missing unit row: %v", err)
+	}
+	if err := ValidateOntologyCheck(strings.Replace(good, " H11 |", "", 1), []string{"s01-u1"}); err == nil || !strings.Contains(err.Error(), "H11") {
+		t.Fatalf("missing H11: %v", err)
+	}
+	if err := ValidateOntologyCheck(strings.Replace(good, "【集交接卡】第1集 → 第2集", "本集无", 1), []string{"s01-u1"}); err == nil {
+		t.Fatal("empty handoff must fail")
+	}
+	var rows strings.Builder
+	rows.WriteString("## 三、节奏总表\n| 单元 |\n|---|\n")
+	for i := 1; i <= OntologyMaxUnits+1; i++ {
+		fmt.Fprintf(&rows, "| s01-u%d |\n", i)
+	}
+	if _, err := OntologyRhythmUnits(rows.String()); err == nil || !strings.Contains(err.Error(), "超过一集上限") {
+		t.Fatalf("unit cap: %v", err)
+	}
+	if !OntologyUnfinished("……【未完。回复“继续”，我从 s02-u1 接着写。】") || OntologyUnfinished("一切正常") {
+		t.Fatal("unfinished marker detection")
+	}
+	style := OntologyStyleText("赛博雨夜写实", nil, MasterPalette{})
+	if !strings.Contains(OntologyMaterialPackage(OntologyBrief{Style: style}, nil, "", ""), "【项目画风") || !strings.Contains(style, "赛博雨夜写实") {
+		t.Fatalf("style must enter the material package: %q", style)
+	}
+	if OntologyStyleText("", nil, MasterPalette{}) != "" {
+		t.Fatal("no style, no section")
+	}
 }

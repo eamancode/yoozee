@@ -19,11 +19,22 @@ type fakeOntologyUpstream struct {
 	mu      sync.Mutex
 	prompts []string
 	u2Calls int
+	// failU2 让 s01-u2 一直返回 400（不可重试），用来造一个写到一半失败的任务。
+	failU2 bool
 }
 
 func ontologyFakeCard(unit string, seconds int) string {
 	return fmt.Sprintf("### 单元卡 %s｜总时长 %d 秒（叙事 %d 秒 + 交接 1 秒）｜2 镜｜节奏短剧档\n\n【导演分镜卡】\n事件链：递表 → 认出\n镜头表：\n| 镜头 | 时间 | 戏剧职责 | 第一注意力 | 景别 | 视场角 | 机位 | 运镜 | 构图 | 动作与表情 | 台词与声音 | 光 | 切出 |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n| 1 | 0–%d 秒 | 建立 | 柜台 | 中景 | 47° | 平视 | 固定 | 居中 | 林夏把怀表推过柜台 | 雨声 | 台灯 | 硬切 |\n| 2 | %d–%d 秒 | 站位交接 | 全体站位 | 全景 | 84° | 高位 | 固定 | 完整入画 | 保持原位 | 环境声 | 不变 | 结束 |\n结束状态：林夏在画左。\n\n【粘贴提示词】\n```\n%d秒，竖屏9:16，真人写实短剧质感，2个镜头。\n镜头1：林夏把怀表推过柜台。\n声音：雨声。本段不使用背景音乐。\n```\n",
 		unit, seconds, seconds-1, seconds-1, seconds-1, seconds, seconds)
+}
+
+func ontologyFakeCheckTable(units ...string) string {
+	var b strings.Builder
+	b.WriteString("| 单元 | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+	for _, u := range units {
+		b.WriteString("| " + u + strings.Repeat(" | ✓", 11) + " |\n")
+	}
+	return b.String()
 }
 
 func (f *fakeOntologyUpstream) handler(t *testing.T) http.HandlerFunc {
@@ -38,6 +49,11 @@ func (f *fakeOntologyUpstream) handler(t *testing.T) http.HandlerFunc {
 			return
 		}
 		prompt := body.Messages[len(body.Messages)-1].Content
+		if f.failU2 && strings.Contains(prompt, "只写单元 s01-u2") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"bad request"}}`))
+			return
+		}
 		f.mu.Lock()
 		f.prompts = append(f.prompts, prompt)
 		f.mu.Unlock()
@@ -61,7 +77,7 @@ func (f *fakeOntologyUpstream) handler(t *testing.T) http.HandlerFunc {
 				reply = strings.Replace(reply, "本段不使用背景音乐。", "", 1)
 			}
 		case strings.Contains(prompt, "按 S8 自检全部单元卡"):
-			reply = "## 六、本集交接卡\n【集交接卡】第1集 → 第2集\n林夏：在柜台外。\n\n## 七、自检结果与待确认清单\n| 单元 | H1 | H2 |\n|---|---|---|\n| s01-u1 | ✓ | ✓ |\n| s01-u2 | ✓ | ✓ |\n"
+			reply = "## 六、本集交接卡\n【集交接卡】第1集 → 第2集\n林夏：在柜台外。\n\n## 七、自检结果与待确认清单\n" + ontologyFakeCheckTable("s01-u1", "s01-u2")
 		default:
 			t.Errorf("unexpected prompt: %s", prompt[len(prompt)-200:])
 		}

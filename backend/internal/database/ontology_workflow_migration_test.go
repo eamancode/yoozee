@@ -149,6 +149,11 @@ func assertOntologyWorkflowMigration(t *testing.T, db *gorm.DB) {
 		if p.ID == "ontology" {
 			want = "pipeline-1"
 		}
+		// SQLite 不重建 projects（会丢索引和唯一约束），旧库保留 pipeline-2 列默认；建项总是显式写 workflow_id。
+		// 迁移后的裸 INSERT 拿到列默认值，重复启动也不能再把它顺延。
+		if p.ID == "database-default" {
+			want = "pipeline-2"
+		}
 		if p.ID == "integrated" {
 			want = "pipeline-2"
 		}

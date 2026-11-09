@@ -47,3 +47,10 @@ func (r *Repository) AppendOntologyDocument(doc *model.ProjectOntologyDocument) 
 		return tx.Create(doc).Error
 	})
 }
+
+// OntologyDocumentWrittenByTask 表示这个任务是否已经写过这份文档（重新收尾时跳过，不重复加版本）。
+func (r *Repository) OntologyDocumentWrittenByTask(projectID string, unitID string, kind string, taskID string) (bool, error) {
+	var count int64
+	err := r.db.Model(&model.ProjectOntologyDocument{}).Where("project_id = ? AND unit_id = ? AND kind = ? AND task_id = ?", projectID, unitID, kind, taskID).Count(&count).Error
+	return count > 0, err
+}

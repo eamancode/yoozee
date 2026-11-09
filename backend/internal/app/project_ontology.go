@@ -7,6 +7,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,7 @@ import (
 
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/repository"
 )
 
 // ontologyMaxMaterials 是材料包素材清单最多列几项（一段实际挂的图另受视频模型上限约束）。
@@ -39,6 +42,28 @@ type dramaOntologyMeta struct {
 	// EstimatedTurns 是建任务时估的轮数（预授权、墙钟用）。
 	EstimatedTurns int                 `json:"estimatedTurns"`
 	Repair         *ontologyRepairMeta `json:"repair,omitempty"`
+	// Discard 表示建任务时用户确认过整集替换会丢掉已有产物；Confirmed 是确认时各段（镜头 ID）已有产物的数量。
+	// 收尾只允许删掉确认过、且产物没有增加的段。
+	Discard   bool           `json:"discard,omitempty"`
+	Confirmed map[string]int `json:"confirmed,omitempty"`
+}
+
+// ontologyMaxPromptRunes 是一轮提示词（技能上下文 + 材料包 + 剧本 + 前序产物）的上限；超过直接失败，不截断、不硬发给模型。
+const ontologyMaxPromptRunes = 150000
+
+// ontologyFingerprint 是一次运行的输入指纹：剧本、素材清单、圣经卡、交接卡、画风与时长约束。续跑时输入变了就不能接着旧轮次写。
+func ontologyFingerprint(meta *dramaOntologyMeta) string {
+	type material struct {
+		Index           int
+		Name, VersionID string
+	}
+	mats := make([]material, 0, len(meta.Materials))
+	for _, m := range meta.Materials {
+		mats = append(mats, material{m.Index, m.Name, m.VersionID})
+	}
+	encoded, _ := json.Marshal(map[string]any{"brief": meta.Brief, "materials": mats, "bible": meta.Bible, "handoff": meta.Handoff, "script": meta.Script, "unit": meta.UnitTitle, "maxImages": meta.MaxImages})
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 // ontologyRepairMeta 是返修回合：只重写一个段。
@@ -116,7 +141,13 @@ func (s *Service) planOntologyShots(userID string, project *model.Project, unit 
 	if maxSeconds < 5 {
 		return nil, BadAuthRequest(fmt.Sprintf("视频模型 %s 一次最多 %d 秒，太短，本体论导演分镜至少需要 5 秒一个单元", m.Label, maxSeconds))
 	}
-	materials, err := s.ontologyMaterials(userID, project.ID)
+	var materials []drama.OntologyMaterial
+	if repair != nil {
+		// 返修的原单元卡里 @图N 是按生成那一集时的素材清单编的号：用那一集存下的清单，不用现在重新编号的。
+		materials, err = s.ontologyEpisodeMaterials(project.ID, unit.ID)
+	} else {
+		materials, err = s.ontologyMaterials(userID, project.ID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +217,83 @@ func ontologyProjectBrief(project *model.Project, maxSeconds int) drama.Ontology
 		_ = json.Unmarshal([]byte(raw), &doc)
 	}
 	genre, _ := doc["genre"].(string)
-	return drama.OntologyBrief{Genre: genre, AspectRatio: project.AspectRatio, Medium: medium, EpisodeSeconds: int(briefEpisodeSeconds(project.BriefJSON)), MaxUnitSeconds: maxSeconds}
+	anchor, palette, _, locked := projectLockedStyle(project.BibleJSON)
+	if !locked {
+		anchor, palette = nil, drama.MasterPalette{}
+	}
+	style := drama.OntologyStyleText(projectStyleSnapshot(project).Prompt, anchor, palette)
+	return drama.OntologyBrief{Genre: genre, AspectRatio: project.AspectRatio, Medium: medium, EpisodeSeconds: int(briefEpisodeSeconds(project.BriefJSON)), MaxUnitSeconds: maxSeconds, Style: style}
+}
+
+// ontologyEpisodeMaterials 是这一集生成时存下的素材清单（返修用）。
+func (s *Service) ontologyEpisodeMaterials(projectID string, unitID string) ([]drama.OntologyMaterial, error) {
+	doc, err := s.repo.LatestOntologyDocument(projectID, unitID, model.OntologyDocMaterials)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, BadAuthRequest("这一集没有存下生成时的素材清单，请重新生成本集分镜后再返修")
+	}
+	if err != nil {
+		return nil, err
+	}
+	var materials []drama.OntologyMaterial
+	if err := json.Unmarshal([]byte(doc.Content), &materials); err != nil {
+		return nil, fmt.Errorf("这一集的素材清单无效：%w", err)
+	}
+	return materials, nil
+}
+
+// prepareOntologyRun 补齐本体论运行的建任务参数：整集替换的确认范围；续跑时恢复上一次任务不可变的输入并按实际进度定轮数。
+// 续跑要求技能版本和输入指纹都没变（剧本、素材、圣经卡、交接卡、画风改过就不能拿旧轮次接着写），轮数取上一次已知的总轮数，
+// 只有各轮都写完时才算「只收尾」（不调模型、不建计费单）。
+func (s *Service) prepareOntologyRun(userID string, projectID string, unitID string, plan *dramaStepPlan, run *dramaRunMeta, discard bool) error {
+	meta := plan.ontology
+	if discard {
+		discards, err := s.dramaSegmentDiscards(projectID, unitID, nil)
+		if err != nil {
+			return err
+		}
+		meta.Discard, meta.Confirmed = true, map[string]int{}
+		for _, d := range discards {
+			meta.Confirmed[d.ShotID] = ontologyArtifactCount(d)
+		}
+	}
+	if run.ResumeTaskID == "" {
+		return nil
+	}
+	previous, err := s.repo.TaskForUser(userID, run.ResumeTaskID)
+	if err != nil {
+		return BadAuthRequest("要继续的分镜任务不存在")
+	}
+	prevMeta, prevStep, progress := taskDramaOntology(previous.InputJSON), taskDramaStep(previous.InputJSON), taskDramaRunProgress(previous.ResultJSON)
+	switch {
+	case prevMeta == nil || prevStep == nil || progress == nil:
+		return BadAuthRequest("要继续的任务不是本体论导演分镜任务")
+	case prevStep.VersionID != plan.skill.VersionID:
+		return BadAuthRequest("本体论导演技能已更新，不能混用旧轮次，请重新生成本集分镜")
+	case ontologyFingerprint(prevMeta) != ontologyFingerprint(meta):
+		return BadAuthRequest("上一次任务之后剧本、素材、世界圣经卡、上一集交接卡或画风改过了，不能接着旧轮次写，请重新生成本集分镜")
+	}
+	prevMeta.Discard, prevMeta.Confirmed = meta.Discard, meta.Confirmed
+	plan.ontology = prevMeta
+	completed := min(run.ResumeFrom-1, len(progress.Turns))
+	out, units := ontologyStateFrom(progress.Turns[:completed])
+	if _, done := ontologyNextTurn(prevMeta, out, units); done {
+		run.Turns = completed // 各轮都写完了：只重新收尾
+		return nil
+	}
+	total := max(prevMeta.EstimatedTurns, progress.Total)
+	if units != nil {
+		total = ontologyTotalTurns(prevMeta, len(units))
+	}
+	run.Turns = max(total, completed+1)
+	return nil
+}
+
+func ontologyArtifactCount(d DramaSegmentDiscard) int {
+	n := 0
+	for _, c := range d.Artifacts {
+		n += c
+	}
+	return n
 }
 
 // ontologyMaterials 是素材清单：有图的人物（主卡在前、子卡跟在后）、场景、道具，各自用主版本当参考文件。没图的资产不进清单。
@@ -336,9 +443,12 @@ func ontologyTurnPriors(kind string, out ontologyOutputs) []ontologyPrior {
 }
 
 // ontologyTurnCheck 是这一轮输出的校验（不合格按临时失败重试，错误文字会回给模型）。
-func ontologyTurnCheck(kind string, unit string, meta *dramaOntologyMeta) func(string, drama.TurnContext) (int, error) {
+func ontologyTurnCheck(kind string, unit string, meta *dramaOntologyMeta, units []string) func(string, drama.TurnContext) (int, error) {
 	limits := drama.OntologyUnitLimits{MaxSeconds: meta.Brief.MaxUnitSeconds, Materials: len(meta.Materials), MaxImages: meta.MaxImages}
 	return func(text string, _ drama.TurnContext) (int, error) {
+		if drama.OntologyUnfinished(text) {
+			return 0, errors.New("输出里出现了未完续写标记：本轮必须一次写完，不使用「回复继续」")
+		}
 		switch kind {
 		case drama.OntologyTurnProject:
 			return 1, drama.OntologyRequireSections(text, "世界圣经卡", "待确认清单")
@@ -354,7 +464,7 @@ func ontologyTurnCheck(kind string, unit string, meta *dramaOntologyMeta) func(s
 			_, err := ontologySingleCard(text, unit, limits)
 			return 1, err
 		case drama.OntologyTurnCheck:
-			return 1, drama.OntologyRequireSections(text, "六、本集交接卡", "七、自检结果与待确认清单")
+			return 1, drama.ValidateOntologyCheck(text, units)
 		case drama.OntologyTurnRepair:
 			if err := drama.OntologyRequireSections(text, "诊断", "改法", "重写后的单元卡"); err != nil {
 				return 0, err
@@ -456,11 +566,14 @@ func (s *Service) runOntologyRun(ctx context.Context, input canvasGenerationInpu
 			priors = []ontologyPrior{{"原单元卡", meta.Repair.Card}, {"翻车症状", meta.Repair.Symptom}}
 		}
 		turnInput.Prompt = ontologyTurnPrompt(skillCtx, meta, spec.kind, spec.unit, priors)
+		if n := len([]rune(turnInput.Prompt)); n > ontologyMaxPromptRunes {
+			return nil, dramaSentenceError{fmt.Errorf("第 %d 轮（%s）的输入有 %d 字，超过上限 %d 字：本集剧本或单元太多，请把本集拆短后重新生成", k, spec.label, n, ontologyMaxPromptRunes)}
+		}
 		if units != nil {
 			progress.Total = ontologyTotalTurns(meta, len(units))
 		}
 		marker := dramaTurnMarker{Index: k, Total: max(progress.Total, k), Scene: spec.unit, Heading: spec.label}
-		plan := drama.TurnPlan{Unit: "轮", Count: ontologyTurnCheck(spec.kind, spec.unit, meta)}
+		plan := drama.TurnPlan{Unit: "轮", Count: ontologyTurnCheck(spec.kind, spec.unit, meta, units)}
 		turn, err := s.runDramaTurn(ctx, task, turnInput, marker, stream, turnTimeout, plan, drama.TurnContext{Index: k, Contract: drama.ContractOntologyDirector})
 		if err != nil {
 			return nil, dramaRunTurnError("轮", marker, progress.Completed, turnTimeout, err)
@@ -491,7 +604,7 @@ func (s *Service) runOntologyRun(ctx context.Context, input canvasGenerationInpu
 	for i := range progress.Turns {
 		texts = append(texts, strings.TrimSpace(progress.Turns[i].Text))
 	}
-	return map[string]any{"mode": "text", "text": strings.Join(texts, "\n\n") + "\n", "dramaRun": progress, "ontology": out}, nil
+	return map[string]any{"mode": "text", "text": strings.Join(texts, "\n\n") + "\n", "dramaRun": progress}, nil
 }
 
 func ontologyTotalTurns(meta *dramaOntologyMeta, units int) int {
@@ -507,44 +620,67 @@ func ontologyTotalTurns(meta *dramaOntologyMeta, units int) int {
 
 // ---------------------------------------------------------------- 收尾
 
-// applyOntologyShotsTask 是本体论分镜的收尾：圣经卡（立项）、七部分、交接卡写文档，单元卡写成段。返修只替换一个段。
+// ontologyResultOutputs 从任务结果的逐轮进度恢复各轮产物（结果里不再另存一份全文）。
+func ontologyResultOutputs(result map[string]interface{}) (ontologyOutputs, []string, error) {
+	encoded, err := json.Marshal(result["dramaRun"])
+	if err != nil {
+		return ontologyOutputs{}, nil, err
+	}
+	var progress dramaRunProgress
+	if err := json.Unmarshal(encoded, &progress); err != nil || len(progress.Turns) == 0 {
+		return ontologyOutputs{}, nil, errors.New("本体论分镜任务结果缺少逐轮输出")
+	}
+	out, units := ontologyStateFrom(progress.Turns)
+	return out, units, nil
+}
+
+// ontologyDocWrite 是收尾要写的一份文档。
+type ontologyDocWrite struct {
+	unitID, kind, content string
+}
+
+// applyOntologyShotsTask 是本体论分镜的收尾。先把全部单元卡解析、校验、装成段并按视频模型检查，再复核要删的旧段（运行期间新增的产物
+// 不会被删），然后写段，最后在一个事务里写圣经卡、立项清单、七部分、交接卡和素材清单。文档按任务幂等：重新收尾不重复加版本。
+// 段写成而文档事务失败时任务失败，用「从中断处继续」只重新收尾（不调模型）即可补齐。
 // 自检有硬失败时照常写段（便于查看和返修），Notes 写明哪些单元哪一项失败，流水线不接下一集。
 func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMeta, meta *dramaOntologyMeta, result map[string]interface{}) (DramaStepTaskOutcome, error) {
 	target, err := taskDramaStepTarget(task)
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
-	var out ontologyOutputs
-	encoded, err := json.Marshal(result["ontology"])
-	if err == nil {
-		err = json.Unmarshal(encoded, &out)
-	}
+	out, units, err := ontologyResultOutputs(result)
 	if err != nil {
-		return DramaStepTaskOutcome{}, fmt.Errorf("本体论分镜任务结果无效：%w", err)
+		return DramaStepTaskOutcome{}, err
 	}
 	outcome := DramaStepTaskOutcome{Step: drama.StepChapterShots, Status: DramaStepOutcomeWritten, UnitID: target.UnitID}
 	limits := drama.OntologyUnitLimits{MaxSeconds: meta.Brief.MaxUnitSeconds, Materials: len(meta.Materials), MaxImages: meta.MaxImages}
-	if meta.Repair != nil {
-		return s.applyOntologyRepair(task, target, meta, out, limits, outcome)
+	project, err := s.activeProjectForUser(task.UserID, target.ProjectID)
+	if err != nil {
+		return DramaStepTaskOutcome{}, ontologyProjectError(err)
 	}
+	m, err := projectDramaModel(project)
+	if err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
+	if meta.Repair != nil {
+		return s.applyOntologyRepair(task, target, meta, out, limits, m, outcome)
+	}
+	var docs []ontologyDocWrite
 	if meta.Setup {
 		bible, ok := drama.OntologySection(out.Setup, "世界圣经卡")
 		if !ok || strings.TrimSpace(bible) == "" {
 			return DramaStepTaskOutcome{}, errors.New("立项轮没有写出世界圣经卡")
 		}
-		if err := s.appendOntologyDoc(task, target.ProjectID, "", model.OntologyDocBible, bible); err != nil {
-			return DramaStepTaskOutcome{}, err
-		}
-		if err := s.appendOntologyDoc(task, target.ProjectID, "", model.OntologyDocSetup, ontologySetupNotes(out.Setup)); err != nil {
-			return DramaStepTaskOutcome{}, err
-		}
+		docs = append(docs, ontologyDocWrite{"", model.OntologyDocBible, bible}, ontologyDocWrite{"", model.OntologyDocSetup, ontologySetupNotes(out.Setup)})
 	}
-	units, err := drama.OntologyRhythmUnits(out.Plan)
-	if err != nil {
+	if units == nil {
+		return DramaStepTaskOutcome{}, errors.New("规划轮没有可用的节奏总表")
+	}
+	if len(out.Units) != len(units) || out.Check == "" {
+		return DramaStepTaskOutcome{}, fmt.Errorf("节奏总表有 %d 个单元，只写出了 %d 张单元卡或缺少自检", len(units), len(out.Units))
+	}
+	if err := drama.ValidateOntologyCheck(out.Check, units); err != nil {
 		return DramaStepTaskOutcome{}, err
-	}
-	if len(out.Units) != len(units) {
-		return DramaStepTaskOutcome{}, fmt.Errorf("节奏总表有 %d 个单元，只写出了 %d 张单元卡", len(units), len(out.Units))
 	}
 	cards := make([]drama.OntologyUnitCard, 0, len(units))
 	segments := make([]json.RawMessage, 0, len(units))
@@ -558,6 +694,9 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		if err != nil {
 			return DramaStepTaskOutcome{}, err
 		}
+		if issues := drama.Issues(seg, m); drama.HasError(issues) {
+			return DramaStepTaskOutcome{}, BadAuthRequest(fmt.Sprintf("单元 %s 装不成段：%s", card.ID, issues[0].Message))
+		}
 		raw, err := json.Marshal(seg)
 		if err != nil {
 			return DramaStepTaskOutcome{}, err
@@ -565,23 +704,80 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		cards, segments, order = append(cards, card), append(segments, raw), append(order, seg.ID)
 		outcome.Shots += len(seg.Shots)
 	}
+	if err := s.guardOntologyRemovals(task.UserID, target.ProjectID, target.UnitID, order, meta); err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
+	materials, err := json.Marshal(meta.Materials)
+	if err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
+	docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocEpisode, drama.OntologyEpisodeDocument(out.Plan, out.Direct, cards, out.Check)}, ontologyDocWrite{target.UnitID, model.OntologyDocMaterials, string(materials)})
+	if handoff, ok := drama.OntologySection(out.Check, "六、本集交接卡"); ok && strings.TrimSpace(handoff) != "" {
+		docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocHandoff, handoff})
+	}
 	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: segments, Order: order}); err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
-	if err := s.appendOntologyDoc(task, target.ProjectID, target.UnitID, model.OntologyDocEpisode, drama.OntologyEpisodeDocument(out.Plan, out.Direct, cards, out.Check)); err != nil {
-		return DramaStepTaskOutcome{}, err
-	}
-	if handoff, ok := drama.OntologySection(out.Check, "六、本集交接卡"); ok && strings.TrimSpace(handoff) != "" {
-		if err := s.appendOntologyDoc(task, target.ProjectID, target.UnitID, model.OntologyDocHandoff, handoff); err != nil {
-			return DramaStepTaskOutcome{}, err
-		}
+	if err := s.writeOntologyDocs(task, target.ProjectID, docs); err != nil {
+		return DramaStepTaskOutcome{}, fmt.Errorf("段已写入，文档写入失败（可从中断处继续，只重新收尾）：%w", err)
 	}
 	outcome.Segments, outcome.Scenes = len(segments), ontologySceneCount(cards)
 	if failures := drama.OntologyHardFailures(out.Check); len(failures) > 0 {
 		outcome.Errors = len(failures)
-		outcome.Notes = append(outcome.Notes, "自检硬失败："+strings.Join(failures, "、")+"。请在制作台对这些段返修后再继续。")
+		outcome.Notes = append(outcome.Notes, "自检硬失败："+strings.Join(failures, "、")+"。请在导演文档里对这些段返修后再继续。")
 	}
 	return outcome, nil
+}
+
+// guardOntologyRemovals 复核整集替换要删掉的旧段：有产物的旧段必须是建任务时确认过的，且产物没有增加。
+func (s *Service) guardOntologyRemovals(userID string, projectID string, unitID string, order []string, meta *dramaOntologyMeta) error {
+	existing, err := s.DramaSegments(userID, projectID, unitID)
+	if err != nil {
+		return err
+	}
+	var removed []string
+	for _, view := range existing {
+		if !slices.Contains(order, view.Spec.ID) {
+			removed = append(removed, view.ShotID)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	discards, err := s.dramaSegmentDiscards(projectID, unitID, removed)
+	if err != nil {
+		return err
+	}
+	var blocked []DramaSegmentDiscard
+	for _, d := range discards {
+		confirmed, ok := meta.Confirmed[d.ShotID]
+		if !meta.Discard || !ok || ontologyArtifactCount(d) > confirmed {
+			blocked = append(blocked, d)
+		}
+	}
+	if len(blocked) > 0 {
+		return dramaSegmentsDiscardRequired(blocked)
+	}
+	return nil
+}
+
+// writeOntologyDocs 在一个事务里写收尾的全部文档；同一任务已写过的（同单元、同种类）跳过，重新收尾不重复加版本。
+func (s *Service) writeOntologyDocs(task model.Task, projectID string, docs []ontologyDocWrite) error {
+	return s.repo.Transaction(func(r *repository.Repository) error {
+		for _, d := range docs {
+			written, err := r.OntologyDocumentWrittenByTask(projectID, d.unitID, d.kind, task.ID)
+			if err != nil {
+				return err
+			}
+			if written {
+				continue
+			}
+			if err := r.AppendOntologyDocument(&model.ProjectOntologyDocument{ID: newID(), ProjectID: projectID, UnitID: d.unitID, Kind: d.kind, Content: d.content, TaskID: task.ID, CreatedBy: task.UserID}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func ontologySceneCount(cards []drama.OntologyUnitCard) int {
@@ -603,12 +799,8 @@ func ontologySetupNotes(setup string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func (s *Service) appendOntologyDoc(task model.Task, projectID string, unitID string, kind string, content string) error {
-	return s.repo.AppendOntologyDocument(&model.ProjectOntologyDocument{ID: newID(), ProjectID: projectID, UnitID: unitID, Kind: kind, Content: content, TaskID: task.ID, CreatedBy: task.UserID})
-}
-
-// applyOntologyRepair 用重写后的单元卡替换那一个段，并把七部分里这张卡换成新卡（新版本）。
-func (s *Service) applyOntologyRepair(task model.Task, target dramaStepTaskTarget, meta *dramaOntologyMeta, out ontologyOutputs, limits drama.OntologyUnitLimits, outcome DramaStepTaskOutcome) (DramaStepTaskOutcome, error) {
+// applyOntologyRepair 用重写后的单元卡替换那一个段，并把七部分里这张卡换成新卡（新版本）。先校验、装段、按模型检查，再写。
+func (s *Service) applyOntologyRepair(task model.Task, target dramaStepTaskTarget, meta *dramaOntologyMeta, out ontologyOutputs, limits drama.OntologyUnitLimits, m drama.Model, outcome DramaStepTaskOutcome) (DramaStepTaskOutcome, error) {
 	repair := meta.Repair
 	body, _ := drama.OntologySection(out.Repair, "重写后的单元卡")
 	card, err := ontologySingleCard(body, repair.Unit, limits)
@@ -624,21 +816,28 @@ func (s *Service) applyOntologyRepair(task model.Task, target dramaStepTaskTarge
 		return DramaStepTaskOutcome{}, err
 	}
 	seg.ID = repair.SegmentID
+	if issues := drama.Issues(seg, m); drama.HasError(issues) {
+		return DramaStepTaskOutcome{}, BadAuthRequest(fmt.Sprintf("返修后的单元 %s 装不成段：%s", card.ID, issues[0].Message))
+	}
 	raw, err := json.Marshal(seg)
 	if err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
+	var docs []ontologyDocWrite
+	doc, err := s.repo.LatestOntologyDocument(target.ProjectID, target.UnitID, model.OntologyDocEpisode)
+	switch {
+	case err == nil:
+		updated := strings.Replace(doc.Content, strings.TrimSpace(repair.Card), card.Text, 1)
+		updated += fmt.Sprintf("\n\n## 返修记录 %s\n症状：%s\n\n%s\n", repair.Unit, repair.Symptom, ontologyRepairNotes(out.Repair))
+		docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocEpisode, updated})
+	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return DramaStepTaskOutcome{}, err
 	}
 	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: []json.RawMessage{raw}}); err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
-	if doc, err := s.repo.LatestOntologyDocument(target.ProjectID, target.UnitID, model.OntologyDocEpisode); err == nil {
-		updated := strings.Replace(doc.Content, strings.TrimSpace(repair.Card), card.Text, 1)
-		updated += fmt.Sprintf("\n\n## 返修记录 %s\n症状：%s\n\n%s\n", repair.Unit, repair.Symptom, ontologyRepairNotes(out.Repair))
-		if err := s.appendOntologyDoc(task, target.ProjectID, target.UnitID, model.OntologyDocEpisode, updated); err != nil {
-			return DramaStepTaskOutcome{}, err
-		}
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return DramaStepTaskOutcome{}, err
+	if err := s.writeOntologyDocs(task, target.ProjectID, docs); err != nil {
+		return DramaStepTaskOutcome{}, fmt.Errorf("段已返修，七部分更新失败（可从中断处继续，只重新收尾）：%w", err)
 	}
 	outcome.Segments, outcome.Shots, outcome.Scenes = 1, len(seg.Shots), 1
 	return outcome, nil
@@ -654,6 +853,14 @@ func ontologyRepairNotes(text string) string {
 	return strings.Join(parts, "\n\n")
 }
 
+// ontologyProjectError 把项目不存在或不属于当前用户的查询错误转成 404，其余错误原样返回。
+func ontologyProjectError(err error) error {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return NotFound("项目不存在")
+	}
+	return err
+}
+
 // ---------------------------------------------------------------- 接口：文档、编辑圣经卡、返修
 
 // ProjectOntologyDocuments 是项目本体论分镜的文档（各文档最新版本）。
@@ -666,7 +873,7 @@ type ProjectOntologyDocuments struct {
 
 func (s *Service) ProjectOntologyDocuments(userID string, projectID string) (ProjectOntologyDocuments, error) {
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
-		return ProjectOntologyDocuments{}, err
+		return ProjectOntologyDocuments{}, ontologyProjectError(err)
 	}
 	docs, err := s.repo.OntologyDocumentsForProject(projectID)
 	if err != nil {
@@ -697,7 +904,7 @@ type UpdateOntologyBibleRequest struct {
 func (s *Service) UpdateOntologyBible(userID string, projectID string, req UpdateOntologyBibleRequest) (*model.ProjectOntologyDocument, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
-		return nil, err
+		return nil, ontologyProjectError(err)
 	}
 	if workflow, ok := drama.Workflow(project.WorkflowID); !ok || workflow.StoryboardMode != drama.StoryboardModeOntology {
 		return nil, BadAuthRequest("只有本体论导演流水线的项目有世界圣经卡")
@@ -728,7 +935,7 @@ type OntologyRepairRequest struct {
 func (s *Service) RepairOntologySegment(userID string, projectID string, unitID string, req OntologyRepairRequest) (DramaStepRunResult, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
-		return DramaStepRunResult{}, err
+		return DramaStepRunResult{}, ontologyProjectError(err)
 	}
 	step, _ := drama.StepByID(drama.StepChapterShots)
 	usage, skill, err := s.dramaStepSkill(project, step, req.Rule)

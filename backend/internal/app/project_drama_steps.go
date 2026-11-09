@@ -351,6 +351,9 @@ func (s *Service) prepareDramaStepRun(userID string, project *model.Project, uni
 	if err != nil {
 		return nil, dramaRunMeta{}, err
 	}
+	if plan.ontology != nil && (len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 || regenre != nil) {
+		return nil, dramaRunMeta{}, BadAuthRequest("本体论导演分镜不按场或小节重写；要改某一段请在导演文档里对这一段返修")
+	}
 	if regenre != nil {
 		if plan.shots == nil {
 			return nil, dramaRunMeta{}, BadAuthRequest("只有生成分段能改戏类")
@@ -376,6 +379,12 @@ func (s *Service) prepareDramaStepRun(userID string, project *model.Project, uni
 		if run, err = s.onlyScenesRun(project.ID, unitID, plan, run, req.OnlyScenes, req.OnlySections); err != nil {
 			return nil, dramaRunMeta{}, err
 		}
+	}
+	if plan.ontology != nil {
+		if err := s.prepareOntologyRun(userID, project.ID, unitID, plan, &run, req.Discard); err != nil {
+			return nil, dramaRunMeta{}, err
+		}
+		return plan, run, nil
 	}
 	// 要调模型的运行先按估时预拦镜头上限（改戏类同样拦）；只重新收尾的不调模型，按实际镜头数在收尾时判断。
 	if !dramaRunCallsNoUpstream(&run) {
