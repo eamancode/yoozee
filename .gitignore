@@ -80,3 +80,5 @@ backend/tmp_*
 /web/public/live2d/live2dcubismcore.min.js.map
 .zocde/
 backend/server
+# 本体论导演技能原样导入，dist/ 是技能自带的对话版源文件，不是构建产物
+!backend/builtin/yz-ontology-director/dist/
