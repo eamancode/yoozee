@@ -2,6 +2,7 @@ package skills
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -122,6 +123,15 @@ func loadBuiltinSkillPackagesFromFS(filesystem fs.FS, tombstones interface {
 		metadata, err := parseBuiltinSkillMetadata(body)
 		if err != nil {
 			return nil, fmt.Errorf("内置技能 %s 元数据无效: %w", skillID, err)
+		}
+		// Imported skills keep their original entry bytes; catalog metadata lives beside the entry.
+		if catalog, readErr := fs.ReadFile(filesystem, path.Join(base, "agents/catalog.yaml")); readErr == nil {
+			metadata, err = parseBuiltinSkillMetadata(catalog)
+			if err != nil {
+				return nil, fmt.Errorf("内置技能 %s 目录元数据无效: %w", skillID, err)
+			}
+		} else if !errors.Is(readErr, fs.ErrNotExist) {
+			return nil, readErr
 		}
 		if metadata.SkillID != "" && metadata.SkillID != skillID {
 			// The directory is a readable slug; skillId is the stable database key.

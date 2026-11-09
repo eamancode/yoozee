@@ -1,0 +1,24 @@
+{
+  "owner": "yingce-system",
+  "inputKind": "byte-preserved vendor import",
+  "sourceDirectory": "seedance25-ontology-director",
+  "version": "2.2",
+  "sourceFileCount": 37,
+  "sourceBytes": 3736204,
+  "checksumManifest": "../yz-ontology-director.SHA256SUMS",
+  "catalogMetadata": "agents/catalog.yaml",
+  "runtimeContext": "runtime-context.json",
+  "outputContract": "ontology.director@1",
+  "runtimeStatus": "metadata-only; execution implemented by T3",
+  "contextPolicy": "Each stage is a complete allowlist; never recursively load the package or truncate files.",
+  "excludedPaths": ["archive/", "dist/", "tests/"],
+  "rounds": {
+    "project": ["S0", "S1"],
+    "episode": ["S0", "S2", "S3", "S4", "S5", "S6", "S7", "S8"],
+    "repair": ["S0", "S8", "responsible-stage", "S7", "S8"]
+  },
+  "handoff": "After episode S8, use S1 to write the episode handoff card; a complete first episode after project setup follows the episode route (D002).",
+  "examples": "examples/ and prompts/ are retained for explicit reference/review, outside the default stage allowlists.",
+  "reviewCadence": "每次源技能或输出契约发布时",
+  "rollbackBoundary": "技能版本快照；导入本身不改变流水线绑定或运行路径"
+}

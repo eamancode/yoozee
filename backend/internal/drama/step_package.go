@@ -16,6 +16,8 @@ import (
 // 版本号是否重复要查库，在 skills 域里做。
 
 const (
+	ContractOntologyDirector = "ontology.director@1"
+	StepPackageContextFile   = "runtime-context.json"
 	// StepPackageManifestFile 是包的清单文件。
 	StepPackageManifestFile = "package.json"
 	// StepPackageHashFile 是 build.py 写进 zip 的内容哈希；上传时核对后丢弃，不进版本文件。
@@ -76,6 +78,7 @@ type StepPackageRuleSet struct {
 
 type StepPackageStepLimits struct {
 	Contracts        []string          `json:"contracts,omitempty"`
+	StagedContracts  []string          `json:"stagedContracts,omitempty"`
 	ID               string            `json:"id"`
 	Contract         string            `json:"contract"`
 	SkillBudgetChars int               `json:"skillBudgetChars"`
@@ -103,6 +106,10 @@ func StepPackageRules() StepPackageRuleSet {
 		out.Steps = append(out.Steps, StepPackageStepLimits{ID: s.ID, Contract: s.Contract, SkillBudgetChars: s.SkillBudgetChars, SkillLinkedFiles: s.SkillLinkedFiles, EvalSet: slices.Clone(s.EvalSet)})
 		if s.ID == StepAssetsExtract {
 			out.Steps[len(out.Steps)-1].Contracts = []string{ContractIntegratedAssets}
+		}
+		if s.ID == StepChapterShots {
+			out.Steps[len(out.Steps)-1].Contracts = []string{ContractOntologyDirector}
+			out.Steps[len(out.Steps)-1].StagedContracts = []string{ContractOntologyDirector}
 		}
 	}
 	return out
@@ -187,7 +194,7 @@ func CheckStepPackage(m StepPackageManifest, files map[string][]byte) []StepPack
 			known = append(known, s.ID)
 		}
 		add(PackageRuleStep, "", "step「%s」不在线上步骤表里（现有：%s）", m.Step, strings.Join(known, "、"))
-	} else if m.Contract != step.Contract && !(m.Step == StepAssetsExtract && m.Contract == ContractIntegratedAssets) {
+	} else if m.Contract != step.Contract && !(m.Step == StepAssetsExtract && m.Contract == ContractIntegratedAssets) && !(m.Step == StepChapterShots && m.Contract == ContractOntologyDirector) {
 		add(PackageRuleContract, "", "清单声明满足契约 %s，线上「%s」这一步的契约是 %s", m.Contract, step.Label, step.Contract)
 	}
 	for _, id := range m.Profiles {
@@ -231,7 +238,11 @@ func CheckStepPackage(m StepPackageManifest, files map[string][]byte) []StepPack
 		add(PackageRuleRequiredCard, ref, "SKILL.md 点名必读 %s，但 files 里没有", ref)
 	}
 	if stepOK {
-		out = append(out, checkPackageBudget(step, entry, m.Files, files)...)
+		if m.Step == StepChapterShots && m.Contract == ContractOntologyDirector {
+			out = append(out, checkStagedPackageContext(step, files)...)
+		} else {
+			out = append(out, checkPackageBudget(step, entry, m.Files, files)...)
+		}
 	}
 	return out
 }

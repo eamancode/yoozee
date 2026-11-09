@@ -162,7 +162,11 @@ func (s *Service) uploadFlowPackage(actorID string, data []byte, note string) (*
 			problems = append(problems, drama.StepPackageProblem{Rule: drama.PackageRuleEntry, Path: "SKILL.md", Message: fmt.Sprintf("SKILL.md 的 metadata.skillId 是 %s，清单 id 是 %s", meta.SkillID, manifest.ID)})
 		}
 	}
-	finalized, err := finalizeSkillArchive(files, parseSkillPackageMetadata(files["SKILL.md"]))
+	metadata, err := flowPackageMetadata(files)
+	if err != nil {
+		problems = append(problems, drama.StepPackageProblem{Rule: drama.PackageRuleEntry, Path: "agents/catalog.yaml", Message: err.Error()})
+	}
+	finalized, err := finalizeSkillArchive(files, metadata)
 	if err != nil {
 		var appErr *kernel.AppError
 		if !errors.As(err, &appErr) {
@@ -337,8 +341,12 @@ func (s *Service) ActivateFlowPackageVersion(actor *model.User, skillID string, 
 			return nil, fmt.Errorf("技能版本 %s 缺少 SKILL.md", version.ID)
 		}
 		values := activeSkillVersionColumns(version, entry)
-		// 包技能的名字和简介跟着生效版本的 SKILL.md 走（启动同步不再用内置目录覆盖）。
-		if meta := parseSkillPackageMetadata(entry); meta.Name != "" && meta.Description != "" {
+		// 包技能的名字和简介跟着生效版本的目录元数据走，原样导入包可用 sidecar。
+		meta, err := flowPackageMetadata(contents)
+		if err != nil {
+			return nil, err
+		}
+		if meta.Name != "" && meta.Description != "" {
 			values["name"], values["description"] = meta.Name, meta.Description
 		}
 		if err := s.repo.UpdateSkillColumns(skill.ID, values); err != nil {
@@ -410,6 +418,9 @@ func (s *Service) flowPackageVersions(skillID string) (*FlowPackageSummary, []Fl
 		if step.ID == drama.StepAssetsExtract && summary.Contract == drama.ContractIntegratedAssets {
 			summary.StepContract = summary.Contract
 		}
+		if step.ID == drama.StepChapterShots && summary.Contract == drama.ContractOntologyDirector {
+			summary.StepContract = summary.Contract
+		}
 	}
 	return summary, items, nil
 }
@@ -459,4 +470,17 @@ func (s *Service) seedFlowPackage(skill *model.Skill, archive skillPackageArchiv
 func isFlowPackageSeed(archive skillPackageArchive) bool {
 	_, ok := archive.Files[drama.StepPackageManifestFile]
 	return ok
+}
+
+// Vendor entry files keep their upstream identity; the catalog sidecar supplies the product name.
+func flowPackageMetadata(files map[string][]byte) (skillPackageMetadata, error) {
+	metadata := parseSkillPackageMetadata(files["SKILL.md"])
+	if raw, ok := files["agents/catalog.yaml"]; ok {
+		catalog, err := parseBuiltinSkillMetadata(raw)
+		if err != nil {
+			return metadata, err
+		}
+		metadata.Name, metadata.Description, metadata.Version = catalog.Name, catalog.Description, catalog.Version
+	}
+	return metadata, nil
 }

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "excludedPaths": ["archive/", "dist/", "tests/"],
+  "stages": {
+    "S0": ["SKILL.md", "params.md", "stages/S0_回合与输入.md", "templates/01_材料包.md"],
+    "S1": ["SKILL.md", "params.md", "stages/S1_世界圣经.md", "templates/02_世界圣经卡.md"],
+    "S2": ["SKILL.md", "params.md", "stages/S2_台词.md", "templates/03_每集输出骨架.md"],
+    "S3": ["SKILL.md", "params.md", "stages/S3_拆节奏.md", "templates/03_每集输出骨架.md"],
+    "S4": ["SKILL.md", "params.md", "stages/S4_讲戏.md", "templates/03_每集输出骨架.md"],
+    "S5": ["SKILL.md", "params.md", "stages/S5_氛围.md", "templates/03_每集输出骨架.md"],
+    "S6": ["SKILL.md", "params.md", "stages/S6_导演分镜.md", "templates/03_每集输出骨架.md"],
+    "S7": ["SKILL.md", "params.md", "stages/S7_编译.md", "templates/04_粘贴提示词骨架.md"],
+    "S8": ["SKILL.md", "params.md", "stages/S8_质检与返修.md", "templates/03_每集输出骨架.md"]
+  }
+}

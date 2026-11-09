@@ -332,6 +332,8 @@ def check_step_package(m, files, rules):
         out.append(_problem("required_card", f"SKILL.md 点名必读 {ref}，但 files 里没有", ref))
     if step is None:
         return out
+    if m["contract"] in step.get("stagedContracts", []):
+        return out + check_staged_context(files, step, rules)
     cards = []
     for p in m["files"]:
         if p == "SKILL.md" or p not in files or not _text_file(p, rules):
@@ -356,6 +358,59 @@ def check_step_package(m, files, rules):
     if total > step["skillBudgetChars"]:
         parts = [f"SKILL.md {js_len(entry)} 字"] + [f"{c['path']} {c['chars']} 字" for c in chosen]
         out.append(_problem("budget", f"最多注入 {total} 字（{' + '.join(parts)}），超过这一步的上限 {step['skillBudgetChars']} 字，超出部分会被截断"))
+    return out
+
+
+def check_staged_context(files, step, rules):
+    context_file = "runtime-context.json"
+    out = []
+
+    def add(rule, message):
+        out.append(_problem(rule, message, context_file))
+
+    try:
+        context = json.loads(files.get(context_file, b""))
+    except (ValueError, UnicodeDecodeError):
+        context = None
+    if not isinstance(context, dict) or type(context.get("schemaVersion")) is not int or context["schemaVersion"] != 1:
+        add("manifest", "runtime-context.json 必须是 schemaVersion=1 的分环节装载清单")
+        return out
+    excluded = context.get("excludedPaths")
+    stages = context.get("stages")
+    if not isinstance(excluded, list) or not all(isinstance(p, str) for p in excluded) or not isinstance(stages, dict):
+        add("manifest", "runtime-context.json 的 excludedPaths / stages 类型无效")
+        return out
+    if any(paths is not None and (not isinstance(paths, list) or not all(isinstance(p, str) for p in paths)) for paths in stages.values()):
+        add("manifest", "runtime-context.json 的环节文件清单必须是路径数组")
+        return out
+    for prefix in ("archive/", "dist/", "tests/"):
+        if prefix not in excluded:
+            add("files", "分环节装载清单必须排除 " + prefix)
+    if len(stages) != 9:
+        add("files", "分环节装载清单必须且只能包含 S0–S8")
+    for i in range(9):
+        sid = f"S{i}"
+        paths = stages.get(sid) or []
+        if "SKILL.md" not in paths or "params.md" not in paths:
+            add("files", sid + " 必须装载 SKILL.md 和 params.md")
+        if len(set(paths)) != len(paths):
+            add("files", sid + " 装载清单包含重复文件")
+        total = 0
+        if sum(p.startswith(f"stages/{sid}_") and p.endswith(".md") for p in paths) != 1:
+            add("files", sid + " 必须装载对应的 stages/" + sid + " 文件")
+        for p in paths:
+            try:
+                text = files[p].decode("utf-8")
+                if not _clean_path(p) or not _text_file(p, rules):
+                    raise ValueError(p)
+            except (KeyError, UnicodeDecodeError, ValueError):
+                add("files", sid + " 装载文件不存在或不是有效文本：" + p)
+                continue
+            if any(p.startswith(prefix) for prefix in excluded):
+                add("files", sid + " 不得装载排除路径：" + p)
+            total += js_len(text)
+        if len(paths) - 1 > step["skillLinkedFiles"] or total > step["skillBudgetChars"]:
+            add("budget", f"{sid} 装载 {total} 字、{len(paths)-1} 张关联卡；上限 {step['skillBudgetChars']} 字、{step['skillLinkedFiles']} 张，不得截断")
     return out
 
 
@@ -389,7 +444,7 @@ def _zip_info(name):
 
 
 def build_package(pid):
-    d = PACKAGES / pid
+    d = next((d for d in flow_packages() if d.name == pid), PACKAGES / pid)
     if not (d / "package.json").exists():
         raise SystemExit(f"没有流程技能包 packages/{pid}（要有 package.json）")
     rules = package_rules()
@@ -421,9 +476,10 @@ def build_package(pid):
 
 
 def flow_packages():
-    if not PACKAGES.exists():
-        return []
-    return sorted(d for d in PACKAGES.iterdir() if (d / "package.json").exists())
+    dirs = list(PACKAGES.iterdir()) if PACKAGES.exists() else []
+    # This vendor import is canonical in builtin; never regenerate or render its source bytes.
+    dirs.append(BUILTIN / "yz-ontology-director")
+    return sorted(d for d in dirs if (d / "package.json").exists())
 
 
 def check_flow_packages():
@@ -444,6 +500,9 @@ def sync_flow_package_seeds():
     names = []
     for d in flow_packages():
         seed = BUILTIN / d.name
+        if d == seed:
+            names.append(d.name)
+            continue
         if seed.exists():
             shutil.rmtree(seed)
         shutil.copytree(d, seed, ignore=shutil.ignore_patterns("__pycache__", ".DS_Store"))

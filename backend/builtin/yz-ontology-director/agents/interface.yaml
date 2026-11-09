@@ -1,0 +1,4 @@
+interface:
+  display_name: "本体论导演分镜"
+  short_description: "分环节生成导演分镜卡、独立粘贴提示词与跨集交接卡"
+  default_prompt: "按 runtime-context.json 的 S0–S8 文件清单分环节装载，先立世界圣经，再产出本集七部分；返修只重写责任单元。archive/、dist/、tests/ 不进入模型上下文，不截断技能文本，不自行发起视频生成。"
