@@ -43,10 +43,10 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 		return "", BadAuthRequest("项目工作流版本不可用")
 	}
 	metadata["assetWorkflow"] = wf
-	if op == "project_spatial_reference" && wf.ID != drama.WorkflowIntegrated {
-		return "", BadAuthRequest("空间母版派生仅适用于流水线一")
+	if op == "project_spatial_reference" && !drama.IntegratedAssets(wf.ID) {
+		return "", BadAuthRequest("空间母版派生仅适用于流水线一、二")
 	}
-	if !assetImage || wf.ID != drama.WorkflowIntegrated {
+	if !assetImage || !drama.IntegratedAssets(wf.ID) {
 		return prompt, nil
 	}
 	idKey := "projectAssetId"
@@ -212,7 +212,7 @@ func assetDesignProps(definition map[string]any) []string {
 
 // The compiler's tags refer to the actual ordered inputs, never a guessed image number.
 func (s *Service) spatialCompiledReferenceNote(userID string, project *model.Project, files []drama.CompiledFile) (string, error) {
-	if project.WorkflowID != drama.WorkflowIntegrated {
+	if !drama.IntegratedAssets(project.WorkflowID) {
 		return "", nil
 	}
 	var notes []string
@@ -240,7 +240,7 @@ func (s *Service) spatialCompiledReferenceNote(userID string, project *model.Pro
 }
 
 func (s *Service) spatialPropRefs(userID string, project *model.Project, definition map[string]any) ([]dramaImageRef, error) {
-	if project.WorkflowID != drama.WorkflowIntegrated {
+	if !drama.IntegratedAssets(project.WorkflowID) {
 		return nil, nil
 	}
 	names := assetDesignProps(definition)

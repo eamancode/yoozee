@@ -1,3 +1,4 @@
+import { projectWorkflow } from "@/lib/project-workflow";
 import { App, Button, Modal, Switch } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -148,7 +149,7 @@ function imagesText(outcome: DramaAssetsExtractOutcome, statuses?: DramaImageSta
  * 技能由项目风格档案的绑定决定。进度侧栏按场流式显示资产行，写完显示新增 / 合并 / 跳过并可去资产页。资产直接是已确认的，不用再确认。
  */
 export function AssetsExtractControl({ detail, unit: selectedUnit, units, paletteReady, unitNoun, tasks, disabled, disabledReason }: AssetsExtractControlProps) {
-    const integrated = detail.project.workflowId === "pipeline-1";
+    const integrated = projectWorkflow(detail.project.workflowId).integratedAssets;
     const { message } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -500,7 +501,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                                     </div>
                                     <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">
                                         {integrated
-                                            ? "流水线一使用三技能整合包：保留原文依据、关联及状态；人物采用四宫格，场景采用实际空间类型的微缩母版。子卡带主卡图片，微缩图保留关联关键道具参考；色卡与项目画风继续生效。"
+                                            ? `${projectWorkflow(detail.project.workflowId).label}使用三技能整合包：保留原文依据、关联及状态；人物采用四宫格，场景采用实际空间类型的微缩母版。子卡带主卡图片，微缩图保留关联关键道具参考；色卡与项目画风继续生效。`
                                             : "技能由项目的风格档案决定。提示词带上项目已有资产、锁定的风格锚、主基调色卡和本集场次色卡；角色换装或换状态时拆成子卡。出图带色卡图，子卡另带主卡三视图。"}
                                     </div>
                                 </>

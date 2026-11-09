@@ -15,7 +15,7 @@ import (
 func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
 	s, db := newDramaWorkerTestService(t)
 	project, _ := seedQichuang(t, s, db)
-	for _, wf := range []string{drama.WorkflowIntegrated, drama.WorkflowOriginal} {
+	for _, wf := range []string{drama.WorkflowOntology, drama.WorkflowIntegrated, drama.WorkflowOriginal} {
 		if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("workflow_id", wf).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -23,7 +23,7 @@ func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if wf == drama.WorkflowIntegrated {
+		if drama.IntegratedAssets(wf) {
 			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.3" || usage.Contract != drama.ContractIntegratedAssets {
 				t.Fatal(usage)
 			}
@@ -282,14 +282,14 @@ func TestIntegratedSceneRequiresAndTransmitsDesignedProp(t *testing.T) {
 
 func TestAssetWorkflowCreateDefaultsAndExplicitSelection(t *testing.T) {
 	s, _ := newDramaWorkerTestService(t)
-	for _, id := range []string{"", drama.WorkflowIntegrated, drama.WorkflowOriginal} {
+	for _, id := range []string{"", drama.WorkflowOntology, drama.WorkflowIntegrated, drama.WorkflowOriginal} {
 		project, err := s.CreateProject("user-1", CreateProjectRequest{Name: "工作流" + id, VisualType: "live_action", WorkflowID: id})
 		if err != nil {
 			t.Fatal(err)
 		}
 		want := id
 		if want == "" {
-			want = drama.WorkflowIntegrated
+			want = drama.WorkflowOntology
 		}
 		if project.WorkflowID != want || project.WorkflowVersion != drama.WorkflowVersion {
 			t.Fatalf("wrong workflow: %+v", project)
@@ -297,6 +297,46 @@ func TestAssetWorkflowCreateDefaultsAndExplicitSelection(t *testing.T) {
 	}
 	if _, err := s.CreateProject("user-1", CreateProjectRequest{Name: "错误工作流", VisualType: "live_action", WorkflowID: "forged"}); err == nil {
 		t.Fatal("invalid workflow accepted")
+	} else if got := appErrorReason(err); got != ReasonProjectProductionInvalid {
+		t.Fatal("invalid workflow error reason changed", got)
+	}
+}
+
+func TestOntologyStoryboardFailsBeforeLegacyPlanning(t *testing.T) {
+	s, db := newDramaWorkerTestService(t)
+	project, unit := seedQichuang(t, s, db)
+	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).UpdateColumn("workflow_id", drama.WorkflowOntology).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{drama.StepChapterShots, drama.StepChapterShots + "#wenxi15"} {
+		if _, err := s.DramaStepUsage("user-1", project.ID, step, nil); err == nil || !strings.Contains(err.Error(), "未实现") {
+			t.Fatal("ontology fell back to legacy skill", step, err)
+		}
+	}
+	if _, err := s.DramaStepPrompt("user-1", project.ID, unit.ID, drama.StepChapterShots); err == nil || !strings.Contains(err.Error(), "未实现") {
+		t.Fatal("ontology generated a legacy prompt", err)
+	}
+	for _, req := range []DramaStepRunRequest{{}, {ResumeTaskID: "old-task"}, {OnlySections: []string{"E01S01-P1"}}} {
+		if _, err := s.RunDramaStep("user-1", project.ID, unit.ID, drama.StepChapterShots, req); err == nil || !strings.Contains(err.Error(), "未实现") {
+			t.Fatal("ontology created a legacy task", err)
+		}
+	}
+}
+
+func TestRenumberedWorkflowsKeepLegacyStoryboardSkill(t *testing.T) {
+	s, db := newDramaWorkerTestService(t)
+	project, _ := seedQichuang(t, s, db)
+	for _, id := range []string{drama.WorkflowIntegrated, drama.WorkflowOriginal} {
+		if err := db.Model(&model.Project{}).Where("id = ?", project.ID).UpdateColumn("workflow_id", id).Error; err != nil {
+			t.Fatal(err)
+		}
+		usage, err := s.DramaStepUsage("user-1", project.ID, drama.StepChapterShots, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if usage.Workflow.ID != id || usage.Contract != "chapter.shots@3" || usage.Skill.ID != "yz-shots-wenxi15" || usage.Workflow.StoryboardMode != "" {
+			t.Fatalf("legacy storyboard changed: %+v", usage)
+		}
 	}
 }
 

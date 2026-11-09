@@ -17,7 +17,7 @@ description: 信封、错误码与 OpenAPI
 
 ## 项目资产双流水线
 
-`POST /api/projects` 接受 `workflowId=pipeline-1|pipeline-2`，省略时选择流水线一；非法值以 `project_production_invalid` 返回。项目读取返回 `workflowId`、`workflowVersion`，已创建项目不支持通过更新接口切换工作流。历史项目经迁移 96 明确保持流水线二。工作流不改变生成模式的停点、视频时长、声音流程或白模开关。
+`POST /api/projects` 接受 `workflowId=pipeline-1|pipeline-2|pipeline-3`，依次为「流水线一 本体论导演」「流水线二 资产一体化」「流水线三 原流程」，省略时选择流水线一；非法值以 `project_production_invalid` 返回。项目读取返回 `workflowId`、`workflowVersion`，已创建项目不支持通过更新接口切换工作流。迁移 97 将旧流水线一、二顺延为二、三，空 ID 按三读取。流水线一、二共用资产一体化技能、四宫格和空间母版；二、三保持原分镜行为。步骤用法响应的 `workflow` 含 `id`、`label`、资产契约及版式，流水线一定义另含 `storyboardSkill=yz-ontology-director`、`storyboardMode=ontology`；本体论分镜运行时接入前，分镜用法查询、提示词预览及运行入口明确返回「本体论导演分镜运行时未实现」，不会退回旧分镜。工作流不改变生成模式的停点、视频时长、声音流程或白模开关。
 
 流水线一的 `assets.extract` 返回 `assets.extract@2` 契约及固定技能版本。JSON Lines 新增 `generation_prompt`，人物子卡也携带完整提示词；旧摘要字段继续使用原语义。普通图片任务仍通过任务接口创建，服务端根据项目解析四宫格、空间母版或道具配方，不信任客户端指定的三视图模板来覆盖项目输出规格。
 

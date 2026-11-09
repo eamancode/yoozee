@@ -101,7 +101,7 @@ func BuildAssetsExtractPrompt(in AssetsExtractInput) (StepPrompt, error) {
 	label, noun := firstNonEmptyString(in.UnitLabel, "本集"), firstNonEmptyString(in.UnitNoun, "集")
 	task := AssetsExtractTask(label, noun, in.UnitTitle, in.SourceText)
 	if in.Contract == ContractIntegratedAssets {
-		task = strings.Join([]string{"剧本：" + label + "「" + in.UnitTitle + "」", in.SourceText, "流水线一：提取角色、场景、道具及原文依据和状态。人物主子卡采用四宫格，场景采用对应空间类型的微缩母版；同时输出完整generation_prompt，不将完整设计塞入摘要。"}, "\n\n")
+		task = strings.Join([]string{"剧本：" + label + "「" + in.UnitTitle + "」", in.SourceText, "资产一体化流程：提取角色、场景、道具及原文依据和状态。人物主子卡采用四宫格，场景采用对应空间类型的微缩母版；同时输出完整generation_prompt，不将完整设计塞入摘要。"}, "\n\n")
 	}
 	skillPrompt, files, ok := StepSkillPrompt(in.Skill, task, step.SkillBudgetChars, step.SkillLinkedFiles)
 	if !ok {

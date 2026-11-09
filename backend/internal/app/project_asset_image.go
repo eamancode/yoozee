@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/repository"
 )
@@ -141,7 +142,7 @@ func (s *Service) bindProjectAssetImage(userID, projectID, assetID string, req B
 	}
 	asset.Kind, asset.PayloadJSON, asset.PrimaryVersionID, asset.Status, asset.UpdatedAt = "image", string(encoded), version.ID, model.AssetVersionStatusConfirmed, now
 	representation := model.AssetRepresentation{ID: newID(), AssetVersionID: version.ID, TaskID: operationID, ResourceID: resource.ID, MediaType: "image", Role: "primary", MetadataJSON: "{}", CreatedAt: now}
-	if project.WorkflowID == "pipeline-1" && asset.Category == model.AssetCategoryEnvironment {
+	if drama.IntegratedAssets(project.WorkflowID) && asset.Category == model.AssetCategoryEnvironment {
 		info, _ := json.Marshal(assetWorkflowLayoutMetadata("spatial-master"))
 		representation.MetadataJSON = string(info)
 	}

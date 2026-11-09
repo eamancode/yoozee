@@ -72,7 +72,7 @@ func (s *Service) dramaAssetImageRefs(userID string, project *model.Project, ass
 			return nil, BadAuthRequest(fmt.Sprintf("请先完成主卡「%s」的三视图，再重试子卡出图", parent.Title))
 		}
 		label := fmt.Sprintf("主卡「%s」已确认的三视图：脸型、五官、发型、肤色、体型与它完全一致，只换服装或状态", parent.Title)
-		if project.WorkflowID == drama.WorkflowIntegrated {
+		if drama.IntegratedAssets(project.WorkflowID) {
 			label = fmt.Sprintf("主卡「%s」已确认的四宫格：保持同一人物的面部辨识与肤色；年龄阶段、服装、发型及临时状态以当前子卡明确差异为准，不叠加主卡默认服装", parent.Title)
 		}
 		refs = append(refs, dramaImageRef{ResourceID: id, Label: label})

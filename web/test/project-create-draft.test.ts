@@ -36,6 +36,30 @@ test("切号后到达的建项草稿保存、读取和清理始终属于原账�
         expect((await loadProjectDraft("bob"))?.text).toBe("Bob 的剧本");
         expect([...records.keys()]).toEqual(["yingce:project-create-draft:user:bob"]);
         expect([...preferences.keys()]).toEqual(["yingce:active-user-scope"]);
+
+        for (const [old, expected] of [["pipeline-1", "pipeline-2"], ["pipeline-2", "pipeline-3"], ["", "pipeline-3"], [undefined, "pipeline-3"]] as const) {
+            const key = "yingce:project-create-draft:user:alice";
+            records.set(key, JSON.stringify({ text: "历史草稿", workflowId: old, whiteModelStoryboardEnabled: true }));
+            const migrated = await loadProjectDraft("alice");
+            expect(migrated?.workflowId).toBe(expected);
+            expect(migrated?.draftVersion).toBe(2);
+            expect(migrated?.text).toBe("历史草稿");
+            expect(migrated?.whiteModelStoryboardEnabled).toBe(true);
+            expect((await loadProjectDraft("alice"))?.workflowId).toBe(expected);
+            await saveProjectDraft("alice", migrated!);
+            expect((await loadProjectDraft("alice"))?.workflowId).toBe(expected);
+            expect((await loadProjectDraft("bob"))?.workflowId).toBe("pipeline-2");
+        }
+        for (const id of ["pipeline-1", "pipeline-2", "pipeline-3"] as const) {
+            await saveProjectDraft("alice", { ...EMPTY_PROJECT_DRAFT, workflowId: id });
+            expect((await loadProjectDraft("alice"))?.workflowId).toBe(id);
+        }
+        records.set("yingce:project-create-draft:user:alice", JSON.stringify({ draftVersion: 1, workflowId: "pipeline-1" }));
+        expect((await loadProjectDraft("alice"))?.workflowId).toBe("pipeline-2");
+        records.set("yingce:project-create-draft:user:alice", JSON.stringify({ draftVersion: 99, workflowId: "pipeline-1" }));
+        expect(await loadProjectDraft("alice")).toBeUndefined();
+        records.set("yingce:project-create-draft:user:alice", JSON.stringify({ draftVersion: 2, workflowId: "forged" }));
+        expect(await loadProjectDraft("alice")).toBeUndefined();
     } finally {
         Object.assign(localforage, original);
         if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);

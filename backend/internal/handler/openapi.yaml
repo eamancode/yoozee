@@ -2382,7 +2382,7 @@ paths:
                 generationModel: {type: string, description: kb-dialects/models.json 的模型族 id}
                 segmentSeconds: {type: integer, minimum: 1, description: 单段最长秒数（建项目选 15 / 30），写进 brief_json.segment_seconds；不超过生成模型一段的上限；不传按模型上限}
                 whiteModelStoryboardEnabled: {type: boolean, default: false, description: 是否开启同场景自动白模分镜；独立于生成模式}
-                workflowId: {type: string, enum: [pipeline-1, pipeline-2], default: pipeline-1, description: 流水线一使用角色四宫格和微缩场景；流水线二保留原资产流程。创建后不可切换}
+                workflowId: {type: string, enum: [pipeline-1, pipeline-2, pipeline-3], default: pipeline-1, description: 流水线一本体论导演；流水线二资产一体化；流水线三原流程。一、二共用角色四宫格和微缩场景。创建后不可切换}
                 styleProfile: {type: string, description: 不传按画风对照表推荐}
       responses:
         "200":

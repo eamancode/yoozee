@@ -12,13 +12,14 @@ description: 从产品功能快速定位主要代码入口
 - 人物主卡/场景/道具与项目引用：`workbench/detail/assets.tsx`；子卡入口：`project-character-variants.tsx`。
 - 服务器候选与匹配计数：`app/asset_library.go`、`repository/asset_library.go`；手动素材库图片可用状态：`app/project_character.go`。
 
-## 项目资产双流水线
+## 项目三条流水线
 
 - 工作流配置与契约：`internal/drama/workflows.go`、`contracts/assets.extract.v2.schema.json`；旧提取契约保留。
-- 项目创建与历史迁移：`app/project_create.go`、`model/models_project.go`、数据库迁移 96。
+- 项目创建与历史迁移：`app/project_create.go`、`model/models_project.go`、数据库迁移 96 / 97；`database/ontology_workflow_migration.go` 顺延项目与任务快照编号，迁移账本保证只执行一次。
+- 分镜路由边界：`app/project_drama_steps.go` 的 `projectStepWorkflow`；新流水线一返回明确的未实现错误，等待本体论运行时接入，二、三沿用旧技能与契约。
 - 技能和图片配方：`builtin/yz-assets-integrated`；`app/project_asset_workflow_skill.go` 固定版本并记录配方来源，`project_asset_workflow.go` 统一自动/手动图片提交。
 - 实际引用与派生：`project_drama_asset_refs.go`、`project_spatial_image.go`、`repository/project_spatial_image.go`；场景版本保存九宫格与重绘表现。
-- 界面：创建页 `composer-sections.tsx`，资产页人物/子卡与 `scene-spatial-tools.tsx`，使用既有 API 和任务服务。
+- 界面：`lib/project-workflow.ts` 统一三项名称与资产模式；创建页 `composer-sections.tsx`、`project-draft.ts`（草稿版本 2 顺延旧编号），项目头部、设置、制作台与资产页共享映射。人物/子卡与 `scene-spatial-tools.tsx` 使用既有 API 和任务服务。
 
 - 分镜参考：`app/project_video_chain_assets.go` 构造带来源的截帧资产；`repository/storyboard_reference.go` 在父链租约下原子登记与绑定。`drama_segment_video.go` 用 FFmpeg 顺序读取到实际最后可读帧并记录时间。普通单组与整链统一走 `project_video_chain*`，`prepareOnly` 在创建视频任务前结束。
 - 我的导演风格：`app/director_style_cover.go` 归并旧个人记录、幂等保存个人档案及创建独立封面任务；`repository/director_style_profile.go` 负责版本、封面回调和快照条件写入；`prompts/style_profile.go` 保留结构化 director 并校验编辑版本。前端复用 `canvas-style-picker-modal.tsx`，项目区 `chapter-style-lock.tsx` 展示封面与重试。技能包 `yz-style-lock` 1.2.0 对齐原系统十二章节。

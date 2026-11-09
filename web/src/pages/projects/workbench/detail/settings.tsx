@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { projectWorkflow } from "@/lib/project-workflow";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Input, InputNumber, Modal } from "antd";
 import { useBlocker } from "react-router";
@@ -172,6 +173,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                 <div className="grid gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
                     <Field label="项目名称" className="xl:col-span-2"><Input value={name} onChange={(event) => setName(event.target.value)} /></Field>
                     <ReadOnlyField label="画幅" value={project.aspectRatio} note="建项后不可改" />
+                    <ReadOnlyField label="流水线" value={projectWorkflow(project.workflowId).label} note="建项后不可改" />
                     <ReadOnlyField label="内容来源" value={sourceTypeLabel(project.sourceType)} />
                     <Field label="项目简介" className="md:col-span-2 xl:col-span-4"><Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="一句话说明项目目标" /></Field>
                 </div>

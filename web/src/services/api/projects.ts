@@ -13,7 +13,7 @@ export type ProjectStyleSource = { mode: "director"; brief?: string; refImageIds
 /** 建项的「要拍什么」：创意写原话，小说、剧本是用章节页导入同一套解析切好的章 / 集（sourceText 是编辑器 HTML）。 */
 export type ProjectSourceAs = "idea" | "novel" | "script" | "blank";
 
-export type ProjectAssetWorkflow = "pipeline-1" | "pipeline-2";
+export type ProjectAssetWorkflow = "pipeline-1" | "pipeline-2" | "pipeline-3";
 
 export type ProjectSpatialReference = { resourceId: string; taskId: string; kind: "grid" | "redraw"; cell: number; createdAt: string };
 
