@@ -58,6 +58,12 @@
       ]
     },
     {
+      "contracts": [
+        "ontology.director@1"
+      ],
+      "stagedContracts": [
+        "ontology.director@1"
+      ],
       "id": "chapter.shots",
       "contract": "chapter.shots@3",
       "skillBudgetChars": 32000,

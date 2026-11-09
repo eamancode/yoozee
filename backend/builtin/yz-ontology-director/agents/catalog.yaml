@@ -1,0 +1,12 @@
+---
+name: 本体论导演分镜
+description: 按立项、每集与返修回合，将剧本编译为导演分镜卡、粘贴提示词、世界圣经卡与集交接卡；支持写实、2D 动漫和 3D 国漫。
+metadata:
+  version: "2.2"
+  author: 柚子
+  owner: yingce-system
+  tag: drama
+  source: 3
+  createdAt: "2026-11-09T00:00:00Z"
+  updatedAt: "2026-11-09T00:00:00Z"
+---

@@ -5,6 +5,13 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## 本体论导演技能包
+
+- 原样源文件与独立目录元数据：`backend/builtin/yz-ontology-director/`；SHA-256 清单在同级 `yz-ontology-director.SHA256SUMS`。源文件一致性和外部源目录缺失跳过逻辑：`internal/skills/skills_ontology_builtin_test.go`。
+- 目录名与版本覆盖使用 `agents/catalog.yaml`，由 `internal/skills/skills_builtin.go` 读取；包上传与启用沿用该元数据，见 `skill_flow_packages.go`。
+- S0–S8 装载数据：`runtime-context.json`；逐环节预算及排除路径校验：`internal/drama/step_package_context.go`，共享反例见 `yoozee-skills/tests/packages/cases.json`。本次只注册 `ontology.director@1` 包契约，不切换运行步骤或默认绑定。
+- `yoozee-skills/build.py --package yz-ontology-director` 直接读取 builtin 中的原样包；完整构建跳过对该目录的覆盖。`contracts/step-packages.json` 仍由 Go 的 `TestStepPackageRulesExported -update` 生成。
+
 ## 素材库历史图片复用
 
 - 选择、跨页记录与提交互斥：`web/src/components/assets/asset-library-picker-modal.tsx`。

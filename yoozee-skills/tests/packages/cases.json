@@ -345,6 +345,541 @@
         "manifest",
         "manifest"
       ]
+    },
+    {
+      "name": "staged-ok",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\", \"stages/S0_test.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": []
+    },
+    {
+      "name": "staged-version",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 2, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\", \"stages/S0_test.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "staged-exclusion-required",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\", \"stages/S0_test.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "files"
+      ]
+    },
+    {
+      "name": "staged-forbidden-file",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "archive/knowledge.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "archive/knowledge.md": "keep stored, never load",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\", \"stages/S0_test.md\", \"archive/knowledge.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "files"
+      ]
+    },
+    {
+      "name": "staged-missing-stage",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "files"
+      ]
+    },
+    {
+      "name": "staged-missing-params",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"stages/S0_test.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "files"
+      ]
+    },
+    {
+      "name": "staged-over-budget",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": {
+          "repeat": "界",
+          "times": 33000
+        },
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\", \"stages/S0_test.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "budget"
+      ]
+    },
+    {
+      "name": "staged-too-many-files",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "templates/a.md",
+          "templates/b.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "templates/a.md": "a",
+        "templates/b.md": "b",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\", \"stages/S0_test.md\", \"templates/a.md\", \"templates/b.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "budget"
+      ]
+    },
+    {
+      "name": "staged-missing-file",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\", \"stages/S0_test.md\", \"templates/missing.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "files"
+      ]
+    },
+    {
+      "name": "staged-duplicate",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\", \"stages/S0_test.md\", \"params.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "files"
+      ]
+    },
+    {
+      "name": "staged-null-exclusions",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": null, \"stages\": {\"S0\": [\"SKILL.md\", \"params.md\", \"stages/S0_test.md\"], \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "staged-invalid-path-list",
+      "manifest": {
+        "id": "yz-staged-test",
+        "step": "chapter.shots",
+        "contract": "ontology.director@1",
+        "profiles": [
+          "live-realism"
+        ],
+        "version": "2.2",
+        "files": [
+          "SKILL.md",
+          "params.md",
+          "stages/S0_test.md",
+          "stages/S1_test.md",
+          "stages/S2_test.md",
+          "stages/S3_test.md",
+          "stages/S4_test.md",
+          "stages/S5_test.md",
+          "stages/S6_test.md",
+          "stages/S7_test.md",
+          "stages/S8_test.md",
+          "runtime-context.json"
+        ],
+        "eval": []
+      },
+      "files": {
+        "SKILL.md": "entry",
+        "params.md": "params",
+        "stages/S0_test.md": "stage",
+        "stages/S1_test.md": "stage",
+        "stages/S2_test.md": "stage",
+        "stages/S3_test.md": "stage",
+        "stages/S4_test.md": "stage",
+        "stages/S5_test.md": "stage",
+        "stages/S6_test.md": "stage",
+        "stages/S7_test.md": "stage",
+        "stages/S8_test.md": "stage",
+        "runtime-context.json": "{\"schemaVersion\": 1, \"excludedPaths\": [\"archive/\", \"dist/\", \"tests/\"], \"stages\": {\"S0\": \"SKILL.md\", \"S1\": [\"SKILL.md\", \"params.md\", \"stages/S1_test.md\"], \"S2\": [\"SKILL.md\", \"params.md\", \"stages/S2_test.md\"], \"S3\": [\"SKILL.md\", \"params.md\", \"stages/S3_test.md\"], \"S4\": [\"SKILL.md\", \"params.md\", \"stages/S4_test.md\"], \"S5\": [\"SKILL.md\", \"params.md\", \"stages/S5_test.md\"], \"S6\": [\"SKILL.md\", \"params.md\", \"stages/S6_test.md\"], \"S7\": [\"SKILL.md\", \"params.md\", \"stages/S7_test.md\"], \"S8\": [\"SKILL.md\", \"params.md\", \"stages/S8_test.md\"]}}"
+      },
+      "expect": [
+        "manifest"
+      ]
     }
   ]
 }
