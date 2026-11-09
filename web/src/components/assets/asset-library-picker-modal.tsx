@@ -19,7 +19,12 @@ import { deleteAssetsWithRemoteSync, loadAssetLibraryPage, localSavedRemotePendi
 export type AssetPickerMediaKind = "image" | "video" | "audio" | "text";
 
 export class AssetLibrarySelectionError extends Error {
-    constructor(public readonly remainingIds: string[], message: string) { super(message); }
+    constructor(
+        public readonly remainingIds: string[],
+        message: string,
+    ) {
+        super(message);
+    }
 }
 
 export const ASSET_PICKER_MEDIA_KIND_LABELS: Record<AssetPickerMediaKind, string> = { image: "图片", video: "视频", audio: "音频", text: "文本" };

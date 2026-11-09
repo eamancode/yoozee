@@ -202,7 +202,9 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                                             上传替换
                                         </Button>
                                     </Upload>
-                                    <Button type="text" size="small" icon={<Images className="size-3.5" />} onClick={() => setBinding(variant)} aria-label={`从素材库选择子卡「${variant.title}」的图片`}>从素材库选择</Button>
+                                    <Button type="text" size="small" icon={<Images className="size-3.5" />} onClick={() => setBinding(variant)} aria-label={`从素材库选择子卡「${variant.title}」的图片`}>
+                                        从素材库选择
+                                    </Button>
                                     <Popconfirm title="移出这张子卡？" description="被镜头引用时不能移出，会列出引用它的镜头。" okText="移出" cancelText="取消" onConfirm={() => deleteMutation.mutate(variant)}>
                                         <Button
                                             type="text"
@@ -220,12 +222,17 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                     })}
                 </ul>
             ) : null}
-            <AssetImageLibraryPicker open={Boolean(binding)} title={binding?.title || "子卡图片"} onClose={() => setBinding(null)} onBind={async ({ resourceId, sourceAssetId }) => {
-                if (!binding) throw new Error("未选择子卡");
-                await replaceProjectCharacterRepresentations(projectId, binding.id, [{ role: "primary", resourceId, metadata: { source: "asset-library", sourceAssetId } }]);
-                await refresh();
-                message.success("子卡图片已绑定并保存为新版本");
-            }} />
+            <AssetImageLibraryPicker
+                open={Boolean(binding)}
+                title={binding?.title || "子卡图片"}
+                onClose={() => setBinding(null)}
+                onBind={async ({ resourceId, sourceAssetId }) => {
+                    if (!binding) throw new Error("未选择子卡");
+                    await replaceProjectCharacterRepresentations(projectId, binding.id, [{ role: "primary", resourceId, metadata: { source: "asset-library", sourceAssetId } }]);
+                    await refresh();
+                    message.success("子卡图片已绑定并保存为新版本");
+                }}
+            />
             <AppModal open={Boolean(preview)} onCancel={() => setPreview(null)} footer={null} title={preview?.title || "子卡图片预览"} width={960}>
                 {preview ? (
                     <CachedResourceImage

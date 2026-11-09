@@ -17,7 +17,17 @@ describe("workbench historical image reuse", () => {
         expect(await resolveAssetImageResource(asset)).not.toBe(asset.id);
     });
     test.each(["character", "environment", "prop"] as const)("%s cards keep only the chosen current representation", async (category) => {
-        const asset: Asset = { ...base, id: `card-${category}`, category, kind: "entity", data: { definition: { name: "不可复制的设定" } }, imageReferences: [{ role: "side", resourceId: "side-file" }, { role: "primary", resourceId: "main-file" }] };
+        const asset: Asset = {
+            ...base,
+            id: `card-${category}`,
+            category,
+            kind: "entity",
+            data: { definition: { name: "不可复制的设定" } },
+            imageReferences: [
+                { role: "side", resourceId: "side-file" },
+                { role: "primary", resourceId: "main-file" },
+            ],
+        };
         const parsed = parseAssetRecord(asset);
         expect(assetImageReferences(parsed)[0]?.resourceId).toBe("main-file");
         expect(await resolveAssetImageResource(parsed, "side-file")).toBe("side-file");
