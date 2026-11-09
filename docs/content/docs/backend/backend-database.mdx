@@ -601,8 +601,10 @@ Schema 32 为 `channel_models` 新增 `tags`（TEXT、NOT NULL、默认 `'[]'`�
 | --- | --- |
 | `id` | 主键 |
 | `project_id`、`unit_id`、`kind`、`version` | 联合唯一索引 `idx_project_ontology_docs_version`；`unit_id` 为空是项目级文档 |
-| `kind` | `bible` 世界圣经卡（项目级）、`setup` 立项待确认清单与补图建议（项目级）、`episode` 一集的七部分、`handoff` 一集的集交接卡 |
+| `kind` | `bible` 世界圣经卡（项目级）、`setup` 立项待确认清单与补图建议（项目级）、`episode` 一集的七部分、`handoff` 一集的集交接卡、`materials` 一集生成时的素材清单 JSON（返修按它解释原单元卡的 `@图N`） |
 | `content` | 文档原文（Markdown） |
 | `task_id`、`created_by`、`created_at` | 来源任务、写入人、时间；手改圣经卡没有 `task_id` |
 
 迁移 98 只建表，不改已有数据。单元段仍存 `shots` / `shot_revisions`：`spec_json` 新增可选字段 `verbatim`（粘贴提示词原文，`@图k` 与 `refs` 顺序一致），旧段没有该字段。
+
+收尾按任务幂等：同一任务已写过的（项目、单元、种类）文档不再追加版本，重新收尾只补缺的；收尾的全部文档在一个事务里写入。
