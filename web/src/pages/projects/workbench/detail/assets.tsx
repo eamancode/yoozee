@@ -9,7 +9,8 @@ import { PaginationBar } from "@/components/layout/workspace-page";
 import { AssetMediaPreview } from "@/components/asset-media-preview";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
-import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
+import { AssetLibraryPickerModal, AssetLibrarySelectionError, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
+import { AssetImageLibraryPicker } from "@/components/assets/asset-image-library-picker";
 import { useExternalAssetSources } from "@/hooks/use-external-asset-sources";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { CanvasFolderPreview } from "@/components/canvas/canvas-folder-preview";
@@ -154,9 +155,9 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     // 资产设计建的资产（服务端记了出图状态）里还没图、也没在出图的：页头「继续出图」按它们算。
     const pendingImageQuery = useQuery({
         queryKey: ["project", detail.project.id, "assets", "drama-image-pending"],
-        queryFn: async () => (await listProjectAssets(detail.project.id)).assets.filter((asset) => asset.image && asset.image.status !== "bound" && asset.image.status !== "queued"),
+        queryFn: async () => (await listProjectAssets(detail.project.id)).assets,
     });
-    const pendingImageAssets = pendingImageQuery.data || [];
+    const pendingImageAssets = (pendingImageQuery.data || []).filter((asset) => asset.image && asset.image.status !== "bound" && asset.image.status !== "queued");
     const [imageRecoveryOpen, setImageRecoveryOpen] = useState(false);
     const assets = assetsQuery.data?.assets || [];
     const assetFolders = foldersQuery.data?.folders || [];
@@ -195,9 +196,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         setCandidatePage(1);
     };
 
-    const projectAssetIds = new Set(assets.map((asset) => asset.id));
+    const projectAssetIds = new Set([...assets, ...(pendingImageQuery.data || [])].map((asset) => asset.id));
     const availableAssets = personalAssets.filter((asset) => !projectAssetIds.has(asset.id));
-    const imageAssets = personalAssets.filter((asset): asset is ImageAsset => asset.kind === "image");
     const availablePickerItems = useMemo<AssetLibraryPickerItem[]>(() => [
         ...availableAssets.map((asset) => ({
             id: asset.id,
@@ -210,17 +210,6 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         })),
         ...externalAssetSources.items,
     ], [availableAssets, externalAssetSources.items]);
-    const imagePickerItems = useMemo<AssetLibraryPickerItem[]>(() => [
-        ...imageAssets.map((asset) => ({
-            id: asset.id,
-            title: asset.title,
-            category: normalizeAssetCategory(asset.category, defaultAssetCategoryForKind(asset.kind)),
-            kindLabel: "图片",
-            asset,
-            searchText: (asset.tags || []).join(" "),
-        })),
-        ...externalAssetSources.items.filter((item) => item.external?.item.kind === "image"),
-    ], [externalAssetSources.items, imageAssets]);
     const characterAssets = assets.filter((asset) => asset.category === "character" && asset.character);
     const currentFolder = assetFolders.find((folder) => folder.id === folderId);
     const childFolders = folderId === ALL_FOLDERS ? [] : assetFolders.filter((folder) => (folder.parentId || "") === folderId);
@@ -298,9 +287,10 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         }
     };
     const addMutation = useMutation({
-        mutationFn: async ({ ids, nextFolderId }: { ids: string[]; nextFolderId?: string }) => {
+        mutationFn: async ({ ids, pickedItems, nextFolderId }: { ids: string[]; pickedItems?: AssetLibraryPickerItem[]; nextFolderId?: string }) => {
+            const selectedItems = new Map([...availablePickerItems, ...(pickedItems || [])].map((item) => [item.id, item]));
             const result = await linkSelectedProjectAssets(ids, async (id) => {
-                const pickerItem = availablePickerItems.find((item) => item.id === id);
+                const pickerItem = selectedItems.get(id);
                 if (pickerItem?.external) {
                     const imported = await externalAssetSources.importExternalAsset(pickerItem.external);
                     const assetId = addAsset(imported);
@@ -321,11 +311,12 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             return {
                 assets: result.linked.map((item) => item.asset),
                 failedCount: result.failedCount,
+                failures: result.failures,
             };
         },
         onSuccess: ({ assets, failedCount }) => {
             assets.forEach((asset) => updatePersonalAsset(asset.id, { category: asset.category as AssetCategory, status: asset.status as AssetStatus, primaryVersionId: asset.primaryVersionId }));
-            setAddOpen(false);
+            if (!failedCount) setAddOpen(false);
             refreshProject();
             if (failedCount) message.warning(`已引用 ${assets.length} 个素材，${failedCount} 个素材引用失败`);
             else message.success(`已引用 ${assets.length} 个素材`);
@@ -463,34 +454,20 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onSuccess: () => setImageRecoveryOpen(false),
         onError: failed("资产出图失败"),
     });
-    const bindVisualMutation = useMutation({
-        mutationFn: async (picked: AssetLibraryPickerItem) => {
-            if (!imageAsset?.primaryVersionId) throw new Error("资产版本未加载，请刷新");
-            const selected = picked.external ? await externalAssetSources.importExternalAsset(picked.external) : picked.asset;
-            if (selected?.kind !== "image") throw new Error("请选择一张图片");
-            const resourceId = resourceIdFromStorageKey(selected.data.storageKey);
-            if (!resourceId) throw new Error("所选图片尚未同步到后端资源库");
-            return bindProjectAssetImage(detail.project.id, imageAsset.id, { resourceId, expectedVersionId: imageAsset.primaryVersionId });
-        },
-        onSuccess: async ({ asset }) => {
-            setImageAsset(null);
-            await refreshVisualAsset(asset.id, "图片已绑定到资产新版本");
-        },
-        onError: failed("图片绑定失败"),
-    });
     const bindImagesMutation = useMutation({
-        mutationFn: async (selectedAssetId: string) => {
+        mutationFn: async ({ resourceId, sourceAssetId }: { resourceId: string; sourceAssetId: string }) => {
             if (!imageAsset) throw new Error("未选择角色");
-            await saveRemoteUserDataNow([]);
-            const latest = useAssetStore.getState().assets;
-            const pickerItem = imagePickerItems.find((item) => item.id === selectedAssetId);
-            const selected = latest.find((asset) => asset.id === selectedAssetId) || (pickerItem?.external ? await externalAssetSources.importExternalAsset(pickerItem.external) : undefined);
-            if (selected?.kind !== "image") throw new Error(`请选择一张完整的角色${characterImageLabel}设定图`);
-            const resourceId = resourceIdFromStorageKey((selected as ImageAsset).data.storageKey);
-            if (!resourceId) throw new Error("所选图片尚未同步到后端资源库");
-            return replaceProjectCharacterRepresentations(detail.project.id, imageAsset.id, [{ role: "turnaround_sheet", resourceId, metadata: { sourceAssetId: selected.id } }, { role: "primary", resourceId, metadata: { source: "turnaround_sheet", sourceAssetId: selected.id } }]);
+            if (imageAsset.visual) {
+                if (!imageAsset.primaryVersionId) throw new Error("资产版本未加载，请刷新");
+                return bindProjectAssetImage(detail.project.id, imageAsset.id, { resourceId, expectedVersionId: imageAsset.primaryVersionId });
+            }
+            const representations = imageAsset.variant ? [{ role: "primary", resourceId, metadata: { source: "asset-library", sourceAssetId } }] : [
+                { role: "turnaround_sheet", resourceId, metadata: { sourceAssetId } },
+                { role: "primary", resourceId, metadata: { source: "turnaround_sheet", sourceAssetId } },
+            ];
+            return replaceProjectCharacterRepresentations(detail.project.id, imageAsset.id, representations);
         },
-        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setImageAsset(null); done(`${characterImageLabel}已绑定到新角色版本`); },
+        onSuccess: async (result) => { if (result.asset.character) syncPersonalCharacterProjection(result.asset); await refreshVisualAsset(result.asset.id, "图片已绑定并保存为新版本"); },
         onError: failed(`${characterImageLabel}绑定失败`),
     });
     const bindVoiceMutation = useMutation({ mutationFn: () => voiceAsset && voiceSample ? bindProjectCharacterVoice(detail.project.id, voiceAsset.id, { sampleResourceId: voiceSample.resourceId, voiceName: voiceSample.name, instructions: voiceInstructions }) : Promise.reject(new Error("请选择一份声音素材")), onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setVoiceAsset(null); setVoiceSample(null); done("声音素材已绑定到新角色版本"); }, onError: failed("声音绑定失败") });
@@ -621,13 +598,16 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                         </section>
                     ) : null}
                     <div className="mb-2 flex items-center justify-between text-xs text-foreground/45"><span>{currentFolder?.name || (folderId === ALL_FOLDERS ? (category === "all" ? "全部资产" : categoryLabel(category)) : "根目录内容")}</span><span>{assetsQuery.data?.total || 0} 项已保存</span></div>
-                    {assetsQuery.isLoading ? <WorkspaceState icon="assets" compact title="正在读取资产" description="按当前目录、分类和关键词加载这一页。" /> : assets.length ? <><div className="project-assets-grid assets-library-grid">{visibleAssets.map((asset) => asset.category === "palette" ? <ProjectPaletteCard key={asset.id} asset={asset} folderItems={folderMoveItems} resynthesizing={paletteResynthesizeMutation.isPending && paletteResynthesizeMutation.variables?.id === asset.id} busy={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onResynthesize={() => paletteResynthesizeMutation.mutate(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : asset.category === "character" ? <ProjectCharacterCard key={asset.id} asset={asset} fourPanel={detail.project.workflowId === "pipeline-1"} folderItems={folderMoveItems} generating={generatingAssetIds.has(asset.id)} removing={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onEdit={() => openCharacterEditor(asset)} onGenerate={() => generateMutation.mutate(asset)} onBindImages={() => openImages(asset)} onBindVoice={() => openVoice(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} footer={asset.variant ? null : <ProjectCharacterVariants fourPanel={detail.project.workflowId === "pipeline-1"} projectId={detail.project.id} parent={asset} defaultImageModel={detail.project.defaultImageModel} />} /> : asset.visual ? <ProjectVisualAssetCard key={asset.id} asset={asset} spatialTools={detail.project.workflowId === "pipeline-1" && asset.category === "environment" ? <SceneSpatialTools projectId={detail.project.id} asset={asset} /> : undefined} folderItems={folderMoveItems} generating={generatingVisualAssetIds.has(asset.id)} busy={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id) || (bindVisualMutation.isPending && imageAsset?.id === asset.id)} onOpen={() => setPreviewAsset(asset)} onGenerate={() => generateVisualMutation.mutate(asset)} onBind={() => openImages(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : <MediaAssetCard key={asset.id} asset={asset} personalAsset={personalAssets.find((item) => item.id === asset.id)} folderItems={folderMoveItems} onOpen={() => setPreviewAsset(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onCategoryChange={(next) => categoryMutation.mutate({ id: asset.id, next })} onVersion={() => versionMutation.mutate(asset.id)} onRemove={() => unlinkMutation.mutate(asset.id)} loading={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (categoryMutation.isPending && categoryMutation.variables?.id === asset.id) || (versionMutation.isPending && versionMutation.variables === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} />)}</div><PaginationBar current={page} pageSize={pageSize} total={assetsQuery.data?.total || 0} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} /></> : childFolders.length || (showPendingCandidates && pendingCandidates.length) ? null : <WorkspaceState icon="assets" compact title={debouncedKeyword ? "没有找到匹配资产" : "这个文件夹还没有内容"} description={debouncedKeyword ? "换一个关键词，或调整左侧分类与目录筛选。" : "可以新建子文件夹、引用个人素材，或把画布产物归档到这里。"} />}
+                    {assetsQuery.isLoading ? <WorkspaceState icon="assets" compact title="正在读取资产" description="按当前目录、分类和关键词加载这一页。" /> : assets.length ? <><div className="project-assets-grid assets-library-grid">{visibleAssets.map((asset) => asset.category === "palette" ? <ProjectPaletteCard key={asset.id} asset={asset} folderItems={folderMoveItems} resynthesizing={paletteResynthesizeMutation.isPending && paletteResynthesizeMutation.variables?.id === asset.id} busy={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onResynthesize={() => paletteResynthesizeMutation.mutate(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : asset.category === "character" ? <ProjectCharacterCard key={asset.id} asset={asset} fourPanel={detail.project.workflowId === "pipeline-1"} folderItems={folderMoveItems} generating={generatingAssetIds.has(asset.id)} removing={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onEdit={() => openCharacterEditor(asset)} onGenerate={() => generateMutation.mutate(asset)} onBindImages={() => openImages(asset)} onBindVoice={() => openVoice(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} footer={asset.variant ? null : <ProjectCharacterVariants fourPanel={detail.project.workflowId === "pipeline-1"} projectId={detail.project.id} parent={asset} defaultImageModel={detail.project.defaultImageModel} />} /> : asset.visual ? <ProjectVisualAssetCard key={asset.id} asset={asset} spatialTools={detail.project.workflowId === "pipeline-1" && asset.category === "environment" ? <SceneSpatialTools projectId={detail.project.id} asset={asset} /> : undefined} folderItems={folderMoveItems} generating={generatingVisualAssetIds.has(asset.id)} busy={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id) || (bindImagesMutation.isPending && imageAsset?.id === asset.id)} onOpen={() => setPreviewAsset(asset)} onGenerate={() => generateVisualMutation.mutate(asset)} onBind={() => openImages(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : <MediaAssetCard key={asset.id} asset={asset} personalAsset={personalAssets.find((item) => item.id === asset.id)} folderItems={folderMoveItems} onOpen={() => setPreviewAsset(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onCategoryChange={(next) => categoryMutation.mutate({ id: asset.id, next })} onVersion={() => versionMutation.mutate(asset.id)} onRemove={() => unlinkMutation.mutate(asset.id)} loading={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (categoryMutation.isPending && categoryMutation.variables?.id === asset.id) || (versionMutation.isPending && versionMutation.variables === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} />)}</div><PaginationBar current={page} pageSize={pageSize} total={assetsQuery.data?.total || 0} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} /></> : childFolders.length || (showPendingCandidates && pendingCandidates.length) ? null : <WorkspaceState icon="assets" compact title={debouncedKeyword ? "没有找到匹配资产" : "这个文件夹还没有内容"} description={debouncedKeyword ? "换一个关键词，或调整左侧分类与目录筛选。" : "可以新建子文件夹、引用个人素材，或把画布产物归档到这里。"} />}
                 </div>
             </div>
 
             <AssetLibraryPickerModal
                 open={addOpen}
                 remoteLibrary
+                acceptRemoteItems
+                allowAssetCards
+                remoteItemDisabledReason={(asset) => projectAssetIds.has(asset.id) ? "已在当前项目" : asset.status === "archived" ? "素材在回收站，请先恢复" : undefined}
                 mediaKinds={["image", "video", "audio", "text"]}
                 items={availablePickerItems}
                 categoryLabels={{ ...pickerCategoryLabels, ...externalAssetSources.categoryLabels }}
@@ -639,8 +619,9 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                 emptyTitle="没有可引用的素材"
                 emptyDescription="本地素材已全部加入项目，或切换到插件来源选择外部素材。"
                 onClose={() => setAddOpen(false)}
-                onConfirm={async (ids) => {
-                    await addMutation.mutateAsync({ ids, nextFolderId: folderId === ALL_FOLDERS ? undefined : folderId });
+                onConfirm={async (ids, pickedItems) => {
+                    const result = await addMutation.mutateAsync({ ids, pickedItems, nextFolderId: folderId === ALL_FOLDERS ? undefined : folderId });
+                    if (result.failures.length) throw new AssetLibrarySelectionError(result.failures.map((failure) => failure.id), result.failures.map((failure) => `${pickedItems?.find((item) => item.id === failure.id)?.title || failure.id}：${failure.reason}`).join("；"));
                 }}
             />
             <ProjectAssetPreviewModal projectId={detail.project.id} asset={previewAsset} onAssetUpdated={(next) => { setPreviewAsset(next); void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }); }} personalAsset={previewAsset && !previewAsset.visual ? personalAssets.find((item) => item.id === previewAsset.id) : undefined} onClose={() => setPreviewAsset(null)} onDownload={() => previewAsset && downloadPreviewAsset(previewAsset)} onReplaceImage={() => { if (!previewAsset || (!previewAsset.visual && previewAsset.category !== "character")) return; setPreviewAsset(null); openImages(previewAsset); }} />
@@ -648,30 +629,11 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             <Modal className="workspace-modal workspace-modal-compact" title={folderEditor?.folder ? "重命名文件夹" : "新建文件夹"} open={Boolean(folderEditor)} okText={folderEditor?.folder ? "保存" : "创建"} cancelText="取消" okButtonProps={{ loading: createFolderMutation.isPending || renameFolderMutation.isPending }} onCancel={() => { setFolderEditor(null); setFolderName(""); }} onOk={saveFolder}>
                 <div className="grid gap-2"><span className="text-[var(--fs-label)] text-foreground/48">位置：{folderEditor ? projectAssetFolderParentLabel(assetFolders, folderEditor.parentId) : ""}</span><Input autoFocus maxLength={60} value={folderName} placeholder="输入文件夹名称" onChange={(event) => setFolderName(event.target.value)} onPressEnter={saveFolder} /></div>
             </Modal>
-            <AssetLibraryPickerModal
+            <AssetImageLibraryPicker
                 open={Boolean(imageAsset)}
-                remoteLibrary
-                remoteKind="image"
-                acceptRemoteItems={Boolean(imageAsset?.visual)}
-                items={imagePickerItems}
-                categoryLabels={{ ...pickerCategoryLabels, ...externalAssetSources.categoryLabels }}
-                folders={externalAssetSources.folders}
-                footerNote={externalAssetSources.error || undefined}
-                multiple={false}
-                eyebrow="绑定图片"
                 title={imageAsset?.title || `角色${characterImageLabel}`}
-                confirmLabel={() => "绑定并生成新版本"}
-                emptyTitle="没有可绑定的图片"
-                emptyDescription={imageAsset?.visual ? "选择一张场景或道具参考图片。" : characterImageLabel === "四宫格" ? "需要一张包含正面头像、侧脸、正面身体与完整背面的四宫格设定图。" : "需要一张包含正面、侧面、背面的角色设定图。"}
                 onClose={() => setImageAsset(null)}
-                onConfirm={async (ids, pickedItems) => {
-                    if (!ids[0]) throw new Error("请选择一张图片");
-                    if (imageAsset?.visual) {
-                        const picked = pickedItems?.find((item) => item.id === ids[0]);
-                        if (!picked) throw new Error("所选图片未加载，请重新选择");
-                        await bindVisualMutation.mutateAsync(picked);
-                    } else await bindImagesMutation.mutateAsync(ids[0]);
-                }}
+                onBind={(image) => bindImagesMutation.mutateAsync(image)}
             />
             <AssetLibraryPickerModal
                 open={voicePickerOpen}

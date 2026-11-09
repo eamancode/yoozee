@@ -1,10 +1,11 @@
 import { App, Button, Checkbox, Input, Modal, Popconfirm, Radio, Select, Upload } from "antd";
-import { ChevronDown, Pencil, Plus, Sparkles, Trash2, Upload as UploadIcon, UserRound } from "lucide-react";
+import { ChevronDown, Images, Pencil, Plus, Sparkles, Trash2, Upload as UploadIcon, UserRound } from "lucide-react";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { AppModal } from "@/components/ui/product/app-modal";
+import { AssetImageLibraryPicker } from "@/components/assets/asset-image-library-picker";
 import { getProjectDramaScenes, type DramaImageTaskTemplate } from "@/services/api/project-drama";
 import { queueDramaAssetImages } from "@/services/drama-model-submission";
 import { createDramaAssetVariant, deleteDramaAssetVariant, replaceProjectCharacterRepresentations, updateDramaAssetVariant, type DramaAssetVariantInput, type DramaAssetVariantKind, type ProjectAsset } from "@/services/api/projects";
@@ -39,6 +40,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const variants = parent.variants || [];
     const [expanded, setExpanded] = useState(false);
+    const [binding, setBinding] = useState<ProjectAsset | null>(null);
     const [preview, setPreview] = useState<{ resourceId: string; title: string } | null>(null);
     const [editing, setEditing] = useState<ProjectAsset | "new" | null>(null);
     const [form, setForm] = useState<VariantForm>(variantForm());
@@ -200,6 +202,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                                             上传替换
                                         </Button>
                                     </Upload>
+                                    <Button type="text" size="small" icon={<Images className="size-3.5" />} onClick={() => setBinding(variant)} aria-label={`从素材库选择子卡「${variant.title}」的图片`}>从素材库选择</Button>
                                     <Popconfirm title="移出这张子卡？" description="被镜头引用时不能移出，会列出引用它的镜头。" okText="移出" cancelText="取消" onConfirm={() => deleteMutation.mutate(variant)}>
                                         <Button
                                             type="text"
@@ -217,6 +220,12 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                     })}
                 </ul>
             ) : null}
+            <AssetImageLibraryPicker open={Boolean(binding)} title={binding?.title || "子卡图片"} onClose={() => setBinding(null)} onBind={async ({ resourceId, sourceAssetId }) => {
+                if (!binding) throw new Error("未选择子卡");
+                await replaceProjectCharacterRepresentations(projectId, binding.id, [{ role: "primary", resourceId, metadata: { source: "asset-library", sourceAssetId } }]);
+                await refresh();
+                message.success("子卡图片已绑定并保存为新版本");
+            }} />
             <AppModal open={Boolean(preview)} onCancel={() => setPreview(null)} footer={null} title={preview?.title || "子卡图片预览"} width={960}>
                 {preview ? (
                     <CachedResourceImage

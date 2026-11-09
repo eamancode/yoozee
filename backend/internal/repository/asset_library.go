@@ -12,12 +12,21 @@ import (
 )
 
 type UserAssetPageFilter struct {
-	Kind          string
-	Category      string
-	FolderID      *string
-	Uncategorized bool
-	Status        string
-	Query         string
+	Kind            string
+	ImageReferences bool
+	Category        string
+	FolderID        *string
+	Uncategorized   bool
+	Status          string
+	Query           string
+}
+
+func (r *Repository) UserAssetMatchingCategoryCounts(userID string, filter UserAssetPageFilter) ([]UserAssetFacetRow, error) {
+	filter.Category = ""
+	var rows []UserAssetFacetRow
+	err := userAssetFilteredQuery(r.db.Model(&model.Asset{}).Where("user_id = ?", userID), filter, true).
+		Select("category AS key, COUNT(*) AS count").Group("category").Scan(&rows).Error
+	return rows, err
 }
 
 type UserAssetFacetRow struct {
@@ -57,6 +66,9 @@ func (r *Repository) UserAssetFacets(userID string, status string) ([]UserAssetF
 }
 
 func userAssetFilteredQuery(query *gorm.DB, filter UserAssetPageFilter, includeSearch bool) *gorm.DB {
+	if filter.ImageReferences {
+		query = query.Where("(kind = ? OR (kind IN ? AND category IN ?))", "image", []string{"entity", "text"}, []string{"character", "environment", "prop"})
+	}
 	if value := strings.TrimSpace(filter.Kind); value != "" {
 		query = query.Where("kind = ?", value)
 	}

@@ -5,6 +5,13 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## 素材库历史图片复用
+
+- 选择、跨页记录与提交互斥：`web/src/components/assets/asset-library-picker-modal.tsx`。
+- 图片预览与已有视角选择：`asset-image-library-picker.tsx`；资源判定与必要上传：`lib/asset-image-reference.ts`、`services/asset-image-reference.ts`。
+- 人物主卡/场景/道具与项目引用：`workbench/detail/assets.tsx`；子卡入口：`project-character-variants.tsx`。
+- 服务器候选与匹配计数：`app/asset_library.go`、`repository/asset_library.go`；手动素材库图片可用状态：`app/project_character.go`。
+
 ## 项目资产双流水线
 
 - 工作流配置与契约：`internal/drama/workflows.go`、`contracts/assets.extract.v2.schema.json`；旧提取契约保留。

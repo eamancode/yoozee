@@ -29,6 +29,7 @@ export function parseAssetRecord(value: unknown): Asset {
     const metadata = optionalRecord(value.metadata, "metadata");
     const category = value.category === undefined ? undefined : parseAssetCategory(value.category);
     const data = requireRecord(value.data, "data");
+    const imageReferences = value.imageReferences === undefined ? undefined : parseImageReferences(value.imageReferences);
     const base = {
         id,
         title,
@@ -45,6 +46,7 @@ export function parseAssetRecord(value: unknown): Asset {
         ...(arkAssetId ? { arkAssetId } : {}),
         ...(portraitCertified !== undefined ? { portraitCertified } : {}),
         ...(metadata ? { metadata } : {}),
+        ...(imageReferences ? { imageReferences } : {}),
     };
 
     if (kind === "text") {
@@ -110,6 +112,14 @@ export function parseAssetRecord(value: unknown): Asset {
         return { ...base, kind, data: entity } satisfies EntityAsset;
     }
     throw new Error(`不支持的素材类型 ${kind}`);
+}
+
+function parseImageReferences(value: unknown): NonNullable<Asset["imageReferences"]> {
+    if (!Array.isArray(value)) throw new Error("素材图片引用必须是数组");
+    return value.map((entry) => {
+        const record = requireRecord(entry, "imageReferences");
+        return { role: requireString(record, "role"), resourceId: requireTrimmedString(record, "resourceId") };
+    });
 }
 
 export function parseAssetRecordList(values: unknown): Asset[] {

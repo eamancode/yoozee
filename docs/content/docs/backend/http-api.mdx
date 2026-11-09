@@ -5,6 +5,16 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 素材库图片复用查询
+
+`GET /api/assets?page=1&pageSize=40&imageReferences=1` 返回分页图片候选：图片素材，以及人物、场景、道具的实体/文本资产。保留用户归属、状态、关键词、分类和分页限制，不全量读取素材库。
+
+候选资产卡新增只读 `imageReferences: [{ role, resourceId }]`，仅包含当前主版本、当前用户可读且状态为 ready 的图片表示，支持 `image` 和具体图片 MIME 类型；空数组表示当前没有可用图片，不回退旧封面或历史版本。图片素材继续使用原 `data.storageKey`，绑定时资源归属与状态仍由原业务接口校验。
+
+分页响应新增 `matchingCategoryCounts`：按当前媒体类型、图片候选开关、状态、关键词及目录范围统计分类，统计时不应用当前分类。原 `kindCounts/categoryCounts/folderCounts` 保持素材管理页原有全局口径。绑定和引用弹窗使用新计数，避免把单页数量显示成总数。
+
+图片复用继续调用既有人物形象替换、资产图片绑定及项目素材引用接口，不新增模型任务。人物子卡仅替换自己的 primary 图片；场景/道具保留 expectedVersionId 校验；源图片和源资产不变。
+
 ## 项目资产双流水线
 
 `POST /api/projects` 接受 `workflowId=pipeline-1|pipeline-2`，省略时选择流水线一；非法值以 `project_production_invalid` 返回。项目读取返回 `workflowId`、`workflowVersion`，已创建项目不支持通过更新接口切换工作流。历史项目经迁移 96 明确保持流水线二。工作流不改变生成模式的停点、视频时长、声音流程或白模开关。

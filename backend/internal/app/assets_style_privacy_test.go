@@ -78,4 +78,8 @@ func TestCharacterRepresentationsManualUploadReady(t *testing.T) {
 	if !characterRepresentationsReady(manual) {
 		t.Fatal("manual image must be usable as the selected reference")
 	}
+	library := []model.AssetRepresentation{{Role: "primary", MetadataJSON: `{"source":"asset-library"}`}}
+	if !characterRepresentationsReady(library) {
+		t.Fatal("explicitly selected library image must be usable without model generation")
+	}
 }

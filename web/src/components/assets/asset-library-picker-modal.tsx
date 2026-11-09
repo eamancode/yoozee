@@ -1,7 +1,7 @@
 import { App, Button, Dropdown, Popconfirm } from "antd";
 import type { MenuProps } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal";
-import { Check, ChevronDown, FileText, FolderOpen, HardDrive, Image as ImageIcon, LoaderCircle, Music2, Puzzle, RotateCcw, Search, Trash2, Upload, UserRound, Video } from "lucide-react";
+import { Check, ChevronDown, Eye, FileText, FolderOpen, HardDrive, Image as ImageIcon, LoaderCircle, Music2, Puzzle, RotateCcw, Search, Trash2, Upload, UserRound, Video } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useUserStore } from "@/stores/use-user-store";
@@ -17,6 +17,10 @@ import { flushAssetStorePersistence, useAssetStore, type Asset } from "@/stores/
 import { deleteAssetsWithRemoteSync, loadAssetLibraryPage, localSavedRemotePendingMessage, saveRemoteUserDataNow } from "@/services/user-data-sync";
 
 export type AssetPickerMediaKind = "image" | "video" | "audio" | "text";
+
+export class AssetLibrarySelectionError extends Error {
+    constructor(public readonly remainingIds: string[], message: string) { super(message); }
+}
 
 export const ASSET_PICKER_MEDIA_KIND_LABELS: Record<AssetPickerMediaKind, string> = { image: "图片", video: "视频", audio: "音频", text: "文本" };
 
@@ -50,8 +54,10 @@ export type AssetLibraryPickerFolder = {
 type Props = {
     remoteLibrary?: boolean;
     remoteKind?: string;
+    remoteImageReferences?: boolean;
     /** 远端素材库里的角色卡是否展示并可选（插入画布时会作为角色卡节点）。 */
     allowCharacters?: boolean;
+    allowAssetCards?: boolean;
     /** 调用方能处理 onConfirm 的 pickedItems 时设为 true：远端分页里不在本地缓存的素材也可选。 */
     acceptRemoteItems?: boolean;
     /** 远端条目不依赖本地缓存，仍需按调用方当前能力校验。 */
@@ -87,6 +93,7 @@ type Props = {
         };
     };
     onClose: () => void;
+    onPreview?: (item: AssetLibraryPickerItem) => void;
     /** pickedItems 包含远端分页里选中的条目（它们不在调用方传入的 items 里）。 */
     onConfirm: (ids: string[], pickedItems?: AssetLibraryPickerItem[]) => Promise<void> | void;
     onFolderAction?: (folderId: string) => Promise<void> | void;
@@ -95,7 +102,9 @@ type Props = {
 export function AssetLibraryPickerModal({
     remoteLibrary = false,
     remoteKind,
+    remoteImageReferences = false,
     allowCharacters = false,
+    allowAssetCards = false,
     acceptRemoteItems = false,
     remoteItemDisabledReason,
     mediaKinds = DEFAULT_MEDIA_KINDS,
@@ -119,6 +128,7 @@ export function AssetLibraryPickerModal({
     folderActionSource = "all",
     upload,
     onClose,
+    onPreview,
     onConfirm,
     onFolderAction,
 }: Props) {
@@ -132,6 +142,7 @@ export function AssetLibraryPickerModal({
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [uploadedItems, setUploadedItems] = useState<AssetLibraryPickerItem[]>([]);
     const [working, setWorking] = useState(false);
+    const workingRef = useRef(false);
     const [uploadingCount, setUploadingCount] = useState(0);
     const [error, setError] = useState("");
     const userId = useUserStore((state) => state.user?.id);
@@ -148,12 +159,13 @@ export function AssetLibraryPickerModal({
     // remoteKind 是调用方写死的能力约束；媒体类型筛选只在没有该约束时参与服务端查询。
     const remoteQueryKind = remoteKind || (mediaKind === "all" ? undefined : mediaKind);
     const remoteQuery = useQuery({
-        queryKey: ["asset-picker", userId, remotePage, remotePageSize, category, remoteKeyword, remoteQueryKind],
+        queryKey: ["asset-picker", userId, remotePage, remotePageSize, category, remoteKeyword, remoteQueryKind, remoteImageReferences],
         queryFn: ({ signal }) =>
             loadAssetLibraryPage({
                 page: remotePage,
                 pageSize: remotePageSize,
                 kind: remoteQueryKind,
+                imageReferences: remoteImageReferences,
                 category: category === "all" || category === "archived" || category === remoteQueryKind ? undefined : category,
                 status: category === "archived" ? "archived" : "active",
                 query: remoteKeyword,
@@ -168,7 +180,7 @@ export function AssetLibraryPickerModal({
     const remoteItems = useMemo<AssetLibraryPickerItem[]>(
         () =>
             (remoteQuery.data?.assets || [])
-                .filter((asset) => asset.kind !== "model" && (asset.kind !== "entity" || (allowCharacters && asset.category === "character")))
+                .filter((asset) => asset.kind !== "model" && (asset.kind !== "entity" || allowAssetCards || remoteImageReferences || (allowCharacters && asset.category === "character")))
                 .map((asset) =>
                     remoteAssetToPickerItem(
                         asset,
@@ -177,7 +189,7 @@ export function AssetLibraryPickerModal({
                         remoteItemDisabledReason?.(asset),
                     ),
                 ),
-        [acceptRemoteItems, allowCharacters, remoteItemDisabledReason, remoteQuery.data, items],
+        [acceptRemoteItems, allowCharacters, allowAssetCards, remoteImageReferences, remoteItemDisabledReason, remoteQuery.data, items],
     );
     const uploadInputRef = useRef<HTMLInputElement>(null);
     const pickedRemoteRef = useRef(new Map<string, AssetLibraryPickerItem>());
@@ -218,7 +230,7 @@ export function AssetLibraryPickerModal({
     }, [localItems, mediaKind, pluginItems, useRemoteItems, remoteItems, source]);
     const activeSourceItems = useMemo(() => sourceItems.filter((item) => !item.archived), [sourceItems]);
     const archivedItems = useMemo(() => sourceItems.filter((item) => item.archived), [sourceItems]);
-    const mediaKindOptions = useMemo(() => (remoteKind ? [] : Array.from(new Set(mediaKinds))), [mediaKinds, remoteKind]);
+    const mediaKindOptions = useMemo(() => (remoteKind || remoteImageReferences ? [] : Array.from(new Set(mediaKinds))), [mediaKinds, remoteKind, remoteImageReferences]);
     const sourceFolders = source === "plugin" ? folders : [];
     const showCategories = source === "local" || !sourceFolders.length;
     const normalCategories = useMemo(
@@ -298,7 +310,7 @@ export function AssetLibraryPickerModal({
     const toggle = (item: AssetLibraryPickerItem) => {
         if (item.disabledReason || working) return;
         // 远端分页条目翻页后就不在列表里了；选中时记下来，确认时仍能转成插入内容。
-        if (item.asset && !allItems.some((known) => known.id === item.id)) pickedRemoteRef.current.set(item.id, item);
+        if (item.asset) pickedRemoteRef.current.set(item.id, item);
         setError("");
         setSelected((current) => {
             if (!multiple) return current.has(item.id) ? new Set() : new Set([item.id]);
@@ -310,15 +322,18 @@ export function AssetLibraryPickerModal({
     };
 
     const confirm = async () => {
-        if (!selectedIds.length || working) return;
+        if (!selectedIds.length || workingRef.current) return;
+        workingRef.current = true;
         setWorking(true);
         setError("");
         try {
-            const known = new Set(allItems.map((item) => item.id));
-            await onConfirm(selectedIds, [...allItems, ...[...pickedRemoteRef.current.values()].filter((item) => !known.has(item.id))]);
+            const pool = new Map([...allItems, ...pickedRemoteRef.current.values()].map((item) => [item.id, item]));
+            await onConfirm(selectedIds, Array.from(pool.values()));
         } catch (reason) {
+            if (reason instanceof AssetLibrarySelectionError) setSelected(new Set(reason.remainingIds));
             setError(reason instanceof Error ? reason.message : "素材操作失败，请重试");
         } finally {
+            workingRef.current = false;
             setWorking(false);
         }
     };
@@ -411,7 +426,7 @@ export function AssetLibraryPickerModal({
     };
 
     // 远端模式下列表是分页的，按当前页数会把"角色 4"之类的数字算错；未叠加类型筛选时用服务端分类计数。
-    const remoteCategoryCounts = useRemoteItems && mediaKind === "all" && !remoteKind ? remoteQuery.data?.categoryCounts : undefined;
+    const remoteCategoryCounts = useRemoteItems ? remoteQuery.data?.matchingCategoryCounts : undefined;
     const countFor = (value: string) => {
         if (remoteCategoryCounts) return value === "all" ? Object.values(remoteCategoryCounts).reduce((sum, count) => sum + count, 0) : remoteCategoryCounts[value] || 0;
         return value === "all" ? activeSourceItems.length : activeSourceItems.filter((item) => item.category === value).length;
@@ -492,7 +507,7 @@ export function AssetLibraryPickerModal({
                         <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索素材名称或标签" aria-label="搜索素材" />
                     </label>
                     <span className="asset-picker-count">
-                        已选 {selectedIds.length} · {effectivePagination ? effectivePagination.total : visibleItems.length} 个素材
+                        共 {effectivePagination ? effectivePagination.total : visibleItems.length} 个匹配素材 · 已选 {selectedIds.length} 个
                     </span>
                 </header>
                 <div className="asset-picker-body">
@@ -561,7 +576,7 @@ export function AssetLibraryPickerModal({
                                     <span>素材会按页加载，不会一次下载整个项目库。</span>
                                 </div>
                             ) : visibleItems.length ? (
-                                visibleItems.map((item) => <PickerCard key={item.id} item={item} selected={selected.has(item.id)} onToggle={() => toggle(item)} />)
+                                visibleItems.map((item) => <PickerCard key={item.id} item={item} selected={selected.has(item.id)} onToggle={() => toggle(item)} onPreview={onPreview ? () => onPreview(item) : undefined} />)
                             ) : (
                                 <div className="asset-picker-empty">
                                     <FolderOpen />
@@ -657,6 +672,7 @@ export function remoteAssetToPickerItem(asset: Asset, known: AssetLibraryPickerI
         ...known,
         disabledReason: known?.disabledReason || (!known && !acceptRemoteItems ? "此素材不适用于当前操作" : disabledReason),
         asset,
+        imageStorageKey: asset.imageReferences?.[0] ? `resource:${asset.imageReferences[0].resourceId}` : known?.imageStorageKey,
     };
 }
 
@@ -667,13 +683,13 @@ export function pickerItemMediaKind(item: AssetLibraryPickerItem): AssetPickerMe
     return kind === "image" || kind === "video" || kind === "audio" || kind === "text" ? kind : undefined;
 }
 
-function PickerCard({ item, selected, onToggle }: { item: AssetLibraryPickerItem; selected: boolean; onToggle: () => void }) {
+function PickerCard({ item, selected, onToggle, onPreview }: { item: AssetLibraryPickerItem; selected: boolean; onToggle: () => void; onPreview?: () => void }) {
     const disabled = Boolean(item.disabledReason);
     return (
         <AssetLibraryCard selected={selected} className={cn("asset-picker-card relative", disabled && "is-disabled")}>
             <button type="button" className="asset-picker-card-action" onClick={onToggle} disabled={disabled} aria-pressed={selected} title={item.disabledReason || item.title}>
                 <div className="assets-cover asset-picker-card-media">
-                    {item.asset?.kind === "entity" ? (
+                    {item.asset?.kind === "entity" && !item.imageStorageKey ? (
                         <CharacterAssetCover asset={item.asset} />
                     ) : item.asset?.kind === "audio" && !item.imageUrl && !item.imageStorageKey ? (
                         <AudioWaveArt seed={item.asset.id} />
@@ -704,6 +720,7 @@ function PickerCard({ item, selected, onToggle }: { item: AssetLibraryPickerItem
                     {item.description ? <span>{item.description}</span> : null}
                 </div>
             </button>
+            {onPreview && !disabled ? <Button type="text" size="small" className="!absolute right-2 top-2 !bg-background/90" icon={<Eye className="size-4" />} aria-label={`预览图片：${item.title}`} onClick={onPreview} /> : null}
             {item.asset?.kind === "audio" && !disabled ? (
                 // 与封面同尺寸的覆盖层：试听按钮落在封面左下角，又不嵌套在选择按钮里。
                 <span className="pointer-events-none absolute inset-x-0 top-0 aspect-[4/3]">

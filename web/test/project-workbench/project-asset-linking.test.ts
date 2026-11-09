@@ -21,7 +21,7 @@ describe("project asset batch linking", () => {
             return id;
         });
 
-        expect(result).toEqual({ linked: ["asset-1"], failedCount: 1 });
+        expect(result).toEqual({ linked: ["asset-1"], failedCount: 1, failures: [{ id: "asset-2", reason: "不可用" }] });
     });
 
     test("surfaces the failure when no asset can be linked", async () => {

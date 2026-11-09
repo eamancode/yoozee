@@ -24,6 +24,7 @@ export type RemoteAssetPage = {
     assets: Asset[];
     kindCounts: Record<string, number>;
     categoryCounts: Record<string, number>;
+    matchingCategoryCounts: Record<string, number>;
     folderCounts: Record<string, number>;
     page: number;
     pageSize: number;
@@ -86,13 +87,14 @@ export function listRemoteAssets() {
     return http.get<{ assets: RemoteUserDataSummary[] }>("/assets");
 }
 
-export function listRemoteAssetsPage(options: { page: number; pageSize: number; kind?: string; category?: string; folderId?: string; uncategorized?: boolean; status?: string; query?: string; signal?: AbortSignal }) {
+export function listRemoteAssetsPage(options: { page: number; pageSize: number; kind?: string; imageReferences?: boolean; category?: string; folderId?: string; uncategorized?: boolean; status?: string; query?: string; signal?: AbortSignal }) {
     return http.get<RemoteAssetPage>("/assets", {
         signal: options.signal,
         params: compactApiParams({
             page: options.page,
             pageSize: options.pageSize,
             kind: options.kind,
+            imageReferences: options.imageReferences ? 1 : undefined,
             category: options.category,
             folderId: options.folderId,
             uncategorized: options.uncategorized ? 1 : undefined,

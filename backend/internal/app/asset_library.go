@@ -14,23 +14,25 @@ import (
 )
 
 type UserAssetPage struct {
-	Assets         []json.RawMessage `json:"assets"`
-	KindCounts     map[string]int64  `json:"kindCounts"`
-	CategoryCounts map[string]int64  `json:"categoryCounts"`
-	FolderCounts   map[string]int64  `json:"folderCounts"`
-	Page           int               `json:"page"`
-	PageSize       int               `json:"pageSize"`
-	Total          int64             `json:"total"`
-	HasMore        bool              `json:"hasMore"`
+	Assets                 []json.RawMessage `json:"assets"`
+	KindCounts             map[string]int64  `json:"kindCounts"`
+	CategoryCounts         map[string]int64  `json:"categoryCounts"`
+	MatchingCategoryCounts map[string]int64  `json:"matchingCategoryCounts"`
+	FolderCounts           map[string]int64  `json:"folderCounts"`
+	Page                   int               `json:"page"`
+	PageSize               int               `json:"pageSize"`
+	Total                  int64             `json:"total"`
+	HasMore                bool              `json:"hasMore"`
 }
 
 type UserAssetPageFilter struct {
-	Kind          string
-	Category      string
-	FolderID      *string
-	Uncategorized bool
-	Status        string
-	Query         string
+	Kind            string
+	ImageReferences bool
+	Category        string
+	FolderID        *string
+	Uncategorized   bool
+	Status          string
+	Query           string
 }
 
 type CreateAssetFolderRequest struct {
@@ -50,7 +52,8 @@ func (s *Service) UserAssetsPage(userID string, page int, pageSize int, filter U
 	page, pageSize = normalizeProjectPage(page, pageSize, 120)
 	repoFilter := repository.UserAssetPageFilter{
 		Kind: filter.Kind, Category: filter.Category, FolderID: filter.FolderID,
-		Uncategorized: filter.Uncategorized, Status: filter.Status, Query: filter.Query,
+		ImageReferences: filter.ImageReferences,
+		Uncategorized:   filter.Uncategorized, Status: filter.Status, Query: filter.Query,
 	}
 	assets, total, err := s.repo.UserAssetsPage(userID, page, pageSize, repoFilter)
 	if err != nil {
@@ -65,16 +68,60 @@ func (s *Service) UserAssetsPage(userID string, page int, pageSize int, filter U
 		if asset.Kind == "entity" && asset.Category == model.AssetCategoryCharacter {
 			payload = s.characterAssetListPayload(userID, asset, payload)
 		}
+		if filter.ImageReferences && asset.Kind != "image" {
+			payload, err = s.assetImageReferencePayload(userID, asset, payload)
+			if err != nil {
+				return UserAssetPage{}, err
+			}
+		}
 		rawAssets = append(rawAssets, payload)
 	}
 	kindRows, categoryRows, folderRows, err := s.repo.UserAssetFacets(userID, filter.Status)
 	if err != nil {
 		return UserAssetPage{}, err
 	}
+	matchingCategories, err := s.repo.UserAssetMatchingCategoryCounts(userID, repoFilter)
+	if err != nil {
+		return UserAssetPage{}, err
+	}
 	return UserAssetPage{
 		Assets: rawAssets, KindCounts: assetFacetMap(kindRows), CategoryCounts: assetFacetMap(categoryRows), FolderCounts: assetFacetMap(folderRows),
-		Page: page, PageSize: pageSize, Total: total, HasMore: int64(page*pageSize) < total,
+		MatchingCategoryCounts: assetFacetMap(matchingCategories),
+		Page:                   page, PageSize: pageSize, Total: total, HasMore: int64(page*pageSize) < total,
 	}, nil
+}
+
+// 图片复用只暴露当前版本、当前用户仍可读取的图片，不把封面 URL 当作持久资源。
+func (s *Service) assetImageReferencePayload(userID string, asset model.Asset, raw json.RawMessage) (json.RawMessage, error) {
+	refs := []map[string]string{}
+	if asset.PrimaryVersionID != "" {
+		representations, err := s.repo.AssetRepresentations(asset.PrimaryVersionID)
+		if err != nil {
+			return nil, err
+		}
+		for _, representation := range representations {
+			if (representation.MediaType != "image" && !strings.HasPrefix(representation.MediaType, "image/")) || representation.ResourceID == "" {
+				continue
+			}
+			resource, err := s.repo.ResourceForUser(userID, representation.ResourceID)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if resource.Kind == "image" && resource.Status == model.ResourceStatusReady {
+				refs = append(refs, map[string]string{"role": representation.Role, "resourceId": resource.ID})
+			}
+		}
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	payload["imageReferences"] = refs
+	encoded, err := json.Marshal(payload)
+	return encoded, err
 }
 
 // characterAssetListPayload 给素材库里的角色卡补上当前版本的形象与声音。

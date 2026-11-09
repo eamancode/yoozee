@@ -60,6 +60,8 @@ type AssetBase<T extends AssetKind> = {
     createdAt: string;
     updatedAt: string;
     metadata?: Record<string, unknown>;
+    /** 素材库图片复用查询补充的当前版本图片，不代表另一资产的定义。 */
+    imageReferences?: { role: string; resourceId: string }[];
 };
 
 type AssetStore = {

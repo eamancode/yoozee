@@ -791,7 +791,7 @@ func characterRepresentationsReady(reps []model.AssetRepresentation) bool {
 			var metadata struct {
 				Source string `json:"source"`
 			}
-			if json.Unmarshal([]byte(rep.MetadataJSON), &metadata) == nil && metadata.Source == "manual-upload" {
+			if json.Unmarshal([]byte(rep.MetadataJSON), &metadata) == nil && (metadata.Source == "manual-upload" || metadata.Source == "asset-library") {
 				return true
 			}
 		}
