@@ -92,7 +92,7 @@ func TestParseOntologyUnitCardFromSkillExample(t *testing.T) {
 }
 
 func TestOntologySegmentRenumbersImagesByUse(t *testing.T) {
-	card := OntologyUnitCard{ID: "s01-u2", Scene: "s01", TotalSeconds: 12, Shots: 3, Card: "无表",
+	card := OntologyUnitCard{ID: "s01-u2", Scene: "s01", TotalSeconds: 12, Shots: 1, Card: "| 镜头 | 时间 | 动作与表情 |\n| 1 | 0–12 秒 | 林夏站在柜台前 |",
 		Paste: "12秒。素材映射：@图3 为当铺；@图1 为林夏。林夏与@图1一致，站在@图3的柜台前。本段不使用背景音乐。"}
 	seg, err := OntologySegment(card, 1, ontologyMaterials(4))
 	if err != nil {
@@ -104,8 +104,16 @@ func TestOntologySegmentRenumbersImagesByUse(t *testing.T) {
 	if !strings.Contains(seg.Verbatim, "@图1 为当铺；@图2 为林夏。林夏与@图2一致，站在@图1的柜台前") {
 		t.Fatalf("verbatim = %s", seg.Verbatim)
 	}
-	if len(seg.Shots) != 1 || seg.Shots[0].Text != "无表" {
-		t.Fatalf("fallback shot = %+v", seg.Shots)
+	if len(seg.Shots) != 1 || seg.Shots[0].Text != "林夏站在柜台前" {
+		t.Fatalf("shots = %+v", seg.Shots)
+	}
+	if _, err := OntologySegment(OntologyUnitCard{ID: "s01-u4", Scene: "s01", TotalSeconds: 5, Card: "无表", Paste: "x"}, 1, nil); err == nil {
+		t.Fatal("a card without a readable shot table must not fall back to one shot")
+	}
+	renamed := card
+	renamed.Card = strings.Replace(card.Card, "| 镜头 |", "| 序 |", 1)
+	if _, err := OntologySegment(renamed, 1, ontologyMaterials(4)); err == nil {
+		t.Fatal("an unrecognized header must be rejected, not silently collapsed")
 	}
 	m, err := ResolveModel("")
 	if err != nil {
@@ -121,17 +129,17 @@ func TestOntologySegmentRenumbersImagesByUse(t *testing.T) {
 	if !strings.Contains(res.Prompt, ReferenceImageTag(m, 2)+"一致") || strings.Contains(res.Prompt, "@图3") {
 		t.Fatalf("prompt = %s", res.Prompt)
 	}
-	if _, err := OntologySegment(OntologyUnitCard{ID: "s01-u3", Scene: "s01", TotalSeconds: 5, Paste: "@图9"}, 1, ontologyMaterials(2)); err == nil {
+	if _, err := OntologySegment(OntologyUnitCard{ID: "s01-u3", Scene: "s01", TotalSeconds: 5, Card: card.Card, Paste: "@图9"}, 1, ontologyMaterials(2)); err == nil {
 		t.Fatal("unknown material must fail")
 	}
 }
 
 func TestValidateOntologyUnitRules(t *testing.T) {
-	table := `| 镜头 | 时间 |
-|---|---|
-| 1 | 0–6 秒 |
-| 2 | 6–9 秒 |
-| 3 | 9–10 秒 |`
+	table := `| 镜头 | 时间 | 动作与表情 |
+|---|---|---|
+| 1 | 0–6 秒 | 林夏推表 |
+| 2 | 6–9 秒 | 老秦抬眼 |
+| 3 | 9–10 秒 | 保持原位 |`
 	base := OntologyUnitCard{ID: "s01-u1", Scene: "s01", TotalSeconds: 10, Shots: 2, Card: table, Fenced: true, Paste: "10秒。" + OntologyNoMusicLine + "。"}
 	if err := ValidateOntologyUnit(base, "s01-u1", OntologyUnitLimits{Materials: 0}); err != nil {
 		t.Fatal(err)
@@ -304,5 +312,38 @@ func TestOntologyCheckUnitsCapAndStyle(t *testing.T) {
 	}
 	if OntologyStyleText("", nil, MasterPalette{}) != "" {
 		t.Fatal("no style, no section")
+	}
+}
+
+func TestOntologyStrictCheckAndUnfinishedVariants(t *testing.T) {
+	head := "## 六、本集交接卡\n【集交接卡】第1集 → 第2集\n\n## 七、自检结果与待确认清单\n"
+	full := "| 单元 | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | 表演分 |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+	row := "| s01-u1 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | 4 |\n"
+	if err := ValidateOntologyCheck(head+full+row, []string{"s01-u1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := OntologyHardFailures(head + full + row); strings.Join(got, ",") != "s01-u1 H11" {
+		t.Fatalf("hard failures = %v", got)
+	}
+	bad := map[string]string{
+		"表头必须依次是": head + "| 单元 | H1 | H11 |\n|---|---|---|\n| s01-u1 | ✓ | ✓ |\n",
+		"没写结果":    head + full + "| s01-u1 |  |  |  |  |  |  |  |  |  |  |  |  |\n",
+		"出现了两次":   head + full + row + row,
+		"不在节奏总表里": head + full + strings.Replace(row, "s01-u1", "s09-u1", 1),
+	}
+	for want, text := range bad {
+		if err := ValidateOntologyCheck(text, []string{"s01-u1"}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v", want, err)
+		}
+	}
+	for _, text := range []string{"本轮未完，回复继续", "【未完。回复“继续”，我从 s02-u1 接着写。】", "请回复「继续」", "（待续）", "回复 '继续' 即可"} {
+		if !OntologyUnfinished(text) {
+			t.Errorf("unfinished marker not detected: %q", text)
+		}
+	}
+	for _, text := range []string{"林夏继续追问。", "未完成的心愿让她回到当铺。", "一切正常"} {
+		if OntologyUnfinished(text) {
+			t.Errorf("false positive: %q", text)
+		}
 	}
 }

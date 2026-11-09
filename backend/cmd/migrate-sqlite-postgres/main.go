@@ -454,6 +454,7 @@ func migrations() []tableMigration {
 		migrateTable[model.ShotArtifact]("shot_artifacts"),
 		migrateTable[model.ShotEvidence]("shot_evidences"),
 		migrateTable[model.DramaShotlist]("drama_shotlists"),
+		migrateTable[model.ProjectOntologyDocument]("project_ontology_documents"),
 		migrateTable[model.DramaCompileProfile]("drama_compile_profiles"),
 		migrateTable[model.DramaEvalRun]("drama_eval_runs"),
 		migrateTable[model.DramaStepBinding]("drama_step_bindings"),

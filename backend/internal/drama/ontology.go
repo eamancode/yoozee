@@ -480,9 +480,13 @@ func OntologySegment(card OntologyUnitCard, order int, materials []OntologyMater
 		n, _ := strconv.Atoi(ontologyImageTag.FindStringSubmatch(tag)[1])
 		return fmt.Sprintf("@图%d", remap[n])
 	})
+	shots, err := ontologyParseShots(card)
+	if err != nil {
+		return Segment{}, fmt.Errorf("单元卡 %s：%w", card.ID, err)
+	}
 	seg := Segment{
 		ID: fmt.Sprintf("S%02d", order), Scene: card.Scene, Title: card.ID, Dur: card.TotalSeconds,
-		Mode: ModeTextOnly, Refs: refs, Shots: ontologySubShots(card), Verbatim: verbatim, Lang: "zh",
+		Mode: ModeTextOnly, Refs: refs, Shots: shots, Verbatim: verbatim, Lang: "zh",
 	}
 	if len(refs) > 0 {
 		seg.Mode = ModeLockIdentity
@@ -493,10 +497,15 @@ func OntologySegment(card OntologyUnitCard, order int, materials []OntologyMater
 	return seg, nil
 }
 
-// ontologySubShots 读【导演分镜卡】镜头表：镜头号、时间、景别、机位、运镜、动作与表情。读不出时退回一镜（全卡文字）。
-func ontologySubShots(card OntologyUnitCard) []SubShot {
+// ontologyShotHeaders 是镜头表第一列可接受的表头写法。
+var ontologyShotHeaders = []string{"镜头", "镜号", "镜头号"}
+
+// ontologyParseShots 读【导演分镜卡】镜头表：表头必须认得出（第一列镜头、有时间列和画面列），每一条带时间的镜头行都必须
+// 转成段内镜头。校验和装段共用这一份解析，认不出时报错，不退回整卡一镜。
+func ontologyParseShots(card OntologyUnitCard) ([]SubShot, error) {
 	var header []string
 	var shots []SubShot
+	rows := 0
 	for _, line := range strings.Split(card.Card, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "|") {
@@ -506,35 +515,41 @@ func ontologySubShots(card OntologyUnitCard) []SubShot {
 		for i := range cells {
 			cells[i] = strings.TrimSpace(cells[i])
 		}
-		if len(cells) > 0 && cells[0] == "镜头" {
+		if len(cells) > 0 && slices.Contains(ontologyShotHeaders, cells[0]) {
 			header = cells
 			continue
 		}
 		m := ontologyShotRow.FindStringSubmatch(line)
-		if m == nil || header == nil {
+		if m == nil {
 			continue
 		}
-		at, _ := strconv.ParseFloat(m[2], 64)
+		rows++
+		if header == nil {
+			return nil, errors.New("镜头表缺少表头（第一列写「镜头」，并有「时间」「动作与表情」列）")
+		}
 		col := func(name string) string {
 			if i := slices.Index(header, name); i >= 0 && i < len(cells) {
 				return strings.Trim(cells[i], "【】")
 			}
 			return ""
 		}
+		at, _ := strconv.ParseFloat(m[2], 64)
 		text := firstNonBlank(col("动作与表情"), col("戏剧职责"), col("第一注意力"))
 		if text == "" {
-			continue
+			return nil, fmt.Errorf("镜头 %s 没有「动作与表情」（或戏剧职责）内容", m[1])
 		}
-		at = math.Max(at, 0)
 		if n := len(shots); n > 0 && at <= shots[n-1].At {
-			continue
+			return nil, fmt.Errorf("镜头 %s 的开始秒不大于上一镜", m[1])
 		}
-		shots = append(shots, SubShot{At: at, Size: col("景别"), Camera: strings.Trim(col("机位")+" "+col("运镜"), " "), Text: text, Purpose: col("戏剧职责"), Composition: col("构图")})
+		shots = append(shots, SubShot{At: math.Max(at, 0), Size: col("景别"), Camera: strings.Trim(col("机位")+" "+col("运镜"), " "), Text: text, Purpose: col("戏剧职责"), Composition: col("构图")})
 	}
-	if len(shots) == 0 {
-		shots = []SubShot{{At: 0, Text: firstNonBlank(card.Card, card.ID)}}
+	if header != nil && !slices.Contains(header, "时间") {
+		return nil, errors.New("镜头表缺少「时间」列")
 	}
-	return shots
+	if rows == 0 || len(shots) != rows {
+		return nil, errors.New("【导演分镜卡】里没有读得出的镜头表（| 镜头 | 时间 | … |，时间写成 0–2 秒）")
+	}
+	return shots, nil
 }
 
 // CompileVerbatim 是本体论段的编译：提示词就是粘贴提示词原文，只把 @图k 换成模型的参考图编号写法；参考文件按 Refs 顺序。
@@ -649,10 +664,10 @@ func ontologyTableRows(card OntologyUnitCard) []ontologyTableRow {
 // ontologyCheckTable 校验镜头表与标题行一致：行数是叙事镜头数（或再加 1 个站位交接镜头），镜头号从 1 连续，时间从 0 起首尾相接，
 // 最后一镜在总时长结束。
 func ontologyCheckTable(card OntologyUnitCard) error {
-	rows := ontologyTableRows(card)
-	if len(rows) == 0 {
-		return errors.New("【导演分镜卡】里没有读得出的镜头表（| 镜头 | 时间 | … |，时间写成 0–2 秒）")
+	if _, err := ontologyParseShots(card); err != nil {
+		return err
 	}
+	rows := ontologyTableRows(card)
 	if len(rows) != card.Shots && len(rows) != card.Shots+1 {
 		return fmt.Errorf("镜头表有 %d 行，标题行写的是 %d 镜（不含站位交接镜头）", len(rows), card.Shots)
 	}
@@ -675,17 +690,16 @@ func ontologyCheckTable(card OntologyUnitCard) error {
 	return nil
 }
 
-var ontologyUnfinishedMarks = []string{`回复"继续"`, "回复“继续”", "【未完", "未完待续"}
+// ontologyUnfinishedPattern 是技能 5.7「未完，回复继续」及常见变体：回复(引号)继续、未完……继续、【未完、未完待续、待续）。
+var ontologyUnfinishedPattern = regexp.MustCompile(`回复\s*[“"「『'‘]?\s*继续|未完[^。\n]{0,20}继续|【\s*未完|未完待续|[（(【]\s*待续`)
 
 // OntologyUnfinished 判断输出里有没有技能的「未完，回复继续」续写标记。服务端按单元分轮，每轮都要求一次写完；出现标记按不合格重试。
 func OntologyUnfinished(text string) bool {
-	for _, m := range ontologyUnfinishedMarks {
-		if strings.Contains(text, m) {
-			return true
-		}
-	}
-	return false
+	return ontologyUnfinishedPattern.MatchString(text)
 }
+
+// ontologyCheckMarks 是自检表一格可以写的结果：通过、硬失败、不适用。
+var ontologyCheckMarks = map[string]bool{"✓": true, "√": true, "✔": true, "✗": true, "×": true, "✘": true, "—": true, "-": true, "不适用": true}
 
 // ValidateOntologyCheck 校验质检轮：交接卡有正文，自检表有 H1–H11 列，每个单元一行。
 func ValidateOntologyCheck(text string, units []string) error {
@@ -696,11 +710,12 @@ func ValidateOntologyCheck(text string, units []string) error {
 		return errors.New("本集交接卡为空")
 	}
 	table, _ := OntologySection(text, "七、自检结果与待确认清单")
-	header := false
+	inTable, header := false, false
 	seen := map[string]bool{}
 	for _, line := range strings.Split(table, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "|") {
+			inTable = false
 			continue
 		}
 		cells := strings.Split(strings.Trim(line, "|"), "|")
@@ -708,11 +723,33 @@ func ValidateOntologyCheck(text string, units []string) error {
 			cells[i] = strings.TrimSpace(cells[i])
 		}
 		if len(cells) > 1 && cells[0] == "单元" && cells[1] == "H1" {
-			header = slices.Contains(cells, "H11")
+			// 表头必须依次是 单元、H1…H11（后面可以再有表演分、字符数、备注）。
+			for i := 1; i <= 11; i++ {
+				if i >= len(cells) || cells[i] != fmt.Sprintf("H%d", i) {
+					return errors.New("自检表表头必须依次是 | 单元 | H1 | H2 | … | H11 |")
+				}
+			}
+			inTable, header = true, true
 			continue
 		}
-		if id := ontologyUnitID.FindString(cells[0]); id != "" {
-			seen[id] = true
+		if !inTable || strings.Trim(cells[0], "-: ") == "" {
+			continue
+		}
+		id := ontologyUnitID.FindString(cells[0])
+		if id == "" {
+			return fmt.Errorf("自检表里有认不出单元编号的行：%s", cells[0])
+		}
+		if seen[id] {
+			return fmt.Errorf("自检表里单元 %s 出现了两次", id)
+		}
+		if !slices.Contains(units, id) {
+			return fmt.Errorf("自检表里的单元 %s 不在节奏总表里", id)
+		}
+		seen[id] = true
+		for i := 1; i <= 11; i++ {
+			if i >= len(cells) || !ontologyCheckMarks[strings.Trim(cells[i], "【】 ")] {
+				return fmt.Errorf("自检表单元 %s 的 H%d 没写结果（用 ✓ 通过、✗ 硬失败、— 不适用）", id, i)
+			}
 		}
 	}
 	if !header {

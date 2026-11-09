@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -704,7 +705,8 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		cards, segments, order = append(cards, card), append(segments, raw), append(order, seg.ID)
 		outcome.Shots += len(seg.Shots)
 	}
-	if err := s.guardOntologyRemovals(task.UserID, target.ProjectID, target.UnitID, order, meta); err != nil {
+	removed, err := s.ontologyRemovedShots(task.UserID, target.ProjectID, target.UnitID, order)
+	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
 	materials, err := json.Marshal(meta.Materials)
@@ -715,7 +717,14 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 	if handoff, ok := drama.OntologySection(out.Check, "六、本集交接卡"); ok && strings.TrimSpace(handoff) != "" {
 		docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocHandoff, handoff})
 	}
-	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: segments, Order: order}); err != nil {
+	// 先删不再需要的旧段（事务内逐段复核产物后立即删除），再写段、按新顺序排；删除被拦下时什么都不写。
+	if err := s.deleteOntologyRemovedShots(target.ProjectID, target.UnitID, removed, meta); err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
+	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: segments}); err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
+	if err := s.reorderOntologySegments(task.UserID, target.ProjectID, target.UnitID, order); err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
 	if err := s.writeOntologyDocs(task, target.ProjectID, docs); err != nil {
@@ -729,11 +738,11 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 	return outcome, nil
 }
 
-// guardOntologyRemovals 复核整集替换要删掉的旧段：有产物的旧段必须是建任务时确认过的，且产物没有增加。
-func (s *Service) guardOntologyRemovals(userID string, projectID string, unitID string, order []string, meta *dramaOntologyMeta) error {
+// ontologyRemovedShots 是整集替换后不再需要的旧段（镜头 ID）。
+func (s *Service) ontologyRemovedShots(userID string, projectID string, unitID string, order []string) ([]string, error) {
 	existing, err := s.DramaSegments(userID, projectID, unitID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var removed []string
 	for _, view := range existing {
@@ -741,24 +750,68 @@ func (s *Service) guardOntologyRemovals(userID string, projectID string, unitID 
 			removed = append(removed, view.ShotID)
 		}
 	}
+	return removed, nil
+}
+
+// errOntologyRemovalBlocked 表示要删的旧段有未确认（或确认后又增加）的产物。
+var errOntologyRemovalBlocked = errors.New("ontology removal blocked")
+
+// deleteOntologyRemovedShots 在一个事务里逐段复核产物并立即删除：没有产物的段直接删；有产物的段必须是建任务时确认过（discard）
+// 且产物没有增加。任一段不满足就整体回滚、一段都不删，返回需要确认的段。SQLite 写事务独占，计数与删除之间没有窗口；
+// PostgreSQL 先锁镜头行，计数与删除是同一事务里紧挨着的两条语句。
+func (s *Service) deleteOntologyRemovedShots(projectID string, unitID string, removed []string, meta *dramaOntologyMeta) error {
 	if len(removed) == 0 {
 		return nil
 	}
-	discards, err := s.dramaSegmentDiscards(projectID, unitID, removed)
+	var blocked []string
+	now := time.Now()
+	err := s.repo.Transaction(func(r *repository.Repository) error {
+		for _, shotID := range removed {
+			n, err := r.CountActiveShotArtifacts(projectID, shotID)
+			if err != nil {
+				return err
+			}
+			if confirmed, ok := meta.Confirmed[shotID]; n > 0 && (!meta.Discard || !ok || int(n) > confirmed) {
+				blocked = append(blocked, shotID)
+				continue
+			}
+			if err := r.DeleteProjectShot(projectID, shotID, now); err != nil {
+				return err
+			}
+		}
+		if len(blocked) > 0 {
+			return errOntologyRemovalBlocked
+		}
+		return nil
+	})
+	if errors.Is(err, errOntologyRemovalBlocked) {
+		discards, derr := s.dramaSegmentDiscards(projectID, unitID, blocked)
+		if derr != nil {
+			return derr
+		}
+		return dramaSegmentsDiscardRequired(discards)
+	}
+	return err
+}
+
+// reorderOntologySegments 按单元顺序（段号 S01、S02……）重排本集的段。
+func (s *Service) reorderOntologySegments(userID string, projectID string, unitID string, order []string) error {
+	views, err := s.DramaSegments(userID, projectID, unitID)
 	if err != nil {
 		return err
 	}
-	var blocked []DramaSegmentDiscard
-	for _, d := range discards {
-		confirmed, ok := meta.Confirmed[d.ShotID]
-		if !meta.Discard || !ok || ontologyArtifactCount(d) > confirmed {
-			blocked = append(blocked, d)
+	shotOf := map[string]string{}
+	for _, v := range views {
+		shotOf[v.Spec.ID] = v.ShotID
+	}
+	ordered := make([]string, 0, len(order))
+	for _, id := range order {
+		if shotOf[id] == "" {
+			return fmt.Errorf("写入后找不到段 %s", id)
 		}
+		ordered = append(ordered, shotOf[id])
 	}
-	if len(blocked) > 0 {
-		return dramaSegmentsDiscardRequired(blocked)
-	}
-	return nil
+	return s.repo.ReorderUnitShots(projectID, unitID, ordered, time.Now())
 }
 
 // writeOntologyDocs 在一个事务里写收尾的全部文档；同一任务已写过的（同单元、同种类）跳过，重新收尾不重复加版本。
