@@ -644,6 +644,7 @@ func (s *Service) writeDramaSegmentsTransaction(userID string, projectID string,
 		return nil, err
 	}
 	parsed := make([]drama.Segment, 0, len(req.Segments))
+	refsOmitted := map[string]bool{}
 	written := make([]string, 0, len(req.Segments))
 	for _, raw := range req.Segments {
 		seg, err := drama.ParseSegment(raw)
@@ -663,6 +664,12 @@ func (s *Service) writeDramaSegmentsTransaction(userID string, projectID string,
 			return nil, BadAuthRequest(issues[0].Message)
 		}
 		parsed = append(parsed, seg)
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, err
+		}
+		_, present := fields["refs"]
+		refsOmitted[seg.ID] = !present
 	}
 	existing, err := s.DramaSegments(userID, projectID, unitID)
 	if err != nil {
@@ -691,7 +698,27 @@ func (s *Service) writeDramaSegmentsTransaction(userID string, projectID string,
 		}
 	}
 	shotOf := make(map[string]string, len(parsed))
-	for _, seg := range parsed {
+	for i := range parsed {
+		seg := &parsed[i]
+		if refsOmitted[seg.ID] {
+			// A partial segment edit must not silently drop already attached assets.
+			// An explicit refs:[] clears them; split/merge also carries source refs.
+			for _, source := range append([]string{seg.ID}, req.Inherit[seg.ID]...) {
+				if view, exists := byID[source]; exists {
+					for _, ref := range view.Spec.Refs {
+						if !slices.ContainsFunc(seg.Refs, func(r drama.Ref) bool { return r.File == ref.File }) {
+							seg.Refs = append(seg.Refs, ref)
+						}
+					}
+				}
+			}
+			if len(seg.Refs) > 0 && seg.Mode == "text_only" {
+				seg.Mode = "lock_identity"
+			}
+			if issues := drama.Issues(*seg, m); drama.HasError(issues) {
+				return nil, BadAuthRequest(issues[0].Message)
+			}
+		}
 		spec, _ := json.Marshal(seg)
 		title := firstNonEmpty(seg.Title, seg.ID)
 		input := CreateProjectShotRequest{UnitID: unitID, Title: seg.ID + " " + title, Revision: ShotRevisionInput{Spec: spec}}

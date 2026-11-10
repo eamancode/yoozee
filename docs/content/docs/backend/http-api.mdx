@@ -1033,3 +1033,5 @@ install 的 Base URL、协议、能力和成本全部从服务端快照读取，
 `POST /api/projects/:id/shots/:shotId/assets` 继续接受 `{ assetVersionId, role }`，并可携带 `replaceReferenceId` 原子更换该镜头已有的同类型参考。人物主卡与子卡均使用各自实际版本 ID。`DELETE /api/projects/:id/shots/:shotId/assets/:referenceId` 取消引用。有分段 Spec 时，这两个入口在一次事务内同步 `spec.refs`、图片引用编号和镜头关联；失败不部分提交，不再由前端追加第二次写段请求。并发保存冲突返回 HTTP 409、`reason=conflict`。
 
 章节工作区的 `shotReferences` 返回固定版本的 `referencedVersion.representations`，以及 `source`、`position`；`source=segment` 是分段引用的投影，顺序与图片编号一致。资源预览和生成前媒体解析使用固定版本图片，不能用资产当前主图替代。迁移 99 补齐已有有效引用，无效或越权引用不补齐、不触发重新生成。
+
+批量编辑已有分段时省略 `refs` 表示保留已有参考；拆合段声明 `inherit` 时，缺省参考同时继承来源段的分段参考。显式 `refs:[]` 清空该段的自动投影，独立色卡和其他用途关联保持不变。

@@ -74,6 +74,10 @@ func assertSegmentBindingMigration(t *testing.T, db *gorm.DB) {
 			t.Fatal(err)
 		}
 	}
+	var before model.ShotRevision
+	if err := db.First(&before, "id = ?", rev.ID).Error; err != nil {
+		t.Fatal(err)
+	}
 	for n := 0; n < 2; n++ {
 		if err := db.Transaction(migrateSegmentAssetBindings); err != nil {
 			t.Fatal(err)
@@ -96,7 +100,7 @@ func assertSegmentBindingMigration(t *testing.T, db *gorm.DB) {
 	}
 	var kept model.ShotRevision
 	db.First(&kept, "id = ?", rev.ID)
-	if !reflect.DeepEqual(kept, rev) {
+	if !reflect.DeepEqual(kept, before) {
 		t.Fatal("backfill rewrote revision")
 	}
 	var artifact model.ShotArtifact
