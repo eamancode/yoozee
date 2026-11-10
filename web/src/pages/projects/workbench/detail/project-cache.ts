@@ -22,8 +22,8 @@ export function removeConfirmedCandidate(current: ProjectAssetCandidatePage | un
 /** 镜头绑定 / 取消绑定资产后立刻改本章工作区缓存，「镜头资产」不必等整章重取才出现。 */
 export function applyShotReferenceChange(current: ProjectUnitWorkspace | undefined, change: { added?: ShotAssetReference; asset?: ProjectAsset; removedId?: string }) {
     if (!current) return current;
-    if (change.removedId) return { ...current, shotReferences: current.shotReferences.filter((reference) => reference.id !== change.removedId) };
+    const remaining = change.removedId ? { ...current, shotReferences: current.shotReferences.filter((reference) => reference.id !== change.removedId) } : current;
     const added = change.added;
-    if (!added || current.shotReferences.some((reference) => reference.id === added.id)) return current;
-    return { ...current, shotReferences: [...current.shotReferences, { ...added, asset: added.asset || change.asset }] };
+    if (!added || remaining.shotReferences.some((reference) => reference.id === added.id)) return remaining;
+    return { ...remaining, shotReferences: [...remaining.shotReferences, { ...added, asset: added.asset || change.asset }] };
 }

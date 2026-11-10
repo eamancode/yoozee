@@ -40,6 +40,7 @@ import {
     unlinkShotAsset,
     type ProjectAsset,
     type ProjectDetail,
+    type ProjectUnitWorkspace,
     type ProjectShot,
     type ShotAssetReference,
     type ShotArtifact,
@@ -69,6 +70,7 @@ import { segmentDurationRule } from "./chapter-segments";
 import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { unitEpisodeNumber, unitsOfKind } from "./unit-numbering";
 import type { SegmentAsset } from "./shot-card-layout";
+import { applyShotReferenceChange } from "./project-cache";
 import { assetPreviewUrl, projectAssetReferenceImage, projectAssetChoices, shotAssetReferences, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
 import { compileProjectShot, getDramaBrief, writeDramaSegments, type DramaSegment } from "@/services/api/project-drama";
 import { dramaFamilyOf, findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
@@ -461,7 +463,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 : await linkShotAsset(projectId, selectedShot.id, { assetVersionId: asset!.primaryVersionId!, role: asset!.category === "palette" ? "style" : "reference", replaceReferenceId: replace?.id });
             return result;
         },
-        onSuccess: async (_result, variables) => {
+        onSuccess: async (result, variables) => {
+            const added = "reference" in result ? result.reference : undefined;
+            queryClient.setQueryData(["project", projectId, "unit-workspace", unitId], (current: ProjectUnitWorkspace | undefined) => applyShotReferenceChange(current, { removedId: variables.reference?.id || variables.replace?.id, added, asset: variables.asset }));
             await Promise.all([onRefresh(), invalidateDrama()]);
             if (variables.replace) { setAssetPickerOpen(false); setReplacingReference(undefined); }
             message.success(variables.reference ? "已取消资产引用" : variables.replace ? "资产及分段参考已更换" : "资产及分段参考已绑定");

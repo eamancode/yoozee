@@ -29,6 +29,9 @@ describe("项目页缓存即时更新", () => {
         expect(added?.shotReferences.map((item) => item.id)).toEqual(["r1", "r2"]);
         expect(added?.shotReferences[1].asset?.title).toBe("苏念");
         expect(applyShotReferenceChange(added, { removedId: "r1" })?.shotReferences.map((item) => item.id)).toEqual(["r2"]);
+        const replaced = applyShotReferenceChange(added, { removedId: "r1", added: reference("r3"), asset });
+        expect(replaced?.shotReferences.map((item) => item.id)).toEqual(["r2", "r3"]);
+        expect(replaced?.shotReferences[1].asset?.title).toBe("苏念");
     });
 
     test("三个写路径都接上了即时缓存", async () => {
