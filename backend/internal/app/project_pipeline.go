@@ -448,6 +448,10 @@ func (s *Service) DramaPipelineNext(userID string, projectID string, req DramaPi
 		return DramaPipelineNextResult{}, failedPrecondition(fmt.Sprintf("「%s」正在做，等它做完", drama.PipelineStageLabel(pipeline.Current)))
 	}
 	stage := pipeline.Stop.Stage
+	// 要用户自己处理的停靠（导入正文、改分镜问题、本体论自检硬失败待返修）不能由「继续」越过去，原因原样返回。
+	if !pipeline.Stop.Continuable && stage != drama.StageVideo && stage != drama.StageCut {
+		return DramaPipelineNextResult{}, failedPrecondition(pipeline.Stop.Reason)
+	}
 	if stage == drama.StageVideo || stage == drama.StageCut {
 		err := failedPrecondition("出视频要花钱：到制作台看过预估花费再生成，流水线不会替你点")
 		err.Reason = ReasonPipelineVideoManual

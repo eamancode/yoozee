@@ -748,10 +748,6 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		cards, segments, order = append(cards, card), append(segments, raw), append(order, seg.ID)
 		outcome.Shots += len(seg.Shots)
 	}
-	removed, err := s.ontologyRemovedShots(task.UserID, target.ProjectID, target.UnitID, order)
-	if err != nil {
-		return DramaStepTaskOutcome{}, err
-	}
 	materials, err := json.Marshal(meta.Materials)
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
@@ -761,9 +757,14 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocHandoff, handoff})
 	}
 	docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocGate, ontologyGateContent(drama.OntologyHardFailures(out.Check))})
-	// 同一集的整集替换和返修收尾串行做，返修按写入时的其他段核对每集合计时长。
+	// 同一集的整集替换、返修和手工写段串行做：要删的旧段在锁内读（锁外读的快照会漏掉别的收尾刚写的段），
+	// 返修按写入时的其他段核对每集合计时长。
 	unlock := lockOntologyEpisode(target.UnitID)
 	defer unlock()
+	removed, err := s.ontologyRemovedShots(task.UserID, target.ProjectID, target.UnitID, order)
+	if err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
 	// 先删不再需要的旧段（事务内逐段复核产物后立即删除），再写段、按新顺序排；删除被拦下时什么都不写。
 	if err := s.deleteOntologyRemovedShots(target.ProjectID, target.UnitID, removed, meta); err != nil {
 		return DramaStepTaskOutcome{}, err
@@ -785,7 +786,7 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 	return outcome, nil
 }
 
-// ontologyEpisodeLocks 让同一集的本体论收尾（整集替换、返修）在本进程内串行，返修核对每集合计时长时其他段不会同时被改。
+// ontologyEpisodeLocks 让同一集的本体论收尾（整集替换、返修）和手工写段在本进程内串行，返修核对每集合计时长时其他段不会同时被改。
 // 生产只跑一个 backend 进程；多进程部署时这里不跨进程。
 var ontologyEpisodeLocks sync.Map
 

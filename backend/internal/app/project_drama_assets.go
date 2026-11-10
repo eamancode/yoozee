@@ -638,14 +638,16 @@ func (s *Service) queueAssetsExtractImages(task model.Task, outcome *DramaAssets
 	}
 }
 
-// otherAssetsExtractActive 是项目里除了 exceptID 以外还有没有在排或在跑的资产提取任务；读不出任务时按没有处理（宁可出图，不让资产卡住）。
+// otherAssetsExtractActive 是项目里除了 exceptID 以外还有没有在排或在跑的资产提取任务。直接查活动任务，不受历史条数限制
+// （重试的旧任务保留原创建时间）。读不出任务时按「有」处理：先不出图，资产留在「等空位」，概览会停下来让用户点继续。
 func (s *Service) otherAssetsExtractActive(userID string, projectID string, exceptID string) bool {
 	if projectID == "" {
 		return false
 	}
-	tasks, err := s.repo.ProjectPipelineTasks(userID, projectID)
+	tasks, err := s.repo.ActiveProjectStepTasks(userID, projectID)
 	if err != nil {
-		return false
+		_ = s.log(userID, exceptID, "warn", "读不出项目里在跑的任务，先不给资产出图", err.Error())
+		return true
 	}
 	for _, t := range tasks {
 		if t.ID == exceptID || !taskActive(t) {

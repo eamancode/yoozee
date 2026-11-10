@@ -445,6 +445,17 @@ func (r *Repository) TaskLogs(userID string, taskID string) ([]model.TaskLog, er
 }
 
 // ProjectPipelineTasks 是项目流水线判状态要看的任务（短剧流程步骤、资产出图、视频），只取判状态用的列，新的在前。
+// ActiveProjectStepTasks 是项目里还在排或在跑的流程步骤任务（不限历史条数；正确性门禁用，不要换成 ProjectPipelineTasks）。
+func (r *Repository) ActiveProjectStepTasks(userID string, projectID string) ([]model.Task, error) {
+	var tasks []model.Task
+	err := r.db.Model(&model.Task{}).
+		Select("id", "user_id", "project_id", "type", "status", "input_json", "created_at", "updated_at").
+		Where("user_id = ? AND project_id = ? AND status IN ?", userID, projectID, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).
+		Where("input_json LIKE ?", `%"dramaStep"%`).
+		Find(&tasks).Error
+	return tasks, err
+}
+
 func (r *Repository) ProjectPipelineTasks(userID string, projectID string) ([]model.Task, error) {
 	var tasks []model.Task
 	err := r.db.Model(&model.Task{}).

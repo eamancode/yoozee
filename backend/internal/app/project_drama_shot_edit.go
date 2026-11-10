@@ -37,6 +37,9 @@ type DramaSegmentsWriteResult struct {
 // WriteDramaSegmentsChecked 是 WriteDramaSegments 加分镜卡编辑：带 Shots 时先改镜头表、重编镜头、重检，再写段。
 // 段没写成时镜头表退回编辑前的内容（版本号照常往上走），免得检查结果和段对不上。
 func (s *Service) WriteDramaSegmentsChecked(userID string, projectID string, req DramaSegmentsWriteRequest) (DramaSegmentsWriteResult, error) {
+	// 和本体论整集替换、返修收尾串行（它们按这一集现有的段核对删段和每集时长）。
+	unlock := lockOntologyEpisode(strings.TrimSpace(req.UnitID))
+	defer unlock()
 	if len(req.Shots) == 0 {
 		views, err := s.writeDramaSegments(userID, projectID, req)
 		return DramaSegmentsWriteResult{Segments: views}, err
