@@ -7,23 +7,54 @@ import type { ReferenceImage } from "@/types/image";
 import { buildShotAssetReferenceContext, projectAssetReferenceImage, projectAssetChoices, compileShotAssetReferencePrompt, referenceMediaForCompiledFiles, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
 
 test("主卡、子卡、场景、道具固定版本的预览与提交引用一致，换图和取消不残留", () => {
-    const assets = ["主卡", "子卡", "场景", "道具"].map((title, index) => ({ id: `asset-${index}`, title, primaryVersionId: `current-${index}`, mediaType: "image", category: index < 2 ? "character" : index === 2 ? "environment" : "prop", storageKey: `resource:new-${index}` }) as ProjectAsset);
-    const references = assets.map((asset, index) => ({ id: `ref-${index}`, shotId: "shot-1", assetVersionId: `fixed-${index}`, role: "reference", status: "linked", source: "segment", position: index, asset, referencedVersion: { id: `fixed-${index}`, assetId: asset.id, version: 1, representations: [{ id: `rep-${index}`, resourceId: `old-${index}`, mediaType: "image/png", role: "primary" }] } }) as ShotAssetReference);
+    const assets = ["主卡", "子卡", "场景", "道具"].map(
+        (title, index) => ({ id: `asset-${index}`, title, primaryVersionId: `current-${index}`, mediaType: "image", category: index < 2 ? "character" : index === 2 ? "environment" : "prop", storageKey: `resource:new-${index}` }) as ProjectAsset,
+    );
+    const references = assets.map(
+        (asset, index) =>
+            ({
+                id: `ref-${index}`,
+                shotId: "shot-1",
+                assetVersionId: `fixed-${index}`,
+                role: "reference",
+                status: "linked",
+                source: "segment",
+                position: index,
+                asset,
+                referencedVersion: { id: `fixed-${index}`, assetId: asset.id, version: 1, representations: [{ id: `rep-${index}`, resourceId: `old-${index}`, mediaType: "image/png", role: "primary" }] },
+            }) as ShotAssetReference,
+    );
     const project = { assets, shotReferences: references.slice().reverse() } as ProjectDetail;
     const files = references.map((ref, index) => ({ file: ref.assetVersionId, tag: `@图片${index + 1}`, role: "identity" }));
     const media = referenceMediaForCompiledFiles(project, "shot-1", files);
     assert.deepEqual(media.missing, []);
-    assert.deepEqual(media.images.map((img) => img.storageKey), ["resource:old-0", "resource:old-1", "resource:old-2", "resource:old-3"]);
-    assert.deepEqual(buildShotAssetReferenceContext(project, "shot-1").referenceImages.map((img) => img.storageKey), media.images.map((img) => img.storageKey));
+    assert.deepEqual(
+        media.images.map((img) => img.storageKey),
+        ["resource:old-0", "resource:old-1", "resource:old-2", "resource:old-3"],
+    );
+    assert.deepEqual(
+        buildShotAssetReferenceContext(project, "shot-1").referenceImages.map((img) => img.storageKey),
+        media.images.map((img) => img.storageKey),
+    );
     references.forEach((ref, index) => assert.equal(projectAssetReferenceImage(assets[index]!, ref)?.storageKey, `resource:old-${index}`));
     assert.equal(projectAssetReferenceImage(assets[0]!, { ...references[0]!, referencedVersion: { ...references[0]!.referencedVersion!, representations: [] } }), undefined);
-    const changed = { ...project, shotReferences: references.map((ref) => ref.id === "ref-1" ? { ...ref, assetVersionId: "replacement", referencedVersion: { ...ref.referencedVersion!, id: "replacement", representations: [{ id: "replacement-image", resourceId: "replacement-image", mediaType: "image/png", role: "primary" }] } } : ref) };
-    const changedFiles = files.map((file) => file.file === "fixed-1" ? { ...file, file: "replacement" } : file);
+    const changed = {
+        ...project,
+        shotReferences: references.map((ref) =>
+            ref.id === "ref-1"
+                ? { ...ref, assetVersionId: "replacement", referencedVersion: { ...ref.referencedVersion!, id: "replacement", representations: [{ id: "replacement-image", resourceId: "replacement-image", mediaType: "image/png", role: "primary" }] } }
+                : ref,
+        ),
+    };
+    const changedFiles = files.map((file) => (file.file === "fixed-1" ? { ...file, file: "replacement" } : file));
     assert.equal(referenceMediaForCompiledFiles(changed, "shot-1", changedFiles).images[1]?.storageKey, "resource:replacement-image");
     const cancelled = { ...changed, shotReferences: changed.shotReferences.filter((ref) => ref.id !== "ref-1") };
     assert.equal(referenceMediaForCompiledFiles(cancelled, "shot-1", changedFiles).missing.length, 1);
     const parent = { ...assets[0]!, variants: [assets[1]!] };
-    assert.deepEqual(projectAssetChoices([parent, assets[1]!, assets[2]!]).map((asset) => asset.title), ["主卡", "子卡", "场景"]);
+    assert.deepEqual(
+        projectAssetChoices([parent, assets[1]!, assets[2]!]).map((asset) => asset.title),
+        ["主卡", "子卡", "场景"],
+    );
 });
 
 const paletteAsset = {
