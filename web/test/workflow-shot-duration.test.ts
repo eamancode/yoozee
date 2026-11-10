@@ -69,7 +69,8 @@ describe("镜头生成状态", () => {
     test("窄窗口也能从「镜头资产」框打开资产选择器", async () => {
         const source = await workbenchSource();
         expect(source).not.toContain("从左侧资产栏点击绑定");
-        expect(source).toContain("onPick={() => setAssetPickerOpen(true)}");
-        expect(source).toContain('title="绑定镜头资产"');
+        expect(source).toContain("onPick={() => openAssetPicker()}");
+        expect(source).toContain("setReplacingReference(reference); setAssetPickerOpen(true)");
+        expect(source).toContain('"绑定镜头资产"');
     });
 });
