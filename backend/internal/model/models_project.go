@@ -676,6 +676,7 @@ const (
 	OntologyDocEpisode   = "episode"   // 一集的七部分
 	OntologyDocHandoff   = "handoff"   // 一集的集交接卡，下一集的材料包读它
 	OntologyDocMaterials = "materials" // 一集生成时的素材清单（JSON），返修按它解释原单元卡里的 @图N
+	OntologyDocGate      = "gate"      // 一集自检硬失败里还没返修的项（JSON 字符串数组，如 "s02-u6 H1"）；非空时流水线停在分镜
 )
 
 // ProjectOntologyDocument 是本体论导演分镜的文档。只追加：每次生成或编辑写一条新版本（Version 递增），读取取最新版本。

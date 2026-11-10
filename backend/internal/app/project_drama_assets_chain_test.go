@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -223,5 +224,28 @@ func TestAssetsChainDefersImagesUntilLastEpisode(t *testing.T) {
 	out2 := assetsOutcomeOf(t, done2)
 	if n := len(out2.Images.Queued) + len(out2.Images.Waiting); n < out1.Created || imageTaskCount(t, db) == 0 {
 		t.Fatalf("最后一集收尾时连同第 1 集的资产一起出图：第 1 集建 %d，排了 %+v，出图任务 %d", out1.Created, out2.Images, imageTaskCount(t, db))
+	}
+}
+
+// 旧集重试成功时，项目里还有别的提取在排或在跑（比如链里后面的集）：先不出图，等最后一个提取结束再排。
+func TestAssetsExtractDefersImagesWhileAnotherExtractionIsActive(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, _ := seedEpisodeProject(t, svc, db)
+	other := model.Task{ID: "extract-other", UserID: "user-1", ProjectID: project.ID, Type: "canvas_text", Status: model.TaskStatusRunning,
+		InputJSON: `{"metadata":{"dramaStep":{"step":"` + drama.StepAssetsExtract + `"},"domainProjectId":"` + project.ID + `"}}`, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := db.Create(&other).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !svc.otherAssetsExtractActive("user-1", project.ID, "this-task") {
+		t.Fatal("a running extraction in the project must defer images")
+	}
+	if svc.otherAssetsExtractActive("user-1", project.ID, other.ID) {
+		t.Fatal("the finishing task itself does not count")
+	}
+	if err := db.Model(&model.Task{}).Where("id = ?", other.ID).Update("status", model.TaskStatusSucceeded).Error; err != nil {
+		t.Fatal(err)
+	}
+	if svc.otherAssetsExtractActive("user-1", project.ID, "this-task") {
+		t.Fatal("finished extractions do not defer images")
 	}
 }

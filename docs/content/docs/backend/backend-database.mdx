@@ -601,7 +601,7 @@ Schema 32 为 `channel_models` 新增 `tags`（TEXT、NOT NULL、默认 `'[]'`�
 | --- | --- |
 | `id` | 主键 |
 | `project_id`、`unit_id`、`kind`、`version` | 联合唯一索引 `idx_project_ontology_docs_version`；`unit_id` 为空是项目级文档 |
-| `kind` | `bible` 世界圣经卡（项目级）、`setup` 立项待确认清单与补图建议（项目级）、`episode` 一集的七部分、`handoff` 一集的集交接卡、`materials` 一集生成时的素材清单 JSON（返修按它解释原单元卡的 `@图N`） |
+| `kind` | `bible` 世界圣经卡（项目级）、`setup` 立项待确认清单与补图建议（项目级）、`episode` 一集的七部分、`handoff` 一集的集交接卡、`materials` 一集生成时的素材清单 JSON（返修按它解释原单元卡的 `@图N`）、`gate` 一集自检硬失败里还没返修的项（JSON 字符串数组，非空时流水线停在分镜，返修某单元后去掉该单元的项） |
 | `content` | 文档原文（Markdown） |
 | `task_id`、`created_by`、`created_at` | 来源任务、写入人、时间；手改圣经卡没有 `task_id` |
 

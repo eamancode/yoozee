@@ -201,6 +201,36 @@ func TestOntologyRunWritesSegmentsAndDocuments(t *testing.T) {
 	if !st.shotlist[units[0].ID] || st.shotlist[units[1].ID] {
 		t.Fatalf("shotlist = %+v", st.shotlist)
 	}
+	// 门禁：自检全过时写空门禁，流水线不挡。
+	if gate, err := svc.repo.LatestOntologyDocument(project.ID, units[0].ID, model.OntologyDocGate); err != nil || gate.Content != "[]" || len(st.ontologyOpen) != 0 {
+		t.Fatalf("gate = %+v %v open=%v", gate, err, st.ontologyOpen)
+	}
+	// 假设自检有两个硬失败：流水线读到门禁；返修 s01-u2 后只剩 s01-u1 的。
+	if err := svc.repo.AppendOntologyDocument(&model.ProjectOntologyDocument{ID: newID(), ProjectID: project.ID, UnitID: units[0].ID, Kind: model.OntologyDocGate, Content: `["s01-u1 H3","s01-u2 H1"]`, TaskID: "task-check", CreatedBy: "user-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = svc.loadPipelineState("user-1", &project); err != nil || len(st.ontologyOpen[units[0].ID]) != 2 {
+		t.Fatalf("open failures = %v %v", st.ontologyOpen, err)
+	}
+	// 返修按写入时其他段的实际时长核对每集上限：每集 20 秒 → 上限 22 秒，S01 是 12 秒，S02 改成 11 秒超限、10 秒正好。
+	repairMeta := *taskDramaOntology(task.InputJSON)
+	repairMeta.Brief.EpisodeSeconds = 20
+	cards, _ := drama.ParseOntologyUnitCards(docs.Episodes[0].Content)
+	repairMeta.Repair = &ontologyRepairMeta{ShotID: segments[1].ShotID, SegmentID: "S02", Unit: "s01-u2", Symptom: "衔接断开", Card: cards[1].Text, OtherSeconds: 0}
+	model0, _ := projectDramaModel(&project)
+	target := dramaStepTaskTarget{ProjectID: project.ID, UnitID: units[0].ID}
+	repairOut := func(seconds int) ontologyOutputs {
+		return ontologyOutputs{Repair: "## 诊断\n衔接断开。\n\n## 改法\n补一镜。\n\n## 重写后的单元卡\n" + ontologyFakeCard("s01-u2", seconds)}
+	}
+	if _, err := svc.applyOntologyRepair(model.Task{ID: "task-repair-1", UserID: "user-1"}, target, &repairMeta, repairOut(11), model0, DramaStepTaskOutcome{}); err == nil || !strings.Contains(err.Error(), "最多 10 秒") {
+		t.Fatalf("repair over the episode budget must be rejected even with a stale OtherSeconds: %v", err)
+	}
+	if _, err := svc.applyOntologyRepair(model.Task{ID: "task-repair-2", UserID: "user-1"}, target, &repairMeta, repairOut(10), model0, DramaStepTaskOutcome{}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = svc.loadPipelineState("user-1", &project); err != nil || len(st.ontologyOpen[units[0].ID]) != 1 || st.ontologyOpen[units[0].ID][0] != "s01-u1 H3" {
+		t.Fatalf("repair must clear only its own unit from the gate: %v %v", st.ontologyOpen, err)
+	}
 	// 第二集：读到第一集的交接卡，有圣经卡就不再立项。
 	next, err := svc.planOntologyShots("user-1", &project, &units[1], usage, skill, nil, nil)
 	if err != nil {

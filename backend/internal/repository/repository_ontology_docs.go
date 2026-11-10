@@ -28,6 +28,16 @@ func (r *Repository) OntologyDocumentsForProject(projectID string) ([]model.Proj
 	return docs, err
 }
 
+// LatestOntologyDocumentsOfKind 是项目里某种文档在各单元的最新版本（流水线读每集门禁用，只取小文档）。
+func (r *Repository) LatestOntologyDocumentsOfKind(projectID string, kind string) ([]model.ProjectOntologyDocument, error) {
+	var docs []model.ProjectOntologyDocument
+	latest := r.db.Model(&model.ProjectOntologyDocument{}).Select("unit_id, MAX(version) AS version").Where("project_id = ? AND kind = ?", projectID, kind).Group("unit_id")
+	err := r.db.Table("project_ontology_documents AS d").
+		Joins("JOIN (?) AS l ON d.unit_id = l.unit_id AND d.version = l.version", latest).
+		Where("d.project_id = ? AND d.kind = ?", projectID, kind).Order("d.unit_id").Select("d.*").Find(&docs).Error
+	return docs, err
+}
+
 // OntologyEpisodeUnits 是已经写过本体论七部分的单元（只取编号，流水线判断「这一集分镜做完了」用）。
 func (r *Repository) OntologyEpisodeUnits(projectID string) ([]string, error) {
 	var units []string

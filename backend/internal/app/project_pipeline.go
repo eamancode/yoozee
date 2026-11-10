@@ -83,9 +83,11 @@ type pipelineState struct {
 	shotlist  map[string]bool
 	draft     map[string]int
 	packed    map[string]bool
-	assets    pipelineAssets
-	locked    bool
-	lockedVia string
+	// ontologyOpen 是本体论自检硬失败还没返修的集（单元 ID → 失败项）。
+	ontologyOpen map[string][]string
+	assets       pipelineAssets
+	locked       bool
+	lockedVia    string
 }
 
 // pipelineAssets 是资产设计建的角色、场景、道具的出图情况。
@@ -180,6 +182,18 @@ func (s *Service) loadPipelineState(userID string, project *model.Project) (*pip
 	}
 	for _, unitID := range ontologyUnits {
 		st.shotlist[unitID] = true
+	}
+	gates, err := s.repo.LatestOntologyDocumentsOfKind(project.ID, model.OntologyDocGate)
+	if err != nil {
+		return nil, err
+	}
+	for _, doc := range gates {
+		if open := ontologyGateOpen(doc.Content); len(open) > 0 {
+			if st.ontologyOpen == nil {
+				st.ontologyOpen = map[string][]string{}
+			}
+			st.ontologyOpen[doc.UnitID] = open
+		}
 	}
 	shots, err := s.repo.ProjectShots(project.ID)
 	if err != nil {
@@ -310,7 +324,9 @@ func (s *Service) projectPipeline(userID string, project *model.Project, progres
 	}
 	facts[drama.StagePalette] = palette
 
-	assets := drama.PipelineFacts{Done: st.assetsReady(), Running: len(st.active[drama.StepAssetsExtract]) > 0 || len(st.active[pipelineKeyImage]) > 0 || st.assets.Pending > 0}
+	// 等空位的资产只有在还有提取或出图任务时才算「正在做」：提取被取消、或两个提取同时收尾互相等住时，
+	// 它们没有任务会来排，要停下来让用户点继续（DramaPipelineNext 会把它们排上）。
+	assets := drama.PipelineFacts{Done: st.assetsReady(), Running: len(st.active[drama.StepAssetsExtract]) > 0 || len(st.active[pipelineKeyImage]) > 0}
 	if st.assets.Total > 0 {
 		assets.Detail = fmt.Sprintf("%d 个资产 · %d 个有图", st.assets.Total, st.assets.Imaged)
 	}
@@ -340,6 +356,14 @@ func (s *Service) projectPipeline(userID string, project *model.Project, progres
 				shots.Problem = st.episodeLabel(unitID) + "生成分镜失败：" + reason
 				break
 			}
+		}
+	}
+	// 本体论自检有硬失败、还没返修的集：停在分镜，要用户先返修（FR7），不能直接往下装段、出视频。
+	for _, ep := range st.episodes {
+		if open := st.ontologyOpen[ep.ID]; len(open) > 0 {
+			shots.Done = false
+			shots.Problem, shots.Manual, shots.Action = fmt.Sprintf("%s自检有硬失败（%s）：在项目头部「导演文档」里对这些段返修后再继续", st.episodeLabel(ep.ID), strings.Join(open, "、")), true, "去章节页"
+			break
 		}
 	}
 	facts[drama.StageShots] = shots

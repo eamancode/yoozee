@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -703,7 +704,7 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		return DramaStepTaskOutcome{}, err
 	}
 	if meta.Repair != nil {
-		return s.applyOntologyRepair(task, target, meta, out, ontologyLimits(meta, meta.Repair.OtherSeconds), m, outcome)
+		return s.applyOntologyRepair(task, target, meta, out, m, outcome)
 	}
 	var docs []ontologyDocWrite
 	if meta.Setup {
@@ -759,6 +760,10 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 	if handoff, ok := drama.OntologySection(out.Check, "六、本集交接卡"); ok && strings.TrimSpace(handoff) != "" {
 		docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocHandoff, handoff})
 	}
+	docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocGate, ontologyGateContent(drama.OntologyHardFailures(out.Check))})
+	// 同一集的整集替换和返修收尾串行做，返修按写入时的其他段核对每集合计时长。
+	unlock := lockOntologyEpisode(target.UnitID)
+	defer unlock()
 	// 先删不再需要的旧段（事务内逐段复核产物后立即删除），再写段、按新顺序排；删除被拦下时什么都不写。
 	if err := s.deleteOntologyRemovedShots(target.ProjectID, target.UnitID, removed, meta); err != nil {
 		return DramaStepTaskOutcome{}, err
@@ -778,6 +783,47 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		outcome.Notes = append(outcome.Notes, "自检硬失败："+strings.Join(failures, "、")+"。请在导演文档里对这些段返修后再继续。")
 	}
 	return outcome, nil
+}
+
+// ontologyEpisodeLocks 让同一集的本体论收尾（整集替换、返修）在本进程内串行，返修核对每集合计时长时其他段不会同时被改。
+// 生产只跑一个 backend 进程；多进程部署时这里不跨进程。
+var ontologyEpisodeLocks sync.Map
+
+func lockOntologyEpisode(unitID string) func() {
+	mu, _ := ontologyEpisodeLocks.LoadOrStore(unitID, &sync.Mutex{})
+	m := mu.(*sync.Mutex)
+	m.Lock()
+	return m.Unlock
+}
+
+// ontologyOtherSegmentsSeconds 是这一集除 segmentID 以外各段的时长合计（读写入前的实际段）。
+func (s *Service) ontologyOtherSegmentsSeconds(userID string, projectID string, unitID string, segmentID string) (float64, error) {
+	segments, err := s.DramaSegments(userID, projectID, unitID)
+	if err != nil {
+		return 0, err
+	}
+	var total float64
+	for _, v := range segments {
+		if v.Spec.ID != segmentID {
+			total += v.Spec.Dur
+		}
+	}
+	return total, nil
+}
+
+// ontologyGateContent / ontologyGateOpen 读写门禁文档：还没返修的自检硬失败项（JSON 字符串数组）。
+func ontologyGateContent(open []string) string {
+	if open == nil {
+		open = []string{}
+	}
+	encoded, _ := json.Marshal(open)
+	return string(encoded)
+}
+
+func ontologyGateOpen(content string) []string {
+	var open []string
+	_ = json.Unmarshal([]byte(content), &open)
+	return open
 }
 
 // ontologyRemovedShots 是整集替换后不再需要的旧段（镜头 ID）。
@@ -895,10 +941,17 @@ func ontologySetupNotes(setup string) string {
 }
 
 // applyOntologyRepair 用重写后的单元卡替换那一个段，并把七部分里这张卡换成新卡（新版本）。先校验、装段、按模型检查，再写。
-func (s *Service) applyOntologyRepair(task model.Task, target dramaStepTaskTarget, meta *dramaOntologyMeta, out ontologyOutputs, limits drama.OntologyUnitLimits, m drama.Model, outcome DramaStepTaskOutcome) (DramaStepTaskOutcome, error) {
+func (s *Service) applyOntologyRepair(task model.Task, target dramaStepTaskTarget, meta *dramaOntologyMeta, out ontologyOutputs, m drama.Model, outcome DramaStepTaskOutcome) (DramaStepTaskOutcome, error) {
 	repair := meta.Repair
+	unlock := lockOntologyEpisode(target.UnitID)
+	defer unlock()
+	// 每集合计时长按写入这一刻其他段的实际时长核对（建任务时的 OtherSeconds 只是提示模型用的估计，可能已过期或缺失）。
+	others, err := s.ontologyOtherSegmentsSeconds(task.UserID, target.ProjectID, target.UnitID, repair.SegmentID)
+	if err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
 	body, _ := drama.OntologySection(out.Repair, "重写后的单元卡")
-	card, err := ontologySingleCard(body, repair.Unit, limits)
+	card, err := ontologySingleCard(body, repair.Unit, ontologyLimits(meta, others))
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
@@ -925,6 +978,15 @@ func (s *Service) applyOntologyRepair(task model.Task, target dramaStepTaskTarge
 		updated := strings.Replace(doc.Content, strings.TrimSpace(repair.Card), card.Text, 1)
 		updated += fmt.Sprintf("\n\n## 返修记录 %s\n症状：%s\n\n%s\n", repair.Unit, repair.Symptom, ontologyRepairNotes(out.Repair))
 		docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocEpisode, updated})
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return DramaStepTaskOutcome{}, err
+	}
+	// 返修过的单元从门禁里去掉（用户看过自检结果、写了症状重写，视为已处理）；其他单元的硬失败仍挡着。
+	gate, err := s.repo.LatestOntologyDocument(target.ProjectID, target.UnitID, model.OntologyDocGate)
+	switch {
+	case err == nil:
+		open := slices.DeleteFunc(ontologyGateOpen(gate.Content), func(item string) bool { return strings.HasPrefix(item, repair.Unit+" ") })
+		docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocGate, ontologyGateContent(open)})
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return DramaStepTaskOutcome{}, err
 	}

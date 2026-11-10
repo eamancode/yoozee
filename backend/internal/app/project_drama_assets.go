@@ -603,8 +603,9 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 }
 
 // queueAssetsExtractImages 给「等空位」的资产排出图（带了图片任务模板时）；排不上不影响已写的资产。
-// 按集接着提取的一串里，后面还有集在提取时先不出图：下一集会合并改写同一批角色/场景的外观定义，先出的图会因资产换版本绑不上，
-// 白花一次出图。整串最后一集收尾（成功或失败）时把一路攒下的「等空位」一起排。
+// 项目里还有别的提取任务在排或在跑时（链里后面的集、用户重试的旧集）先不出图：它们会合并改写同一批角色/场景的外观定义，
+// 先出的图会因资产换版本绑不上，白花一次出图。最后一个结束的提取（成功或失败）把一路攒下的「等空位」一起排；
+// 两个提取恰好同时收尾互相等住时，流水线概览会提示还有资产没出图，点继续即可排上。
 func (s *Service) queueAssetsExtractImages(task model.Task, outcome *DramaAssetsExtractOutcome) {
 	am := taskDramaAssets(task.InputJSON)
 	if am == nil || !am.Images {
@@ -614,6 +615,9 @@ func (s *Service) queueAssetsExtractImages(task model.Task, outcome *DramaAssets
 		return
 	}
 	if outcome.Created == 0 && am.Chain == nil {
+		return
+	}
+	if s.otherAssetsExtractActive(task.UserID, taskProjectID(task), task.ID) {
 		return
 	}
 	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)
@@ -632,6 +636,26 @@ func (s *Service) queueAssetsExtractImages(task model.Task, outcome *DramaAssets
 		_ = s.log(task.UserID, task.ID, "warn", "资产出图没有排上", err.Error())
 		outcome.Images = emptyDramaImageQueueResult()
 	}
+}
+
+// otherAssetsExtractActive 是项目里除了 exceptID 以外还有没有在排或在跑的资产提取任务；读不出任务时按没有处理（宁可出图，不让资产卡住）。
+func (s *Service) otherAssetsExtractActive(userID string, projectID string, exceptID string) bool {
+	if projectID == "" {
+		return false
+	}
+	tasks, err := s.repo.ProjectPipelineTasks(userID, projectID)
+	if err != nil {
+		return false
+	}
+	for _, t := range tasks {
+		if t.ID == exceptID || !taskActive(t) {
+			continue
+		}
+		if meta := taskDramaStep(t.InputJSON); meta != nil && meta.Step == drama.StepAssetsExtract {
+			return true
+		}
+	}
+	return false
 }
 
 // environments 是能绑到场次的场景资产（已有的在前，这次新建的按写的先后接在后面）。

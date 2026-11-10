@@ -26,7 +26,7 @@ func newProjectDramaTestService(t *testing.T, generationModel string) (*Service,
 	if err := db.AutoMigrate(
 		&model.Project{}, &model.ProjectUnit{}, &model.CanvasProject{}, &model.Asset{}, &model.AssetVersion{}, &model.ProjectAssetLink{}, &model.ProjectAssetCandidate{},
 		&model.AssetRepresentation{}, &model.CharacterVoiceBinding{}, &model.ProjectAssetFolder{},
-		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotAssetReference{}, &model.ShotEvidence{}, &model.DramaShotlist{}, &model.DramaCompileProfile{}, &model.DramaEvalRun{},
+		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotAssetReference{}, &model.ShotEvidence{}, &model.DramaShotlist{}, &model.DramaCompileProfile{}, &model.DramaEvalRun{}, &model.ProjectOntologyDocument{},
 		&model.WorkflowTemplateVersion{}, &model.WorkflowInstance{}, &model.WorkflowStepInstance{}, &model.WorkflowStepTask{},
 		&model.ProductionTaskLink{}, &model.Task{}, &model.Resource{},
 	); err != nil {
