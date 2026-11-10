@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
 import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "@/pages/projects/workbench/detail/workflow-shot-references";
+import { buildShotAssetReferenceContext, changeShotAssetMentionPrompt, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "@/pages/projects/workbench/detail/workflow-shot-references";
 
 describe("workflow shot asset references", () => {
     test("builds ordered image references for bound media and characters", () => {
@@ -34,6 +34,30 @@ describe("workflow shot asset references", () => {
         expect(prompt).toContain("@[asset:asset-character]");
         expect(prompt.match(/@\[asset:asset-character\]/g)).toHaveLength(1);
         expect(prompt).toContain("【场景与道具参考】\n雨夜街道：@[asset:asset-scene]");
+    });
+
+    test("replaces and unlinks main, child, scene and prop mentions without stale submit references", () => {
+        for (const title of ["人物主卡", "人物·雨衣", "雨夜街道", "旧钥匙"]) {
+            const previous = { id: "previous", title };
+            const next = { id: "asset-scene", title: "雨夜街道" };
+            const prompt = `跟随 @[asset:previous]，再看 @[asset:previous]。\n${title}：@[asset:previous]\n保留对白`;
+            const replaced = changeShotAssetMentionPrompt(prompt, previous, next);
+            expect(replaced).not.toContain("@[asset:previous]");
+            expect(replaced).toContain("雨夜街道：@[asset:asset-scene]");
+            expect(resolveShotAssetMentionPrompt(replaced, buildShotAssetReferenceContext(detail(), "shot-1"))).toContain("跟随 图片1，再看 图片1。");
+            const unlinked = changeShotAssetMentionPrompt(prompt, previous);
+            expect(unlinked).toContain(`跟随 ${title}，再看 ${title}。`);
+            expect(unlinked).not.toContain("@[asset:previous]");
+            expect(unlinked).toContain("保留对白");
+            expect(resolveShotAssetMentionPrompt(unlinked, buildShotAssetReferenceContext(detail(), "shot-1"))).toContain("保留对白");
+            expect(changeShotAssetMentionPrompt(unlinked, previous)).toBe(unlinked);
+        }
+    });
+
+    test("binding edits preserve unrelated tokens and do not hide invalid input", () => {
+        const value = "跟随 @[asset:other] 和 @[asset:old-extra]，@图片2 不变";
+        expect(changeShotAssetMentionPrompt(value, { id: "old", title: "旧人物" })).toBe(value);
+        expect(() => resolveShotAssetMentionPrompt(value, buildShotAssetReferenceContext(detail(), "shot-1"))).toThrow("未绑定到当前镜头");
     });
 });
 

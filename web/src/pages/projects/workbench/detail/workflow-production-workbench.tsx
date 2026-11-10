@@ -71,7 +71,7 @@ import { dramaBriefKey, segmentMaxSecondsWithBrief } from "./drama-brief";
 import { unitEpisodeNumber, unitsOfKind } from "./unit-numbering";
 import type { SegmentAsset } from "./shot-card-layout";
 import { applyShotReferenceChange } from "./project-cache";
-import { assetPreviewUrl, projectAssetReferenceImage, projectAssetChoices, shotAssetReferences, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
+import { assetPreviewUrl, projectAssetReferenceImage, projectAssetChoices, shotAssetReferences, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, changeShotAssetMentionPrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
 import { compileProjectShot, getDramaBrief, writeDramaSegments, type DramaSegment } from "@/services/api/project-drama";
 import { dramaFamilyOf, findDramaModel, projectVideoModel, useDramaModels } from "../drama-model";
 import { DramaSegmentCard, DramaTakeCompare, DramaTakeEvidencePanel, useDramaProgress, useInvalidateDrama } from "./drama-panels";
@@ -465,6 +465,17 @@ export default function WorkflowProductionWorkbench(props: Props) {
         },
         onSuccess: async (result, variables) => {
             const added = "reference" in result ? result.reference : undefined;
+            const previous = (variables.reference || variables.replace)?.asset;
+            if (!segmentSpecShots && previous) {
+                for (const field of ["imagePrompt", "videoPrompt"] as const) {
+                    const current = form.getFieldValue(field) || "";
+                    const next = changeShotAssetMentionPrompt(current, previous, variables.replace ? variables.asset : undefined);
+                    if (next !== current) {
+                        form.setFieldValue(field, next);
+                        setEditorDirty(true);
+                    }
+                }
+            }
             queryClient.setQueryData(["project", projectId, "unit-workspace", unitId], (current: ProjectUnitWorkspace | undefined) => applyShotReferenceChange(current, { removedId: variables.reference?.id || variables.replace?.id, added, asset: variables.asset }));
             await Promise.all([onRefresh(), invalidateDrama()]);
             if (variables.replace) { setAssetPickerOpen(false); setReplacingReference(undefined); }
@@ -832,9 +843,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 width="min(480px, calc(100vw - 32px))"
                 onCancel={() => { setAssetPickerOpen(false); setReplacingReference(undefined); }}
             >
-                <p className="mb-3 text-[var(--fs-label)] text-foreground/50">点击资产绑定到当前镜头，再点一次取消绑定。{segmentSpecShots ? "这一段由分段表维护：绑定的资产同时写进段的参考，生成视频时带上。" : ""}</p>
+                <p className="mb-3 text-[var(--fs-label)] text-foreground/50">{replacingReference ? "选择同类型的未绑定资产替换当前引用，已绑定资产不可重复选择。" : "点击资产绑定到当前镜头，再点一次取消绑定。"}{segmentSpecShots ? "这一段由分段表维护：绑定的资产同时写进段的参考，生成视频时带上。" : ""}</p>
                 <div className="workflow-asset-picker-scroll thin-scrollbar">
-                    <AssetLibrary key={replacingReference?.id || "bind"} initialCategory={replacingReference?.asset?.category} detail={detail} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate(replacingReference ? { asset, replace: replacingReference } : { asset, reference })} />
+                    <AssetLibrary key={replacingReference?.id || "bind"} replacing={Boolean(replacingReference)} initialCategory={replacingReference?.asset?.category} detail={detail} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate(replacingReference ? { asset, replace: replacingReference } : { asset, reference })} />
                 </div>
             </AppModal>
 
@@ -855,7 +866,7 @@ function WorkflowDisclosure({ icon, title, description, summary, className = "",
     );
 }
 
-function AssetLibrary({ detail, referenceByVersionId, changing, onToggle, initialCategory }: { detail: ProjectDetail; referenceByVersionId: Map<string, ShotAssetReference>; changing: boolean; onToggle: (asset: ProjectAsset, reference?: ShotAssetReference) => void; initialCategory?: string }) {
+function AssetLibrary({ detail, referenceByVersionId, changing, onToggle, initialCategory, replacing = false }: { detail: ProjectDetail; referenceByVersionId: Map<string, ShotAssetReference>; changing: boolean; onToggle: (asset: ProjectAsset, reference?: ShotAssetReference) => void; initialCategory?: string; replacing?: boolean }) {
     const [category, setCategory] = useState(initialCategory || "all");
     const [keyword, setKeyword] = useState("");
     const debouncedKeyword = useDebouncedValue(keyword.trim(), 250);
@@ -874,7 +885,7 @@ function AssetLibrary({ detail, referenceByVersionId, changing, onToggle, initia
     }, [assetsPage]);
     const total = assetsQuery.data?.total || 0;
     const pages = Math.max(1, Math.ceil(total / pageSize));
-    return <div className="workflow-asset-groups"><Input allowClear size="small" className="mb-2 w-full" value={keyword} onChange={(event) => setKeyword(event.target.value)} prefix={<Search className="size-3.5 text-foreground/35" />} placeholder="搜索资产名称" aria-label="搜索镜头资产" /><Select size="small" className="mb-2 w-full" value={category} options={[{ value: "all", label: `全部资产（${Object.values(assetsQuery.data?.categoryCounts || {}).reduce((sum, count) => sum + count, 0)}）` }, ...Object.entries(assetsQuery.data?.categoryCounts || {}).filter(([, count]) => count > 0).map(([value, count]) => ({ value, label: `${assetCategoryLabel(value)}（${count}）` }))]} onChange={(value) => { setCategory(value); setPage(1); }} />{assetsQuery.isLoading ? <div className="py-6 text-center text-xs text-foreground/45">正在读取资产…</div> : groups.length ? groups.map(([groupCategory, assets]) => <section key={groupCategory}><h3>{assetCategoryLabel(groupCategory)} <span>({assets.length})</span></h3><div className="workflow-asset-list">{assets.map((asset) => { const reference = asset.primaryVersionId ? referenceByVersionId.get(asset.primaryVersionId) : undefined; const active = Boolean(reference); const previewUrl = assetPreviewUrl(asset); return <button key={asset.id} type="button" className={`workflow-asset-row ${active ? "is-active" : ""}`} disabled={changing || !asset.primaryVersionId} aria-pressed={active} onClick={() => onToggle(asset, reference)}><span className="workflow-asset-thumb">{previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : asset.category === "character" ? <UsersRound /> : asset.mediaType === "image" ? <ImageIcon /> : <Box />}</span><span className="min-w-0 flex-1"><strong>{asset.title}</strong><small>{active ? "已绑定 · 点击取消" : `${assetCategoryLabel(asset.category)} · v${Math.max(1, asset.versionCount)}`}</small></span>{active ? <span className="workflow-bound-dot" /> : null}</button>; })}</div></section>) : <EmptyState size="compact" title={debouncedKeyword ? "没有找到匹配资产" : "项目还没有资产"} />}{total > pageSize ? <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[var(--fs-micro)] text-foreground/45"><span>{page}/{pages} · 共 {total} 项</span><span className="flex gap-1"><Button type="text" size="small" icon={<ChevronLeft className="size-3.5" />} disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} /><Button type="text" size="small" icon={<ChevronRight className="size-3.5" />} disabled={page >= pages} onClick={() => setPage((value) => Math.min(pages, value + 1))} /></span></div> : null}</div>;
+    return <div className="workflow-asset-groups"><Input allowClear size="small" className="mb-2 w-full" value={keyword} onChange={(event) => setKeyword(event.target.value)} prefix={<Search className="size-3.5 text-foreground/35" />} placeholder="搜索资产名称" aria-label="搜索镜头资产" /><Select size="small" className="mb-2 w-full" value={category} options={[{ value: "all", label: "全部资产" }, ...Object.entries(assetsQuery.data?.categoryCounts || {}).filter(([, count]) => count > 0).map(([value]) => ({ value, label: assetCategoryLabel(value) }))]} onChange={(value) => { setCategory(value); setPage(1); }} />{assetsQuery.isLoading ? <div className="py-6 text-center text-xs text-foreground/45">正在读取资产…</div> : groups.length ? groups.map(([groupCategory, assets]) => <section key={groupCategory}><h3>{assetCategoryLabel(groupCategory)} <span>({assets.length})</span></h3><div className="workflow-asset-list">{assets.map((asset) => { const reference = asset.primaryVersionId ? referenceByVersionId.get(asset.primaryVersionId) : undefined; const active = Boolean(reference); const previewUrl = assetPreviewUrl(asset); return <button key={asset.id} type="button" className={`workflow-asset-row ${active ? "is-active" : ""}`} disabled={changing || !asset.primaryVersionId || (replacing && active)} aria-pressed={active} onClick={() => onToggle(asset, reference)}><span className="workflow-asset-thumb">{previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : asset.category === "character" ? <UsersRound /> : asset.mediaType === "image" ? <ImageIcon /> : <Box />}</span><span className="min-w-0 flex-1"><strong>{asset.title}</strong><small>{active ? replacing ? "已绑定 · 无需重复选择" : "已绑定 · 点击取消" : `${assetCategoryLabel(asset.category)} · v${Math.max(1, asset.versionCount)}`}</small></span>{active ? <span className="workflow-bound-dot" /> : null}</button>; })}</div></section>) : <EmptyState size="compact" title={debouncedKeyword ? "没有找到匹配资产" : "项目还没有资产"} />}{total > pageSize ? <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[var(--fs-micro)] text-foreground/45"><span>第 {page}/{pages} 页</span><span className="flex gap-1"><Button type="text" size="small" icon={<ChevronLeft className="size-3.5" />} disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} /><Button type="text" size="small" icon={<ChevronRight className="size-3.5" />} disabled={page >= pages} onClick={() => setPage((value) => Math.min(pages, value + 1))} /></span></div> : null}</div>;
 }
 
 function ShotAssetMentionTextarea({ value = "", onChange = () => undefined, references, variant = "motion" }: { value?: string; onChange?: (value: string) => void; references: ReturnType<typeof buildShotAssetReferenceContext>["mentionReferences"]; variant?: "scene" | "motion" }) {

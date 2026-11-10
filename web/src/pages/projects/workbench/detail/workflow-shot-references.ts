@@ -157,6 +157,15 @@ export function ensureShotAssetMentionPrompt(prompt: string, references: Array<P
     return [value, block("【角色参考】", characters), block("【场景与道具参考】", otherAssets)].filter(Boolean).join("\n\n");
 }
 
+export function changeShotAssetMentionPrompt(prompt: string, previous: Pick<ProjectAsset, "id" | "title">, next?: Pick<ProjectAsset, "id" | "title">) {
+    const oldToken = `@[asset:${previous.id}]`;
+    const nextToken = next ? `@[asset:${next.id}]` : "";
+    // 自动补入的参考行更新名称；正文只替换标识，取消时保留资产名称和原有动作。
+    return prompt.split("\n").map((line) => line.trim() === `${previous.title}：${oldToken}`
+        ? next ? `${next.title}：${nextToken}` : ""
+        : line.split(oldToken).join(nextToken || previous.title)).join("\n");
+}
+
 export function compileShotAssetReferencePrompt(references: ShotPromptAssetReference[]) {
     if (!references.length) return "";
     const lines = references.flatMap((reference) => {
