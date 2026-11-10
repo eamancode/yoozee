@@ -503,6 +503,8 @@ type ShotAssetReference struct {
 	AssetVersionID string    `json:"assetVersionId" gorm:"index;size:36;uniqueIndex:idx_shot_asset_reference_unique,priority:2"`
 	Role           string    `json:"role" gorm:"index;size:32;uniqueIndex:idx_shot_asset_reference_unique,priority:3"`
 	Status         string    `json:"status" gorm:"index;size:24"`
+	Source         string    `json:"source,omitempty" gorm:"size:24"`
+	Position       int       `json:"position" gorm:"not null;default:0"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
 

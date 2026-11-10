@@ -16,7 +16,7 @@ func followAssetVersion(tx *gorm.DB, assetID string, newVersionID string, now ti
 	var refs []model.ShotAssetReference
 	err := tx.Table("shot_asset_references").Select("shot_asset_references.*").
 		Joins("JOIN asset_versions ON asset_versions.id = shot_asset_references.asset_version_id").
-		Where("asset_versions.asset_id = ? AND shot_asset_references.asset_version_id <> ? AND shot_asset_references.role <> ?", assetID, newVersionID, "output").
+		Where("asset_versions.asset_id = ? AND shot_asset_references.asset_version_id <> ? AND shot_asset_references.role <> ? AND COALESCE(shot_asset_references.source, '') <> ?", assetID, newVersionID, "output", "segment").
 		Scan(&refs).Error
 	if err != nil || len(refs) == 0 {
 		return 0, err

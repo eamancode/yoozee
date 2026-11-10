@@ -104,6 +104,7 @@ func TestRecoveredMigrationLedgerPreservesHistory(t *testing.T) {
 		{96, "project_asset_workflows", "sha256:project-asset-workflows-v96"},
 		{97, "ontology_workflow_renumber", "sha256:ontology-workflow-renumber-v97"},
 		{98, "project_ontology_documents", "sha256:project-ontology-documents-v98"},
+		{99, "segment_asset_bindings", "sha256:segment-asset-bindings-v99"},
 	}
 	if len(expected) != len(schemaMigrations) {
 		t.Fatalf("migration count %d, want %d", len(schemaMigrations), len(expected))

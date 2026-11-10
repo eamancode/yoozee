@@ -63,8 +63,9 @@ type ReplaceProjectUnitShotInput struct {
 }
 
 type LinkShotAssetRequest struct {
-	AssetVersionID string `json:"assetVersionId"`
-	Role           string `json:"role"`
+	AssetVersionID     string `json:"assetVersionId"`
+	Role               string `json:"role"`
+	ReplaceReferenceID string `json:"replaceReferenceId,omitempty"`
 }
 
 type AssetCandidateInput struct {
@@ -103,6 +104,7 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 	now := time.Now()
 	shotID := strings.TrimSpace(req.ID)
 	create := shotID == ""
+	expectedRevisionID := ""
 	status := strings.TrimSpace(req.Status)
 	if create {
 		shotID = newID()
@@ -121,6 +123,7 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 			status = existing.Status
 		}
 		now = existing.CreatedAt
+		expectedRevisionID = existing.CurrentRevisionID
 	}
 	if !validShotStatus(status) {
 		return model.Shot{}, BadAuthRequest("不支持的镜头状态")
@@ -135,8 +138,12 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 		return model.Shot{}, err
 	}
 	shot := model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, CurrentRevisionID: revision.ID, Title: title, Description: revision.PlotDescription, Position: req.Position, DurationMs: revision.DurationMs, Status: status, CreatedAt: now, UpdatedAt: updatedAt}
-	if err := s.repo.SaveShotWithRevisionSelective(&shot, &revision, create, staleDeciderFor(&revision)); err != nil {
+	plans, err := s.segmentReferencePlan(userID, projectID, shotID, expectedRevisionID, revision.SpecJSON, updatedAt)
+	if err != nil {
 		return model.Shot{}, err
+	}
+	if err := s.repo.SaveShotWithRevisionSelective(&shot, &revision, create, staleDeciderFor(&revision), plans...); err != nil {
+		return model.Shot{}, segmentReferenceWriteError(err)
 	}
 	return shot, nil
 }
@@ -254,8 +261,12 @@ func (s *Service) CreateShotRevision(userID string, projectID string, shotID str
 	shot.DurationMs = revision.DurationMs
 	shot.Status = "draft"
 	shot.UpdatedAt = now
-	if err := s.repo.SaveShotWithRevisionSelective(shot, &revision, false, staleDeciderFor(&revision)); err != nil {
+	plans, err := s.segmentReferencePlan(userID, projectID, shot.ID, shot.CurrentRevisionID, revision.SpecJSON, now)
+	if err != nil {
 		return model.Shot{}, model.ShotRevision{}, err
+	}
+	if err := s.repo.SaveShotWithRevisionSelective(shot, &revision, false, staleDeciderFor(&revision), plans...); err != nil {
+		return model.Shot{}, model.ShotRevision{}, segmentReferenceWriteError(err)
 	}
 	return *shot, revision, nil
 }
@@ -319,6 +330,16 @@ func validShotStatus(status string) bool {
 }
 
 func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, req LinkShotAssetRequest) (model.ShotAssetReference, error) {
+	var ref model.ShotAssetReference
+	err := s.repo.Transaction(func(tx *repository.Repository) error {
+		var err error
+		ref, err = (&Service{repo: tx}).linkShotAsset(userID, projectID, shotID, req)
+		return err
+	})
+	return ref, err
+}
+
+func (s *Service) linkShotAsset(userID string, projectID string, shotID string, req LinkShotAssetRequest) (model.ShotAssetReference, error) {
 	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
 		return model.ShotAssetReference{}, err
 	}
@@ -334,6 +355,28 @@ func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, 
 		return model.ShotAssetReference{}, BadAuthRequest("不支持的镜头素材用途")
 	}
 	now := time.Now()
+	if role == "reference" {
+		if handled, err := s.changeSegmentAsset(userID, projectID, shotID, versionID, req.ReplaceReferenceID, ""); handled || err != nil {
+			if err != nil {
+				return model.ShotAssetReference{}, err
+			}
+			refs, err := s.repo.ShotAssetReferencesForShot(shotID)
+			if err != nil {
+				return model.ShotAssetReference{}, err
+			}
+			for _, ref := range refs {
+				if ref.AssetVersionID == versionID && ref.Role == "reference" {
+					return ref, err
+				}
+			}
+			return model.ShotAssetReference{}, NotFound("镜头资产关联未建立")
+		}
+	}
+	if req.ReplaceReferenceID != "" {
+		if err := s.unlinkShotAsset(userID, projectID, shotID, req.ReplaceReferenceID); err != nil {
+			return model.ShotAssetReference{}, err
+		}
+	}
 	reference := model.ShotAssetReference{ID: newID(), ShotID: shotID, AssetVersionID: versionID, Role: role, Status: "linked", CreatedAt: now}
 	if err := s.repo.UpsertShotAssetReferenceAndInvalidate(projectID, &reference, now); err != nil {
 		return model.ShotAssetReference{}, err
@@ -342,6 +385,12 @@ func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, 
 }
 
 func (s *Service) UnlinkShotAsset(userID string, projectID string, shotID string, referenceID string) error {
+	return s.repo.Transaction(func(tx *repository.Repository) error {
+		return (&Service{repo: tx}).unlinkShotAsset(userID, projectID, shotID, referenceID)
+	})
+}
+
+func (s *Service) unlinkShotAsset(userID string, projectID string, shotID string, referenceID string) error {
 	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
 		return err
 	}
@@ -351,6 +400,9 @@ func (s *Service) UnlinkShotAsset(userID string, projectID string, shotID string
 	referenceID = strings.TrimSpace(referenceID)
 	if referenceID == "" {
 		return BadAuthRequest("镜头资产引用不能为空")
+	}
+	if handled, err := s.changeSegmentAsset(userID, projectID, shotID, "", "", referenceID); handled || err != nil {
+		return err
 	}
 	deleted, err := s.repo.DeleteShotAssetReferenceAndInvalidate(projectID, shotID, referenceID, time.Now())
 	if err != nil {

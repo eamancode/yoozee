@@ -42,8 +42,17 @@ type ShotArtifactStaleDecider func(artifacts []model.ShotArtifact, references []
 
 // SaveShotWithRevisionSelective 原子保存镜头和新版本，只让依赖输入真的变了的产物过期；
 // 有产物过期时才把章节工作流退回分镜步。
-func (r *Repository) SaveShotWithRevisionSelective(shot *model.Shot, revision *model.ShotRevision, create bool, decide ShotArtifactStaleDecider) error {
+func (r *Repository) SaveShotWithRevisionSelective(shot *model.Shot, revision *model.ShotRevision, create bool, decide ShotArtifactStaleDecider, syncPlans ...SegmentReferenceSync) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if !create && len(syncPlans) > 0 {
+			var current model.Shot
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ? AND project_id = ?", shot.ID, shot.ProjectID).Error; err != nil {
+				return err
+			}
+			if current.CurrentRevisionID != syncPlans[0].ExpectedRevisionID {
+				return ErrProjectUnitShotsChanged
+			}
+		}
 		if create {
 			if err := tx.Create(shot).Error; err != nil {
 				return err
@@ -74,6 +83,11 @@ func (r *Repository) SaveShotWithRevisionSelective(shot *model.Shot, revision *m
 			"status": shot.Status, "updated_at": shot.UpdatedAt,
 		}).Error; err != nil {
 			return err
+		}
+		if len(syncPlans) > 0 {
+			if err := syncSegmentReferences(tx, shot.ProjectID, shot.ID, syncPlans[0].References); err != nil {
+				return err
+			}
 		}
 		invalidated := create
 		if !create {

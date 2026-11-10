@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 98
+const CurrentSchemaVersion int64 = 99
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -342,6 +342,7 @@ var schemaMigrations = []migration{
 	{version: 96, name: "project_asset_workflows", checksum: "sha256:project-asset-workflows-v96", apply: migrateProjectAssetWorkflows},
 	{version: 97, name: "ontology_workflow_renumber", checksum: "sha256:ontology-workflow-renumber-v97", apply: migrateOntologyWorkflowRenumber},
 	{version: 98, name: "project_ontology_documents", checksum: "sha256:project-ontology-documents-v98", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.ProjectOntologyDocument{}) }},
+	{version: 99, name: "segment_asset_bindings", checksum: "sha256:segment-asset-bindings-v99", apply: migrateSegmentAssetBindings},
 }
 
 // Freeze v96's default: a pre-workflow project must become the old original workflow

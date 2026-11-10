@@ -25,10 +25,21 @@ export type ShotPromptAssetReference = {
     dialogue?: string;
 };
 
+export function shotAssetReferences(detail: ProjectDetail, shotId: string) {
+    return (detail.shotReferences || []).filter((ref) => ref.shotId === shotId && ref.status === "linked")
+        .sort((a, b) => a.source === "segment" && b.source === "segment" ? (a.position || 0) - (b.position || 0) : a.source === "segment" ? -1 : b.source === "segment" ? 1 : 0);
+}
+
+export function projectAssetChoices(assets: ProjectAsset[]) {
+    const byId = new Map<string, ProjectAsset>();
+    for (const asset of assets) { byId.set(asset.id, asset); for (const variant of asset.variants || []) byId.set(variant.id, variant); }
+    return Array.from(byId.values());
+}
+
 export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: string): ShotAssetReferenceContext {
     const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
     const seenAssetIds = new Set<string>();
-    const entries = (detail.shotReferences || []).flatMap((reference) => {
+    const entries = shotAssetReferences(detail, shotId).flatMap((reference) => {
         // 色卡（role=style）只管画面色彩和产物过期，不作视频参考图。
         if (reference.shotId !== shotId || reference.status !== "linked" || reference.role === "style" || reference.role === "continuity") return [];
         const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
@@ -161,8 +172,9 @@ export function compileShotAssetReferencePrompt(references: ShotPromptAssetRefer
     return ["【资产参考】", "", ...lines].join("\n");
 }
 
-function projectAssetReferenceImage(asset: ProjectAsset, reference?: ShotAssetReference): ReferenceImage | undefined {
+export function projectAssetReferenceImage(asset: ProjectAsset, reference?: ShotAssetReference): ReferenceImage | undefined {
     const boundRepresentations = reference?.referencedVersion?.representations || [];
+    if (reference?.referencedVersion && reference.referencedVersion.id !== asset.primaryVersionId && !preferredVisualRepresentation(boundRepresentations)) return undefined;
     const representation = preferredVisualRepresentation(boundRepresentations)
         || (asset.character ? preferredVisualRepresentation(asset.character.representations) : undefined);
     if (representation) {
@@ -261,7 +273,7 @@ const COMPILED_FRAME_TAG: Record<string, { role: "first_frame" | "last_frame"; l
  * 契约里 file 是柚子资产 ID 或资产版本 ID；找不到的素材返回在 missing 里，工作台提交不了的写在 unsupported 里，都由调用方拦下。
  */
 export function referenceMediaForCompiledFiles(detail: ProjectDetail, shotId: string, files: Array<{ file: string; tag: string; role: string }>) {
-    const references = (detail.shotReferences || []).filter((reference) => reference.shotId === shotId && reference.status === "linked");
+    const references = shotAssetReferences(detail, shotId);
     const findAsset = (file: string) => {
         const reference = references.find((item) => item.assetVersionId === file || item.asset?.id === file || item.referencedVersion?.id === file);
         const asset = reference?.asset || detail.assets.find((item) => item.id === file || item.primaryVersionId === file);

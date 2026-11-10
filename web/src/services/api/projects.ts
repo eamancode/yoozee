@@ -301,6 +301,8 @@ export type ShotAssetReference = {
     /** style 是生成分段装段时绑的本场色卡：进产物输入指纹，换版本让产物过期；不作视频参考图。 */
     role: "reference" | "start_frame" | "end_frame" | "keyframe" | "storyboard" | "output" | "style" | string;
     status: string;
+    source?: string;
+    position?: number;
     createdAt: string;
     asset?: ProjectAsset;
     referencedVersion?: {
@@ -736,7 +738,7 @@ export function replaceProjectUnitShots(projectId: string, unitId: string, shots
     return http.put<{ shots: ProjectShot[] }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/shots`, { shots, ...(expectedShotIds ? { expectedShotIds } : {}) });
 }
 
-export function linkShotAsset(projectId: string, shotId: string, input: { assetVersionId: string; role: ShotAssetReference["role"] }) {
+export function linkShotAsset(projectId: string, shotId: string, input: { assetVersionId: string; role: ShotAssetReference["role"]; replaceReferenceId?: string }) {
     return http.post<{ reference: ShotAssetReference }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/assets`, input);
 }
 

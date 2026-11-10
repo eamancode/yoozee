@@ -615,6 +615,16 @@ func (s *Service) WriteDramaSegments(userID string, projectID string, req DramaS
 }
 
 func (s *Service) writeDramaSegments(userID string, projectID string, req DramaSegmentsWriteRequest) ([]ProjectDramaSegmentView, error) {
+	var result []ProjectDramaSegmentView
+	err := s.repo.Transaction(func(tx *repository.Repository) error {
+		var err error
+		result, err = (&Service{repo: tx}).writeDramaSegmentsTransaction(userID, projectID, req)
+		return err
+	})
+	return result, err
+}
+
+func (s *Service) writeDramaSegmentsTransaction(userID string, projectID string, req DramaSegmentsWriteRequest) ([]ProjectDramaSegmentView, error) {
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return nil, err
