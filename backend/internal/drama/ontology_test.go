@@ -72,6 +72,16 @@ func TestParseOntologyUnitCardFromSkillExample(t *testing.T) {
 	if err := ValidateOntologyUnit(c, "s02-u1", OntologyUnitLimits{MaxSeconds: 30, Materials: 3}); err == nil || !strings.Contains(err.Error(), "@图4") {
 		t.Fatalf("missing material must be reported: %v", err)
 	}
+	// 每集 60 秒 → 合计上限 66 秒：前面已用 37 秒时 29 秒的单元刚好放得下，已用 38 秒就超了。
+	if err := ValidateOntologyUnit(c, "s02-u1", OntologyUnitLimits{MaxSeconds: 30, Materials: 4, CapSeconds: OntologyEpisodeCap(60), UsedSeconds: 37}); err != nil {
+		t.Fatalf("unit within the episode budget should pass: %v", err)
+	}
+	if err := ValidateOntologyUnit(c, "s02-u1", OntologyUnitLimits{MaxSeconds: 30, Materials: 4, CapSeconds: OntologyEpisodeCap(60), UsedSeconds: 38}); err == nil || !strings.Contains(err.Error(), "合计不能超过 66 秒") || !strings.Contains(err.Error(), "最多 28 秒") {
+		t.Fatalf("unit over the episode budget must be rejected: %v", err)
+	}
+	if OntologyEpisodeCap(0) != 0 || OntologyBudgetLine(OntologyUnitLimits{}) != "" {
+		t.Fatal("no episode seconds means no budget")
+	}
 
 	seg, err := OntologySegment(c, 3, ontologyMaterials(4))
 	if err != nil {

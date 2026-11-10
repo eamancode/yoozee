@@ -602,10 +602,18 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	return outcome, nil
 }
 
-// queueAssetsExtractImages 给这次提取新建的资产排出图（带了图片任务模板、建了资产时）；排不上不影响已写的资产。
+// queueAssetsExtractImages 给「等空位」的资产排出图（带了图片任务模板时）；排不上不影响已写的资产。
+// 按集接着提取的一串里，后面还有集在提取时先不出图：下一集会合并改写同一批角色/场景的外观定义，先出的图会因资产换版本绑不上，
+// 白花一次出图。整串最后一集收尾（成功或失败）时把一路攒下的「等空位」一起排。
 func (s *Service) queueAssetsExtractImages(task model.Task, outcome *DramaAssetsExtractOutcome) {
 	am := taskDramaAssets(task.InputJSON)
-	if am == nil || !am.Images || outcome.Created == 0 {
+	if am == nil || !am.Images {
+		return
+	}
+	if outcome.Chained != nil && outcome.Chained.TaskID != "" {
+		return
+	}
+	if outcome.Created == 0 && am.Chain == nil {
 		return
 	}
 	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)

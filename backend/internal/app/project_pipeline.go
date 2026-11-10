@@ -173,6 +173,14 @@ func (s *Service) loadPipelineState(userID string, project *model.Project) (*pip
 			st.draft[row.UnitID] = report.Errors
 		}
 	}
+	// 本体论导演不写分镜表，分好的段直接落库；写过七部分的集就算分镜做完了（否则「继续」会把做完的集重跑一遍）。
+	ontologyUnits, err := s.repo.OntologyEpisodeUnits(project.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, unitID := range ontologyUnits {
+		st.shotlist[unitID] = true
+	}
 	shots, err := s.repo.ProjectShots(project.ID)
 	if err != nil {
 		return nil, err

@@ -71,6 +71,10 @@ func (s *Service) afterDramaAssetsTaskEnded(task model.Task) {
 		return
 	}
 	chained := s.chainAfterAssetsExtract(task, taskProjectID(task), taskDramaAssets(task.InputJSON))
+	if chained == nil || chained.TaskID == "" {
+		// 整串到头了：前面几集攒着没出的图在这里排（见 queueAssetsExtractImages）。
+		s.queueAssetsExtractImages(task, &DramaAssetsExtractOutcome{Chained: chained})
+	}
 	switch {
 	case chained == nil:
 	case chained.TaskID != "":

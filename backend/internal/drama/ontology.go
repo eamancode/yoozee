@@ -27,6 +27,17 @@ const (
 	OntologyMaxUnits = 16
 )
 
+// OntologyEpisodeCapRatio 是一集各单元合计时长相对每集目标的余量（同分镜检查 R-SEG-008）。
+const OntologyEpisodeCapRatio = 1.1
+
+// OntologyEpisodeCap 是一集各单元合计时长的上限（秒）；没设每集时长返回 0（不限）。
+func OntologyEpisodeCap(episodeSeconds int) float64 {
+	if episodeSeconds <= 0 {
+		return 0
+	}
+	return float64(episodeSeconds) * OntologyEpisodeCapRatio
+}
+
 // 一轮的种类。立项只在项目还没有世界圣经卡时跑；每集依次是 规划 → 讲戏 → 每个单元一轮 → 质检；返修单独一轮。
 const (
 	OntologyTurnProject = "project"
@@ -172,7 +183,7 @@ func OntologyMaterialPackage(brief OntologyBrief, materials []OntologyMaterial, 
 	b.WriteString("【材料包】\n\n【指定】\n")
 	fmt.Fprintf(&b, "片种：%s\n画幅：%s\n媒介轨：%s\n", firstNonBlank(brief.Genre, "短剧"), aspectLabel(brief.AspectRatio), firstNonBlank(brief.Medium, "写实"))
 	if brief.EpisodeSeconds > 0 {
-		fmt.Fprintf(&b, "每集时长：约%d秒\n", brief.EpisodeSeconds)
+		fmt.Fprintf(&b, "每集时长：约%d秒（平台硬约束：本集各单元总时长合计不超过 %s 秒，超了会被退回重写）\n", brief.EpisodeSeconds, secText(OntologyEpisodeCap(brief.EpisodeSeconds)))
 	}
 	b.WriteString("背景音乐：不要\n站位交接镜头：开启（默认）\n节奏：短剧（默认）\n")
 	if brief.MaxUnitSeconds > 0 && brief.MaxUnitSeconds < OntologyUnitMaxSeconds {
@@ -381,6 +392,17 @@ type OntologyUnitLimits struct {
 	MaxSeconds int
 	Materials  int
 	MaxImages  int
+	// CapSeconds 是本集各单元合计时长上限（0 不限），UsedSeconds 是本集其他单元已占的秒数。
+	CapSeconds  float64
+	UsedSeconds float64
+}
+
+// OntologyBudgetLine 是单元轮、返修轮提示词末尾的时长预算说明；不限时为空。
+func OntologyBudgetLine(lim OntologyUnitLimits) string {
+	if lim.CapSeconds <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("【时长预算】本集各单元合计不超过 %s 秒；其他单元已用 %s 秒，本单元总时长最多 %s 秒。", secText(lim.CapSeconds), secText(lim.UsedSeconds), secText(math.Max(0, lim.CapSeconds-lim.UsedSeconds)))
 }
 
 var ontologyForbiddenInPaste = []string{"同上", "接上一镜", "@音频", "@视频"}
@@ -397,6 +419,9 @@ func ValidateOntologyUnit(card OntologyUnitCard, want string, lim OntologyUnitLi
 	}
 	if card.TotalSeconds <= 0 || card.TotalSeconds > float64(maxSeconds) {
 		problems = append(problems, fmt.Sprintf("总时长 %s 秒，应在 0–%d 秒之间（含 1 秒站位交接）", secText(card.TotalSeconds), maxSeconds))
+	}
+	if lim.CapSeconds > 0 && card.TotalSeconds > 0 && lim.UsedSeconds+card.TotalSeconds > lim.CapSeconds+1e-6 {
+		problems = append(problems, fmt.Sprintf("本集各单元合计不能超过 %s 秒（每集目标的 1.1 倍），其他单元已用 %s 秒，这一单元最多 %s 秒：并镜或删掉不推进剧情的镜头", secText(lim.CapSeconds), secText(lim.UsedSeconds), secText(math.Max(0, lim.CapSeconds-lim.UsedSeconds))))
 	}
 	if card.Shots <= 0 {
 		problems = append(problems, "标题行的镜头数无效")

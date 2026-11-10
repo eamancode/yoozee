@@ -28,6 +28,13 @@ func (r *Repository) OntologyDocumentsForProject(projectID string) ([]model.Proj
 	return docs, err
 }
 
+// OntologyEpisodeUnits 是已经写过本体论七部分的单元（只取编号，流水线判断「这一集分镜做完了」用）。
+func (r *Repository) OntologyEpisodeUnits(projectID string) ([]string, error) {
+	var units []string
+	err := r.db.Model(&model.ProjectOntologyDocument{}).Where("project_id = ? AND kind = ?", projectID, model.OntologyDocEpisode).Distinct().Pluck("unit_id", &units).Error
+	return units, err
+}
+
 // AppendOntologyDocument 追加一个新版本（版本号在事务里取最新加一；并发写同一文档时唯一索引兜住，返回错误由调用方重试或报错）。
 func (r *Repository) AppendOntologyDocument(doc *model.ProjectOntologyDocument) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {

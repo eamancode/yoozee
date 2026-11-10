@@ -193,6 +193,14 @@ func TestOntologyRunWritesSegmentsAndDocuments(t *testing.T) {
 	if len(docs.Episodes) != 1 || !strings.Contains(docs.Episodes[0].Content, "## 五、单元卡\n### 单元卡 s01-u1") || !strings.Contains(docs.Episodes[0].Content, "## 七、自检结果与待确认清单") {
 		t.Fatalf("episode doc = %+v", docs.Episodes)
 	}
+	// 流水线把写过七部分的集算作分镜做完（否则「继续」会重跑这一集）。
+	st, err := svc.loadPipelineState("user-1", &project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.shotlist[units[0].ID] || st.shotlist[units[1].ID] {
+		t.Fatalf("shotlist = %+v", st.shotlist)
+	}
 	// 第二集：读到第一集的交接卡，有圣经卡就不再立项。
 	next, err := svc.planOntologyShots("user-1", &project, &units[1], usage, skill, nil, nil)
 	if err != nil {
@@ -262,4 +270,29 @@ func mustStep(t *testing.T, id string) drama.Step {
 		t.Fatalf("step %s", id)
 	}
 	return step
+}
+
+func TestOntologyUnitTurnEnforcesEpisodeBudget(t *testing.T) {
+	// 每集 18 秒 → 合计上限 19.8 秒；第一个单元 12 秒，第二个单元 10 秒就超了。
+	meta := &dramaOntologyMeta{Brief: drama.OntologyBrief{EpisodeSeconds: 18, MaxUnitSeconds: 15}, Materials: make([]drama.OntologyMaterial, 4)}
+	out := ontologyOutputs{Units: []string{ontologyFakeCard("s01-u1", 12)}}
+	used := ontologyTurnUsedSeconds(drama.OntologyTurnUnit, meta, out)
+	if used != 12 {
+		t.Fatalf("used = %v", used)
+	}
+	check := ontologyTurnCheck(drama.OntologyTurnUnit, "s01-u2", meta, []string{"s01-u1", "s01-u2"}, used)
+	if _, err := check(ontologyFakeCard("s01-u2", 10), drama.TurnContext{}); err == nil || !strings.Contains(err.Error(), "最多 7.8 秒") {
+		t.Fatalf("over-budget unit must be rejected with the remaining seconds: %v", err)
+	}
+	if _, err := check(ontologyFakeCard("s01-u2", 7), drama.TurnContext{}); err != nil {
+		t.Fatalf("unit within budget should pass: %v", err)
+	}
+	if line := drama.OntologyBudgetLine(ontologyLimits(meta, used)); !strings.Contains(line, "合计不超过 19.8 秒") || !strings.Contains(line, "最多 7.8 秒") {
+		t.Fatalf("budget line = %q", line)
+	}
+	// 返修轮按这一集其他单元的合计扣。
+	meta.Repair = &ontologyRepairMeta{Unit: "s01-u2", OtherSeconds: 12}
+	if got := ontologyTurnUsedSeconds(drama.OntologyTurnRepair, meta, ontologyOutputs{}); got != 12 {
+		t.Fatalf("repair used = %v", got)
+	}
 }

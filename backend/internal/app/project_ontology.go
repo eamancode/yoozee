@@ -74,6 +74,8 @@ type ontologyRepairMeta struct {
 	Unit      string `json:"unit"`
 	Symptom   string `json:"symptom"`
 	Card      string `json:"card"`
+	// OtherSeconds 是这一集其他单元的总时长合计（返修后的单元按每集上限扣掉它们之后的余量校验）。
+	OtherSeconds float64 `json:"otherSeconds,omitempty"`
 }
 
 // ontologyOutputs 是任务 result.ontology：各轮的原样输出，收尾解析写库。
@@ -443,9 +445,41 @@ func ontologyTurnPriors(kind string, out ontologyOutputs) []ontologyPrior {
 	return nil
 }
 
+// ontologyLimits 是单元卡的校验参数；used 是本集其他单元已占的秒数（按每集合计上限扣）。
+func ontologyLimits(meta *dramaOntologyMeta, used float64) drama.OntologyUnitLimits {
+	return drama.OntologyUnitLimits{MaxSeconds: meta.Brief.MaxUnitSeconds, Materials: len(meta.Materials), MaxImages: meta.MaxImages,
+		CapSeconds: drama.OntologyEpisodeCap(meta.Brief.EpisodeSeconds), UsedSeconds: used}
+}
+
+// ontologyCardsSeconds 是已写好的单元卡的总时长合计（每张在自己那一轮已经校验过，解析不出的不计）。
+func ontologyCardsSeconds(texts []string) float64 {
+	var total float64
+	for _, text := range texts {
+		cards, err := drama.ParseOntologyUnitCards(text)
+		if err != nil {
+			continue
+		}
+		for _, c := range cards {
+			total += c.TotalSeconds
+		}
+	}
+	return total
+}
+
+// ontologyTurnUsedSeconds 是这一轮单元之外本集已占的秒数：单元轮是前面写好的单元，返修轮是这一集其他单元。
+func ontologyTurnUsedSeconds(kind string, meta *dramaOntologyMeta, out ontologyOutputs) float64 {
+	switch {
+	case kind == drama.OntologyTurnRepair && meta.Repair != nil:
+		return meta.Repair.OtherSeconds
+	case kind == drama.OntologyTurnUnit:
+		return ontologyCardsSeconds(out.Units)
+	}
+	return 0
+}
+
 // ontologyTurnCheck 是这一轮输出的校验（不合格按临时失败重试，错误文字会回给模型）。
-func ontologyTurnCheck(kind string, unit string, meta *dramaOntologyMeta, units []string) func(string, drama.TurnContext) (int, error) {
-	limits := drama.OntologyUnitLimits{MaxSeconds: meta.Brief.MaxUnitSeconds, Materials: len(meta.Materials), MaxImages: meta.MaxImages}
+func ontologyTurnCheck(kind string, unit string, meta *dramaOntologyMeta, units []string, used float64) func(string, drama.TurnContext) (int, error) {
+	limits := ontologyLimits(meta, used)
 	return func(text string, _ drama.TurnContext) (int, error) {
 		if drama.OntologyUnfinished(text) {
 			return 0, errors.New("输出里出现了未完续写标记：本轮必须一次写完，不使用「回复继续」")
@@ -567,6 +601,12 @@ func (s *Service) runOntologyRun(ctx context.Context, input canvasGenerationInpu
 			priors = []ontologyPrior{{"原单元卡", meta.Repair.Card}, {"翻车症状", meta.Repair.Symptom}}
 		}
 		turnInput.Prompt = ontologyTurnPrompt(skillCtx, meta, spec.kind, spec.unit, priors)
+		used := ontologyTurnUsedSeconds(spec.kind, meta, out)
+		if spec.kind == drama.OntologyTurnUnit || spec.kind == drama.OntologyTurnRepair {
+			if line := drama.OntologyBudgetLine(ontologyLimits(meta, used)); line != "" {
+				turnInput.Prompt += "\n\n" + line
+			}
+		}
 		if n := len([]rune(turnInput.Prompt)); n > ontologyMaxPromptRunes {
 			return nil, dramaSentenceError{fmt.Errorf("第 %d 轮（%s）的输入有 %d 字，超过上限 %d 字：本集剧本或单元太多，请把本集拆短后重新生成", k, spec.label, n, ontologyMaxPromptRunes)}
 		}
@@ -574,7 +614,7 @@ func (s *Service) runOntologyRun(ctx context.Context, input canvasGenerationInpu
 			progress.Total = ontologyTotalTurns(meta, len(units))
 		}
 		marker := dramaTurnMarker{Index: k, Total: max(progress.Total, k), Scene: spec.unit, Heading: spec.label}
-		plan := drama.TurnPlan{Unit: "轮", Count: ontologyTurnCheck(spec.kind, spec.unit, meta, units)}
+		plan := drama.TurnPlan{Unit: "轮", Count: ontologyTurnCheck(spec.kind, spec.unit, meta, units, used)}
 		turn, err := s.runDramaTurn(ctx, task, turnInput, marker, stream, turnTimeout, plan, drama.TurnContext{Index: k, Contract: drama.ContractOntologyDirector})
 		if err != nil {
 			return nil, dramaRunTurnError("轮", marker, progress.Completed, turnTimeout, err)
@@ -654,7 +694,6 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		return DramaStepTaskOutcome{}, err
 	}
 	outcome := DramaStepTaskOutcome{Step: drama.StepChapterShots, Status: DramaStepOutcomeWritten, UnitID: target.UnitID}
-	limits := drama.OntologyUnitLimits{MaxSeconds: meta.Brief.MaxUnitSeconds, Materials: len(meta.Materials), MaxImages: meta.MaxImages}
 	project, err := s.activeProjectForUser(task.UserID, target.ProjectID)
 	if err != nil {
 		return DramaStepTaskOutcome{}, ontologyProjectError(err)
@@ -664,7 +703,7 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		return DramaStepTaskOutcome{}, err
 	}
 	if meta.Repair != nil {
-		return s.applyOntologyRepair(task, target, meta, out, limits, m, outcome)
+		return s.applyOntologyRepair(task, target, meta, out, ontologyLimits(meta, meta.Repair.OtherSeconds), m, outcome)
 	}
 	var docs []ontologyDocWrite
 	if meta.Setup {
@@ -686,11 +725,14 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 	cards := make([]drama.OntologyUnitCard, 0, len(units))
 	segments := make([]json.RawMessage, 0, len(units))
 	order := make([]string, 0, len(units))
+	var used float64
 	for i, text := range out.Units {
-		card, err := ontologySingleCard(text, units[i], limits)
+		// 逐张按「前面单元已用的秒数」校验每集合计上限，和生成时的单元轮一致。
+		card, err := ontologySingleCard(text, units[i], ontologyLimits(meta, used))
 		if err != nil {
 			return DramaStepTaskOutcome{}, err
 		}
+		used += card.TotalSeconds
 		seg, err := drama.OntologySegment(card, i+1, meta.Materials)
 		if err != nil {
 			return DramaStepTaskOutcome{}, err
@@ -1028,6 +1070,11 @@ func (s *Service) RepairOntologySegment(userID string, projectID string, unitID 
 		return DramaStepRunResult{}, BadAuthRequest(fmt.Sprintf("七部分里找不到单元卡 %s", seg.Title))
 	}
 	repair := &ontologyRepairMeta{ShotID: segments[idx].ShotID, SegmentID: seg.ID, Unit: seg.Title, Symptom: symptom, Card: cards[cardIdx].Text}
+	for i, c := range cards {
+		if i != cardIdx {
+			repair.OtherSeconds += c.TotalSeconds
+		}
+	}
 	plan, err := s.planOntologyShots(userID, project, unit, usage, skill, req.Rule, repair)
 	if err != nil {
 		return DramaStepRunResult{}, err

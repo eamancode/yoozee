@@ -189,3 +189,39 @@ func TestScriptAdaptImageSwitchCarriesTemplate(t *testing.T) {
 		}
 	}
 }
+
+// 两集链式且带出图模板：第 1 集提取完、第 2 集还要提取时不出图（第 2 集会合并改写同一批资产，先出的图会因换版本绑不上）；
+// 最后一集收尾时把两集攒下的「等空位」资产一起排出图。
+func TestAssetsChainDefersImagesUntilLastEpisode(t *testing.T) {
+	svc, db := newDramaWorkerTestService(t)
+	project, _ := seedEpisodeProject(t, svc, db)
+	ep1 := &streamingShotsUpstream{scenes: map[string][]string{"E01S01": {variantLinMain, assetsHall}, "E01S02": {variantLinWet, assetsLift}}}
+	ep2 := &streamingShotsUpstream{scenes: map[string][]string{"E01S01": {variantLinEp2, assetsInLift}}}
+	server := httptest.NewServer((&routedUpstream{}).route("剧本：第 1 集", ep1).route("剧本：第 2 集", ep2).route("场次色卡", scenePaletteUpstream()))
+	defer server.Close()
+	images := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "no", http.StatusServiceUnavailable) }))
+	defer images.Close()
+	template := &DramaImageTaskTemplate{Model: "queue-image", Input: map[string]any{"mode": "image", "config": map[string]any{
+		"channelId": "", "baseUrl": images.URL, "apiKey": "image-secret-key", "model": "queue-image", "interfaceType": "openai-image", "apiFormat": "openai", "size": "1024x1024", "count": "1",
+	}}}
+	startAssetsChain(t, svc, db, project, server.URL, template)
+	done1, err := runQueuedTask(t, svc)
+	if err != nil || done1.Status != model.TaskStatusSucceeded {
+		t.Fatalf("第 1 集提取：%v %q", err, done1.Error)
+	}
+	out1 := assetsOutcomeOf(t, done1)
+	if out1.Created == 0 || out1.Chained == nil || out1.Chained.TaskID == "" {
+		t.Fatalf("第 1 集建了资产并接着提取第 2 集：%+v", out1)
+	}
+	if n := len(out1.Images.Queued) + len(out1.Images.Waiting); n != 0 || imageTaskCount(t, db) != 0 {
+		t.Fatalf("后面还有集在提取时不出图：%+v 出图任务 %d", out1.Images, imageTaskCount(t, db))
+	}
+	done2, err := runQueuedTask(t, svc)
+	if err != nil || done2.Status != model.TaskStatusSucceeded {
+		t.Fatalf("第 2 集提取：%v %q", err, done2.Error)
+	}
+	out2 := assetsOutcomeOf(t, done2)
+	if n := len(out2.Images.Queued) + len(out2.Images.Waiting); n < out1.Created || imageTaskCount(t, db) == 0 {
+		t.Fatalf("最后一集收尾时连同第 1 集的资产一起出图：第 1 集建 %d，排了 %+v，出图任务 %d", out1.Created, out2.Images, imageTaskCount(t, db))
+	}
+}
