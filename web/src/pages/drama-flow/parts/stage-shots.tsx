@@ -65,7 +65,10 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
     }, [workspace?.shotArtifacts, unitId]);
     const busyShotIds = useMemo(() => new Set((workspace?.tasks || []).flatMap((task) => (task.clientContext?.shotId && (task.status === "queued" || task.status === "running") ? [task.clientContext.shotId] : []))), [workspace?.tasks]);
     const focusRef = useRef<HTMLElement | null>(null);
-    useEffect(() => focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), [selectedId, segmentsQuery.data]);
+    // 函数体要带大括号：新版 Chrome 的 scrollIntoView 返回 Promise，箭头函数隐式返回它，React 会把它当清理函数调用而崩溃。
+    useEffect(() => {
+        focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [selectedId, segmentsQuery.data]);
 
     const segments = segmentsQuery.data || [];
     const selected = segments.find((segment) => segment.shotId === selectedId);

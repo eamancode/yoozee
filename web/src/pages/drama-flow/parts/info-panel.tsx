@@ -11,7 +11,8 @@ import { getWallet } from "@/services/api/wallet";
 import type { DramaRunMode } from "@/services/api/project-drama";
 
 import { projectTasksKey, type FlowData } from "../hooks/use-flow-data";
-import { creditsText, totalCost } from "../model/costs";
+import { useModelNames, type ModelName } from "../hooks/use-model-names";
+import { costSummary, costSummaryText, creditsText } from "../model/costs";
 import { PaneSection } from "./layout";
 
 const VISUAL_TYPE_LABELS: Record<string, string> = { live_action: "真人实拍", cg_real: "写实 CG", anime_3d: "三维动画", anime_2d: "二维动画" };
@@ -24,6 +25,7 @@ export function InfoPanel({ open, data, onClose }: { open: boolean; data: FlowDa
     const [savingMode, setSavingMode] = useState(false);
     const { project, brief, briefQuery, pipeline, dramaModel, videoModel, projectTasks } = data;
     const walletQuery = useQuery({ queryKey: ["wallet", "summary"], queryFn: () => getWallet(1, 1), enabled: open });
+    const models = useModelNames(open);
     if (!project) return null;
     const runMode = (project.runMode || pipeline?.runMode || "until_video") as DramaRunMode;
     const facts = brief ? briefFactsFromDocument(brief) : undefined;
@@ -45,7 +47,7 @@ export function InfoPanel({ open, data, onClose }: { open: boolean; data: FlowDa
     };
 
     return (
-        <AppDrawer open={open} onClose={onClose} title="项目信息" width={480}>
+        <AppDrawer open={open} onClose={onClose} title="项目信息" size={480}>
             <div className="drama-flow-info">
                 <PaneSection label="生成模式">
                     <Radio.Group value={runMode} disabled={savingMode} onChange={(event) => void changeMode(event.target.value as DramaRunMode)}>
@@ -73,15 +75,19 @@ export function InfoPanel({ open, data, onClose }: { open: boolean; data: FlowDa
                         <dt>生成模型</dt>
                         <dd>{dramaModel?.label || project.generationModel || "没选"}</dd>
                         <dt>视频模型</dt>
-                        <dd>{videoModel || "还没配好"}</dd>
+                        <dd>
+                            <ModelNameText name={models.nameOf(videoModel, "还没配好")} onRetry={models.catalogRead === "error" ? () => void models.refetch() : undefined} />
+                        </dd>
                         <dt>图片模型</dt>
-                        <dd>{project.defaultImageModel || "用全局默认"}</dd>
+                        <dd>
+                            <ModelNameText name={models.nameOf(project.defaultImageModel, "用全局默认")} onRetry={models.catalogRead === "error" ? () => void models.refetch() : undefined} />
+                        </dd>
                     </dl>
                 </PaneSection>
                 <PaneSection label="花费">
                     <dl className="drama-flow-info-facts">
                         <dt>最近 100 次运行</dt>
-                        <dd>{creditsText(totalCost(projectTasks))}</dd>
+                        <dd>{costSummaryText(data.tasksRead, costSummary(projectTasks))}</dd>
                         <dt>账户余额</dt>
                         <dd>{walletQuery.data ? creditsText(walletQuery.data.account.availableMicrocredits) : walletQuery.isError ? "没读到" : "…"}</dd>
                     </dl>
@@ -109,5 +115,18 @@ export function InfoPanel({ open, data, onClose }: { open: boolean; data: FlowDa
             </div>
             <DramaBriefModal projectId={project.id} open={briefOpen} onClose={() => setBriefOpen(false)} />
         </AppDrawer>
+    );
+}
+
+function ModelNameText({ name, onRetry }: { name: ModelName; onRetry?: () => void }) {
+    return (
+        <span data-tone={name.tone}>
+            {name.text}
+            {onRetry ? (
+                <Button size="small" type="link" onClick={onRetry}>
+                    再读一次
+                </Button>
+            ) : null}
+        </span>
     );
 }

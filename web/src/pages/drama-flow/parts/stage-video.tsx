@@ -12,9 +12,10 @@ import type { GenerationTask } from "@/services/api/task-center";
 import { getWallet } from "@/services/api/wallet";
 
 import type { FlowData } from "../hooks/use-flow-data";
-import { creditsText, shotCosts, totalCost } from "../model/costs";
+import { useModelNames } from "../hooks/use-model-names";
+import { costSummary, costSummaryText, creditsText, noCost, shotCosts } from "../model/costs";
 import { durationText, runRow } from "../model/runs";
-import { readValue, type ReadState } from "../model/read-state";
+import { queryReadState, readValue, type ReadState } from "../model/read-state";
 import type { FlowStageView } from "../model/stages";
 import type { ShotVideoStep } from "../model/video-steps";
 import { DetailPane, PaneSection, ReadError, StageLayout, SummaryRow } from "./layout";
@@ -73,8 +74,10 @@ export function StageVideo({
     const progressUnread = progressRead !== "ready";
     // 生成中、排队、失败要进度和这一集的出片链都读到才算得出来。
     const videoRead = data.chainReadOf(unitId);
-    const workspaceUnread = workspaceQuery.isError || !workspace;
-    const unreadText = (pending: boolean) => (pending ? "…" : "没读到");
+    const workspaceRead = queryReadState(workspaceQuery);
+    // 模型只显示给人看的名字；提交和报价仍用原 ID（videoModel 原样传给花费预览）。
+    const models = useModelNames(true);
+    const videoModelName = models.nameOf(videoModel, "还没配好");
     const projectId = project?.id || "";
     const walletQuery = useQuery({ queryKey: ["wallet", "summary"], queryFn: () => getWallet(1, 1) });
     const videoTasks = useMemo(() => (workspace?.tasks || []).filter((task) => task.clientContext?.shotId), [workspace?.tasks]);
@@ -89,7 +92,10 @@ export function StageVideo({
         return map;
     }, [workspace?.shotArtifacts]);
     const focusRef = useRef<HTMLElement | null>(null);
-    useEffect(() => focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), [selectedId]);
+    // 函数体要带大括号：新版 Chrome 的 scrollIntoView 返回 Promise，箭头函数隐式返回它，React 会把它当清理函数调用而崩溃。
+    useEffect(() => {
+        focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [selectedId]);
 
     const states = progress.map((segment) => steps.get(segment.shotId)?.state);
     const failed = states.filter((state) => state === "failed").length;
@@ -98,7 +104,7 @@ export function StageVideo({
     const done = progress.filter((item) => item.generated).length;
     const notYet = progress.filter((item, index) => !item.generated && !states[index]).length;
     const selected = progress.find((item) => item.shotId === selectedId);
-    const unitSpent = totalCost(videoTasks);
+    const unitSpent = costSummaryText(workspaceRead, costSummary(videoTasks));
 
     const pane = selected ? (
         <VideoPane
@@ -138,9 +144,9 @@ export function StageVideo({
                     { label: "排队", value: readValue(videoRead, waiting), tone: videoRead === "ready" && waiting ? "run" : undefined },
                     { label: "失败", value: readValue(videoRead, failed), tone: videoRead === "ready" && failed ? "bad" : undefined },
                     { label: "还没出", value: readValue(videoRead, notYet) },
-                    { label: "本集已花", value: workspaceUnread ? unreadText(workspaceQuery.isLoading) : creditsText(unitSpent) },
+                    { label: "本集已花", value: unitSpent },
                     { label: "余额", value: walletQuery.data ? creditsText(walletQuery.data.account.availableMicrocredits) : walletQuery.isError ? "没读到" : "…" },
-                    { label: "视频模型", value: videoModel || "还没配好", tone: videoModel ? undefined : "bad" },
+                    { label: "视频模型", value: videoModelName.text, tone: videoModel ? videoModelName.tone : "bad" },
                 ]}
             />
             {running + waiting + failed ? (
@@ -206,13 +212,13 @@ export function StageVideo({
                                     <span className="drama-flow-chip" data-tone={chip.tone}>
                                         {chip.text}
                                     </span>
-                                    <span className="drama-flow-muted">{step?.step.model || videoModel || "模型没读到"}</span>
+                                    <span className="drama-flow-muted">{step?.step.model ? models.nameOf(step.step.model, "").text : videoModelName.text}</span>
                                     {step ? <span className="drama-flow-muted">生成 {step.step.generationSeconds} 秒档</span> : null}
                                     <span className="drama-flow-muted">
-                                        候选 {workspaceUnread ? "没读到" : takes.length}
+                                        候选 {readValue(workspaceRead, takes.length)}
                                         {takes.length > 1 ? (segment.selectedArtifactId ? " · 已挑" : " · 待挑") : ""}
                                     </span>
-                                    <span className="drama-flow-muted">花费 {workspaceUnread ? "没读到" : cost === undefined ? "没有计费记录" : creditsText(cost)}</span>
+                                    <span className="drama-flow-muted">花费 {costSummaryText(workspaceRead, cost ?? noCost())}</span>
                                     <div className="drama-flow-work-actions">
                                         {isFailed ? (
                                             <Button size="small" type="primary" icon={<RotateCw className="size-3.5" />} disabled={!canGenerate || blocked} onClick={() => onGenerate(segment.shotId)}>
@@ -285,13 +291,14 @@ function VideoPane({
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "挑片没成功"),
     });
+    const models = useModelNames(true);
     const copy = (text: string) =>
         navigator.clipboard.writeText(text).then(
             () => message.success("已复制"),
             () => message.error("复制没成功"),
         );
     return (
-        <DetailPane title={`${segment.segmentId} ${segment.title}`.trim()} subtitle={`${secondsText(segment.durationMs)}${step ? ` · ${step.step.model}` : ""}`} onClose={onClose}>
+        <DetailPane title={`${segment.segmentId} ${segment.title}`.trim()} subtitle={`${secondsText(segment.durationMs)}${step?.step.model ? ` · ${models.nameOf(step.step.model, "").text}` : ""}`} onClose={onClose}>
             {shown?.resourceId ? <video key={shown.id} className="drama-flow-video" controls preload="metadata" src={resourceFileUrl(shown.resourceId)} /> : null}
             {step?.state === "failed" ? (
                 <PaneSection label="失败原因">
@@ -381,9 +388,9 @@ function VideoPane({
                                     </div>
                                     <div className="drama-flow-runs-meta">
                                         <span>{new Date(row.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
-                                        {row.model ? <span>{row.model}</span> : null}
+                                        {row.model ? <span>{models.nameOf(row.model, "").text}</span> : null}
                                         {row.seconds !== undefined ? <span>用时 {durationText(row.seconds)}</span> : null}
-                                        <span>{creditsText(row.cost)}</span>
+                                        <span>{row.cost === undefined ? "没有计费记录" : creditsText(row.cost)}</span>
                                     </div>
                                     {row.error ? (
                                         <p className="drama-flow-runs-error">

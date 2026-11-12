@@ -10,8 +10,8 @@ import type { ShotVideoStep } from "./video-steps";
  */
 export type StageFactsInput = {
     episodes?: number;
-    /** 风格锚是否已锁定。 */
-    styleLocked?: boolean;
+    /** 画风锁定状态；没读到传 undefined。 */
+    style?: "none" | "anchor_only" | "locked";
     palettes?: { ready: number; total: number };
     assets?: { bound: number; total: number; failed: number };
     counts?: { segments: number; generated: number; inCut: number; overLimit: number; issues?: number };
@@ -24,7 +24,7 @@ export function stageFacts(input: StageFactsInput): Record<FlowStageKey, string>
     return {
         script: input.episodes === undefined ? "" : input.episodes ? `${input.episodes} 集` : "还没有剧集",
         look: join([
-            input.styleLocked === undefined ? undefined : input.styleLocked ? "画风已定" : "画风未定",
+            input.style === undefined ? undefined : input.style === "locked" ? "画风已定" : input.style === "anchor_only" ? "画风待锁定" : "画风未定",
             input.palettes && input.palettes.total ? `色卡 ${input.palettes.ready}/${input.palettes.total}` : undefined,
             input.assets && input.assets.total ? `资产 ${input.assets.bound}/${input.assets.total}` : undefined,
             input.assets?.failed ? `失败 ${input.assets.failed}` : undefined,

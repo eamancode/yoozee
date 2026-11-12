@@ -7,6 +7,7 @@ import { useNavigate } from "react-router";
 import { MasterPaletteGroups, StyleAnchorSummary } from "@/components/drama/master-palette";
 import { ModelPicker } from "@/components/model-picker";
 import { Callout } from "@/components/ui/product/callout";
+import { parseStyleProfile } from "@/lib/canvas/style-profile";
 import { projectVisualTypeLabel } from "@/lib/project-visual-type";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaRunProgressOf, dramaStyleLockOutcomeOf, getDramaStepUsage, masterPaletteColors, type DramaBible } from "@/services/api/project-drama";
@@ -34,6 +35,11 @@ export function projectLockedStyle(bibleJson?: string) {
     } catch {
         return { locked: false, anchor: undefined, palette: undefined, record: undefined };
     }
+}
+
+/** 生成分镜前要有项目风格：已锁定的风格锚，或画风快照里写了风格提示词，两者都没有就不能生成。 */
+export function projectStyleMissing(project: { bibleJson?: string; styleProfileJson?: string }) {
+    return !projectLockedStyle(project.bibleJson).locked && !parseStyleProfile(project.styleProfileJson)?.prompt.trim();
 }
 
 /** 上一次分析的输入（「重新分析」回填风格文字；参考图要重新选）。 */

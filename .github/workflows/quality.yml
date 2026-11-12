@@ -244,3 +244,6 @@ jobs:
         run: |
           google-chrome --version || chromium --version
           bun run test:previs:e2e
+      # 短剧新工作流真实路由：接口由 CDP 拦下交给无模型夹具，不连后端、不调模型。
+      - name: Drama flow Chrome E2E
+        run: bun run test:drama-flow:e2e

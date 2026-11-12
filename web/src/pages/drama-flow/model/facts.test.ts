@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import type { DramaSegmentProgress } from "@/services/api/project-drama";
 import type { GenerationTask } from "@/services/api/task-center";
 
-import { creditsText, shotCosts, totalCost } from "./costs";
+import { costSummary, costSummaryText, creditsText, shotCosts } from "./costs";
 import { combineReadStates, queryReadState, readValue, videoStateRead } from "./read-state";
 import { durationText, runRow, runStepLabel } from "./runs";
 import { episodeCompletion, episodeFacts, episodeFactsLine, stageFacts } from "./stage-facts";
@@ -35,13 +35,19 @@ describe("stage facts", () => {
         assert.deepEqual(stageFacts({}), { script: "", look: "", shots: "", video: "", cut: "" });
         const facts = stageFacts({
             episodes: 3,
-            styleLocked: true,
+            style: "locked",
             palettes: { ready: 4, total: 6 },
             assets: { bound: 9, total: 12, failed: 1 },
             counts: { segments: 12, generated: 8, inCut: 6, overLimit: 1, issues: 2 },
             videos: { failed: 1, running: 2 },
         });
         assert.deepEqual(facts, { script: "3 集", look: "画风已定 · 色卡 4/6 · 资产 9/12 · 失败 1", shots: "12 段 · 超时长 1 · 问题 2", video: "已出 8/12 · 在出 2 · 失败 1", cut: "入片 6/12" });
+    });
+
+    test("画风：只有风格锚不算定了；没读到不写", () => {
+        assert.equal(stageFacts({ style: "none" }).look, "画风未定");
+        assert.equal(stageFacts({ style: "anchor_only" }).look, "画风待锁定");
+        assert.equal(stageFacts({ style: undefined }).look, "");
     });
 
     test("episode facts count only that episode", () => {
@@ -56,24 +62,33 @@ describe("stage facts", () => {
 });
 
 describe("costs", () => {
-    test("settled uses actual, refunded is zero, no billing is unknown", () => {
-        const tasks = [
-            task({ id: "1", clientContext: { shotId: "s1" }, billing: { amountMicrocredits: 5_000_000, actualAmountMicrocredits: 4_000_000, status: "settled" } }),
-            task({ id: "2", clientContext: { shotId: "s1" }, billing: { amountMicrocredits: 3_000_000, status: "refunded" } }),
-            task({ id: "3", clientContext: { shotId: "s2" }, billing: { amountMicrocredits: 2_000_000, status: "reserved" } }),
-            task({ id: "4", clientContext: { shotId: "s3" } }),
-        ];
+    const settled = task({ id: "1", clientContext: { shotId: "s1" }, billing: { amountMicrocredits: 5_000_000, actualAmountMicrocredits: 4_000_000, status: "settled" } });
+    const refunded = task({ id: "2", clientContext: { shotId: "s1" }, billing: { amountMicrocredits: 3_000_000, status: "refunded" } });
+    const reserved = task({ id: "3", clientContext: { shotId: "s2" }, billing: { amountMicrocredits: 2_000_000, status: "reserved" } });
+    const unbilled = task({ id: "4", clientContext: { shotId: "s3" } });
+
+    test("结算取实扣、退款算 0、预授权取预授权；没有计费单的单独计数", () => {
+        assert.deepEqual(costSummary([settled, refunded, reserved, unbilled]), { runs: 4, billed: 3, unbilled: 1, total: 6_000_000 });
         assert.deepEqual(
-            [...shotCosts(tasks)],
+            [...shotCosts([settled, refunded, reserved, unbilled])],
             [
-                ["s1", 4_000_000],
-                ["s2", 2_000_000],
+                ["s1", { runs: 2, billed: 2, unbilled: 0, total: 4_000_000 }],
+                ["s2", { runs: 1, billed: 1, unbilled: 0, total: 2_000_000 }],
+                ["s3", { runs: 1, billed: 0, unbilled: 1, total: 0 }],
             ],
         );
-        assert.equal(totalCost(tasks), 6_000_000);
-        assert.equal(totalCost([task({})]), undefined);
         assert.equal(creditsText(undefined), "没读到");
         assert.equal(creditsText(6_000_000), "6 积分");
+    });
+
+    test("花费文案：读取状态优先，读到的空列表才是 0，缺计费单时写明不完整", () => {
+        assert.equal(costSummaryText("loading", costSummary([])), "…");
+        assert.equal(costSummaryText("error", costSummary([settled])), "没读到");
+        assert.equal(costSummaryText("ready", costSummary([])), "0 积分 · 暂无消费");
+        assert.equal(costSummaryText("ready", costSummary([settled, reserved])), "6 积分");
+        assert.equal(costSummaryText("ready", costSummary([refunded])), "0 积分");
+        assert.equal(costSummaryText("ready", costSummary([unbilled, task({ id: "5" })])), "2 次运行都没有计费记录");
+        assert.equal(costSummaryText("ready", costSummary([settled, refunded, unbilled])), "已知 4 积分，另有 1 次没有计费记录（合计不完整）");
     });
 });
 

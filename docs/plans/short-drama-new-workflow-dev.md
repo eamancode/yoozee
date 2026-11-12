@@ -307,6 +307,13 @@ Codex 负责的测试、部署、验收见第 12 节。
 - 列表批量摘要由 `model/summary-batcher.ts` 攒批，150ms 一批、每批最多 50 个。
 - 读取状态统一由 `model/read-state.ts` 判断（读到 / 在读 / 没读到，带旧缓存的刷新失败也算没读到）。出片的生成中、排队、失败、还没出要进度和这一集的出片链都读到才写数字，在读写「…」，没读到写「没读到」并给重试；这时段卡不写「还没出」，「出这一段」先禁用，免得把正在出的段再提交一次。别的集的链没读到只影响那一集在集列表里的那一行。
 - 列表「加载更多」用 `hooks/use-load-more-sentinel.ts` 的回调 ref：筛选切换时结果区会先换成加载态，哨兵重新挂载是新节点，节点一换就重新观察。
+- 第四轮（线上验收后修复）：
+  - 滚动定位的 effect 一律用带大括号的函数体。Chrome 157 起 `scrollIntoView` 返回 Promise，箭头函数隐式返回会被 React 当清理函数调用而崩溃；`test/effect-implicit-return.test.ts` 扫源码防回退。
+  - 画风锁定状态由 `model/style-lock.ts` 判断，口径取 `projectLockedStyle().locked`（与旧工作台、后端「风格定了」一致），分「在读 / 没读到 / 没锁 / 只有风格锚 / 已锁定」五态。「生成分镜」的拦截改用共享的 `projectStyleMissing()`（旧章节页同一函数）。
+  - 花费由 `costSummary` / `costSummaryText` 统一：先看读取状态，再区分空列表、全部有账单、全部没账单、部分缺账单。
+  - 模型展示名由 `hooks/use-model-names.ts` 解析：打开时读一次模型目录，系统模型以目录为准，个人渠道看本地配置；只改显示，不改存的 ID。
+  - 详情栏滚动区底部留出柚智浮层默认占位（240px），默认位置下栏内按钮不被盖住。
+  - 真实路由回归：`test/fixtures/drama-flow-lifecycle.harness.tsx`（happy-dom，真实路由页）和 `scripts/drama-flow-chrome-e2e.mjs`（Chrome + CDP 拦接口），共用无模型夹具 `test/fixtures/drama-flow-api-fixture.ts`。
 
 ## 11. 风险
 
