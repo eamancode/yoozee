@@ -1,0 +1,238 @@
+/**
+ * 短剧新工作流的无模型接口夹具：组件生命周期回归（happy-dom）和真实路由 Chrome E2E 共用。
+ *
+ * 只模拟读接口和分镜保存（PUT /drama/segments）。不模拟任何生成接口：生成、出图、出片、
+ * 色卡、提取资产等写请求一律记进 forbidden 并返回 403，测试据此断言「没有提交生成」。
+ * 没列出的读接口返回 404 并记进 unknown，不伪造数据。
+ */
+
+export const FIXTURE_PROJECT_ID = "p-flow-qa";
+export const FIXTURE_UNIT_ID = "u-flow-e1";
+export const FIXTURE_SHOT_ID = "shot-s01";
+export const FIXTURE_SHOT_ID_2 = "shot-s02";
+export const FIXTURE_ASSET_ID = "asset-linshen";
+export const FIXTURE_ASSET_ID_2 = "asset-apo";
+export const FIXTURE_VIDEO_MODEL = "CHANNEL_000001::lec-vp-seedance-2-5-f";
+export const FIXTURE_VIDEO_MODEL_NAME = "Seedance 2.5 Fast";
+
+export type StyleFixture = "none" | "anchor_only" | "locked";
+
+type Envelope = { code: number; data?: unknown; msg: string; reason?: string };
+export type FixtureResponse = { status: number; body: Envelope };
+export type FixtureCall = { method: string; path: string };
+
+const now = "2026-11-12T08:00:00Z";
+const STYLE_ANCHOR = { medium: "写实电影感", lighting: "雨夜冷暖对比", palette_note: "冷蓝底色、暖橙点缀" };
+const MASTER_PALETTE = { groups: [{ name: "主色", colors: [{ hex: "#1f3a5f", name: "雨夜蓝" }] }] };
+
+function bibleFor(style: StyleFixture) {
+    if (style === "none") return {};
+    if (style === "anchor_only") return { style_anchor: STYLE_ANCHOR };
+    return { style_anchor: STYLE_ANCHOR, master_palette: MASTER_PALETTE, style_lock: { source: "analysis" } };
+}
+
+function segmentSpec(id: string, text: string, dur = 15) {
+    return { id, scene: "E01S01", title: `${id} 随行鲜`, dur, mode: "text_only" as const, shots: [{ at: 0, size: "中景", camera: "固定机位", text, lines: [{ speaker: "阿婆", text: "喝口热的。" }], sound: "棚外暴雨声" }] };
+}
+
+/** 某个接口这一次怎么答：一直不回（在读）或失败。按路径（不含查询串）匹配，测试中途可以改。 */
+export type FixtureOverride = "pending" | "error";
+
+export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean } = {}) {
+    const style = options.style ?? "none";
+    const overrides = new Map<string, FixtureOverride>();
+    const state = {
+        segments: [
+            { shotId: FIXTURE_SHOT_ID, unitId: FIXTURE_UNIT_ID, title: "S01 随行鲜", position: 0, durationMs: 15000, revisionId: "rev-1", spec: segmentSpec("S01", "阿婆把温橙汁推到林深手边。"), derived: false },
+            { shotId: FIXTURE_SHOT_ID_2, unitId: FIXTURE_UNIT_ID, title: "S02 雨棚", position: 1, durationMs: 15000, revisionId: "rev-2", spec: segmentSpec("S02", "林深抬头看雨。"), derived: false },
+        ],
+        revision: 2,
+        saves: 0,
+    };
+    const calls: FixtureCall[] = [];
+    const unknown: FixtureCall[] = [];
+    const forbidden: FixtureCall[] = [];
+
+    const project = {
+        id: FIXTURE_PROJECT_ID,
+        name: "新工作流无模型回归",
+        description: "",
+        status: "active",
+        sourceType: "blank",
+        visualType: "cg_real",
+        aspectRatio: "9:16",
+        runMode: "every_step",
+        generationModel: "seedance-2.5",
+        defaultVideoModel: options.videoModel ?? FIXTURE_VIDEO_MODEL,
+        defaultImageModel: options.imageModel ?? "",
+        bibleJson: JSON.stringify(bibleFor(style)),
+        styleProfileJson: "",
+        stylePresetId: "",
+        createdAt: now,
+        updatedAt: now,
+    };
+    const unit = { id: FIXTURE_UNIT_ID, projectId: FIXTURE_PROJECT_ID, kind: "episode", title: "E01 随行鲜", sourceText: "", wordCount: 12, status: "draft", position: 0, createdAt: now, updatedAt: now };
+    const fullUnit = { ...unit, sourceText: "<p>第一场：雨夜，阿婆把温橙汁递给林深。</p>" };
+    const asset = (id: string, title: string, status: string) => ({
+        id,
+        projectId: FIXTURE_PROJECT_ID,
+        title,
+        category: "character",
+        status: "active",
+        usages: [],
+        image: { status, ...(status === "failed" ? { error: "上游超时" } : {}) },
+        character: { versionId: `${id}-v1`, version: 1, definition: { name: title, appearance: `${title}的外观` }, representations: [], visualStatus: "missing", voiceStatus: "missing" },
+        createdAt: now,
+        updatedAt: now,
+    });
+    const assets = [asset(FIXTURE_ASSET_ID, "林深", "none"), asset(FIXTURE_ASSET_ID_2, "阿婆", "failed")];
+    const stages = ["script", "style", "palette", "assets", "shots", "pack", "video", "cut"].map((key) => ({ key, label: key, state: key === "script" ? "done" : "pending" }));
+    const segmentProgress = () =>
+        state.segments.map((segment) => ({
+            shotId: segment.shotId,
+            unitId: segment.unitId,
+            segmentId: segment.spec.id,
+            title: segment.title,
+            durationMs: segment.durationMs,
+            overLimit: false,
+            hasDialogue: true,
+            script: true,
+            refs: false,
+            generated: false,
+            reviewed: false,
+            inCut: false,
+            accepted: false,
+            takes: 0,
+        }));
+    const progress = () => ({
+        model: { id: "seedance-2.5", label: "Seedance 2.5", duration: { min: 4, max: 15 } },
+        runMode: "every_step",
+        previzGate: false,
+        previzGateSetting: "off",
+        segments: segmentProgress(),
+        counts: { segments: state.segments.length, script: state.segments.length, refs: 0, generated: 0, takes: 0, reviewed: 0, inCut: 0, accepted: 0, overLimit: 0, issues: 0 },
+        line: "",
+        endStates: [],
+        pipeline: { runMode: "every_step", runModeLabel: "每步都问我", stages, current: "style" },
+    });
+    const workspace = () => ({ unit: fullUnit, assets, tasks: [], workflows: [], shots: [], shotRevisions: [], shotArtifacts: [], shotReferences: [], assetCandidates: [] });
+    const catalog = {
+        source: "system",
+        channels: [
+            {
+                id: "CHANNEL_000001",
+                displayName: "柚子系统渠道",
+                sortOrder: 0,
+                models: [{ modelKey: "lec-vp-seedance-2-5-f", displayName: FIXTURE_VIDEO_MODEL_NAME, available: true, capability: "video", priceTiers: [] }],
+            },
+        ],
+    };
+
+    const ok = (data: unknown): FixtureResponse => ({ status: 200, body: { code: 0, data, msg: "ok" } });
+    const reject = (status: number, reason: string): FixtureResponse => ({ status, body: { code: status, msg: reason, reason } });
+    const base = `/projects/${FIXTURE_PROJECT_ID}`;
+
+    const registry = {
+        version: "fixture",
+        default: "seedance-2.5",
+        models: [
+            {
+                id: "seedance-2.5",
+                label: "Seedance 2.5",
+                vendor: "bytedance",
+                kind: "video",
+                match: ["seedance"],
+                duration: { min: 4, max: 15, step: 1 },
+                refs: { images: 9, videos: 3, audios: 3, total: 12 },
+                frames_exclusive_with_refs: false,
+                prompt_max_chars: 2000,
+                resolutions: ["720p"],
+                calibrated: true,
+            },
+        ],
+    };
+
+    // 应用外壳：一个普通（非管理员）验收账号；新工作流开关可关，用来验入口隐藏和直达拦截。
+    const user = { id: "qa-user", username: "flow-qa", displayName: "无模型验收", role: "user", createdAt: now, updatedAt: now };
+    const features = {
+        welcomeEnabled: false,
+        shortDramaEnabled: true,
+        dramaFlowEnabled: options.flowEnabled ?? true,
+        taskCenterEnabled: true,
+        creditsEnabled: true,
+        customChannelsEnabled: false,
+        frontendModelsEnabled: true,
+        pluginCenterEnabled: false,
+        systemPluginsVisibleToUsers: false,
+        inspirationSourcesVisible: false,
+        imageWorkbenchEnabled: false,
+        videoWorkbenchEnabled: false,
+        skillContentVisible: false,
+        configured: true,
+    };
+
+    /** 返回 undefined 表示这次请求一直不回（测「在读」）。 */
+    function handle(method: string, rawPath: string, body?: unknown): FixtureResponse | undefined {
+        const url = new URL(rawPath, "http://fixture.local");
+        const path = url.pathname.replace(/^\/api(?=\/)/, "");
+        const call = { method: method.toUpperCase(), path: `${path}${url.search}` };
+        calls.push(call);
+        const override = overrides.get(path);
+        if (override === "pending") return undefined;
+        if (override === "error") return reject(500, "fixture_read_failed");
+        if (call.method === "GET") {
+            if (path === "/auth/session") return ok({ user, features });
+            if (path === "/features") return ok({ features });
+            if (path === "/drama/models") return ok({ models: registry });
+            if (path === `${base}/core`) return ok({ project });
+            if (path === `${base}/units`) return ok({ units: [unit], canvasCounts: {} });
+            if (path === `${base}/assets`) return ok({ assets });
+            if (path === `${base}/drama/progress`) return ok({ progress: progress() });
+            if (path === `${base}/drama/bible`) return ok({ document: bibleFor(style) });
+            if (path === `${base}/drama/brief`) return ok({ document: {} });
+            if (path === `${base}/drama/episodes`) return ok({ episodes: [{ id: FIXTURE_UNIT_ID, title: unit.title }], adaptedChapterIds: [] });
+            if (path === `${base}/units/${FIXTURE_UNIT_ID}/workspace`) return ok(workspace());
+            if (path === `${base}/drama/segments`) return ok({ segments: state.segments });
+            if (path === `${base}/units/${FIXTURE_UNIT_ID}/drama/shotlist`) return ok({ shotlist: null });
+            if (path === `${base}/units/${FIXTURE_UNIT_ID}/drama/scenes`) return ok({ unitId: FIXTURE_UNIT_ID, title: unit.title, episode: 1, fromChapters: false, rule: 15, scenes: [], paletteReady: false });
+            if (path === `${base}/video-chains`) return ok({ chains: [] });
+            if (path === "/drama/shot-vocab") return ok({ vocab: { sizes: ["远景", "全景", "中景", "近景", "特写"], cameras: ["固定机位", "推", "拉", "摇"], transitions: [] } });
+            if (path === "/model-catalog") return ok(catalog);
+            if (path === "/wallet") return ok({ account: { availableMicrocredits: 9_000_000_000, frozenMicrocredits: 0 }, transactions: [], total: 0, page: 1, pageSize: 1 });
+            if (path === "/tasks") return ok(options.tasks ?? []);
+        }
+        if (call.method === "PUT" && path === `${base}/drama/segments`) {
+            const input = body as { segments?: Array<{ id: string; dur: number }> };
+            for (const spec of input?.segments || []) {
+                const target = state.segments.find((segment) => segment.spec.id === spec.id);
+                if (!target) return reject(400, "segment_not_found");
+                state.revision += 1;
+                Object.assign(target, { spec, durationMs: Math.round(spec.dur * 1000), revisionId: `rev-${state.revision}` });
+            }
+            state.saves += 1;
+            return ok({ segments: state.segments });
+        }
+        // 编译提示词只读不扣费，按当前段给一个确定的结果。
+        if (call.method === "POST" && /^\/projects\/[^/]+\/shots\/[^/]+\/compile$/.test(path)) {
+            const shotId = path.split("/")[4];
+            const segment = state.segments.find((item) => item.shotId === shotId);
+            const prompt = segment ? segment.spec.shots.map((shot) => shot.text).join("\n") : "";
+            return ok({ compiled: { shotId, spec: segment?.spec, derived: false, result: { segment: segment?.spec.id || "", model: FIXTURE_VIDEO_MODEL, duration: 15, prompt, files: [], chars: prompt.length, issues: [] } } });
+        }
+        if (call.method !== "GET") {
+            forbidden.push(call);
+            return reject(403, "fixture_write_blocked");
+        }
+        unknown.push(call);
+        return reject(404, "fixture_not_found");
+    }
+
+    return { handle, calls, unknown, forbidden, state, project, overrides, catalog };
+}
+
+export type DramaFlowFixture = ReturnType<typeof createDramaFlowFixture>;
+
+/** 运行记录夹具：一次运行一条，billing 不给就是没有计费单。 */
+export function fixtureTask(id: string, billing?: { amountMicrocredits: number; actualAmountMicrocredits?: number; status: string }, model = FIXTURE_VIDEO_MODEL) {
+    return { id, projectId: FIXTURE_PROJECT_ID, type: "canvas_text", status: "succeeded", prompt: "", attempts: 1, model, createdAt: now, updatedAt: now, ...(billing ? { billing } : {}) };
+}
