@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { App, Button, Skeleton } from "antd";
 import { Switch } from "@/pages/admin/ui/controls";
-import { AlertTriangle, BookOpenText, Clapperboard, Coins, ListChecks, MonitorCog, PlugZap, RadioTower, RefreshCw, ShieldCheck, Boxes, ImageIcon, Quote } from "lucide-react";
+import { AlertTriangle, BookOpenText, Clapperboard, Coins, ListChecks, MonitorCog, PlugZap, RadioTower, RefreshCw, ShieldCheck, Boxes, ImageIcon, Quote, Workflow } from "lucide-react";
 
 import { Link } from "react-router";
 
@@ -13,6 +13,7 @@ import "./feature-availability-panel.css";
 
 type FeatureKey =
     | "shortDramaEnabled"
+    | "dramaFlowEnabled"
     | "taskCenterEnabled"
     | "creditsEnabled"
     | "customChannelsEnabled"
@@ -33,6 +34,7 @@ type FeatureRow = {
 
 const editableFeatureKeys: FeatureKey[] = [
     "shortDramaEnabled",
+    "dramaFlowEnabled",
     "taskCenterEnabled",
     "creditsEnabled",
     "customChannelsEnabled",
@@ -51,6 +53,13 @@ const workspaceFeatureRows: FeatureRow[] = [
         title: "短剧创作",
         description: "开放短剧入口、项目列表与项目详情。关闭不删除已有项目。",
         icon: <Clapperboard className="size-4" aria-hidden="true" />,
+    },
+    {
+        key: "dramaFlowEnabled",
+        title: "短剧新工作流",
+        description: "在「短剧制作」下方开放新入口，与旧入口共用同一批项目；关闭只隐藏入口。",
+        icon: <Workflow className="size-4" aria-hidden="true" />,
+        dependsOn: "shortDramaEnabled",
     },
     {
         key: "taskCenterEnabled",
@@ -408,12 +417,14 @@ function FeatureSourceRow({ row, saved, draft, saving, onChange }: { row: Featur
 
 function effectiveFeatureValue(features: FeatureAvailability, key: FeatureKey) {
     if (key === "systemPluginsVisibleToUsers") return features.pluginCenterEnabled && features.systemPluginsVisibleToUsers;
+    if (key === "dramaFlowEnabled") return features.shortDramaEnabled && features.dramaFlowEnabled;
     return features[key];
 }
 
 function toEditablePayload(features: FeatureAvailability) {
     return {
         shortDramaEnabled: features.shortDramaEnabled,
+        dramaFlowEnabled: features.dramaFlowEnabled,
         taskCenterEnabled: features.taskCenterEnabled,
         creditsEnabled: features.creditsEnabled,
         customChannelsEnabled: features.customChannelsEnabled,
@@ -440,6 +451,7 @@ function parseFeatureAvailability(value: unknown): FeatureAvailability {
     return {
         welcomeEnabled: record.welcomeEnabled as boolean,
         shortDramaEnabled: record.shortDramaEnabled as boolean,
+        dramaFlowEnabled: record.dramaFlowEnabled as boolean,
         taskCenterEnabled: record.taskCenterEnabled as boolean,
         creditsEnabled: record.creditsEnabled as boolean,
         customChannelsEnabled: record.customChannelsEnabled as boolean,

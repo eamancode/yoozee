@@ -4,7 +4,7 @@ import { lazyAdminPage } from "@/pages/admin/admin-page-loader";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceternity/full-screen-loader";
-import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadProjectDetailPage, loadProjectsPage, loadSkillWorkbenchPage } from "@/lib/workspace-route-modules";
+import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadDramaFlowCreatePage, loadDramaFlowDetailPage, loadDramaFlowPage, loadProjectDetailPage, loadProjectsPage, loadSkillWorkbenchPage } from "@/lib/workspace-route-modules";
 import { projectWorkbenchRoutePaths } from "@/lib/project-workbench-routes";
 import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
 import { AuthScene } from "@/pages/auth/auth-scene";
@@ -66,6 +66,9 @@ const EagleLibraryPage = lazy(() => import("@/pages/plugins/eagle"));
 const TasksPage = lazy(() => import("@/pages/tasks"));
 const ProjectsPage = lazy(loadProjectsPage);
 const ProjectDetailPage = lazy(loadProjectDetailPage);
+const DramaFlowPage = lazy(loadDramaFlowPage);
+const DramaFlowCreatePage = lazy(loadDramaFlowCreatePage);
+const DramaFlowDetailPage = lazy(loadDramaFlowDetailPage);
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const ReferralPage = lazy(() => import("@/pages/referral"));
 const AdminReferralPage = lazyAdminPage(() => import("@/pages/admin/referral/referral-admin-page"));
@@ -198,6 +201,22 @@ export const router = createBrowserRouter([
                 ),
             })),
             { path: "/projects/:projectId/*", element: <Navigate to=".." relative="path" replace /> },
+            // 短剧新工作流：和 /projects 是同一批项目、同一套接口，只是另一套页面；两个开关都开才进得来。
+            ...[
+                { path: "/drama-flow", page: <DramaFlowPage /> },
+                { path: "/drama-flow/new", page: <DramaFlowCreatePage /> },
+                { path: "/drama-flow/:projectId", page: <DramaFlowDetailPage /> },
+                { path: "/drama-flow/:projectId/:stage", page: <DramaFlowDetailPage /> },
+            ].map(({ path, page }) => ({
+                path,
+                element: (
+                    <RequireAuth>
+                        <RequireFeature feature="shortDramaEnabled">
+                            <RequireFeature feature="dramaFlowEnabled">{deferred(page)}</RequireFeature>
+                        </RequireFeature>
+                    </RequireAuth>
+                ),
+            })),
             { path: "/canvas", element: <RequireAuth>{deferred(<CanvasPage />)}</RequireAuth> },
             {
                 path: "/canvas/:id",

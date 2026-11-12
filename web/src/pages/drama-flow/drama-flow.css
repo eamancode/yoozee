@@ -1,0 +1,1646 @@
+/* 短剧新工作流（/drama-flow）页面样式。颜色、圆角、间距、字号都走 token；
+   状态色只用 --status-*，选中态用 --control-selected-*，主操作全页只有底栏一个 type=primary。 */
+
+/* ---------- 列表页 ---------- */
+
+.drama-flow-card-status {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    color: var(--workspace-text-body);
+    font-size: var(--fs-label);
+    line-height: 1.5;
+}
+
+.drama-flow-card-status > span:last-child {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.drama-flow-dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    margin-top: 5px;
+    border-radius: 50%;
+    background: var(--workspace-border-strong);
+}
+
+.drama-flow-dot[data-tone="working"] {
+    background: var(--status-loading);
+}
+
+.drama-flow-dot[data-tone="attention"] {
+    background: var(--status-error);
+}
+
+.drama-flow-dot[data-tone="ready"] {
+    background: var(--status-warning);
+}
+
+.drama-flow-dot[data-tone="done"] {
+    background: var(--status-success);
+}
+
+.drama-flow-mini {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--space-1);
+    margin-top: var(--space-3);
+}
+
+.drama-flow-mini > span {
+    display: grid;
+    gap: var(--space-1);
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-micro);
+    text-align: center;
+}
+
+.drama-flow-mini i {
+    display: block;
+    height: 4px;
+    border-radius: var(--radius-xs);
+    background: var(--workspace-border);
+}
+
+.drama-flow-mini [data-state="done"] i {
+    background: var(--status-success);
+}
+
+.drama-flow-mini [data-state="running"] i {
+    background: var(--status-loading);
+}
+
+.drama-flow-mini [data-state="blocked"] i {
+    background: var(--status-warning);
+}
+
+.drama-flow-mini [data-state="ready"] i {
+    background: var(--workspace-accent);
+}
+
+.drama-flow-mini [data-state="done"],
+.drama-flow-mini [data-state="running"],
+.drama-flow-mini [data-state="blocked"],
+.drama-flow-mini [data-state="ready"] {
+    color: var(--workspace-text-muted);
+}
+
+/* ---------- 新建页 ---------- */
+
+.drama-flow-create-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.drama-flow-create-head h1 {
+    margin: 0;
+    font-size: var(--fs-heading);
+    font-weight: 600;
+}
+
+.drama-flow-create-head p {
+    margin: 2px 0 0;
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-label);
+}
+
+/* ---------- 主页面外壳 ---------- */
+
+.drama-flow-shell {
+    display: grid;
+    height: 100%;
+    min-height: 0;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    background: var(--workspace-page);
+}
+
+.drama-flow-top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--workspace-border);
+}
+
+.drama-flow-top h1 {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    font-size: var(--fs-title);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.drama-flow-top-meta {
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-label);
+    white-space: nowrap;
+}
+
+.drama-flow-top-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-left: auto;
+}
+
+.drama-flow-badge {
+    display: inline-grid;
+    min-width: 18px;
+    height: 18px;
+    margin-left: var(--space-1);
+    padding: 0 5px;
+    place-items: center;
+    border-radius: 9px;
+    background: var(--status-error);
+    color: var(--workspace-surface);
+    font-size: var(--fs-micro);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.drama-flow-badge[data-quiet="true"] {
+    background: var(--workspace-border-strong);
+    color: var(--workspace-text-body);
+}
+
+/* 阶段条 */
+
+.drama-flow-strip {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--workspace-border);
+    background: var(--workspace-surface);
+}
+
+.drama-flow-step {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background-color 160ms ease-out,
+        border-color 160ms ease-out;
+}
+
+.drama-flow-step:hover {
+    background: var(--surface-hover);
+}
+
+.drama-flow-step:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 1px;
+}
+
+.drama-flow-step[aria-current="step"] {
+    border-color: var(--control-selected-border);
+    background: var(--control-selected-bg);
+}
+
+.drama-flow-step-mark {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    border: 1px solid var(--workspace-border-strong);
+    border-radius: 50%;
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+    font-weight: 600;
+}
+
+.drama-flow-step[data-state="done"] .drama-flow-step-mark {
+    border-color: var(--status-success);
+    background: var(--status-success);
+    color: var(--workspace-surface);
+}
+
+.drama-flow-step[data-state="running"] .drama-flow-step-mark {
+    border-color: var(--status-loading);
+    color: var(--status-loading);
+}
+
+.drama-flow-step[data-state="blocked"] .drama-flow-step-mark {
+    border-color: var(--status-warning);
+    background: var(--status-warning);
+    color: var(--workspace-surface);
+}
+
+.drama-flow-step[data-state="ready"] .drama-flow-step-mark {
+    border-color: var(--workspace-accent);
+    color: var(--workspace-accent);
+}
+
+.drama-flow-step-text {
+    display: grid;
+    min-width: 0;
+}
+
+.drama-flow-step-text strong {
+    font-size: var(--fs-body);
+    font-weight: 600;
+}
+
+.drama-flow-step-text span {
+    overflow: hidden;
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.drama-flow-spin {
+    animation: drama-flow-spin 900ms linear infinite;
+}
+
+@keyframes drama-flow-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 中部：集列表 + 工作区 */
+
+.drama-flow-main {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: 208px minmax(0, 1fr);
+}
+
+.drama-flow-main[data-rail="off"] {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.drama-flow-rail {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-3);
+    overflow-y: auto;
+    border-right: 1px solid var(--workspace-border);
+}
+
+.drama-flow-ep {
+    display: grid;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.drama-flow-ep:hover {
+    background: var(--surface-hover);
+}
+
+.drama-flow-ep:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 1px;
+}
+
+.drama-flow-ep[aria-pressed="true"] {
+    border-color: var(--control-selected-border);
+    background: var(--control-selected-bg);
+}
+
+.drama-flow-ep strong {
+    overflow: hidden;
+    font-size: var(--fs-label);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.drama-flow-ep span {
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-ep span[data-warn="true"] {
+    color: var(--status-error);
+}
+
+.drama-flow-work {
+    min-height: 0;
+    padding: var(--space-5);
+    overflow-y: auto;
+}
+
+.drama-flow-work-inner {
+    display: grid;
+    max-width: 1440px;
+    gap: var(--space-4);
+    margin: 0 auto;
+}
+
+.drama-flow-work-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.drama-flow-work-head h2 {
+    margin: 0;
+    font-size: var(--fs-title);
+    font-weight: 600;
+}
+
+.drama-flow-work-head p {
+    margin: 2px 0 0;
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-label);
+}
+
+.drama-flow-work-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.drama-flow-panel {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-xl);
+    background: var(--workspace-surface);
+}
+
+.drama-flow-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.drama-flow-panel-head h3 {
+    margin: 0;
+    font-size: var(--fs-body);
+    font-weight: 600;
+}
+
+.drama-flow-panel-head span {
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-label);
+}
+
+.drama-flow-note {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-lg);
+    background: var(--workspace-accent-soft);
+    color: var(--workspace-text-body);
+    font-size: var(--fs-label);
+    line-height: 1.6;
+}
+
+.drama-flow-note[data-tone="warn"] {
+    background: color-mix(in srgb, var(--status-warning) 14%, transparent);
+}
+
+.drama-flow-note[data-tone="error"] {
+    background: color-mix(in srgb, var(--status-error) 12%, transparent);
+}
+
+.drama-flow-empty {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-8) var(--space-4);
+    justify-items: center;
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-label);
+    text-align: center;
+}
+
+.drama-flow-empty strong {
+    color: var(--workspace-text-body);
+    font-size: var(--fs-body);
+}
+
+/* 剧本 */
+
+.drama-flow-script-text {
+    max-height: 60vh;
+    margin: 0;
+    overflow-y: auto;
+    color: var(--workspace-text-body);
+    font-family: inherit;
+    font-size: var(--fs-body);
+    line-height: 1.9;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* 定妆：卡片格 */
+
+.drama-flow-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--surface-hover);
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+    white-space: nowrap;
+}
+
+.drama-flow-chip[data-tone="ok"] {
+    background: color-mix(in srgb, var(--status-success) 14%, transparent);
+    color: var(--status-success);
+}
+
+.drama-flow-chip[data-tone="run"] {
+    background: color-mix(in srgb, var(--status-loading) 14%, transparent);
+    color: var(--status-loading);
+}
+
+.drama-flow-chip[data-tone="bad"] {
+    background: color-mix(in srgb, var(--status-error) 12%, transparent);
+    color: var(--status-error);
+}
+
+.drama-flow-chip[data-tone="warn"] {
+    background: color-mix(in srgb, var(--status-warning) 16%, transparent);
+    color: var(--status-warning);
+}
+
+/* 分镜 / 出片：行 */
+
+.drama-flow-video {
+    display: block;
+    width: 100%;
+    max-height: 420px;
+    border-radius: var(--radius-lg);
+    background: var(--workspace-canvas);
+}
+
+.drama-flow-takes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.drama-flow-take {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-2) 2px 2px;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-md);
+}
+
+.drama-flow-take[data-active="true"] {
+    border-color: var(--control-selected-border);
+    background: var(--control-selected-bg);
+}
+
+/* 底栏 */
+
+.drama-flow-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--workspace-border);
+    background: var(--workspace-surface);
+}
+
+.drama-flow-bar-status {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: flex-start;
+    gap: var(--space-2);
+    font-size: var(--fs-body);
+    line-height: 1.5;
+}
+
+.drama-flow-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+/* 待办面板 */
+
+.drama-flow-inbox {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-4);
+}
+
+.drama-flow-inbox h3 {
+    margin: 0 0 var(--space-2);
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-label);
+    font-weight: 600;
+}
+
+.drama-flow-inbox-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-lg);
+}
+
+.drama-flow-inbox-item + .drama-flow-inbox-item {
+    margin-top: var(--space-2);
+}
+
+.drama-flow-inbox-item strong {
+    display: block;
+    font-size: var(--fs-label);
+    font-weight: 600;
+}
+
+.drama-flow-inbox-item p {
+    margin: 2px 0 0;
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+    line-height: 1.5;
+}
+
+.drama-flow-inbox-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+/* ---------- 第二版：细节都摆出来 ---------- */
+
+.drama-flow-step-text em {
+    overflow: hidden;
+    color: var(--workspace-text-body);
+    font-size: var(--fs-caption);
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.drama-flow-muted {
+    margin: 0;
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-label);
+    line-height: 1.6;
+}
+
+.drama-flow-subhead {
+    margin-bottom: var(--space-2);
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+    font-weight: 600;
+}
+
+/* 一步的工作区：左产物、右详情 */
+
+.drama-flow-stage {
+    display: grid;
+    gap: var(--space-4);
+    align-items: start;
+}
+
+.drama-flow-stage[data-pane="on"] {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+}
+
+.drama-flow-stage-body {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-4);
+}
+
+.drama-flow-pane {
+    position: sticky;
+    top: 0;
+    display: grid;
+    max-height: calc(100vh - 240px);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    overflow: hidden;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-xl);
+    background: var(--workspace-surface);
+}
+
+.drama-flow-pane-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--workspace-border);
+}
+
+.drama-flow-pane-head h3 {
+    margin: 0;
+    overflow: hidden;
+    font-size: var(--fs-body);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.drama-flow-pane-head p {
+    margin: 2px 0 0;
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-pane-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--workspace-border);
+}
+
+.drama-flow-pane-body {
+    display: grid;
+    align-content: start;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    overflow-y: auto;
+}
+
+.drama-flow-pane-section {
+    display: grid;
+    gap: var(--space-1);
+}
+
+.drama-flow-pane-section > span {
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-pane-section p {
+    margin: 0;
+    color: var(--workspace-text-body);
+    font-size: var(--fs-label);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.drama-flow-pane-section p[data-empty="true"] {
+    color: var(--workspace-text-faint);
+}
+
+.drama-flow-pane-section p[data-tone="bad"],
+.drama-flow-asset-error,
+.drama-flow-runs-error {
+    color: var(--status-error);
+}
+
+.drama-flow-pane-media {
+    display: grid;
+    min-height: 160px;
+    place-items: center;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    background: var(--workspace-page);
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-label);
+}
+
+.drama-flow-pane-media img {
+    max-width: 100%;
+    max-height: 320px;
+    object-fit: contain;
+}
+
+.drama-flow-pane-list {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    padding-left: var(--space-4);
+    color: var(--workspace-text-body);
+    font-size: var(--fs-label);
+}
+
+/* 汇总行、小节切换 */
+
+.drama-flow-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+}
+
+.drama-flow-summary > div {
+    display: grid;
+    min-width: 88px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-lg);
+    background: var(--workspace-surface);
+}
+
+.drama-flow-summary dt {
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-summary dd {
+    margin: 0;
+    font-size: var(--fs-body);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.drama-flow-summary > div[data-tone="bad"] dd {
+    color: var(--status-error);
+}
+
+.drama-flow-summary > div[data-tone="warn"] dd {
+    color: var(--status-warning);
+}
+
+.drama-flow-summary > div[data-tone="ok"] dd {
+    color: var(--status-success);
+}
+
+.drama-flow-summary > div[data-tone="run"] dd {
+    color: var(--status-loading);
+}
+
+.drama-flow-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    border-bottom: 1px solid var(--workspace-border);
+}
+
+.drama-flow-tabs button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-bottom: -1px;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--workspace-text-muted);
+    font: inherit;
+    font-size: var(--fs-label);
+    cursor: pointer;
+}
+
+.drama-flow-tabs button:hover {
+    color: var(--workspace-text-body);
+}
+
+.drama-flow-tabs button:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: -2px;
+}
+
+.drama-flow-tabs button[aria-pressed="true"] {
+    border-bottom-color: var(--control-selected-border);
+    color: var(--workspace-text-body);
+    font-weight: 600;
+}
+
+.drama-flow-tabs button span {
+    color: var(--workspace-text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.drama-flow-tabs button span[data-warn="true"] {
+    color: var(--status-error);
+}
+
+/* 表格、问题列表、流式输出 */
+
+.drama-flow-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-label);
+}
+
+.drama-flow-table th,
+.drama-flow-table td {
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--workspace-border);
+    text-align: left;
+    vertical-align: top;
+}
+
+.drama-flow-table th {
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-caption);
+    font-weight: 500;
+}
+
+.drama-flow-issues {
+    display: grid;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--fs-label);
+}
+
+.drama-flow-issues li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--space-2);
+    align-items: baseline;
+}
+
+.drama-flow-issues li[data-level="error"] strong {
+    color: var(--status-error);
+}
+
+.drama-flow-issues li[data-level="warn"] strong {
+    color: var(--status-warning);
+}
+
+.drama-flow-issues code {
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-micro);
+}
+
+.drama-flow-stream {
+    max-height: 320px;
+    margin: var(--space-2) 0 0;
+    padding: var(--space-3);
+    overflow: auto;
+    border-radius: var(--radius-md);
+    background: var(--workspace-page);
+    color: var(--workspace-text-body);
+    font-size: var(--fs-caption);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.drama-flow-bar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+/* 剧本 */
+
+.drama-flow-split {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+}
+
+.drama-flow-cards {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.drama-flow-card {
+    display: grid;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-lg);
+    background: var(--workspace-surface);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.drama-flow-card:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 1px;
+}
+
+.drama-flow-card[aria-pressed="true"] {
+    border-color: var(--control-selected-border);
+    background: var(--control-selected-bg);
+}
+
+.drama-flow-card strong {
+    font-size: var(--fs-label);
+}
+
+.drama-flow-card span {
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-card span[data-tone="ok"] {
+    color: var(--status-success);
+}
+
+.drama-flow-compare {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    align-items: start;
+}
+
+.drama-flow-source + .drama-flow-source {
+    margin-top: var(--space-3);
+}
+
+/* 定妆 */
+
+.drama-flow-asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--space-3);
+}
+
+.drama-flow-asset {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-lg);
+    background: var(--workspace-surface);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.drama-flow-asset:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 1px;
+}
+
+.drama-flow-asset[aria-pressed="true"] {
+    border-color: var(--control-selected-border);
+    box-shadow: 0 0 0 1px var(--control-selected-border);
+}
+
+.drama-flow-asset[data-bad="true"] {
+    border-color: color-mix(in srgb, var(--status-error) 50%, var(--workspace-border));
+}
+
+.drama-flow-asset-art {
+    display: grid;
+    aspect-ratio: 4 / 3;
+    place-items: center;
+    overflow: hidden;
+    background: var(--workspace-page);
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-asset-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.drama-flow-asset-body {
+    display: grid;
+    align-content: start;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.drama-flow-asset-body strong {
+    overflow: hidden;
+    font-size: var(--fs-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.drama-flow-asset-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-asset-desc,
+.drama-flow-asset-error {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: var(--fs-caption);
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.drama-flow-asset-desc {
+    color: var(--workspace-text-muted);
+}
+
+/* 分镜 */
+
+.drama-flow-segments {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.drama-flow-seg {
+    overflow: hidden;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-lg);
+    background: var(--workspace-surface);
+}
+
+.drama-flow-seg[aria-current="true"] {
+    border-color: var(--control-selected-border);
+    box-shadow: 0 0 0 1px var(--control-selected-border);
+}
+
+.drama-flow-seg[data-bad="true"] {
+    border-color: color-mix(in srgb, var(--status-error) 55%, var(--workspace-border));
+}
+
+.drama-flow-seg-head {
+    display: flex;
+    width: 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-bottom: 1px solid var(--workspace-border);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.drama-flow-seg-head:hover {
+    background: var(--surface-hover);
+}
+
+.drama-flow-seg-head:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: -2px;
+}
+
+.drama-flow-seg-no {
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-caption);
+    font-variant-numeric: tabular-nums;
+}
+
+.drama-flow-seg-head strong {
+    font-size: var(--fs-label);
+}
+
+.drama-flow-seg-meta {
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-seg-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-left: auto;
+}
+
+.drama-flow-shot-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-label);
+}
+
+.drama-flow-shot-table td {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--workspace-border);
+    vertical-align: top;
+}
+
+.drama-flow-shot-table tr:last-child td {
+    border-bottom: 0;
+}
+
+.drama-flow-shot-table p {
+    margin: 0;
+    line-height: 1.6;
+}
+
+.drama-flow-shot-no {
+    width: 32px;
+    color: var(--workspace-text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.drama-flow-shot-cam {
+    width: 132px;
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-shot-cam em {
+    display: block;
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+}
+
+.drama-flow-lines {
+    display: grid;
+    gap: 2px;
+    margin: var(--space-1) 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--workspace-text-body);
+}
+
+.drama-flow-lines b {
+    margin-right: var(--space-1);
+    font-weight: 600;
+}
+
+.drama-flow-lines i {
+    margin-right: var(--space-1);
+    color: var(--workspace-text-muted);
+    font-style: normal;
+}
+
+.drama-flow-lines i::before {
+    content: "（";
+}
+
+.drama-flow-lines i::after {
+    content: "）";
+}
+
+.drama-flow-seg-assets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--workspace-border);
+    background: var(--workspace-page);
+}
+
+.drama-flow-seg-assets span {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-seg-assets img {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+}
+
+/* 出片 */
+
+.drama-flow-queue {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+
+.drama-flow-queue button {
+    padding: 2px var(--space-2);
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-md);
+    background: var(--workspace-surface);
+    color: var(--workspace-text-body);
+    font: inherit;
+    font-size: var(--fs-caption);
+    cursor: pointer;
+}
+
+.drama-flow-queue button[data-state="failed"] {
+    border-color: color-mix(in srgb, var(--status-error) 50%, var(--workspace-border));
+    color: var(--status-error);
+}
+
+.drama-flow-queue button[data-state="running"],
+.drama-flow-queue button[data-state="waiting"] {
+    color: var(--status-loading);
+}
+
+.drama-flow-vcards {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.drama-flow-vcard {
+    display: grid;
+    grid-template-columns: minmax(160px, 240px) minmax(0, 1fr) minmax(150px, 200px);
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-lg);
+    background: var(--workspace-surface);
+}
+
+.drama-flow-vcard[aria-current="true"] {
+    border-color: var(--control-selected-border);
+    box-shadow: 0 0 0 1px var(--control-selected-border);
+}
+
+.drama-flow-vcard[data-bad="true"] {
+    border-color: color-mix(in srgb, var(--status-error) 55%, var(--workspace-border));
+}
+
+.drama-flow-vcard-media .drama-flow-video {
+    width: 100%;
+}
+
+.drama-flow-vcard-empty {
+    display: grid;
+    min-height: 120px;
+    padding: var(--space-3);
+    place-items: center;
+    border-radius: var(--radius-md);
+    background: var(--workspace-page);
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+    text-align: center;
+}
+
+.drama-flow-vcard-empty[data-tone="bad"] {
+    color: var(--status-error);
+}
+
+.drama-flow-vcard-main,
+.drama-flow-vcard-side {
+    display: grid;
+    align-content: start;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.drama-flow-vcard-side {
+    justify-items: start;
+}
+
+.drama-flow-vcard-side .drama-flow-muted {
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-vcard-title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.drama-flow-vcard-title:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 2px;
+}
+
+.drama-flow-vcard-title strong {
+    font-size: var(--fs-label);
+}
+
+/* 成片时间线 */
+
+.drama-flow-timeline-row + .drama-flow-timeline-row {
+    margin-top: var(--space-3);
+}
+
+.drama-flow-timeline {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+}
+
+.drama-flow-timeline button {
+    min-width: 44px;
+    height: 36px;
+    padding: 0 var(--space-1);
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--workspace-border);
+    color: var(--workspace-text-muted);
+    font: inherit;
+    font-size: var(--fs-micro);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.drama-flow-timeline button[data-state="in"] {
+    background: color-mix(in srgb, var(--status-success) 28%, transparent);
+    color: var(--workspace-text-body);
+}
+
+.drama-flow-timeline button[data-state="out"] {
+    background: color-mix(in srgb, var(--status-warning) 24%, transparent);
+    color: var(--workspace-text-body);
+}
+
+.drama-flow-timeline button:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 1px;
+}
+
+/* 集列表：头部、矩阵 */
+
+.drama-flow-rail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1) var(--space-2);
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-rail-views {
+    display: flex;
+    gap: 2px;
+}
+
+.drama-flow-rail-views button {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--workspace-text-muted);
+    cursor: pointer;
+}
+
+.drama-flow-rail-views button[aria-pressed="true"] {
+    background: var(--control-selected-bg);
+    color: var(--workspace-text-body);
+}
+
+.drama-flow-rail-none {
+    margin: 0;
+    padding: var(--space-2);
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-matrix {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+    gap: 4px;
+}
+
+.drama-flow-matrix button {
+    height: 30px;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-sm);
+    background: linear-gradient(to top, color-mix(in srgb, var(--status-success) 40%, transparent) var(--done), var(--workspace-surface) var(--done));
+    color: var(--workspace-text-body);
+    font: inherit;
+    font-size: var(--fs-micro);
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+
+.drama-flow-matrix button[data-empty="true"] {
+    background: var(--workspace-page);
+    color: var(--workspace-text-faint);
+}
+
+.drama-flow-matrix button[data-warn="true"] {
+    border-color: var(--status-error);
+}
+
+.drama-flow-matrix button[aria-pressed="true"] {
+    outline: 2px solid var(--control-selected-border);
+    outline-offset: 1px;
+}
+
+/* 运行记录、项目信息 */
+
+.drama-flow-runs {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.drama-flow-runs-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-runs-list {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.drama-flow-runs-list li {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--radius-md);
+    justify-items: start;
+}
+
+.drama-flow-runs-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-label);
+}
+
+.drama-flow-runs-line span {
+    color: var(--workspace-text-muted);
+}
+
+.drama-flow-runs-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-caption);
+    font-variant-numeric: tabular-nums;
+}
+
+.drama-flow-runs-error {
+    margin: 0;
+    font-size: var(--fs-caption);
+    word-break: break-word;
+}
+
+.drama-flow-info {
+    display: grid;
+    gap: var(--space-5);
+}
+
+.drama-flow-info-modes {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.drama-flow-info-modes strong {
+    display: block;
+    font-size: var(--fs-label);
+}
+
+.drama-flow-info-modes span {
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+}
+
+.drama-flow-info-facts {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--space-1) var(--space-3);
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-label);
+}
+
+.drama-flow-info-facts dt {
+    color: var(--workspace-text-faint);
+}
+
+.drama-flow-info-facts dd {
+    margin: 0;
+    color: var(--workspace-text-body);
+    word-break: break-word;
+}
+
+.drama-flow-info-facts dd em {
+    margin-left: var(--space-2);
+    color: var(--workspace-text-faint);
+    font-size: var(--fs-caption);
+    font-style: normal;
+}
+
+.drama-flow-card-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px var(--space-2);
+    color: var(--workspace-text-muted);
+    font-size: var(--fs-caption);
+    font-variant-numeric: tabular-nums;
+}
+
+.drama-flow-card-facts span[data-tone="bad"] {
+    color: var(--status-error);
+}
+
+.drama-flow-confirm {
+    display: grid;
+    gap: var(--space-2);
+    color: var(--workspace-text-body);
+    font-size: var(--fs-label);
+    line-height: 1.6;
+}
+
+/* 详情栏在窄屏改成从右侧滑出的浮层，不挤压产物 */
+@media (max-width: 1180px) {
+    .drama-flow-stage[data-pane="on"] {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .drama-flow-pane {
+        position: fixed;
+        z-index: 30;
+        top: 72px;
+        right: var(--space-3);
+        bottom: 72px;
+        width: min(420px, calc(100vw - 2 * var(--space-3)));
+        max-height: none;
+        box-shadow: var(--shadow-lg);
+    }
+
+    .drama-flow-vcard {
+        grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+    }
+
+    .drama-flow-vcard-side {
+        grid-column: 1 / -1;
+        grid-auto-flow: column;
+        justify-content: start;
+        align-items: center;
+    }
+}
+
+@media (max-width: 900px) {
+    .drama-flow-main {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .drama-flow-rail {
+        flex-direction: row;
+        border-right: 0;
+        border-bottom: 1px solid var(--workspace-border);
+        overflow-x: auto;
+    }
+
+    .drama-flow-ep {
+        flex: none;
+    }
+
+    .drama-flow-step-text span,
+    .drama-flow-step-text em {
+        display: none;
+    }
+
+    .drama-flow-split,
+    .drama-flow-compare,
+    .drama-flow-vcard {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .drama-flow-spin {
+        animation: none;
+    }
+
+    .drama-flow-step {
+        transition: none;
+    }
+}

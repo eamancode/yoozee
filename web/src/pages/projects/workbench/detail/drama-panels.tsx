@@ -850,7 +850,7 @@ function SubShotEditor({ shot, seconds, saving, onSave, onCancel }: { shot: Dram
 type BriefItem = { id: string; content: string; quote?: string; date?: string; segments?: string[]; status: string };
 
 /** 看片反馈：带时间码的一句意见记成需求文档里的 R- 条目，指向哪几段；不新开段，只等那段重做。 */
-function DramaFeedbackForm({ projectId, segments }: { projectId: string; segments: DramaSegmentProgress[] }) {
+export function DramaFeedbackForm({ projectId, segments }: { projectId: string; segments: DramaSegmentProgress[] }) {
     const { message } = App.useApp();
     const invalidate = useInvalidateDrama(projectId);
     const [timecode, setTimecode] = useState("");

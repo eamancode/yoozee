@@ -199,6 +199,24 @@ export function getDramaProgress(projectId: string, signal?: AbortSignal) {
     return http.get<{ progress: DramaProgress }>(`/projects/${projectId}/drama/progress`, { signal });
 }
 
+/** 项目列表卡片的进度摘要：出片失败和进行中按每段最近一次出片算。 */
+export type DramaProjectSummary = {
+    pipeline?: DramaPipeline;
+    counts: DramaProgress["counts"];
+    line: string;
+    /** 剧集数；没改编时是 0，原文章节数看 chapters。 */
+    episodes: number;
+    chapters: number;
+    failedImages: number;
+    failedVideos: number;
+    runningVideos: number;
+};
+
+/** 一次最多 50 个；不存在或不属于当前用户的 id 在 missing 里。 */
+export function getDramaSummaries(ids: string[], signal?: AbortSignal) {
+    return http.post<{ summaries: Record<string, DramaProjectSummary>; missing: string[] }>("/drama/project-summaries", { ids }, signal ? { signal } : undefined);
+}
+
 export function getDramaBrief(projectId: string) {
     return http.get<{ document: Record<string, unknown> }>(`/projects/${projectId}/drama/brief`);
 }
