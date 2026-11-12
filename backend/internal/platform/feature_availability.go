@@ -30,8 +30,10 @@ const (
 )
 
 type FeatureAvailability struct {
-	WelcomeEnabled               bool `json:"welcomeEnabled"`
-	ShortDramaEnabled            bool `json:"shortDramaEnabled"`
+	WelcomeEnabled    bool `json:"welcomeEnabled"`
+	ShortDramaEnabled bool `json:"shortDramaEnabled"`
+	// 短剧新工作流入口（/drama-flow）：只控制前台入口是否展示，接口仍走短剧创作的开关。
+	DramaFlowEnabled             bool `json:"dramaFlowEnabled"`
 	TaskCenterEnabled            bool `json:"taskCenterEnabled"`
 	CreditsEnabled               bool `json:"creditsEnabled"`
 	CustomChannelsEnabled        bool `json:"customChannelsEnabled"`
@@ -57,6 +59,7 @@ func DefaultFeatureAvailability() FeatureAvailability {
 	return FeatureAvailability{
 		WelcomeEnabled:               true,
 		ShortDramaEnabled:            true,
+		DramaFlowEnabled:             false,
 		TaskCenterEnabled:            true,
 		CreditsEnabled:               true,
 		CustomChannelsEnabled:        true,

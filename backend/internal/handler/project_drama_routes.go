@@ -41,6 +41,28 @@ func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"vocab": vocab})
 	})
+	// 项目列表卡片的进度摘要：前端把进入视野的卡片攒成一批读，一批最多 50 个。
+	r.POST("/drama/project-summaries", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+		var req struct {
+			IDs []string `json:"ids"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("进度摘要的请求格式无效"))
+			return
+		}
+		result, err := svc.DramaSummaries(user.ID, req.IDs)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
 	r.GET("/projects/:id/drama/progress", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
