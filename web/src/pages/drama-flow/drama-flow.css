@@ -528,15 +528,17 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3);
-    padding: var(--space-3) var(--space-5);
+    /* --drama-flow-launcher-inset 由 useLauncherInset 按柚智浮层实际占位算出，不重叠时为 0。 */
+    padding: var(--space-3) calc(var(--space-5) + var(--drama-flow-launcher-inset, 0px)) var(--space-3) var(--space-5);
     border-top: 1px solid var(--workspace-border);
     background: var(--workspace-surface);
 }
 
 .drama-flow-bar-status {
     display: flex;
-    min-width: 0;
-    flex: 1;
+    /* 说明文字至少留 16em：右侧给柚智让位后放不下时，按钮整行换到下面，而不是把文字挤成一字一行。 */
+    min-width: min(16em, 100%);
+    flex: 1 1 16em;
     align-items: flex-start;
     gap: var(--space-2);
     font-size: var(--fs-body);
@@ -645,7 +647,13 @@
     position: sticky;
     top: 0;
     display: grid;
-    max-height: calc(100vh - 240px);
+    /*
+     * 和柚智浮层左右重叠时，useLauncherInset 把详情栏放进浮层上方或下方更高的空档：
+     * --drama-flow-pane-shift 顶边下移，--drama-flow-pane-max 高度上限（不低于最小可用高度）；不重叠时都不设。
+     * 视口很矮时 100vh - 240px 可能变成负数，至少留 160px，详情栏不会消失。
+     */
+    margin-top: var(--drama-flow-pane-shift, 0px);
+    max-height: min(max(calc(100vh - 240px), 160px), var(--drama-flow-pane-max, 100vh));
     grid-template-rows: auto auto minmax(0, 1fr);
     overflow: hidden;
     border: 1px solid var(--workspace-border);
@@ -686,15 +694,10 @@
 }
 
 .drama-flow-pane-body {
-    /*
-     * 右下角的柚智浮层默认离底 20px、头像高 220px，会盖住详情栏底部靠右的按钮（如分镜卡的「保存」）。
-     * 滚动区底部留出这段距离：内容短时按钮离详情栏底边至少这么高，内容长时也能滚到浮层上方。
-     */
-    --drama-flow-launcher-reserve: 240px;
     display: grid;
     align-content: start;
     gap: var(--space-4);
-    padding: var(--space-4) var(--space-4) calc(var(--space-4) + var(--drama-flow-launcher-reserve));
+    padding: var(--space-4);
     overflow-y: auto;
 }
 
@@ -1591,9 +1594,11 @@
     .drama-flow-pane {
         position: fixed;
         z-index: 30;
-        top: 72px;
+        /* 和柚智浮层左右重叠时放进浮层上方或下方的空档：顶边下移 / 底边抬高（由 useLauncherInset 写入）。 */
+        top: calc(72px + var(--drama-flow-pane-shift, 0px));
         right: var(--space-3);
-        bottom: 72px;
+        bottom: max(72px, var(--drama-flow-launcher-clear, 0px));
+        margin-top: 0;
         width: min(420px, calc(100vw - 2 * var(--space-3)));
         max-height: none;
         box-shadow: var(--shadow-lg);

@@ -38,13 +38,20 @@ function segmentSpec(id: string, text: string, dur = 15) {
 /** 某个接口这一次怎么答：一直不回（在读）或失败。按路径（不含查询串）匹配，测试中途可以改。 */
 export type FixtureOverride = "pending" | "error";
 
-export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean } = {}) {
+function longSegmentSpec(id: string, firstText: string, count: number) {
+    const spec = segmentSpec(id, firstText);
+    const extra = Array.from({ length: count - 1 }, (_, index) => ({ at: (index + 1) * 1.5, size: "近景", camera: "缓推", text: `第 ${index + 2} 镜：雨水顺着棚檐落下，林深握紧橙汁杯。`, lines: [], sound: "雨声" }));
+    return { ...spec, shots: [{ ...spec.shots[0], at: 0 }, ...extra] };
+}
+
+export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean; failedVideo?: boolean } = {}) {
     const style = options.style ?? "none";
     const overrides = new Map<string, FixtureOverride>();
     const state = {
         segments: [
             { shotId: FIXTURE_SHOT_ID, unitId: FIXTURE_UNIT_ID, title: "S01 随行鲜", position: 0, durationMs: 15000, revisionId: "rev-1", spec: segmentSpec("S01", "阿婆把温橙汁推到林深手边。"), derived: false },
-            { shotId: FIXTURE_SHOT_ID_2, unitId: FIXTURE_UNIT_ID, title: "S02 雨棚", position: 1, durationMs: 15000, revisionId: "rev-2", spec: segmentSpec("S02", "林深抬头看雨。"), derived: false },
+            // S02 是长内容段：镜头多，详情栏要滚动，用来验证最后的按钮也能滚到右下角浮层上方。
+            { shotId: FIXTURE_SHOT_ID_2, unitId: FIXTURE_UNIT_ID, title: "S02 雨棚", position: 1, durationMs: 15000, revisionId: "rev-2", spec: longSegmentSpec("S02", "林深抬头看雨。", 10), derived: false },
         ],
         revision: 2,
         saves: 0,
@@ -128,6 +135,18 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         ],
     };
 
+    const failedChain = () => ({
+        id: "chain-failed",
+        projectId: FIXTURE_PROJECT_ID,
+        unitId: FIXTURE_UNIT_ID,
+        status: "failed",
+        stage: "",
+        error: "上游超时",
+        previewHash: "",
+        totalMicrocredits: 0,
+        whiteModelStoryboardEnabled: false,
+        steps: [{ shotId: FIXTURE_SHOT_ID, revisionId: "rev-1", title: "S01", scene: "E01S01", contentSeconds: 15, generationSeconds: 15, model: FIXTURE_VIDEO_MODEL, status: "failed", phase: "", error: "上游超时" }],
+    });
     const ok = (data: unknown): FixtureResponse => ({ status: 200, body: { code: 0, data, msg: "ok" } });
     const reject = (status: number, reason: string): FixtureResponse => ({ status, body: { code: status, msg: reason, reason } });
     const base = `/projects/${FIXTURE_PROJECT_ID}`;
@@ -195,7 +214,8 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
             if (path === `${base}/drama/segments`) return ok({ segments: state.segments });
             if (path === `${base}/units/${FIXTURE_UNIT_ID}/drama/shotlist`) return ok({ shotlist: null });
             if (path === `${base}/units/${FIXTURE_UNIT_ID}/drama/scenes`) return ok({ unitId: FIXTURE_UNIT_ID, title: unit.title, episode: 1, fromChapters: false, rule: 15, scenes: [], paletteReady: false });
-            if (path === `${base}/video-chains`) return ok({ chains: [] });
+            // failedVideo：S01 有一条出片失败的历史链（只用来让底栏出现「重新出失败的段」次按钮，不会被点）。
+            if (path === `${base}/video-chains`) return ok({ chains: options.failedVideo ? [failedChain()] : [] });
             if (path === "/drama/shot-vocab") return ok({ vocab: { sizes: ["远景", "全景", "中景", "近景", "特写"], cameras: ["固定机位", "推", "拉", "摇"], transitions: [] } });
             if (path === "/model-catalog") return ok(catalog);
             if (path === "/wallet") return ok({ account: { availableMicrocredits: 9_000_000_000, frozenMicrocredits: 0 }, transactions: [], total: 0, page: 1, pageSize: 1 });

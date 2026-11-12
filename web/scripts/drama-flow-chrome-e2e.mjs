@@ -200,6 +200,221 @@ const crashed = `/页面运行异常|is not a function/.test(document.body.inner
 const summary = (label) => `[...document.querySelectorAll("dl.drama-flow-summary > div")].find((row) => row.querySelector("dt")?.textContent === ${JSON.stringify(label)})?.querySelector("dd")?.textContent`;
 const info = (label) => `[...document.querySelectorAll("dl.drama-flow-info-facts dt")].find((dt) => dt.textContent === ${JSON.stringify(label)})?.nextElementSibling?.textContent`;
 
+const primaryButton = `document.querySelector(".drama-flow-bar-actions .ant-btn-primary")`;
+const launcherBox = `(() => { const el = document.querySelector(".canvas-agent-launcher"); if (!el || getComputedStyle(el).display === "none") return null; const r = el.getBoundingClientRect();
+  return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), media: /launcher-(media|live2d)/.test(el.className), collapsed: el.classList.contains("is-collapsed") }; })()`;
+
+/** 按钮中心和四个内缩角都要点在按钮自己（或它的子元素）上。 */
+const hitTest = (locator) => `(() => { const el = ${locator}; if (!el) return { ok: false, reason: "no-element" }; const r = el.getBoundingClientRect(); const pad = 3;
+  const points = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + pad, r.top + pad], [r.right - pad, r.top + pad], [r.left + pad, r.bottom - pad], [r.right - pad, r.bottom - pad]];
+  const misses = points.filter(([x, y]) => { const hit = document.elementFromPoint(x, y); return !hit || (hit !== el && !el.contains(hit)); }).map(([x, y]) => { const hit = document.elementFromPoint(x, y); return { x: Math.round(x), y: Math.round(y), hit: String(hit?.className || hit?.tagName).slice(0, 60) }; });
+  return { ok: !misses.length, misses, rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) } }; })()`;
+
+/** 详情栏里每个按钮滚进可见区后，中心要能点到它自己（真人会滚动详情栏）。 */
+const paneButtonsHit = `(() => { const pane = document.querySelector("aside.drama-flow-pane"); if (!pane) return { ok: false, reason: "no-pane" }; const body = pane.querySelector(".drama-flow-pane-body");
+  const buttons = [...pane.querySelectorAll("button")].filter((el) => el.getClientRects().length);
+  const misses = [];
+  for (const el of buttons) { el.scrollIntoView({ block: "nearest" }); const r = el.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); if (!hit || (hit !== el && !el.contains(hit))) misses.push((el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 30) + " -> " + String(hit?.className || hit?.tagName).slice(0, 40)); }
+  const box = pane.getBoundingClientRect();
+  return { ok: buttons.length > 0 && !misses.length, buttons: buttons.length, misses, scrolls: body ? body.scrollHeight > body.clientHeight : false, pane: { top: Math.round(box.top), bottom: Math.round(box.bottom), right: Math.round(box.right) }, paneMax: getComputedStyle(pane).getPropertyValue("--drama-flow-pane-max"), clear: getComputedStyle(pane).getPropertyValue("--drama-flow-launcher-clear") }; })()`;
+
+/** 等浮层尺寸和位置连续 2 秒不变（头像媒体加载完会变大），超时返回最后一次读数。 */
+async function stableLauncher(cdp) {
+    let last = "";
+    let same = 0;
+    let box = null;
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+        box = await cdp.evaluate(launcherBox);
+        const key = JSON.stringify(box);
+        same = key === last ? same + 1 : 0;
+        last = key;
+        if (box && same >= 5) return box;
+        await sleep(400);
+    }
+    return box;
+}
+
+async function footerCase(cdp, { viewport, theme, collapsed, outDir, expectWrap = false }) {
+    const label = `${viewport.width}×${viewport.height} ${theme === "dark" ? "暗" : "亮"} ${collapsed ? "收起" : "展开"}`;
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false });
+    // 主题是用户偏好，按应用自己的存储写入后重开页面。
+    await cdp.evaluate(`localStorage.setItem("yingce:theme_store", JSON.stringify({ state: { theme: ${JSON.stringify(theme)} }, version: 0 }))`);
+    await cdp.navigate(`/drama-flow/${P}/shots?item=${FIXTURE_SHOT_ID}`);
+    const actual = await cdp.evaluate(`({ width: innerWidth, height: innerHeight, dark: document.documentElement.classList.contains("dark") })`);
+    check(await cdp.poll(`document.documentElement.classList.contains("dark") === ${theme === "dark"}`, "theme"), `${label}：主题生效`, JSON.stringify(actual));
+
+    // 这个夹具状态下底栏一定有主操作「处理 1 件待办」：没有按钮直接判失败，不和「没被挡」混为一项。
+    check(await cdp.poll(exists(primaryButton), "primary button", 20000), `${label}：底栏主操作存在`);
+    check(await cdp.poll(`Boolean(${launcherBox})`, "launcher"), `${label}：柚智浮层已挂载`);
+    const initial = await cdp.evaluate(hitTest(primaryButton));
+    check(initial.ok, `${label}：初次进入时底栏主操作没被盖住`, JSON.stringify(initial));
+
+    let launcher = await stableLauncher(cdp);
+    if (launcher && launcher.collapsed !== collapsed) {
+        await cdp.click(`document.querySelector(".canvas-agent-launcher-toggle")`, `${collapsed ? "收起" : "展开"}柚智`);
+        launcher = await stableLauncher(cdp);
+    }
+    check(launcher && launcher.collapsed === collapsed, `${label}：柚智处于${collapsed ? "收起" : "展开"}状态且尺寸稳定`, JSON.stringify(launcher));
+    await sleep(300);
+    const stable = await cdp.evaluate(hitTest(primaryButton));
+    check(stable.ok, `${label}：浮层稳定后底栏主操作没被盖住`, JSON.stringify(stable));
+    const bar =
+        await cdp.evaluate(`(() => { const bar = document.querySelector(".drama-flow-bar"); const status = bar.querySelector(".drama-flow-bar-status").getBoundingClientRect(); const actions = bar.querySelector(".drama-flow-bar-actions").getBoundingClientRect();
+      return { inset: getComputedStyle(bar).getPropertyValue("--drama-flow-launcher-inset"), wrapped: actions.top >= status.bottom - 1, text: bar.innerText.split(String.fromCharCode(10)).join(" / "), bar: Math.round(bar.getBoundingClientRect().width), status: [Math.round(status.width), Math.round(status.height)], actions: [Math.round(actions.width), Math.round(actions.height)] }; })()`);
+    // 给浮层让位后说明文字不能被挤成窄条：放不下时应整行换行，而不是压缩文字。
+    check(bar.status[0] >= 150, `${label}：底栏说明文字没被挤窄`, JSON.stringify(bar));
+    if (expectWrap) check(bar.wrapped, `${label}：底栏按钮已换到下一行（换行情形确实被覆盖）`, JSON.stringify(bar));
+
+    const short = await cdp.evaluate(paneButtonsHit);
+    check(short.ok, `${label}：短内容详情栏的按钮都点得到`, JSON.stringify(short));
+    // 窄屏时详情栏是盖在列表上的浮层，先收起再选下一段（真人也这样操作）。
+    await cdp.click(`document.querySelector('aside.drama-flow-pane button[aria-label="收起详情"]')`, "收起详情");
+    await cdp.poll(`!document.querySelector("aside.drama-flow-pane")`, "pane closed", 5000);
+    await cdp.click(byText("button.drama-flow-seg-head", "S02"), "选中长内容 S02");
+    await cdp.poll(`location.search.includes("item=${FIXTURE_SHOT_ID_2}")`, "S02");
+    await sleep(300);
+    const long = await cdp.evaluate(paneButtonsHit);
+    check(long.ok && long.scrolls, `${label}：长内容详情栏（需要滚动）的按钮都点得到`, JSON.stringify(long));
+    if (outDir) await cdp.shot(join(outDir, `footer-${viewport.width}-${theme}-${collapsed ? "collapsed" : "expanded"}.png`));
+
+    // 「处理待办」不花钱：真鼠标点下去，待办抽屉要真的打开。
+    await cdp.click(primaryButton, "处理待办");
+    check(await cdp.poll(`[...document.querySelectorAll(".ant-drawer-open .ant-drawer-title")].some((el) => el.textContent.includes("待办"))`, "inbox open"), `${label}：真鼠标点「处理待办」打开待办抽屉`);
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await cdp.poll(`!document.querySelector(".ant-drawer-open")`, "inbox closed", 5000);
+    return { label, viewport: actual, launcher, initial, stable, bar, short, long };
+}
+
+/** 详情栏实际几何：高度、关闭按钮能不能点到、内容在不在、能不能滚。 */
+const paneState = `(() => { const pane = document.querySelector("aside.drama-flow-pane"); if (!pane) return { open: false };
+  const r = pane.getBoundingClientRect(); const close = pane.querySelector('button[aria-label="收起详情"]'); const c = close?.getBoundingClientRect();
+  const hit = c ? document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2) : null; const body = pane.querySelector(".drama-flow-pane-body");
+  return { open: true, top: Math.round(r.top), height: Math.round(r.height), bottom: Math.round(r.bottom), closeHit: Boolean(close && hit && (hit === close || close.contains(hit))),
+    text: (body?.innerText || "").length, scrolls: body ? body.scrollHeight > body.clientHeight : false, clear: getComputedStyle(pane).getPropertyValue("--drama-flow-launcher-clear"), paneMax: getComputedStyle(pane).getPropertyValue("--drama-flow-pane-max") }; })()`;
+const agentPanelOpen = `Boolean(document.querySelector(".canvas-agent-launcher")) && getComputedStyle(document.querySelector(".canvas-agent-launcher")).display === "none"`;
+
+/** 真鼠标拖动柚智：从浮层中心按下，分几步移到终点再松开（和人拖动一样，不改应用状态）。 */
+async function dragLauncher(cdp, to) {
+    const box = await stableLauncher(cdp);
+    if (!box) return false;
+    const from = { x: box.x + Math.round(box.w / 2), y: box.y + Math.round(box.h / 2) };
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: from.x, y: from.y, button: "none", buttons: 0 });
+    await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: from.x, y: from.y, button: "left", buttons: 1, clickCount: 1 });
+    for (let step = 1; step <= 12; step += 1) {
+        const x = Math.round(from.x + ((to.x - from.x) * step) / 12);
+        const y = Math.round(from.y + ((to.y - from.y) * step) / 12);
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "left", buttons: 1 });
+        await sleep(30);
+    }
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: to.x, y: to.y, button: "left", buttons: 0, clickCount: 1 });
+    // 松手后挪开鼠标，避免悬停放大影响读数。
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 10, y: 10, button: "none", buttons: 0 });
+    return stableLauncher(cdp);
+}
+
+async function ensureLauncherCollapsed(cdp, collapsed) {
+    const box = await stableLauncher(cdp);
+    if (box && box.collapsed !== collapsed) {
+        await cdp.click(`document.querySelector(".canvas-agent-launcher-toggle")`, `${collapsed ? "收起" : "展开"}柚智`);
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 10, y: 10, button: "none", buttons: 0 });
+    }
+    return stableLauncher(cdp);
+}
+
+/** 第六轮 R5-01：把柚智拖高以后，详情栏不能被压没；拖回右下角后恢复。 */
+async function dragCases(cdp, outDir) {
+    const results = [];
+    const record = (label, state, extra = {}) => results.push({ label, ...extra, pane: state });
+
+    // 窄屏 1024×768：详情栏是固定在右侧的浮层。
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    await cdp.evaluate(`localStorage.setItem("yingce:theme_store", JSON.stringify({ state: { theme: "light" }, version: 0 }))`);
+    await cdp.navigate(`/drama-flow/${P}/shots?item=${FIXTURE_SHOT_ID}`);
+    await cdp.poll(`Boolean(document.querySelector("aside.drama-flow-pane")) && Boolean(${launcherBox})`, "pane + launcher", 20000);
+    await ensureLauncherCollapsed(cdp, false);
+    const before = await cdp.evaluate(paneState);
+    record("1024 拖动前", before);
+    const vp = await cdp.evaluate(`({ width: innerWidth, height: innerHeight })`);
+    const start = await stableLauncher(cdp);
+    const raised = await dragLauncher(cdp, { x: start.x + Math.round(start.w / 2), y: 125 });
+    check(raised && raised.y < start.y - 200, "R5-01 1024×768：真鼠标把柚智拖到上方", JSON.stringify({ start, raised }));
+    check(!(await cdp.evaluate(agentPanelOpen)), "R5-01 拖动结束没有误打开柚智对话面板");
+    await sleep(300);
+    const shortState = await cdp.evaluate(paneState);
+    record("1024 拖高后 短内容", shortState, { launcher: raised });
+    check(shortState.open && shortState.height >= 240, "R5-01 1024×768 拖高后：短内容详情栏至少 240px 高", JSON.stringify(shortState));
+    check(shortState.closeHit && shortState.text > 0, "R5-01 1024×768 拖高后：详情内容在、关闭按钮点得到", JSON.stringify(shortState));
+    if (outDir) await cdp.shot(join(outDir, "drag-1024-raised-short.png"));
+
+    // 刷新后用持久化的位置直接打开长内容段。
+    await cdp.navigate(`/drama-flow/${P}/shots?item=${FIXTURE_SHOT_ID_2}`);
+    await cdp.poll(`Boolean(document.querySelector("aside.drama-flow-pane"))`, "pane after reload", 20000);
+    const persisted = await stableLauncher(cdp);
+    await sleep(300);
+    const longState = await cdp.evaluate(paneState);
+    record("1024 刷新后 长内容", longState, { launcher: persisted });
+    // 比较中心点：刚松手时头像可能还带着按下的缩放，顶边差几像素，中心不变。
+    const center = (box) => ({ x: box.x + box.w / 2, y: box.y + box.h / 2 });
+    check(persisted && Math.abs(center(persisted).x - center(raised).x) <= 3 && Math.abs(center(persisted).y - center(raised).y) <= 3, "R5-01 刷新后柚智保持拖动后的位置", JSON.stringify({ raised, persisted }));
+    check(longState.open && longState.height >= 240 && longState.scrolls && longState.closeHit, "R5-01 刷新后长内容详情栏至少 240px、可滚动、关闭按钮点得到", JSON.stringify(longState));
+
+    // 收起后再看一次。
+    const collapsedBox = await ensureLauncherCollapsed(cdp, true);
+    await sleep(300);
+    const collapsedState = await cdp.evaluate(paneState);
+    record("1024 拖高后 收起", collapsedState, { launcher: collapsedBox });
+    check(collapsedBox?.collapsed && collapsedState.height >= 240 && collapsedState.closeHit, "R5-01 拖高后收起柚智：详情栏至少 240px、关闭按钮点得到", JSON.stringify({ collapsedBox, collapsedState }));
+
+    // 展开并拖回右下角：恢复默认让位高度，详情栏和底栏按钮都点得到。
+    const expandedAgain = await ensureLauncherCollapsed(cdp, false);
+    const back = await dragLauncher(cdp, { x: vp.width - 20 - Math.round(expandedAgain.w / 2), y: vp.height - 20 - Math.round(expandedAgain.h / 2) });
+    await sleep(300);
+    const restored = await cdp.evaluate(paneState);
+    record("1024 拖回右下角", restored, { launcher: back });
+    check(back && back.y >= start.y - 2, "R5-01 真鼠标把柚智拖回右下角", JSON.stringify({ start, back }));
+    check(restored.open && Math.abs(restored.height - before.height) <= 4, "R5-01 拖回后详情栏恢复原来的让位高度", JSON.stringify({ before, restored }));
+    const restoredButtons = await cdp.evaluate(paneButtonsHit);
+    check(restoredButtons.ok, "R5-01 拖回后详情栏按钮都点得到", JSON.stringify(restoredButtons));
+    const restoredBar = await cdp.evaluate(hitTest(primaryButton));
+    check(restoredBar.ok, "R5-01 拖回后底栏主操作点得到", JSON.stringify(restoredBar));
+    if (outDir) await cdp.shot(join(outDir, "drag-1024-restored.png"));
+
+    // 宽屏 1280×900：并排的详情栏拖高后同样不低于 240px，拖回后恢复。
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.navigate(`/drama-flow/${P}/shots?item=${FIXTURE_SHOT_ID}`);
+    await cdp.poll(`Boolean(document.querySelector("aside.drama-flow-pane")) && Boolean(${launcherBox})`, "wide pane", 20000);
+    const wideStart = await ensureLauncherCollapsed(cdp, false);
+    const wideBefore = await cdp.evaluate(paneState);
+    const wideRaised = await dragLauncher(cdp, { x: wideStart.x + Math.round(wideStart.w / 2), y: 140 });
+    await sleep(300);
+    const wideState = await cdp.evaluate(paneState);
+    record("1280 拖高后", wideState, { launcher: wideRaised });
+    check(wideState.open && wideState.height >= Math.min(240, wideBefore.height) && wideState.closeHit && wideState.text > 0, "R5-01 1280×900 拖高后：并排详情栏不塌、关闭按钮点得到", JSON.stringify({ wideBefore, wideState }));
+    if (outDir) await cdp.shot(join(outDir, "drag-1280-raised.png"));
+    await dragLauncher(cdp, { x: 1280 - 20 - Math.round(wideStart.w / 2), y: 900 - 20 - Math.round(wideStart.h / 2) });
+    await sleep(300);
+    const wideRestored = await cdp.evaluate(paneState);
+    record("1280 拖回右下角", wideRestored);
+    check(Math.abs(wideRestored.height - wideBefore.height) <= 4, "R5-01 1280×900 拖回后详情栏恢复原来的高度", JSON.stringify({ wideBefore, wideRestored }));
+
+    // 很矮的视口（1024×360）：放不下 240px 时按实际可用高度降级，不为 0、不为负。
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 360, deviceScaleFactor: 1, mobile: false });
+    await cdp.navigate(`/drama-flow/${P}/shots?item=${FIXTURE_SHOT_ID}`);
+    await cdp.poll(`Boolean(document.querySelector("aside.drama-flow-pane"))`, "short pane", 20000);
+    await stableLauncher(cdp);
+    await sleep(300);
+    const tiny = await cdp.evaluate(paneState);
+    const expectedMin = Math.min(240, 360 - tiny.top - 72);
+    record("1024×360 默认位置", tiny, { expectedMin });
+    check(tiny.open && tiny.height >= expectedMin && tiny.height > 0 && tiny.closeHit, `R5-01 1024×360：详情栏按可用高度降级（至少 ${expectedMin}px），不消失`, JSON.stringify(tiny));
+    if (outDir) await cdp.shot(join(outDir, "drag-1024x360.png"));
+
+    await cdp.send("Emulation.clearDeviceMetricsOverride");
+    return results;
+}
+
 async function main() {
     const chrome = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
     if (!chrome) throw new Error(`No Chrome found. Set CHROME_BIN. Tried:\n  ${CHROME_CANDIDATES.join("\n  ")}`);
@@ -208,7 +423,14 @@ async function main() {
     const cdpPort = await freePort();
     const profile = mkdtempSync(join(tmpdir(), "drama-flow-e2e-"));
     const origin = `http://127.0.0.1:${vitePort}`;
-    let fixture = createDramaFlowFixture();
+    // 每次换夹具都记下来：最后汇总所有夹具实例里被拦下的写请求，不只看最后一个。
+    const fixtures = [];
+    const useFixture = (options) => {
+        const next = createDramaFlowFixture(options);
+        fixtures.push(next);
+        return next;
+    };
+    let fixture = useFixture();
     let vite;
     let browser;
     let cdp;
@@ -227,12 +449,6 @@ async function main() {
         await cdp.navigate(`/drama-flow/${P}/shots`);
         // 第一次打开要等 Vite 按需编译，给足时间。
         check(await cdp.poll(exists(byText("button.drama-flow-seg-head", "S01")), "shots ready", 90000), "分镜页打开");
-        // 底栏主操作在页面最右下角，默认位置的柚智浮层不能盖住它（真人点下去会打开柚智）。
-        const barButton = `[...document.querySelectorAll(".drama-flow-bar-actions button")].at(-1)`;
-        const barHit = await cdp.evaluate(
-            `(() => { const el = ${barButton}; if (!el) return "no-button"; const r = el.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return hit === el || el.contains(hit) ? "ok" : String(hit?.className || hit?.tagName).slice(0, 80); })()`,
-        );
-        check(barHit === "ok" || barHit === "no-button", "底栏主操作没被右下角浮层盖住", barHit);
         await cdp.click(byText("button.drama-flow-seg-head", "S01"), "选中 S01");
         check(await cdp.poll(`location.search.includes("item=${FIXTURE_SHOT_ID}") && Boolean(document.querySelector("aside.drama-flow-pane"))`, "pane"), "选中后详情栏打开、地址栏带 item");
         await cdp.click(`document.querySelector('aside.drama-flow-pane button[aria-label="编辑第 1 个镜头的画面、台词和时长"]')`, "编辑第 1 个镜头");
@@ -290,13 +506,35 @@ async function main() {
         await cdp.navigate("/projects");
         await sleep(800);
 
+        // R4-02 / R4-03：底栏主操作和详情栏按钮不被右下角柚智浮层盖住（真实视口 × 亮暗 × 展开收起 × 短长内容）。
+        const geometry = [];
+        for (const viewport of [
+            { width: 1280, height: 900 },
+            { width: 1024, height: 768 },
+        ]) {
+            for (const theme of ["light", "dark"]) {
+                for (const collapsed of [false, true]) geometry.push(await footerCase(cdp, { viewport, theme, collapsed, outDir }));
+            }
+        }
+        // 更窄的视口下底栏会换行（按钮行落到说明文字下面），换行后主操作也不能被盖住。
+        // 有失败的段时底栏是两个按钮（「重新出失败的 N 段（先看花费）」+「处理 N 件待办」），会换行。次按钮只看不点。
+        fixture = useFixture({ failedVideo: true });
+        geometry.push(await footerCase(cdp, { viewport: { width: 1024, height: 768 }, theme: "light", collapsed: false, outDir, expectWrap: true }));
+        fixture = useFixture();
+        await cdp.send("Emulation.clearDeviceMetricsOverride");
+        if (outDir) writeFileSync(join(outDir, "footer-geometry.json"), JSON.stringify(geometry, null, 2));
+
+        // R5-01：真鼠标拖动柚智后，详情栏不被压没。
+        const drag = await dragCases(cdp, outDir);
+        if (outDir) writeFileSync(join(outDir, "drag-geometry.json"), JSON.stringify(drag, null, 2));
+
         // 入口开关关闭：直达路由被拦截。
-        fixture = createDramaFlowFixture({ flowEnabled: false });
+        fixture = useFixture({ flowEnabled: false });
         await cdp.navigate(`/drama-flow/${P}/shots`);
         check(await cdp.poll(`document.body.innerText.includes("短剧新工作流") && !document.querySelector(".drama-flow-shell")`, "feature off"), "开关关闭时直达路由被拦截、不进新工作流页面");
 
-        const writes = fixture.forbidden.length;
-        check(writes === 0, "没有任何生成或改项目的写请求");
+        const writes = fixtures.flatMap((item) => item.forbidden);
+        check(writes.length === 0, `没有任何生成或改项目的写请求（${fixtures.length} 个夹具实例合计）`, writes.map((call) => `${call.method} ${call.path}`).join(" | "));
         const problems = cdp.problems.filter((item) => item.kind !== "api" || !item.text.startsWith("404"));
         const unknown = cdp.problems.filter((item) => item.kind === "api" && item.text.startsWith("404"));
         if (unknown.length) console.log(`      夹具没覆盖的读接口：\n        ${[...new Set(unknown.map((item) => item.text))].join("\n        ")}`);
