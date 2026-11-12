@@ -2,6 +2,8 @@ import { useEffect, type ReactNode } from "react";
 import { Button } from "antd";
 import { X } from "lucide-react";
 
+import { useLauncherInset } from "../hooks/use-launcher-inset";
+
 /**
  * 一步的工作区：左边是产物，右边是选中项的详情栏。详情栏不盖住产物，宽屏时并排、窄屏时从右侧滑出。
  * Esc 收起详情栏（正在输入或开着弹窗时不收）。
@@ -26,8 +28,10 @@ export function DetailPane({ title, subtitle, onClose, children, actions }: { ti
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, [onClose]);
+    // 详情栏的下边缘按右下角柚智浮层的实际占位停在它上方，栏里没有被盖住的死角。
+    const launcher = useLauncherInset("pane");
     return (
-        <aside className="drama-flow-pane" aria-label="详情">
+        <aside ref={launcher.ref} className="drama-flow-pane" aria-label="详情" style={launcher.style}>
             <header className="drama-flow-pane-head">
                 <div className="min-w-0">
                     <h3>{title}</h3>

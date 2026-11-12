@@ -9,6 +9,7 @@ import { agentAvatarClipForState, agentAvatarStateForRunStatus, agentCopy, DEFAU
 import { type CSSProperties, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePopoverAnchorAlign } from "@/hooks/use-popover-anchor-align";
 import { useAgentLauncherPosition } from "./use-agent-launcher-position";
+import { publishAgentLauncherFootprint } from "@/lib/agent-launcher-footprint";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { Live2DAvatar } from "./live2d-avatar";
@@ -119,6 +120,12 @@ export const AgentLauncher = memo(function AgentLauncher({
     const width = collapsed ? AGENT_LAUNCHER_COLLAPSED_SIZE : keepsAvatarSize ? Math.round(height * aspectRatio) : 76;
     const { position, dragging, handlers } = useAgentLauncherPosition(onOpen, width, height);
     const showToggle = !hidden && (largeAvatar || collapsed);
+    // 把当前占位发布给页面（只读）：页面据此给右下角的按钮让位。拖动中不发，松手后发最终位置。
+    useEffect(() => {
+        if (dragging) return;
+        publishAgentLauncherFootprint(hidden ? null : { right: position.right, bottom: position.bottom, width, height, overhang: showToggle ? AGENT_LAUNCHER_TOGGLE_OVERHANG : 0 });
+    }, [dragging, hidden, position.right, position.bottom, width, height, showToggle]);
+    useEffect(() => () => publishAgentLauncherFootprint(null), []);
     return (
         <>
             <motion.button
@@ -197,6 +204,8 @@ export const AgentLauncher = memo(function AgentLauncher({
 
 const AGENT_LAUNCHER_COLLAPSED_KEY = "canvas:agent-launcher-collapsed:v1";
 const AGENT_LAUNCHER_COLLAPSED_SIZE = 48;
+/** 收起按钮 22px，锚在浮层左上角往里 14px，向外伸出 8px。 */
+const AGENT_LAUNCHER_TOGGLE_OVERHANG = 8;
 
 function readAgentLauncherCollapsed() {
     try {
