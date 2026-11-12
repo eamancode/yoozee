@@ -7,7 +7,6 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
 import { useDramaModelConfig } from "@/hooks/use-drama-model-config";
 import { navigateToSettings } from "@/lib/settings-navigation";
-import { projectLockedStyle } from "@/pages/projects/workbench/detail/chapter-style-lock";
 import { dramaImageStatusOf } from "@/pages/projects/workbench/detail/drama-image-summary";
 import { assetImageTaskTemplate } from "@/pages/projects/workbench/detail/drama-image-task";
 import { dramaProgressKey } from "@/pages/projects/workbench/detail/drama-panels";
@@ -95,7 +94,9 @@ export default function DramaFlowDetailPage() {
     );
 
     const [ignored, setIgnored] = useState<string[]>(() => readIgnoredSuggestions(userId, projectId));
-    useEffect(() => setIgnored(readIgnoredSuggestions(userId, projectId)), [userId, projectId]);
+    useEffect(() => {
+        setIgnored(readIgnoredSuggestions(userId, projectId));
+    }, [userId, projectId]);
     const inbox = useMemo(
         () =>
             buildInbox({
@@ -129,7 +130,7 @@ export default function DramaFlowDetailPage() {
         const progressRead = Boolean(progress) && !pipelineQuery.isError;
         return stageFacts({
             episodes: episodes && !data.episodesQuery.isError ? episodes.episodes.length : undefined,
-            styleLocked: bible && !data.bibleQuery.isError ? Boolean(projectLockedStyle(project?.bibleJson) || bible.style_anchor) : undefined,
+            style: data.styleLock === "loading" || data.styleLock === "error" ? undefined : data.styleLock,
             palettes: assetsRead ? { ready: scenePalettes.filter((asset) => asset.palette?.imageStatus === "bound").length, total: scenePalettes.length } : undefined,
             assets: assetsRead ? { bound: visual.filter((asset) => dramaImageStatusOf(asset) === "bound").length, total: visual.length, failed: visual.filter((asset) => ["failed", "stale"].includes(dramaImageStatusOf(asset) || "")).length } : undefined,
             counts: progressRead && progress ? progress.counts : undefined,

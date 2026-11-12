@@ -6,7 +6,11 @@ describe("项目风格引导", () => {
     test("生成章节分段对话框在没锁定项目风格时直接提示，不能提交", async () => {
         const source = await read("pages/projects/workbench/detail/chapters.tsx");
         // 分镜按锁定的项目风格写画面；改版前带画风原文的老项目照旧可用。
-        expect(source).toContain("const projectStyleMissing = !projectLockedStyle(detail.project.bibleJson).locked && !parseStyleProfile(detail.project.styleProfileJson)?.prompt.trim();");
+        // 判定挪到共享函数里，新工作流的「生成分镜」也用它，两边同一口径。
+        expect(source).toContain("const projectStyleMissing = styleMissingOf(detail.project);");
+        const lock = await read("pages/projects/workbench/detail/chapter-style-lock.tsx");
+        expect(lock).toContain("return !projectLockedStyle(project.bibleJson).locked && !parseStyleProfile(project.styleProfileJson)?.prompt.trim();");
+        expect(await read("pages/drama-flow/hooks/use-storyboard-run.tsx")).toContain("if (projectStyleMissing(project)) return message.warning(");
         expect(source).toContain("okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }}");
         expect(source).toContain("项目还没锁定风格");
     });

@@ -81,7 +81,10 @@ export function LookAssets({
     const failed = mains.filter((_, index) => isBad(statuses[index]));
     const selected = mains.find((asset) => asset.id === selectedId);
     const focusRef = useRef<HTMLButtonElement | null>(null);
-    useEffect(() => focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), [selectedId]);
+    // 函数体要带大括号：新版 Chrome 的 scrollIntoView 返回 Promise，箭头函数隐式返回它，React 会把它当清理函数调用而崩溃。
+    useEffect(() => {
+        focusRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [selectedId]);
 
     return (
         <StageLayout

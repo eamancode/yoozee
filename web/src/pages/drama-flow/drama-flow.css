@@ -686,10 +686,15 @@
 }
 
 .drama-flow-pane-body {
+    /*
+     * 右下角的柚智浮层默认离底 20px、头像高 220px，会盖住详情栏底部靠右的按钮（如分镜卡的「保存」）。
+     * 滚动区底部留出这段距离：内容短时按钮离详情栏底边至少这么高，内容长时也能滚到浮层上方。
+     */
+    --drama-flow-launcher-reserve: 240px;
     display: grid;
     align-content: start;
     gap: var(--space-4);
-    padding: var(--space-4);
+    padding: var(--space-4) var(--space-4) calc(var(--space-4) + var(--drama-flow-launcher-reserve));
     overflow-y: auto;
 }
 

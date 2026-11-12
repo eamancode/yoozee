@@ -5,7 +5,7 @@ import { App, Button } from "antd";
 import { StyleAnchorSummary } from "@/components/drama/master-palette";
 import { AssetsExtractControl } from "@/pages/projects/workbench/detail/chapter-assets-extract";
 import { ScenePaletteControl } from "@/pages/projects/workbench/detail/chapter-scene-palette";
-import { projectLockedStyle, StyleLockControl } from "@/pages/projects/workbench/detail/chapter-style-lock";
+import { StyleLockControl } from "@/pages/projects/workbench/detail/chapter-style-lock";
 import { StyleBibleEditor } from "@/pages/projects/workbench/detail/drama-style-bible-editor";
 import { DramaAssetChecklist, dramaBibleKey } from "@/pages/projects/workbench/detail/drama-panels";
 import { dramaImageStatusOf } from "@/pages/projects/workbench/detail/drama-image-summary";
@@ -15,6 +15,7 @@ import { unlinkProjectAsset, type ProjectAsset } from "@/services/api/projects";
 
 import type { FlowData } from "../hooks/use-flow-data";
 import type { FlowStageView } from "../model/stages";
+import { STYLE_LOCK_TEXT, type StyleLockState } from "../model/style-lock";
 import { LookAssets } from "./look-assets";
 import { ReadError, StageLayout, StageTabs, SummaryRow, type StageTab } from "./layout";
 
@@ -55,7 +56,6 @@ export function StageLook({
     const count = (category: string) => (assetsUnread ? undefined : assets.filter((asset) => asset.category === category && !asset.variant).length);
     const bad = (category: string) => assets.some((asset) => asset.category === category && ["failed", "stale"].includes(dramaImageStatusOf(asset) || ""));
     const palettes = assets.filter((asset) => asset.category === "palette");
-    const locked = projectLockedStyle(project?.bibleJson);
     const tabs: StageTab<LookTab>[] = [
         { key: "style", label: "画风" },
         { key: "palette", label: "色卡", count: assetsUnread ? undefined : palettes.length },
@@ -85,7 +85,7 @@ export function StageLook({
                 bibleQuery.isError ? (
                     <ReadError what="风格档案" onRetry={() => void bibleQuery.refetch()} />
                 ) : (
-                    <LookStyle projectId={project.id} bible={bible} locked={Boolean(locked)} />
+                    <LookStyle projectId={project.id} bible={bible} lock={data.styleLock} />
                 )
             ) : (active === "palette" || assetsTab) && assetsQuery.isError ? (
                 <ReadError what="资产和色卡" onRetry={() => void assetsQuery.refetch()} />
@@ -110,7 +110,7 @@ export function StageLook({
     );
 }
 
-function LookStyle({ projectId, bible, locked }: { projectId: string; bible?: DramaBible; locked: boolean }) {
+function LookStyle({ projectId, bible, lock }: { projectId: string; bible?: DramaBible; lock: StyleLockState }) {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const [draft, setDraft] = useState<DramaBible | undefined>(undefined);
@@ -129,7 +129,7 @@ function LookStyle({ projectId, bible, locked }: { projectId: string; bible?: Dr
         <StageLayout>
             <SummaryRow
                 items={[
-                    { label: "状态", value: locked ? "已锁定" : "还没锁定", tone: locked ? "ok" : "warn" },
+                    { label: "状态", value: STYLE_LOCK_TEXT[lock], tone: lock === "locked" ? "ok" : lock === "error" ? "bad" : lock === "loading" ? undefined : "warn" },
                     { label: "来源", value: record ? MASTER_PALETTE_SOURCE_LABELS[record.source] || record.source : "—" },
                     { label: "主基调色", value: bible?.master_palette ? `${(bible.master_palette.groups || []).reduce((sum, group) => sum + (group.colors?.length || 0), 0)} 色` : "—" },
                     { label: "场次色彩脚本", value: bible?.color_script?.length ? `${bible.color_script.length} 场` : "—" },
@@ -169,7 +169,7 @@ function LookStyle({ projectId, bible, locked }: { projectId: string; bible?: Dr
             {anchor && !draft ? (
                 <div className="drama-flow-panel">
                     <div className="drama-flow-panel-head">
-                        <h3>当前锁定的风格</h3>
+                        <h3>{lock === "locked" ? "当前锁定的风格" : "当前风格锚（还没锁定）"}</h3>
                     </div>
                     <StyleAnchorSummary anchor={anchor} />
                 </div>

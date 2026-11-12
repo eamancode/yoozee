@@ -15,6 +15,7 @@ import { listVideoChains, type VideoChain } from "@/services/api/project-video-c
 import { getProjectCore, getProjectUnitWorkspace, listProjectAssets, listProjectUnits, type ProjectDetail } from "@/services/api/projects";
 import { listGenerationTasks } from "@/services/api/task-center";
 
+import { styleLockState } from "../model/style-lock";
 import { combineReadStates, queryReadState, videoStateRead, type ReadState } from "../model/read-state";
 import { activeChainIds, latestVideoSteps, type ShotVideoStep } from "../model/video-steps";
 
@@ -211,7 +212,11 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
         videosRead,
         assets,
         projectTasks,
+        /** 运行记录（最近 100 次）能不能拿来算花费：默认的空数组不等于「读到了空列表」。 */
+        tasksRead: queryReadState(tasksQuery),
         bible: bibleQuery.data,
+        /** 画风锁定状态：和旧工作台同一口径，读失败单独一态。 */
+        styleLock: styleLockState(bibleQuery),
         brief: briefQuery.data,
         episodes: episodesQuery.data,
         dramaModel,

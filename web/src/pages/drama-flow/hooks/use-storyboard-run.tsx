@@ -5,7 +5,7 @@ import { App } from "antd";
 import { useDramaModelConfig } from "@/hooks/use-drama-model-config";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { parseShotStream } from "@/pages/projects/workbench/detail/chapter-shot-stream";
-import { projectLockedStyle } from "@/pages/projects/workbench/detail/chapter-style-lock";
+import { projectStyleMissing } from "@/pages/projects/workbench/detail/chapter-style-lock";
 import { dramaShotlistKey } from "@/pages/projects/workbench/detail/drama-panels";
 import { chapterTaskIdentity, generateChapterStoryboard } from "@/pages/projects/workbench/detail/project-chapter-ai";
 import { chapterSegmentDiscards, segmentDiscardLine } from "@/pages/projects/workbench/detail/segment-discard";
@@ -91,7 +91,8 @@ export function useStoryboardRun(data: FlowData) {
 
     const generate = async (onlySections?: string[]) => {
         if (!project || !unit || !detail) return;
-        if (!projectLockedStyle(project.bibleJson)) return message.warning("项目还没锁定画风：先到「定妆 · 画风」让导演定画风，再生成分镜");
+        // 和旧工作台同一口径：没有锁定的风格锚、画风快照也没写风格提示词，才拦下。
+        if (projectStyleMissing(project)) return message.warning("项目还没锁定画风：先到「定妆 · 画风」让导演定画风，再生成分镜");
         if (!segmentRule || segmentRule.problem) return message.warning(`${segmentRule?.problem || "生成模型没读到"}，先在项目信息里换模型`);
         const textModel = effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
         const config = { ...effectiveConfig, model: textModel, textModel };

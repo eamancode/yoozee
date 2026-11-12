@@ -28,7 +28,7 @@ export function InboxPanel({
     onIgnore: (item: InboxItem) => void;
 }) {
     return (
-        <AppDrawer open={open} onClose={onClose} title={`待办（${items.length}）`} width={420}>
+        <AppDrawer open={open} onClose={onClose} title={`待办（${items.length}）`} size={420}>
             {items.length ? (
                 <div className="drama-flow-inbox">
                     {GROUPS.map((group) => {

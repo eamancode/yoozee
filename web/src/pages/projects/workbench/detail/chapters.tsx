@@ -52,7 +52,6 @@ import { useNavigate, useParams } from "react-router";
 
 import { ModelPicker } from "@/components/model-picker";
 import { WorkspaceState } from "@/components/layout/workspace-state";
-import { parseStyleProfile } from "@/lib/canvas/style-profile";
 import { decodeNovelText, splitTextIntoChapters } from "@/lib/canvas/canvas-document";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
@@ -90,7 +89,7 @@ import { chapterTaskIdentity, followDramaRunTask, generateChapterStoryboard, isS
 import { AssetsExtractControl } from "./chapter-assets-extract";
 import { ScriptAdaptControl } from "./chapter-script-adapt";
 import { followChainedScenePalette, ScenePaletteControl } from "./chapter-scene-palette";
-import { projectLockedStyle, StyleLockControl } from "./chapter-style-lock";
+import { projectStyleMissing as styleMissingOf, StyleLockControl } from "./chapter-style-lock";
 import { ChapterSceneList } from "./chapter-scene-list";
 import { withEpisodeSourcesComment } from "./episode-sources";
 import { projectSceneCode, unitEpisodeNumber } from "./unit-numbering";
@@ -230,7 +229,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     // 建项目时画风可以先空着，但生成分镜要按画风写画面：在对话框里直接说明并给入口，而不是提交后顶部闪一下。
     // 提示词在服务端组装，画风原文取项目保存的画风快照；只存了预设 ID 的老项目要在项目设置里重新保存一次画风。
     // 分镜按项目风格写画面：锁定了风格（导演定画风或从风格中心挑）才能生成；改版前带画风原文的老项目照旧可用。
-    const projectStyleMissing = !projectLockedStyle(detail.project.bibleJson).locked && !parseStyleProfile(detail.project.styleProfileJson)?.prompt.trim();
+    const projectStyleMissing = styleMissingOf(detail.project);
     // 生成分段用哪个技能由项目风格档案绑定（后台「流程技能」），对话框只显示，不让选。
     const storyboardStepQuery = useQuery({
         queryKey: ["project", detail.project.id, "drama-step", "chapter.shots", detail.project.styleProfile || "", dramaRule.maxSeconds, dramaRule.minSeconds],
