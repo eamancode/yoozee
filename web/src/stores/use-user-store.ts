@@ -34,6 +34,8 @@ export type RuntimeLimits = {
 export type FeatureAvailability = {
     welcomeEnabled: boolean;
     shortDramaEnabled: boolean;
+    /** 短剧新工作流入口（/drama-flow）；依赖 shortDramaEnabled，默认关闭。 */
+    dramaFlowEnabled: boolean;
     taskCenterEnabled: boolean;
     creditsEnabled: boolean;
     customChannelsEnabled: boolean;
@@ -52,6 +54,7 @@ export type FeatureAvailability = {
 export const defaultFeatureAvailability: FeatureAvailability = {
     welcomeEnabled: true,
     shortDramaEnabled: true,
+    dramaFlowEnabled: false,
     taskCenterEnabled: true,
     creditsEnabled: true,
     customChannelsEnabled: true,

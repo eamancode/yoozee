@@ -4,6 +4,9 @@ const workspaceRouteLoaders = {
     create: () => import("@/pages/create"),
     projects: () => import("@/pages/projects/workbench"),
     projectDetail: () => import("@/pages/projects/workbench/detail"),
+    "drama-flow": () => import("@/pages/drama-flow"),
+    dramaFlowCreate: () => import("@/pages/drama-flow/create"),
+    dramaFlowDetail: () => import("@/pages/drama-flow/detail"),
 
     skillWorkbench: () => import("@/pages/skills/workbench"),
 };
@@ -14,6 +17,9 @@ export const loadCanvasProjectPage = () => import("@/pages/canvas/project");
 export const loadCreatePage = workspaceRouteLoaders.create;
 export const loadProjectDetailPage = workspaceRouteLoaders.projectDetail;
 export const loadProjectsPage = workspaceRouteLoaders.projects;
+export const loadDramaFlowPage = workspaceRouteLoaders["drama-flow"];
+export const loadDramaFlowCreatePage = workspaceRouteLoaders.dramaFlowCreate;
+export const loadDramaFlowDetailPage = workspaceRouteLoaders.dramaFlowDetail;
 export const loadSkillWorkbenchPage = workspaceRouteLoaders.skillWorkbench;
 
 export function preloadWorkspaceRoute(pathnameOrSlug: string) {
@@ -24,6 +30,10 @@ export function preloadWorkspaceRoute(pathnameOrSlug: string) {
     if (slug === "canvas" && segments.length > 1) return;
     if (slug === "projects" && segments.length > 1) {
         void workspaceRouteLoaders.projectDetail();
+        return;
+    }
+    if (slug === "drama-flow" && segments.length > 1) {
+        void (segments[1] === "new" ? workspaceRouteLoaders.dramaFlowCreate() : workspaceRouteLoaders.dramaFlowDetail());
         return;
     }
     if (slug === "skills" && segments[2] === "edit") {

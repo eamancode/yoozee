@@ -42,12 +42,16 @@ type Notice = { text: string; undo?: () => void };
  * 首页建项作曲区（一页四段）：要拍什么 → 画面类型 → 画风从哪来 → 怎么做。开始输入或拖入文件后原地展开四段，
  * 底部摘要栏一句话复述全部选择，唯一主按钮「开始制作」（Ctrl/⌘+Enter）。建项后由服务端流水线按生成模式往下做。
  */
-export function ProjectComposer() {
+export function ProjectComposer({ flow = false }: { flow?: boolean } = {}) {
     const userId = useUserStore((state) => state.user?.id || "guest");
-    return <AccountProjectComposer key={userId} userId={userId} />;
+    return <AccountProjectComposer key={userId} userId={userId} flow={flow} />;
 }
 
-function AccountProjectComposer({ userId }: { userId: string }) {
+/**
+ * flow：短剧新工作流的新建页用。四段全部直接展开、都带默认值，底部写明建好后做到哪一步；
+ * 建好后进 /drama-flow/:id。不传时行为和旧入口完全一样。
+ */
+function AccountProjectComposer({ userId, flow }: { userId: string; flow: boolean }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { message } = App.useApp();
@@ -142,7 +146,7 @@ function AccountProjectComposer({ userId }: { userId: string }) {
 
     const detection = useMemo(() => (draft.text.trim() ? detectProjectSource(draft.text) : undefined), [draft.text]);
     const kind: ProjectSourceKind | undefined = draft.kind || detection?.kind;
-    const expanded = Boolean(draft.text.trim()) || Boolean(draft.blank);
+    const expanded = flow || Boolean(draft.text.trim()) || Boolean(draft.blank);
     const sourceUnits = useMemo(() => {
         if (!draft.text.trim() || !kind || kind === "idea") return [];
         return importedUnits(draft.text, kind, draft.fileName ? draft.fileSplit !== false : true);
@@ -344,7 +348,7 @@ function AccountProjectComposer({ userId }: { userId: string }) {
             setDraft(EMPTY_PROJECT_DRAFT);
             setImages([]);
             void queryClient.invalidateQueries({ queryKey: ["projects"] });
-            navigate(`/projects/${project.id}/overview`);
+            navigate(flow ? `/drama-flow/${project.id}` : `/projects/${project.id}/overview`);
         } catch (error) {
             if (!isCurrentUser()) return;
             const section = composerSectionOfError(error);
@@ -449,7 +453,7 @@ function AccountProjectComposer({ userId }: { userId: string }) {
                     <Button size="small" icon={<FileUp className="size-3.5" />} onClick={() => setImportOpen(true)}>
                         导入文件
                     </Button>
-                    {!expanded ? (
+                    {!expanded || (flow && !draft.blank && !draft.text.trim()) ? (
                         <button type="button" className="project-create-text-button" onClick={() => update({ blank: true })}>
                             先建一个空项目
                         </button>
@@ -606,6 +610,12 @@ function AccountProjectComposer({ userId }: { userId: string }) {
                         />
                     </ComposerSectionShell>
 
+                    {flow ? (
+                        <p className="project-create-note" role="status">
+                            建好后{dramaRunModeLabel(draft.runMode)}
+                            {segmentEstimate ? `，按现在的设置约 ${segmentEstimate} 段` : ""}；出视频要花钱，任何模式都会先给你看预估花费再开始。
+                        </p>
+                    ) : null}
                     <div className="project-create-summary" role="region" aria-label="摘要">
                         <p className="project-create-summary-text">
                             <SummaryPart onClick={() => scrollTo("source")}>「{projectName}」</SummaryPart>

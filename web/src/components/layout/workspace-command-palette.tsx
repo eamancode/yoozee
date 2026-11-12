@@ -1,4 +1,4 @@
-import { Command, Home, Search, X } from "lucide-react";
+import { Command, Home, Search, Workflow, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useNavigate } from "react-router";
 
@@ -32,6 +32,7 @@ export function WorkspaceCommandPalette({ open, onClose }: { open: boolean; onCl
         return [
             { id: "home", title: "首页", icon: Home, to: "/" },
             ...(features.shortDramaEnabled ? [toolEntry("projects", "/projects")] : []),
+            ...(features.shortDramaEnabled && features.dramaFlowEnabled ? [{ id: "drama-flow", title: "短剧新工作流", icon: Workflow, to: "/drama-flow" }] : []),
             toolEntry("canvas", "/canvas"),
             ...(features.taskCenterEnabled ? [toolEntry("tasks", "/tasks")] : []),
             toolEntry("assets", "/assets"),
