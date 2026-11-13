@@ -11,7 +11,7 @@ import { unitsOfKind } from "@/pages/projects/workbench/detail/unit-numbering";
 import { useProjectPipeline } from "@/pages/projects/workbench/detail/use-project-pipeline";
 import { findDramaModel, projectVideoModel, useDramaModels } from "@/pages/projects/workbench/drama-model";
 import { dramaEpisodesKey, getDramaBible, getDramaBrief, getDramaEpisodes } from "@/services/api/project-drama";
-import { listVideoChains, type VideoChain } from "@/services/api/project-video-chains";
+import { videoChainsQuery, type VideoChain, type VideoChainList } from "@/services/api/project-video-chains";
 import { getProjectCore, getProjectUnitWorkspace, listProjectAssets, listProjectUnits, type ProjectDetail } from "@/services/api/projects";
 import { listGenerationTasks } from "@/services/api/task-center";
 
@@ -19,7 +19,6 @@ import { styleLockState } from "../model/style-lock";
 import { combineReadStates, queryReadState, videoStateRead, type ReadState } from "../model/read-state";
 import { activeChainIds, latestVideoSteps, type ShotVideoStep } from "../model/video-steps";
 
-export const videoChainsKey = (projectId: string, unitId: string) => ["project-video-chains", projectId, unitId] as const;
 export const unitWorkspaceKey = (projectId: string, unitId: string) => ["project", projectId, "unit-workspace", unitId] as const;
 /** 和旧章节页同一个 key：剧本优化、定画风、色卡、提取资产的控件都从这里认自己的任务。 */
 export const projectTasksKey = (projectId: string) => ["project-chapter-generation-tasks", projectId] as const;
@@ -90,11 +89,11 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
     const unitSegments = useMemo(() => segments.filter((item) => item.unitId === unitId), [segments, unitId]);
     const chainUnitIds = useMemo(() => [...new Set(segments.map((item) => item.unitId))], [segments]);
     const chainQueries = useQueries({
+        // 和连续生成面板共用同一个 key 和同一种缓存形状（接口原样的 { chains }），这里读 .chains 拿数组。
         queries: chainUnitIds.map((id) => ({
-            queryKey: videoChainsKey(projectId, id),
-            queryFn: async ({ signal }: { signal: AbortSignal }) => (await listVideoChains(projectId, id, signal)).chains,
+            ...videoChainsQuery(projectId, id),
             enabled: Boolean(projectId),
-            refetchInterval: (query: { state: { data?: VideoChain[] } }) => (activeChainIds(query.state.data || []).length ? 8000 : false),
+            refetchInterval: (query: { state: { data?: VideoChainList } }) => (activeChainIds(query.state.data?.chains || []).length ? 8000 : false),
         })),
     });
     const chainsState = chainQueries.map((query) => query.dataUpdatedAt).join(",");
@@ -115,7 +114,7 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
         const active: string[] = [];
         const byUnit = new Map<string, VideoChain[]>();
         chainQueries.forEach((query, index) => {
-            const chains = query.data || [];
+            const chains = query.data?.chains || [];
             byUnit.set(chainUnitIds[index], chains);
             for (const [shotId, step] of latestVideoSteps(chains)) merged.set(shotId, step);
             active.push(...activeChainIds(chains));

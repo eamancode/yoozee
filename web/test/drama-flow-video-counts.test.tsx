@@ -3,7 +3,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { projectTasksKey, unitWorkspaceKey, useFlowData, videoChainsKey } from "../src/pages/drama-flow/hooks/use-flow-data";
+import { projectTasksKey, unitWorkspaceKey, useFlowData } from "../src/pages/drama-flow/hooks/use-flow-data";
+import { videoChainsKey } from "../src/services/api/project-video-chains";
 import { StageVideo } from "../src/pages/drama-flow/parts/stage-video";
 import { dramaBriefKey } from "../src/pages/projects/workbench/detail/drama-brief";
 import { dramaBibleKey, dramaProgressKey } from "../src/pages/projects/workbench/detail/drama-panels";
@@ -83,7 +84,7 @@ test("进度刷新失败但还有旧缓存：同样不拿旧数字顶替", () =>
         .getQueryCache()
         .find({ queryKey: dramaProgressKey("p1") })!
         .setState({ error: new Error("刷新失败"), status: "error" });
-    client.setQueryData(videoChainsKey("p1", "e1"), []);
+    client.setQueryData(videoChainsKey("p1", "e1"), { chains: [] });
     const { values } = summaryOf(client);
     for (const label of ["段", "生成中", "失败"]) expect(values[label]).toBe("没读到");
 });
@@ -108,7 +109,7 @@ test("这一集的出片链没读到：三项写「没读到」并给出重试",
 
 test("别的集的出片链没读到，不影响这一集的数字", () => {
     const client = seeded();
-    client.setQueryData(videoChainsKey("p1", "e1"), [chain("e1", [chainStep("s1", "running"), chainStep("s2", "failed")])]);
+    client.setQueryData(videoChainsKey("p1", "e1"), { chains: [chain("e1", [chainStep("s1", "running"), chainStep("s2", "failed")])] });
     fail(client, videoChainsKey("p1", "e2"));
     const { values } = summaryOf(client);
     expect(values["生成中"]).toBe("1");

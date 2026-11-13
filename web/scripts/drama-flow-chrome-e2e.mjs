@@ -415,6 +415,77 @@ async function dragCases(cdp, outDir) {
     return results;
 }
 
+/** 按去掉空白后的文字找按钮（antd 会在两个汉字的按钮文字中间加空格）。 */
+const buttonIn = (scope, text) => `[...(${scope})?.querySelectorAll("button") || []].find((el) => (el.textContent || "").split(" ").join("").trim() === ${JSON.stringify(text)})`;
+const vcard = (segmentId) => `[...document.querySelectorAll("article.drama-flow-vcard")].find((el) => el.querySelector(".drama-flow-seg-no")?.textContent === ${JSON.stringify(segmentId)})`;
+const chainModal = `document.querySelector(".ant-modal")`;
+
+/**
+ * R6-D04：出片页真实点「出这一段 / 重新出」→ 连续生成面板 → 预览花费 → 关闭。
+ * 只走只读预览；创建、续跑、取消请求由夹具拦下并判失败。
+ */
+/** 点不到时把现场记下来：真实视口、按钮和浮层位置、按钮中心实际点中了谁、工作区滚动位置，再截一张图。 */
+const clickDiagnosis = (locator) => `(() => { const el = ${locator}; const r = el?.getBoundingClientRect(); const hit = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+  const l = document.querySelector(".canvas-agent-launcher")?.getBoundingClientRect(); const work = document.querySelector(".drama-flow-work");
+  const box = (b) => b && [b.left, b.top, b.width, b.height].map((v) => Math.round(v * 10) / 10);
+  return { viewport: [innerWidth, innerHeight], button: box(r), launcher: box(l), hit: hit ? String(hit.className || hit.tagName).slice(0, 80) : null, scroll: work ? { top: work.scrollTop, max: work.scrollHeight - work.clientHeight } : null }; })()`;
+
+async function clickOrDiagnose(cdp, locator, label, outDir, shotName) {
+    if (await cdp.click(locator, label)) return true;
+    const diagnosis = await cdp.evaluate(clickDiagnosis(locator));
+    if (outDir && shotName) await cdp.shot(join(outDir, shotName));
+    check(false, `${label}：点击诊断`, JSON.stringify(diagnosis));
+    return false;
+}
+
+async function quoteCase(cdp, fixture, { label, segmentId, buttonText, previewText, viewport, outDir }) {
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false });
+    await cdp.evaluate(`localStorage.setItem("yingce:theme_store", JSON.stringify({ state: { theme: "light" }, version: 0 }))`);
+    await cdp.navigate(`/drama-flow/${P}/video`);
+    check(await cdp.poll(exists(buttonIn(vcard(segmentId), buttonText)), "video card", 20000), `${label}：${segmentId} 卡上有「${buttonText}」`);
+    check(await cdp.poll(`!(${buttonIn(vcard(segmentId), buttonText)})?.disabled`, "button enabled", 10000), `${label}：「${buttonText}」可以点`);
+    // 先等柚智头像媒体加载完、尺寸位置稳定（默认展开、默认右下位置），不靠媒体还没加载的短暂窗口。
+    const launcher = await ensureLauncherCollapsed(cdp, false);
+    check(launcher && launcher.media && !launcher.collapsed, `${label}：柚智默认展开、媒体已加载且稳定`, JSON.stringify(launcher));
+    // 和真人一样先把按钮滚进工作区的可见范围（窄屏时 S02 在首屏下面），再查中心和四角。
+    await cdp.evaluate(`void (${buttonIn(vcard(segmentId), buttonText)})?.scrollIntoView({ block: "nearest" })`);
+    await sleep(300);
+    const hit = await cdp.evaluate(hitTest(buttonIn(vcard(segmentId), buttonText)));
+    check(hit.ok, `${label}：「${buttonText}」中心和四角都点在按钮上`, JSON.stringify(hit));
+    // 点不到就记录现场并停在这里，避免后面一串无意义的连锁失败。
+    if (!(await clickOrDiagnose(cdp, buttonIn(vcard(segmentId), buttonText), `${label}：${buttonText}`, outDir, `quote-click-failed-${viewport.width}x${viewport.height}-${segmentId}.png`))) return;
+    check(await cdp.poll(`(${chainModal})?.textContent.includes("同场景连续生成")`, "chain modal", 10000), `${label}：打开连续生成面板`);
+    await sleep(800);
+    check(!(await cdp.evaluate(crashed)), `${label}：打开面板后页面没有崩（无 RouteErrorPage）`);
+    await cdp.click(buttonIn(chainModal, previewText), `${label}：${previewText}`);
+    check(await cdp.poll(`(${chainModal})?.textContent.includes("平台积分（整链预估")`, "quote", 10000), `${label}：看到整链预估花费`);
+    check(fixture.state.previews === 1, `${label}：只发了 1 次只读预览`, `previews=${fixture.state.previews}`);
+    await cdp.click(buttonIn(chainModal, "关闭"), `${label}：关闭面板`);
+    check(await cdp.poll(`!document.body.innerText.includes("同场景连续生成")`, "modal closed", 5000), `${label}：取消后面板关闭`);
+    const submitted = fixture.calls.filter((call) => call.method !== "GET" && /\/video-chains(\/[^/]+\/(retry|cancel))?$/.test(call.path));
+    check(!submitted.length && !fixture.forbidden.length, `${label}：没有创建、续跑或取消出片链`, JSON.stringify({ submitted, forbidden: fixture.forbidden }));
+}
+
+/** 出片页所有段卡操作按钮：逐个滚进可见区，中心和四个内缩角都要点在按钮自己身上。 */
+const cardActionsHit = `(() => { const buttons = [...document.querySelectorAll(".drama-flow-vcard-actions button")].filter((el) => el.getClientRects().length); const misses = [];
+  for (const el of buttons) { el.scrollIntoView({ block: "nearest" }); const r = el.getBoundingClientRect(); const pad = 3;
+    const points = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + pad, r.top + pad], [r.right - pad, r.top + pad], [r.left + pad, r.bottom - pad], [r.right - pad, r.bottom - pad]];
+    for (const [x, y] of points) { const hit = document.elementFromPoint(x, y); if (!hit || (hit !== el && !el.contains(hit))) { misses.push({ button: (el.textContent || "").trim(), card: el.closest("article")?.querySelector(".drama-flow-seg-no")?.textContent, x: Math.round(x), y: Math.round(y), hit: String(hit?.className || hit?.tagName).slice(0, 60) }); break; } } }
+  const work = document.querySelector(".drama-flow-work");
+  return { ok: buttons.length > 0 && !misses.length, buttons: buttons.length, cards: document.querySelectorAll("article.drama-flow-vcard").length, misses, scrolls: work ? work.scrollHeight > work.clientHeight : false }; })()`;
+
+async function cardActionsCase(cdp, { viewport, long, collapsed }) {
+    const label = `R7-01 ${viewport.width}×${viewport.height} ${long ? "长列表" : "短列表"} 柚智${collapsed ? "收起" : "展开"}`;
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false });
+    await cdp.navigate(`/drama-flow/${P}/video`);
+    check(await cdp.poll(`document.querySelectorAll(".drama-flow-vcard-actions button").length >= ${long ? 20 : 4}`, "card actions", 20000), `${label}：段卡操作都已渲染`);
+    const launcher = await ensureLauncherCollapsed(cdp, collapsed);
+    check(launcher && launcher.collapsed === collapsed && (collapsed || launcher.media), `${label}：柚智状态稳定`, JSON.stringify(launcher));
+    const result = await cdp.evaluate(cardActionsHit);
+    check(result.ok && (!long || result.scrolls), `${label}：每张段卡的操作中心和四角都点得到`, JSON.stringify(result));
+    return { label, launcher, ...result };
+}
+
 async function main() {
     const chrome = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
     if (!chrome) throw new Error(`No Chrome found. Set CHROME_BIN. Tried:\n  ${CHROME_CANDIDATES.join("\n  ")}`);
@@ -497,6 +568,38 @@ async function main() {
         check(await cdp.evaluate(`${summary("视频模型")} === ${JSON.stringify(FIXTURE_VIDEO_MODEL_NAME)}`), "D-03 出片页视频模型显示名字");
         check(!(await cdp.evaluate(crashed)), "出片详情选择、切换、关闭不崩");
 
+        // R6-D04 / R7-01：新工作流先读过出片链，再打开公共的连续生成面板，预览花费后取消。
+        // 明确视口，柚智默认展开且媒体稳定后真鼠标点；S02 在 1280×900 下原来正好落在柚智的透明热区里。
+        for (const viewport of [
+            { width: 1280, height: 900 },
+            { width: 1024, height: 768 },
+            { width: 1280, height: 720 },
+        ]) {
+            const size = `${viewport.width}×${viewport.height}`;
+            fixture = useFixture();
+            await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 没有出片链`, segmentId: "S02", buttonText: "出这一段", previewText: "预览当前场景与费用", viewport, outDir });
+            fixture = useFixture({ chains: "failed" });
+            await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 出片失败`, segmentId: "S01", buttonText: "重新出", previewText: "预览新任务与费用", viewport, outDir });
+        }
+
+        // R7-01：每张出片段卡的操作（出这一段 / 重出 / 详情），短列表和长列表 × 宽窄 × 柚智展开收起，中心和四角都要点得到。
+        const cardHits = [];
+        for (const viewport of [
+            { width: 1280, height: 900 },
+            { width: 1024, height: 768 },
+            { width: 1280, height: 720 },
+        ]) {
+            for (const long of [false, true]) {
+                for (const collapsed of [false, true]) {
+                    fixture = useFixture({ extraSegments: long ? 8 : 0 });
+                    cardHits.push(await cardActionsCase(cdp, { viewport, long, collapsed }));
+                }
+            }
+        }
+        if (outDir) writeFileSync(join(outDir, "card-actions-geometry.json"), JSON.stringify(cardHits, null, 2));
+        await cdp.send("Emulation.clearDeviceMetricsOverride");
+        fixture = useFixture();
+
         // D-02 / D-03：项目信息抽屉。
         await cdp.navigate(`/drama-flow/${P}?panel=info`);
         check(await cdp.poll(`${info("最近 100 次运行")} === "0 积分 · 暂无消费"`, "info cost"), "D-02 读到空运行记录写「0 积分 · 暂无消费」");
@@ -518,7 +621,7 @@ async function main() {
         }
         // 更窄的视口下底栏会换行（按钮行落到说明文字下面），换行后主操作也不能被盖住。
         // 有失败的段时底栏是两个按钮（「重新出失败的 N 段（先看花费）」+「处理 N 件待办」），会换行。次按钮只看不点。
-        fixture = useFixture({ failedVideo: true });
+        fixture = useFixture({ chains: "failed" });
         geometry.push(await footerCase(cdp, { viewport: { width: 1024, height: 768 }, theme: "light", collapsed: false, outDir, expectWrap: true }));
         fixture = useFixture();
         await cdp.send("Emulation.clearDeviceMetricsOverride");

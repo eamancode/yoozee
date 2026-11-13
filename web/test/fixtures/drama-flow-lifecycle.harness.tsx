@@ -433,3 +433,152 @@ test("D-03 模型名：目录在读、没读到时不报「已不可用」", asy
         await page.dispose();
     }
 });
+
+// 第七轮 R6-D04：新工作流和连续生成面板共用出片链缓存（同一个 key、同一种形状 { chains }）。
+const { QueryObserver } = await import("@tanstack/react-query");
+const { videoChainsKey, videoChainsQuery } = await import("@/services/api/project-video-chains");
+const { VideoChainPanel } = await import("@/pages/projects/workbench/detail/video-chain-panel");
+const U = fx.FIXTURE_UNIT_ID;
+/** antd 会在两个汉字的按钮文字中间加空格，按去掉空白后的文字找按钮。 */
+const buttonByText = (scope: ParentNode, text: string) => [...scope.querySelectorAll("button")].find((node) => (node.textContent || "").replace(/\s/g, "") === text);
+const cardOf = (segmentId: string) => [...document.querySelectorAll("article.drama-flow-vcard")].find((node) => node.querySelector(".drama-flow-seg-no")?.textContent === segmentId);
+const chainCache = (client: InstanceType<typeof QueryClient>) => client.getQueryData(videoChainsKey(P, U)) as { chains?: unknown[] } | undefined;
+const modal = () => document.querySelector(".ant-modal");
+const submitted = () => fixture.calls.filter((call) => call.method !== "GET" && /\/video-chains(\/[^/]+\/(retry|cancel))?$/.test(call.path));
+
+for (const chains of ["none", "history", "failed", "running"] as const) {
+    test(`R6-D04 真实出片入口「出这一段」打开连续生成面板不崩溃（出片链：${chains}）`, async () => {
+        const page = await mount(`/drama-flow/${P}/video`, { chains });
+        try {
+            // 新工作流先把这一集的出片链写进缓存，形状是接口原样的 { chains }。
+            expect(Array.isArray(chainCache(page.client)?.chains)).toBe(true);
+            const go = buttonByText(cardOf("S02")!, "出这一段");
+            expect(go, "S02 卡上应有可点的「出这一段」").toBeTruthy();
+            expect((go as HTMLButtonElement).disabled).toBe(false);
+            await page.click(go);
+            expect(page.text()).toContain("同场景连续生成");
+            expect(page.errors).toEqual([]);
+
+            // 面板这个 observer 挂上后刷新一次：两个 observer 共存，缓存形状不变，新工作流的段卡状态照样读得到。
+            await act(async () => void (await page.client.invalidateQueries({ queryKey: ["project-video-chains", P] })));
+            await flush();
+            expect(Array.isArray(chainCache(page.client)?.chains)).toBe(true);
+            if (chains === "failed") expect(cardOf("S01")?.textContent).toContain("失败");
+            if (chains === "running") expect(cardOf("S01")?.textContent).toContain("生成中");
+
+            if (chains === "running") {
+                // 有链正在出时，面板只读显示这条链，不给预览新任务（不能同时再起一条）。
+                expect(modal()?.textContent).toContain("S01");
+                expect(buttonByText(modal()!, "预览当前场景与费用")).toBeUndefined();
+            } else {
+                await page.click(buttonByText(modal()!, "预览当前场景与费用"));
+                expect(fixture.state.previews).toBe(1);
+                expect(modal()?.textContent).toContain("平台积分（整链预估");
+            }
+            await page.click(buttonByText(modal()!, "关闭"));
+            expect(page.text()).not.toContain("同场景连续生成");
+            expect(page.errors).toEqual([]);
+            expect(submitted()).toEqual([]);
+            expect(fixture.forbidden).toEqual([]);
+        } finally {
+            await page.dispose();
+        }
+    });
+}
+
+test("R6-D04 出片失败的段点「重新出」：面板显示失败原因，能预览新任务与费用，不点续跑", async () => {
+    const page = await mount(`/drama-flow/${P}/video`, { chains: "failed" });
+    try {
+        await page.click(buttonByText(cardOf("S01")!, "重新出"));
+        expect(modal()?.textContent).toContain("上游超时");
+        expect(buttonByText(modal()!, "从失败步骤继续")).toBeTruthy();
+        await page.click(buttonByText(modal()!, "预览新任务与费用"));
+        expect(fixture.state.previews).toBe(1);
+        expect(modal()?.textContent).toContain("平台积分（整链预估");
+        await page.click(buttonByText(modal()!, "关闭"));
+        expect(page.errors).toEqual([]);
+        expect(submitted()).toEqual([]);
+        expect(fixture.forbidden).toEqual([]);
+    } finally {
+        await page.dispose();
+    }
+});
+
+test("R6-D04 同一个 QueryClient：两个 observer 先后挂载、刷新、切集，缓存形状始终是 { chains }", async () => {
+    fixture = fx.createDramaFlowFixture({ chains: "failed" });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    // 新工作流那一侧：同一个查询，自己读 .chains。
+    const flow = new QueryObserver(client, { ...videoChainsQuery(P, U) });
+    const seenFlow: unknown[] = [];
+    const stopFlow = flow.subscribe((result) => result.data && seenFlow.push(result.data));
+    await flush();
+    // 面板那一侧后挂载，同一个 key。
+    const panel = new QueryObserver(client, { ...videoChainsQuery(P, U) });
+    const seenPanel: unknown[] = [];
+    const stopPanel = panel.subscribe((result) => result.data && seenPanel.push(result.data));
+    await act(async () => void (await panel.refetch()));
+    await act(async () => void (await flow.refetch()));
+    // 面板切到另一集，再切回来。
+    panel.setOptions({ ...videoChainsQuery(P, "u-other") });
+    await act(async () => void (await panel.refetch()));
+    panel.setOptions({ ...videoChainsQuery(P, U) });
+    await flush();
+    for (const data of [...seenFlow, ...seenPanel, client.getQueryData(videoChainsKey(P, U)), client.getQueryData(videoChainsKey(P, "u-other"))]) {
+        expect(Array.isArray((data as { chains?: unknown[] }).chains)).toBe(true);
+    }
+    expect((client.getQueryData(videoChainsKey(P, U)) as { chains: Array<{ status: string }> }).chains[0].status).toBe("failed");
+    stopFlow();
+    stopPanel();
+    client.clear();
+});
+
+test("R6-D04 出片链读失败：新工作流写「没读到」并禁用提交；连续生成面板显示错误，不伪装成没有链", async () => {
+    const chainsPath = `/projects/${P}/video-chains`;
+    const page = await mount(`/drama-flow/${P}/video`, { chains: "history", prepare: (next) => next.overrides.set(chainsPath, "error") });
+    try {
+        expect(summaryValue("失败")).toBe("没读到");
+        expect((buttonByText(cardOf("S02")!, "出这一段") as HTMLButtonElement).disabled).toBe(true);
+    } finally {
+        await page.dispose();
+    }
+
+    // 旧工作台的用法：单独挂连续生成面板。
+    fixture = fx.createDramaFlowFixture({ chains: "history" });
+    fixture.overrides.set(chainsPath, "error");
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+        await act(async () =>
+            root.render(
+                createElement(
+                    QueryClientProvider,
+                    { client },
+                    createElement(
+                        App,
+                        null,
+                        createElement(VideoChainPanel, {
+                            open: true,
+                            projectId: P,
+                            whiteModelStoryboardEnabled: false,
+                            unitId: U,
+                            shotId: fx.FIXTURE_SHOT_ID,
+                            buildModel: async () => ({ model: fx.FIXTURE_VIDEO_MODEL, input: {} }),
+                            onClose() {},
+                            onRefresh: async () => undefined,
+                        }),
+                    ),
+                ),
+            ),
+        );
+        await flush();
+        const alert = document.querySelector(".ant-modal [role='alert']");
+        expect(alert?.textContent || "").not.toBe("");
+        expect(submitted()).toEqual([]);
+    } finally {
+        await act(async () => root.unmount());
+        host.remove();
+        client.clear();
+    }
+});

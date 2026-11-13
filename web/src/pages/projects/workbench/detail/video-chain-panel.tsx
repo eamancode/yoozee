@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { App, Button, Image, Spin } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Callout } from "@/components/ui/product/callout";
-import { createVideoChain, cancelVideoChain, listVideoChains, previewVideoChain, retryVideoChain, type VideoChain, type VideoChainModel, type VideoChainRequest } from "@/services/api/project-video-chains";
+import { createVideoChain, cancelVideoChain, previewVideoChain, retryVideoChain, videoChainsQuery, type VideoChain, type VideoChainModel, type VideoChainRequest } from "@/services/api/project-video-chains";
 import { resourceFileUrl } from "@/services/api/resources";
 import { modelDisplayName } from "@/stores/use-config-store";
 import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
@@ -53,7 +53,8 @@ export function VideoChainPanel({
     const prepareRequest = useRef<VideoChainRequest | undefined>(undefined);
     const gate = useRef(false);
     const session = useRef(0);
-    const chains = useQuery({ queryKey: ["project-video-chains", projectId, unitId], queryFn: ({ signal }) => listVideoChains(projectId, unitId, signal), enabled: open, refetchInterval: open ? 2000 : false });
+    // 和短剧新工作流共用 key 与缓存形状（{ chains }），见 videoChainsQuery。
+    const chains = useQuery({ ...videoChainsQuery(projectId, unitId), enabled: open, refetchInterval: open ? 2000 : false });
     const existing =
         chains.data?.chains.find((chain) => chain.id === selectedId) ||
         chains.data?.chains.find((chain) => ["queued", "running"].includes(chain.status)) ||

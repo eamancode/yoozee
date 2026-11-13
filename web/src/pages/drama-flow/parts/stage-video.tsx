@@ -207,19 +207,8 @@ export function StageVideo({
                                     {isFailed && chosen ? <span className="drama-flow-asset-error">最近一次失败：{step?.error || "没写原因"}</span> : null}
                                     {blocked ? <span className="drama-flow-asset-error">分镜有问题没改完，先去「分镜」里改</span> : null}
                                     {step?.step.referenceWarning ? <span className="drama-flow-muted">{step.step.referenceWarning}</span> : null}
-                                </div>
-                                <div className="drama-flow-vcard-side">
-                                    <span className="drama-flow-chip" data-tone={chip.tone}>
-                                        {chip.text}
-                                    </span>
-                                    <span className="drama-flow-muted">{step?.step.model ? models.nameOf(step.step.model, "").text : videoModelName.text}</span>
-                                    {step ? <span className="drama-flow-muted">生成 {step.step.generationSeconds} 秒档</span> : null}
-                                    <span className="drama-flow-muted">
-                                        候选 {readValue(workspaceRead, takes.length)}
-                                        {takes.length > 1 ? (segment.selectedArtifactId ? " · 已挑" : " · 待挑") : ""}
-                                    </span>
-                                    <span className="drama-flow-muted">花费 {costSummaryText(workspaceRead, cost ?? noCost())}</span>
-                                    <div className="drama-flow-work-actions">
+                                    {/* 操作放在中间这一列、左对齐：右侧那一列贴着页面右下角，默认位置的柚智浮层（含透明热区）会截走点击。 */}
+                                    <div className="drama-flow-vcard-actions">
                                         {isFailed ? (
                                             <Button size="small" type="primary" icon={<RotateCw className="size-3.5" />} disabled={!canGenerate || blocked} onClick={() => onGenerate(segment.shotId)}>
                                                 重新出
@@ -238,6 +227,18 @@ export function StageVideo({
                                             {takes.length > 1 && !segment.selectedArtifactId ? "挑片" : "详情"}
                                         </Button>
                                     </div>
+                                </div>
+                                <div className="drama-flow-vcard-side">
+                                    <span className="drama-flow-chip" data-tone={chip.tone}>
+                                        {chip.text}
+                                    </span>
+                                    <span className="drama-flow-muted">{step?.step.model ? models.nameOf(step.step.model, "").text : videoModelName.text}</span>
+                                    {step ? <span className="drama-flow-muted">生成 {step.step.generationSeconds} 秒档</span> : null}
+                                    <span className="drama-flow-muted">
+                                        候选 {readValue(workspaceRead, takes.length)}
+                                        {takes.length > 1 ? (segment.selectedArtifactId ? " · 已挑" : " · 待挑") : ""}
+                                    </span>
+                                    <span className="drama-flow-muted">花费 {costSummaryText(workspaceRead, cost ?? noCost())}</span>
                                 </div>
                             </article>
                         );

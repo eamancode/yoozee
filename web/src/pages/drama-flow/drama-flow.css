@@ -1321,6 +1321,15 @@
     font-size: var(--fs-caption);
 }
 
+/* 段卡操作在中间列左对齐：远离右下角柚智浮层的固定热区，宽窄布局下都点得到。 */
+.drama-flow-vcard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
 .drama-flow-vcard-title {
     display: flex;
     align-items: baseline;
