@@ -582,6 +582,30 @@ async function main() {
             await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 出片失败`, segmentId: "S01", buttonText: "重新出", previewText: "预览新任务与费用", viewport, outDir });
         }
 
+        // R8-01：预览请求按所选模型能力对齐。夹具按权威能力校验真实发出的配置（同步音频 false、时长 15/30 秒档）。
+        check(
+            fixtures.filter((item) => item.state.previewConfigs.length).every((item) => item.state.previewConfigs.every((config) => String(config.videoGenerateAudio) === "false" && ["15", "30"].includes(String(config.videoSeconds)))),
+            "R8-01 所有费用预览请求都按所选模型能力对齐（同步音频 false、时长取 15/30 秒档）",
+            JSON.stringify(fixtures.flatMap((item) => item.state.previewConfigs).map((config) => ({ audio: config.videoGenerateAudio, seconds: config.videoSeconds }))),
+        );
+
+        // R8-02：预览被能力校验拒绝时，面板写出是哪个参数不支持；不提交。
+        fixture = useFixture();
+        fixture.overrides.set(`/projects/${P}/video-chains/preview`, "capability");
+        await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+        await cdp.navigate(`/drama-flow/${P}/video`);
+        await cdp.poll(exists(buttonIn(vcard("S02"), "出这一段")), "card", 20000);
+        await ensureLauncherCollapsed(cdp, false);
+        if (await clickOrDiagnose(cdp, buttonIn(vcard("S02"), "出这一段"), "R8-02 出这一段", outDir, "capability-click-failed.png")) {
+            await cdp.poll(`(${chainModal})?.textContent.includes("同场景连续生成")`, "chain modal", 10000);
+            await clickOrDiagnose(cdp, buttonIn(chainModal, "预览当前场景与费用"), "R8-02 预览当前场景与费用", outDir, "capability-preview-failed.png");
+            check(await cdp.poll(`[...(${chainModal})?.querySelectorAll("[role='alert']") || []].some((el) => el.textContent.includes("同步音频超出支持范围"))`, "capability alert", 10000), "R8-02 面板写出「同步音频超出支持范围」");
+            if (outDir) await cdp.shot(join(outDir, "capability-error.png"));
+            await cdp.click(buttonIn(chainModal, "关闭"), "R8-02 关闭面板");
+            const sent = fixture.calls.filter((call) => call.method !== "GET" && /\/video-chains(\/[^/]+\/(retry|cancel))?$/.test(call.path));
+            check(!sent.length && !fixture.forbidden.length && !(await cdp.evaluate(crashed)), "R8-02 能力错误后没有提交、页面不崩");
+        }
+
         // R7-01：每张出片段卡的操作（出这一段 / 重出 / 详情），短列表和长列表 × 宽窄 × 柚智展开收起，中心和四角都要点得到。
         const cardHits = [];
         for (const viewport of [
@@ -638,7 +662,18 @@ async function main() {
 
         const writes = fixtures.flatMap((item) => item.forbidden);
         check(writes.length === 0, `没有任何生成或改项目的写请求（${fixtures.length} 个夹具实例合计）`, writes.map((call) => `${call.method} ${call.path}`).join(" | "));
-        const problems = cdp.problems.filter((item) => item.kind !== "api" || !item.text.startsWith("404"));
+        // R8-02 那一项故意让预览回 400（能力不支持），只放过这一次；多出来的同类错误或别的错误照样判失败。
+        const expectedApiErrors = [`400 POST /api/projects/${P}/video-chains/preview`];
+        const problems = cdp.problems.filter((item) => {
+            if (item.kind === "api" && item.text.startsWith("404")) return false;
+            const expected = expectedApiErrors.indexOf(item.text);
+            if (item.kind === "api" && expected >= 0) {
+                expectedApiErrors.splice(expected, 1);
+                return false;
+            }
+            return true;
+        });
+        check(!expectedApiErrors.length, "R8-02 预期的那一次能力错误确实发生了");
         const unknown = cdp.problems.filter((item) => item.kind === "api" && item.text.startsWith("404"));
         if (unknown.length) console.log(`      夹具没覆盖的读接口：\n        ${[...new Set(unknown.map((item) => item.text))].join("\n        ")}`);
         check(!problems.length, "浏览器没有未捕获异常或 console error", problems.map((item) => `${item.kind}: ${item.text}`).join(" | "));

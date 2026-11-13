@@ -153,3 +153,33 @@ func decodeFailureEnvelope(t *testing.T, recorder *httptest.ResponseRecorder) fa
 	}
 	return response
 }
+
+// 第九轮 R8-02：能力错误的详情要出现在真实 400 响应里（参数名和原因），没有详情时不带 details。
+func TestFailServiceProjectsModelCapabilityDetails(t *testing.T) {
+	recorder, context := responseTestContext()
+	err := service.NewModelError(service.ErrCodeModelCapabilityNotSupported, "所选模型不支持当前请求").WithDetails(map[string]any{
+		"field":            "videoGenerateAudio",
+		"issue":            "unsupported_value",
+		"message":          "参数 同步音频超出支持范围",
+		"capabilityIssues": []map[string]any{{"kind": "option", "name": "videoGenerateAudio", "reason": "参数 同步音频超出支持范围"}},
+	})
+
+	failService(context, err)
+
+	var body struct {
+		failureEnvelope
+		Details map[string]any `json:"details"`
+	}
+	if decodeErr := json.Unmarshal(recorder.Body.Bytes(), &body); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if recorder.Code != http.StatusBadRequest || body.Reason != "model_capability_not_supported" || body.Details["field"] != "videoGenerateAudio" || body.Details["message"] != "参数 同步音频超出支持范围" {
+		t.Fatalf("capability details not projected: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder, context = responseTestContext()
+	failService(context, service.NewModelError(service.ErrCodeModelCapabilityNotSupported, "所选模型不支持当前请求"))
+	if strings.Contains(recorder.Body.String(), `"details"`) {
+		t.Fatalf("an error without details must not project an empty details field: %s", recorder.Body.String())
+	}
+}
