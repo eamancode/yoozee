@@ -170,6 +170,14 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 		}
 		// Route resolution owns channel credentials and capabilities. The second
 		// resolution uses the normalized slot to keep routing and price tiers aligned.
+		// 第一次解析只用来找路由、读能力画像（时长档位）。客户端带来的 videoSeconds 是全局偏好，
+		// 不是这一组的生成时长；留着会在选档前按旧值做完整能力校验（例如只有 15/30 档的模型被 6 秒拒绝）。
+		// 这里先去掉，由渠道默认时长占位；按镜头正文时长选定最终档位后，第二次解析和
+		// ValidateTaskCapability 再按最终值完整校验，其他参数（如同步音频）照常校验，不放宽。
+		delete(config, "videoSeconds")
+		if options, ok := input["capabilityOptions"].(map[string]any); ok {
+			delete(options, "videoSeconds")
+		}
 		_, input, err = s.resolveTaskModelSelection(userID, input, choice.LogicalModelID, "canvas_video", operation, feature)
 		if err != nil {
 			return state, err

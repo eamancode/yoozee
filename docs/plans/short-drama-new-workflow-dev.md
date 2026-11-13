@@ -316,6 +316,7 @@ Codex 负责的测试、部署、验收见第 12 节。
   - 第六轮：详情栏让位改由纯函数 `paneLauncherLayout` 计算。浮层和详情栏左右重叠时，把详情栏放进浮层上方或下方更高的那段空档（上方：抬高底边 `--drama-flow-launcher-clear`；下方：顶边下移 `--drama-flow-pane-shift`，宽屏用 margin-top、窄屏用 top）；那段不够 240px 时保留 240px（视口矮时降为实际可用高度）并允许重叠。计算只用「没让位时」的顶边（量到的顶边减去元素上当前生效的下移量）和视口，不用详情栏自己的高度。宽屏 `max-height` 另设 160px 下限，矮视口下不会变成负数。
 - 第七轮：出片链列表的缓存 key 和取数统一由 `services/api/project-video-chains.ts` 的 `videoChainsKey` / `videoChainsQuery` 提供，新工作流（`use-flow-data`）、连续生成面板（`VideoChainPanel`）和旧工作台的刷新都用它。同一个 key 只缓存接口原样的 `{ chains }`，要数组的调用方自己读 `.chains`（轮询判断读的也是原样结构）。原先新工作流在取数里解包成数组写进同一个 key，面板按 `.chains.find` 读而崩溃。
 - 第八轮：出片段卡的操作按钮挪到中间内容列（`.drama-flow-vcard-actions`，左对齐）。原先放在最右一列，贴着页面右下角，默认位置的柚智浮层（头像下方有透明热区）会截走点击，而且出片列表短时没有滚动余量躲开。右列只留只读信息；没有加整块留白。
+- 第九轮：出片请求配置由 `model/video-config.ts` 的 `chainVideoConfig` 生成，按所选模型能力对齐（复用 `resolveModelVideoBooleanOptions`、`modelVideoSubmissionSeconds`、`resolveVideoResolutionValue`），只用于这一次请求、不写回全局；费用预览和确认提交走连续生成面板同一个 `buildModel`。后端 `prepareProjectVideoChain` 第一次路由解析前去掉客户端带来的 `videoSeconds`，定档后再按最终档位完整校验。`ModelError` 的详情只存在 `AppError.Details` 一处，HTTP 错误响应带上 `details`；前端 `lib/model-capability-error.ts` 按 `reason` / `details` 写出具体参数。
   - 真实路由回归：`test/fixtures/drama-flow-lifecycle.harness.tsx`（happy-dom，真实路由页）和 `scripts/drama-flow-chrome-e2e.mjs`（Chrome + CDP 拦接口），共用无模型夹具 `test/fixtures/drama-flow-api-fixture.ts`。
 
 ## 11. 风险

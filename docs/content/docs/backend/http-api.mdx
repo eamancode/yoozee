@@ -270,6 +270,8 @@ handle 放错端点、格式错误或行 ID 不存在时，工具错误回执提
 
 HTTP 409 不能一概解释为并发冲突：对象或字段基线冲突使用 `reason: conflict`；资源完整性失败使用 `reason: canvas_history_resources_missing`，并在 `details` 中返回 `resourceIds` 和 `missingResources`（含资源 ID、JSON 路径、节点 ID、引用类型及 `source`）。客户端应按 `reason` 分流，不解析 `msg` 猜测原因。普通 operations 不会绕过资源校验或 revision 语义，维护修复也不能把缺失主媒体写回为有效画布。
 
+所选模型不支持请求里的某个参数（同步音频、时长、分辨率、参考图数量等）时返回 HTTP 400、`reason: model_capability_not_supported`，`msg` 是通用文案；`details.field`、`details.issue`、`details.message` 是第一个出问题的参数、问题类型和原因，`details.capabilityIssues` 逐条列出（`kind / name / reason`）。`details` 只含可公开的参数名和原因，不含上游地址、配置或凭据；没有具体参数时不带 `details`。前端按 `reason` 和 `details` 显示具体参数，不解析 `msg`。连续生成的费用预览先按渠道能力和镜头正文时长定生成档位，再按最终档位做完整能力校验与报价，客户端带来的全局时长不会在定档前把合法镜头拒掉。
+
 运维扫描/修复仅处理当前画布中可安全清除的失效 `videoPreview`；不删除主媒体、不扫描并改写所有维护记录，也不替代备份。使用目标数据库对应的新版本二进制，先在维护窗口备份并执行只读扫描：
 
 ```sh

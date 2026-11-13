@@ -582,3 +582,53 @@ test("R6-D04 出片链读失败：新工作流写「没读到」并禁用提交�
         client.clear();
     }
 });
+
+// 第九轮 R8-01 / R8-02：出片请求按所选模型能力对齐；能力错误写出是哪个参数。
+test("R8-01 全局同步音频开、6 秒，所选模型不支持音频且只有 15/30 档：预览成功，请求按模型对齐，全局偏好不变", async () => {
+    const before = useConfigStore.getState().config;
+    useConfigStore.setState((state) => ({ config: { ...state.config, videoGenerateAudio: "true", videoWatermark: "true", videoSeconds: "6", vquality: "1080" } }));
+    const page = await mount(`/drama-flow/${P}/video`);
+    try {
+        await page.click(buttonByText(cardOf("S02")!, "出这一段"));
+        await page.click(buttonByText(modal()!, "预览当前场景与费用"));
+        expect(fixture.state.previewConfigs.length).toBe(1);
+        const sent = fixture.state.previewConfigs[0];
+        expect(sent.videoGenerateAudio).toBe("false");
+        expect(sent.videoWatermark).toBe("false");
+        // S02 正文 15 秒，按既有 15/30 秒适配规则用 30 秒档；不是全局的 6 秒。
+        expect(sent.videoSeconds).toBe("30");
+        expect(fixture.state.previews).toBe(1);
+        expect(modal()?.textContent).toContain("平台积分（整链预估");
+        // 只影响这次请求：全局偏好原样。
+        const after = useConfigStore.getState().config;
+        expect([after.videoGenerateAudio, after.videoWatermark, after.videoSeconds, after.vquality]).toEqual(["true", "true", "6", "1080"]);
+        await page.click(buttonByText(modal()!, "关闭"));
+        expect(submitted()).toEqual([]);
+        expect(fixture.forbidden).toEqual([]);
+        expect(page.errors).toEqual([]);
+    } finally {
+        await page.dispose();
+        useConfigStore.setState({ config: before });
+    }
+});
+
+for (const [override, expected, notExpected] of [
+    ["capability", "同步音频超出支持范围", undefined],
+    ["capability-bare", "所选模型不支持当前请求", "同步音频"],
+] as const) {
+    test(`R8-02 费用预览被能力校验拒绝（${override === "capability" ? "带详情" : "没有详情"}）：面板写清楚，不提交`, async () => {
+        const page = await mount(`/drama-flow/${P}/video`, { prepare: (next) => next.overrides.set(`/projects/${P}/video-chains/preview`, override) });
+        try {
+            await page.click(buttonByText(cardOf("S02")!, "出这一段"));
+            await page.click(buttonByText(modal()!, "预览当前场景与费用"));
+            const alert = [...modal()!.querySelectorAll("[role='alert']")].map((node) => node.textContent || "").join(" ");
+            expect(alert).toContain(expected);
+            if (notExpected) expect(alert).not.toContain(notExpected);
+            expect(modal()?.textContent).not.toContain("平台积分（整链预估");
+            expect(submitted()).toEqual([]);
+            expect(page.errors).toEqual([]);
+        } finally {
+            await page.dispose();
+        }
+    });
+}

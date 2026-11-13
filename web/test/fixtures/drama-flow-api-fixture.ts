@@ -6,6 +6,8 @@
  * 没列出的读接口返回 404 并记进 unknown，不伪造数据。
  */
 
+import { defaultModelCapabilityConfig } from "../../src/lib/model-capabilities";
+
 export const FIXTURE_PROJECT_ID = "p-flow-qa";
 export const FIXTURE_UNIT_ID = "u-flow-e1";
 export const FIXTURE_SHOT_ID = "shot-s01";
@@ -17,7 +19,7 @@ export const FIXTURE_VIDEO_MODEL_NAME = "Seedance 2.5 Fast";
 
 export type StyleFixture = "none" | "anchor_only" | "locked";
 
-type Envelope = { code: number; data?: unknown; msg: string; reason?: string };
+type Envelope = { code: number; data?: unknown; msg: string; reason?: string; details?: Record<string, unknown> };
 export type FixtureResponse = { status: number; body: Envelope };
 export type FixtureCall = { method: string; path: string };
 
@@ -36,7 +38,26 @@ function segmentSpec(id: string, text: string, dur = 15) {
 }
 
 /** 某个接口这一次怎么答：一直不回（在读）或失败。按路径（不含查询串）匹配，测试中途可以改。 */
-export type FixtureOverride = "pending" | "error";
+/** capability / capability-bare：按后端格式回 400 model_capability_not_supported，前者带 details，后者不带。 */
+export type FixtureOverride = "pending" | "error" | "capability" | "capability-bare";
+
+/**
+ * 夹具视频模型的权威能力（和后端一样以它为准）：只有 15/30 秒两档、不支持同步音频和水印、只有 720p。
+ * 预览请求会按它校验真实发出的配置，不符合就回 400，不再无论配置如何都给成功预览。
+ */
+// 和真实模型目录一样给完整的能力配置（前端对目录里的配置不做缺字段补齐），只改相关字段。
+export const FIXTURE_VIDEO_CAPABILITY = (() => {
+    const config = defaultModelCapabilityConfig(undefined, "lec-vp-seedance-2-5-f");
+    const video = config.video!;
+    video.duration = { ...video.duration, selection: "enum", values: [15, 30], default: 15 };
+    video.generateAudio = { supported: false, default: false };
+    video.watermark = { supported: false, default: false };
+    video.ratios = ["9:16", "16:9"];
+    video.defaultRatio = "9:16";
+    video.resolutions = ["720p"];
+    video.defaultResolution = "720p";
+    return config;
+})();
 
 function longSegmentSpec(id: string, firstText: string, count: number) {
     const spec = segmentSpec(id, firstText);
@@ -62,6 +83,8 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         revision: 2,
         saves: 0,
         previews: 0,
+        /** 每次预览请求里真实发出的视频配置（含被拒的）。 */
+        previewConfigs: [] as Array<Record<string, unknown>>,
     };
     // extraSegments：再加几段短内容（S03…），出片列表变长、需要滚动，用来验证每张段卡的操作都点得到。
     for (let index = 0; index < (options.extraSegments ?? 0); index += 1) {
@@ -142,7 +165,7 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
                 id: "CHANNEL_000001",
                 displayName: "柚子系统渠道",
                 sortOrder: 0,
-                models: [{ modelKey: "lec-vp-seedance-2-5-f", displayName: FIXTURE_VIDEO_MODEL_NAME, available: true, capability: "video", priceTiers: [] }],
+                models: [{ modelKey: "lec-vp-seedance-2-5-f", displayName: FIXTURE_VIDEO_MODEL_NAME, available: true, capability: "video", priceTiers: [], capabilityConfig: FIXTURE_VIDEO_CAPABILITY }],
             },
         ],
     };
@@ -181,6 +204,16 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
     };
     const ok = (data: unknown): FixtureResponse => ({ status: 200, body: { code: 0, data, msg: "ok" } });
     const reject = (status: number, reason: string): FixtureResponse => ({ status, body: { code: status, msg: reason, reason } });
+    /** 和后端 modelCapabilityMismatchError 投影出来的一样：reason、通用文案和 details（参数名、原因、逐条问题）。 */
+    const capabilityReject = (issues: Array<{ name: string; reason: string }>, withDetails = true): FixtureResponse => ({
+        status: 400,
+        body: {
+            code: 400,
+            msg: "所选模型不支持当前请求",
+            reason: "model_capability_not_supported",
+            ...(withDetails && issues.length ? { details: { field: issues[0].name, issue: "unsupported_value", message: issues[0].reason, capabilityIssues: issues.map((issue) => ({ kind: "option", ...issue })) } } : {}),
+        },
+    });
     const base = `/projects/${FIXTURE_PROJECT_ID}`;
 
     const registry = {
@@ -231,6 +264,8 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         const override = overrides.get(path);
         if (override === "pending") return undefined;
         if (override === "error") return reject(500, "fixture_read_failed");
+        if (override === "capability") return capabilityReject([{ name: "videoGenerateAudio", reason: "参数 同步音频超出支持范围" }]);
+        if (override === "capability-bare") return capabilityReject([{ name: "videoGenerateAudio", reason: "参数 同步音频超出支持范围" }], false);
         if (call.method === "GET") {
             if (path === "/auth/session") return ok({ user, features });
             if (path === "/features") return ok({ features });
@@ -265,8 +300,16 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         }
         // 出片花费预览只读：返回整链预估，不建任务、不扣费。真正提交（POST /video-chains）、重试、取消都落到下面的拦截。
         if (call.method === "POST" && path === `${base}/video-chains/preview`) {
+            // 按权威能力校验真实发出的配置（记下来供测试断言）：同步音频必须是 false，时长必须是 15 或 30 秒档。
+            const input = body as { shotId?: string; model?: { input?: { config?: Record<string, unknown> } } };
+            const config = input?.model?.input?.config || {};
+            state.previewConfigs.push({ ...config });
+            const issues = [
+                ...(String(config.videoGenerateAudio) === "true" ? [{ name: "videoGenerateAudio", reason: "参数 同步音频超出支持范围" }] : []),
+                ...(!["15", "30"].includes(String(config.videoSeconds)) ? [{ name: "videoSeconds", reason: "参数 时长超出支持范围" }] : []),
+            ];
+            if (issues.length) return capabilityReject(issues);
             state.previews += 1;
-            const input = body as { shotId?: string };
             const steps = state.segments.filter((segment) => segment.shotId === input?.shotId || !input?.shotId).map((segment) => chainStep(segment.shotId, segment.spec.id, "waiting", { phase: "waiting", quote: { amountMicrocredits: 1_500_000 } }));
             return ok({ chain: { ...chainOf("", "preview", steps), previewHash: `preview-${state.previews}`, totalMicrocredits: 1_500_000 * steps.length } });
         }
