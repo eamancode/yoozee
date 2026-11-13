@@ -50,7 +50,7 @@ function longSegmentSpec(id: string, firstText: string, count: number) {
  */
 export type FixtureChains = "none" | "history" | "failed" | "running";
 
-export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean; chains?: FixtureChains } = {}) {
+export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean; chains?: FixtureChains; extraSegments?: number } = {}) {
     const style = options.style ?? "none";
     const overrides = new Map<string, FixtureOverride>();
     const state = {
@@ -63,6 +63,11 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         saves: 0,
         previews: 0,
     };
+    // extraSegments：再加几段短内容（S03…），出片列表变长、需要滚动，用来验证每张段卡的操作都点得到。
+    for (let index = 0; index < (options.extraSegments ?? 0); index += 1) {
+        const id = `S${String(index + 3).padStart(2, "0")}`;
+        state.segments.push({ shotId: `shot-${id.toLowerCase()}`, unitId: FIXTURE_UNIT_ID, title: `${id} 续场`, position: index + 2, durationMs: 15000, revisionId: `rev-x${index}`, spec: segmentSpec(id, `${id}：雨停后林深推车离开。`), derived: false });
+    }
     const calls: FixtureCall[] = [];
     const unknown: FixtureCall[] = [];
     const forbidden: FixtureCall[] = [];
