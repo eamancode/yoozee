@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { App, Button, Image, Spin } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Callout } from "@/components/ui/product/callout";
+import { modelCapabilityProblem } from "@/lib/model-capability-error";
 import { createVideoChain, cancelVideoChain, previewVideoChain, retryVideoChain, videoChainsQuery, type VideoChain, type VideoChainModel, type VideoChainRequest } from "@/services/api/project-video-chains";
 import { resourceFileUrl } from "@/services/api/resources";
 import { modelDisplayName } from "@/stores/use-config-store";
@@ -100,7 +101,8 @@ export function VideoChainPanel({
                 const activeChain = refreshed.data?.chains.find((item) => item.status === "queued" || item.status === "running");
                 if (activeChain) { setSelectedId(activeChain.id); setPreview(undefined); }
             }
-            setProblem(error instanceof Error ? error.message : "连续生成操作失败，请重试");
+            // 模型能力错误按 reason / details 写出是哪个参数不支持，不解析 msg；其他错误照旧。
+            setProblem(modelCapabilityProblem(error) ?? (error instanceof Error ? error.message : "连续生成操作失败，请重试"));
         } finally {
             gate.current = false;
             setBusy(false);

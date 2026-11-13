@@ -64,10 +64,12 @@ const (
 
 // ModelError 为模型选择、路由和供应商调用提供稳定的机器可读错误码。
 // 嵌入 AppError，使统一 HTTP 投影仍能通过 errors.As 读取状态、reason 和安全文案。
+// 错误详情只存在 AppError.Details 一处（这里通过嵌入直接读写），HTTP 投影就是这一份；
+// 不要再在 ModelError 上另设 Details 字段，否则会遮住嵌入字段，详情写进去了却到不了响应。
+// 写进详情的只能是可公开的参数名、问题类型和原因，不能放上游地址、配置或凭据。
 type ModelError struct {
 	*AppError
 	ErrorCode ModelErrorCode
-	Details   map[string]any
 }
 
 func (e *ModelError) Error() string {
@@ -81,16 +83,19 @@ func (e *ModelError) Error() string {
 func NewModelError(code ModelErrorCode, message string) *ModelError {
 	err := NewAppError(400, message)
 	err.Reason = ErrorReason(code)
+	err.Details = make(map[string]any)
 	return &ModelError{
 		AppError:  err,
 		ErrorCode: code,
-		Details:   make(map[string]any),
 	}
 }
 
-// WithDetails 添加错误详情
+// WithDetails 添加错误详情（写进 AppError.Details，随统一错误响应返回给前端）。
 func (e *ModelError) WithDetails(details map[string]any) *ModelError {
-	e.Details = details
+	if e.AppError == nil {
+		e.AppError = NewAppError(400, string(e.ErrorCode))
+	}
+	e.AppError.Details = details
 	return e
 }
 

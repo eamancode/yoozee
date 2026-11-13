@@ -48,6 +48,11 @@ export const API_ERROR_REASON = {
     ProjectProductionInvalid: "project_production_invalid",
     /** 流水线不接出视频、剪辑：出视频要花钱，只能在制作台带着预估花费由人点。 */
     PipelineVideoManual: "pipeline_video_manual",
+    /**
+     * 所选模型不支持这次请求的某个参数（如同步音频、时长、分辨率）。
+     * `ApiError.details.field` / `details.message` 是第一个出问题的参数和原因，`details.capabilityIssues` 逐条列出（kind / name / reason）；可能没有 details。
+     */
+    ModelCapabilityNotSupported: "model_capability_not_supported",
 } as const;
 
 export type ApiErrorReason = (typeof API_ERROR_REASON)[keyof typeof API_ERROR_REASON];

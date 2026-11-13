@@ -21,6 +21,7 @@ import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 import { projectTasksKey, useFlowData } from "./hooks/use-flow-data";
+import { chainVideoConfig } from "./model/video-config";
 import { buildInbox, inboxCounts, readIgnoredSuggestions, writeIgnoredSuggestions, type InboxItem } from "./model/inbox";
 import { flowPrimaryAction, type FlowAction } from "./model/primary-action";
 import { episodeCompletion, episodeFacts, episodeFactsLine, stageFacts } from "./model/stage-facts";
@@ -138,7 +139,8 @@ export default function DramaFlowDetailPage() {
         });
     }, [assets, data.assetsQuery.data, data.assetsQuery.isError, data.episodesQuery.isError, data.bibleQuery.isError, pipelineQuery.isError, episodes, bible, project?.bibleJson, progress, data.videosRead, failedSteps.length, runningVideos]);
 
-    const videoConfig = useMemo(() => ({ ...effectiveConfig, model: videoModel, videoModel, size: project?.aspectRatio || effectiveConfig.size }), [effectiveConfig, videoModel, project?.aspectRatio]);
+    // 按所选视频模型能力对齐（同步音频、水印、分辨率），只用于新工作流的出片请求，不写回全局偏好。
+    const videoConfig = useMemo(() => chainVideoConfig(effectiveConfig, videoModel, { aspectRatio: project?.aspectRatio }), [effectiveConfig, videoModel, project?.aspectRatio]);
     const canGenerate = Boolean(videoModel) && isAiConfigReady(videoConfig, videoModel);
 
     const [inboxOpen, setInboxOpen] = useState(false);
@@ -368,7 +370,10 @@ export default function DramaFlowDetailPage() {
                     onClose={() => setChainTarget(undefined)}
                     onRefresh={refreshVideo}
                     buildModel={async () => {
-                        const task = await prepareBackendGenerationTask({ projectId, mode: "video", prompt: "连续生成预览", config: videoConfig });
+                        // 费用预览和确认提交都走这里：时长按这一段的正文取模型能提交的档位，不用全局偏好里的秒数。
+                        const target = segments.find((item) => item.shotId === chainTarget.shotId);
+                        const config = chainVideoConfig(effectiveConfig, videoModel, { aspectRatio: project?.aspectRatio, contentSeconds: target ? target.durationMs / 1000 : undefined });
+                        const task = await prepareBackendGenerationTask({ projectId, mode: "video", prompt: "连续生成预览", config });
                         return { model: task.model || videoModel, logicalModelId: task.logicalModelId, input: task.input || {} };
                     }}
                 />
