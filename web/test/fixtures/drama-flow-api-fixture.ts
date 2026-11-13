@@ -44,7 +44,13 @@ function longSegmentSpec(id: string, firstText: string, count: number) {
     return { ...spec, shots: [{ ...spec.shots[0], at: 0 }, ...extra] };
 }
 
-export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean; failedVideo?: boolean } = {}) {
+/**
+ * 出片链列表夹具：none 没有链；history 一条已完成的历史链；failed S01 出片失败；running S01 正在出。
+ * 都只读：查看、预览可以，创建、重试、取消一律被拦下判失败。
+ */
+export type FixtureChains = "none" | "history" | "failed" | "running";
+
+export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean; chains?: FixtureChains } = {}) {
     const style = options.style ?? "none";
     const overrides = new Map<string, FixtureOverride>();
     const state = {
@@ -55,6 +61,7 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         ],
         revision: 2,
         saves: 0,
+        previews: 0,
     };
     const calls: FixtureCall[] = [];
     const unknown: FixtureCall[] = [];
@@ -135,18 +142,38 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         ],
     };
 
-    const failedChain = () => ({
-        id: "chain-failed",
+    const chainStep = (shotId: string, title: string, status: string, extra: Record<string, unknown> = {}) => ({
+        shotId,
+        revisionId: "rev-1",
+        title,
+        scene: "E01S01",
+        contentSeconds: 15,
+        generationSeconds: 15,
+        model: FIXTURE_VIDEO_MODEL,
+        status,
+        phase: status === "running" ? "generating" : "",
+        referenceCount: 0,
+        ...extra,
+    });
+    const chainOf = (id: string, status: string, steps: unknown[], error?: string) => ({
+        id,
         projectId: FIXTURE_PROJECT_ID,
         unitId: FIXTURE_UNIT_ID,
-        status: "failed",
+        status,
         stage: "",
-        error: "上游超时",
         previewHash: "",
         totalMicrocredits: 0,
         whiteModelStoryboardEnabled: false,
-        steps: [{ shotId: FIXTURE_SHOT_ID, revisionId: "rev-1", title: "S01", scene: "E01S01", contentSeconds: 15, generationSeconds: 15, model: FIXTURE_VIDEO_MODEL, status: "failed", phase: "", error: "上游超时" }],
+        steps,
+        ...(error ? { error } : {}),
     });
+    const chainList = () => {
+        const mode = options.chains ?? "none";
+        if (mode === "history") return [chainOf("chain-history", "succeeded", [chainStep(FIXTURE_SHOT_ID, "S01", "succeeded")])];
+        if (mode === "failed") return [chainOf("chain-failed", "failed", [chainStep(FIXTURE_SHOT_ID, "S01", "failed", { error: "上游超时" })], "上游超时")];
+        if (mode === "running") return [chainOf("chain-running", "running", [chainStep(FIXTURE_SHOT_ID, "S01", "running")])];
+        return [];
+    };
     const ok = (data: unknown): FixtureResponse => ({ status: 200, body: { code: 0, data, msg: "ok" } });
     const reject = (status: number, reason: string): FixtureResponse => ({ status, body: { code: status, msg: reason, reason } });
     const base = `/projects/${FIXTURE_PROJECT_ID}`;
@@ -214,8 +241,7 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
             if (path === `${base}/drama/segments`) return ok({ segments: state.segments });
             if (path === `${base}/units/${FIXTURE_UNIT_ID}/drama/shotlist`) return ok({ shotlist: null });
             if (path === `${base}/units/${FIXTURE_UNIT_ID}/drama/scenes`) return ok({ unitId: FIXTURE_UNIT_ID, title: unit.title, episode: 1, fromChapters: false, rule: 15, scenes: [], paletteReady: false });
-            // failedVideo：S01 有一条出片失败的历史链（只用来让底栏出现「重新出失败的段」次按钮，不会被点）。
-            if (path === `${base}/video-chains`) return ok({ chains: options.failedVideo ? [failedChain()] : [] });
+            if (path === `${base}/video-chains`) return ok({ chains: chainList() });
             if (path === "/drama/shot-vocab") return ok({ vocab: { sizes: ["远景", "全景", "中景", "近景", "特写"], cameras: ["固定机位", "推", "拉", "摇"], transitions: [] } });
             if (path === "/model-catalog") return ok(catalog);
             if (path === "/wallet") return ok({ account: { availableMicrocredits: 9_000_000_000, frozenMicrocredits: 0 }, transactions: [], total: 0, page: 1, pageSize: 1 });
@@ -231,6 +257,13 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
             }
             state.saves += 1;
             return ok({ segments: state.segments });
+        }
+        // 出片花费预览只读：返回整链预估，不建任务、不扣费。真正提交（POST /video-chains）、重试、取消都落到下面的拦截。
+        if (call.method === "POST" && path === `${base}/video-chains/preview`) {
+            state.previews += 1;
+            const input = body as { shotId?: string };
+            const steps = state.segments.filter((segment) => segment.shotId === input?.shotId || !input?.shotId).map((segment) => chainStep(segment.shotId, segment.spec.id, "waiting", { phase: "waiting", quote: { amountMicrocredits: 1_500_000 } }));
+            return ok({ chain: { ...chainOf("", "preview", steps), previewHash: `preview-${state.previews}`, totalMicrocredits: 1_500_000 * steps.length } });
         }
         // 编译提示词只读不扣费，按当前段给一个确定的结果。
         if (call.method === "POST" && /^\/projects\/[^/]+\/shots\/[^/]+\/compile$/.test(path)) {

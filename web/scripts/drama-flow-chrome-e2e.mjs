@@ -415,6 +415,32 @@ async function dragCases(cdp, outDir) {
     return results;
 }
 
+/** 按去掉空白后的文字找按钮（antd 会在两个汉字的按钮文字中间加空格）。 */
+const buttonIn = (scope, text) => `[...(${scope})?.querySelectorAll("button") || []].find((el) => (el.textContent || "").split(" ").join("").trim() === ${JSON.stringify(text)})`;
+const vcard = (segmentId) => `[...document.querySelectorAll("article.drama-flow-vcard")].find((el) => el.querySelector(".drama-flow-seg-no")?.textContent === ${JSON.stringify(segmentId)})`;
+const chainModal = `document.querySelector(".ant-modal")`;
+
+/**
+ * R6-D04：出片页真实点「出这一段 / 重新出」→ 连续生成面板 → 预览花费 → 关闭。
+ * 只走只读预览；创建、续跑、取消请求由夹具拦下并判失败。
+ */
+async function quoteCase(cdp, fixture, { label, segmentId, buttonText, previewText }) {
+    await cdp.navigate(`/drama-flow/${P}/video`);
+    check(await cdp.poll(exists(buttonIn(vcard(segmentId), buttonText)), "video card", 20000), `${label}：${segmentId} 卡上有「${buttonText}」`);
+    check(await cdp.poll(`!(${buttonIn(vcard(segmentId), buttonText)})?.disabled`, "button enabled", 10000), `${label}：「${buttonText}」可以点`);
+    await cdp.click(buttonIn(vcard(segmentId), buttonText), `${label}：${buttonText}`);
+    check(await cdp.poll(`(${chainModal})?.textContent.includes("同场景连续生成")`, "chain modal", 10000), `${label}：打开连续生成面板`);
+    await sleep(800);
+    check(!(await cdp.evaluate(crashed)), `${label}：打开面板后页面没有崩（无 RouteErrorPage）`);
+    await cdp.click(buttonIn(chainModal, previewText), `${label}：${previewText}`);
+    check(await cdp.poll(`(${chainModal})?.textContent.includes("平台积分（整链预估")`, "quote", 10000), `${label}：看到整链预估花费`);
+    check(fixture.state.previews === 1, `${label}：只发了 1 次只读预览`, `previews=${fixture.state.previews}`);
+    await cdp.click(buttonIn(chainModal, "关闭"), `${label}：关闭面板`);
+    check(await cdp.poll(`!document.body.innerText.includes("同场景连续生成")`, "modal closed", 5000), `${label}：取消后面板关闭`);
+    const submitted = fixture.calls.filter((call) => call.method !== "GET" && /\/video-chains(\/[^/]+\/(retry|cancel))?$/.test(call.path));
+    check(!submitted.length && !fixture.forbidden.length, `${label}：没有创建、续跑或取消出片链`, JSON.stringify({ submitted, forbidden: fixture.forbidden }));
+}
+
 async function main() {
     const chrome = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
     if (!chrome) throw new Error(`No Chrome found. Set CHROME_BIN. Tried:\n  ${CHROME_CANDIDATES.join("\n  ")}`);
@@ -497,6 +523,13 @@ async function main() {
         check(await cdp.evaluate(`${summary("视频模型")} === ${JSON.stringify(FIXTURE_VIDEO_MODEL_NAME)}`), "D-03 出片页视频模型显示名字");
         check(!(await cdp.evaluate(crashed)), "出片详情选择、切换、关闭不崩");
 
+        // R6-D04：新工作流先读过出片链，再打开公共的连续生成面板，预览花费后取消。
+        fixture = useFixture();
+        await quoteCase(cdp, fixture, { label: "R6-D04 没有出片链", segmentId: "S02", buttonText: "出这一段", previewText: "预览当前场景与费用" });
+        fixture = useFixture({ chains: "failed" });
+        await quoteCase(cdp, fixture, { label: "R6-D04 出片失败", segmentId: "S01", buttonText: "重新出", previewText: "预览新任务与费用" });
+        fixture = useFixture();
+
         // D-02 / D-03：项目信息抽屉。
         await cdp.navigate(`/drama-flow/${P}?panel=info`);
         check(await cdp.poll(`${info("最近 100 次运行")} === "0 积分 · 暂无消费"`, "info cost"), "D-02 读到空运行记录写「0 积分 · 暂无消费」");
@@ -518,7 +551,7 @@ async function main() {
         }
         // 更窄的视口下底栏会换行（按钮行落到说明文字下面），换行后主操作也不能被盖住。
         // 有失败的段时底栏是两个按钮（「重新出失败的 N 段（先看花费）」+「处理 N 件待办」），会换行。次按钮只看不点。
-        fixture = useFixture({ failedVideo: true });
+        fixture = useFixture({ chains: "failed" });
         geometry.push(await footerCase(cdp, { viewport: { width: 1024, height: 768 }, theme: "light", collapsed: false, outDir, expectWrap: true }));
         fixture = useFixture();
         await cdp.send("Emulation.clearDeviceMetricsOverride");
