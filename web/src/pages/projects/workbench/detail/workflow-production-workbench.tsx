@@ -26,7 +26,7 @@ import { modelCompatibilityError, modelVideoDurationSlots, modelVideoSubmissionS
 import { formatVideoResolutionLabel } from "@/lib/video-generation-options";
 import { prepareBackendGenerationTask, submitBackendGenerationTask } from "@/services/api/generation-task";
 import { VideoChainPanel } from "./video-chain-panel";
-import { createVideoChain, previewVideoChain } from "@/services/api/project-video-chains";
+import { createVideoChain, previewVideoChain, videoChainsKey } from "@/services/api/project-video-chains";
 import { quoteModel, type LogicalModelQuote } from "@/services/api/logical-models";
 import { refreshGenerationTaskStatus, type GenerationTask } from "@/services/api/task-center";
 import { generationErrorMessage } from "@/lib/generation-error";
@@ -596,7 +596,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 await createVideoChain(projectId, { ...request, previewHash: preview.previewHash, requestId });
                 useDramaModelPreferencesStore.getState().remember("video", routedModel, userId);
                 singleSubmissionRef.current.delete(preview.previewHash);
-                await queryClient.invalidateQueries({ queryKey: ["project-video-chains", projectId, unitId] });
+                await queryClient.invalidateQueries({ queryKey: videoChainsKey(projectId, unitId) });
                 setVideoChainOpen(true);
             } else {
                 await submitBackendGenerationTask(generationRequest);
@@ -607,7 +607,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         } catch (error) {
             // 表单校验失败时 antd 抛的不是 Error，要把具体字段的提示说出来，不能只报「提交失败」。
             if (error instanceof ApiError && typeof error.details?.activeVideoChainId === "string") {
-                await queryClient.invalidateQueries({ queryKey: ["project-video-chains", projectId, unitId] });
+                await queryClient.invalidateQueries({ queryKey: videoChainsKey(projectId, unitId) });
                 setVideoChainOpen(true);
             }
             const fieldError = (error as { errorFields?: Array<{ errors?: string[] }> } | undefined)?.errorFields?.[0]?.errors?.[0];

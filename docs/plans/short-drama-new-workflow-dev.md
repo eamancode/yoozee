@@ -314,6 +314,7 @@ Codex 负责的测试、部署、验收见第 12 节。
   - 模型展示名由 `hooks/use-model-names.ts` 解析：打开时读一次模型目录，系统模型以目录为准，个人渠道看本地配置；只改显示，不改存的 ID。
   - 第五轮改为按柚智浮层实际占位让位：浮层把当前占位发布到只读的 `lib/agent-launcher-footprint.ts`（右、下距离和宽高，含收起按钮伸出的 8px；拖动中不发，隐藏时为空），新工作流用 `hooks/use-launcher-inset.ts` 计算：底栏和浮层上下重叠时右侧留白（`--drama-flow-launcher-inset`），详情栏和浮层左右重叠时下边缘停在浮层上方（宽屏 `--drama-flow-pane-max`，窄屏浮层式 `--drama-flow-launcher-clear`）。底栏说明文字至少 16em，放不下时按钮整行换行。第四轮固定 240px 的详情栏留白已去掉。
   - 第六轮：详情栏让位改由纯函数 `paneLauncherLayout` 计算。浮层和详情栏左右重叠时，把详情栏放进浮层上方或下方更高的那段空档（上方：抬高底边 `--drama-flow-launcher-clear`；下方：顶边下移 `--drama-flow-pane-shift`，宽屏用 margin-top、窄屏用 top）；那段不够 240px 时保留 240px（视口矮时降为实际可用高度）并允许重叠。计算只用「没让位时」的顶边（量到的顶边减去元素上当前生效的下移量）和视口，不用详情栏自己的高度。宽屏 `max-height` 另设 160px 下限，矮视口下不会变成负数。
+- 第七轮：出片链列表的缓存 key 和取数统一由 `services/api/project-video-chains.ts` 的 `videoChainsKey` / `videoChainsQuery` 提供，新工作流（`use-flow-data`）、连续生成面板（`VideoChainPanel`）和旧工作台的刷新都用它。同一个 key 只缓存接口原样的 `{ chains }`，要数组的调用方自己读 `.chains`（轮询判断读的也是原样结构）。原先新工作流在取数里解包成数组写进同一个 key，面板按 `.chains.find` 读而崩溃。
   - 真实路由回归：`test/fixtures/drama-flow-lifecycle.harness.tsx`（happy-dom，真实路由页）和 `scripts/drama-flow-chrome-e2e.mjs`（Chrome + CDP 拦接口），共用无模型夹具 `test/fixtures/drama-flow-api-fixture.ts`。
 
 ## 11. 风险
