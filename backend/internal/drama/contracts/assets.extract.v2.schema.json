@@ -17,7 +17,7 @@
     "rules": [
       "原文事实、推导、设计建议分开。人、物、场独立，主体不重复；name稳定，aliases禁止杯子、机器、小伙子等歧义泛称。已有确认身份与图片不覆盖。",
       "先通读全篇决定主卡：主叙事时段最常见的干燥、中性稳定形象为主卡，不能因回忆先出现就把年轻/淋湿定为主卡。其他年龄阶段、临时雨湿及换装分别写variants，scene绑定到实际发生轮次。主卡不抱独立道具；身份锚点跨子卡继承。",
-      "generation_prompt保存完整可执行生图提示词，不受prompt_en摘要长度影响：角色为正面头像、90度侧脸、颈部以下正面身体、含头背面全身四宫格；场景为空人物的微缩空间总览；道具为独立空置本体。媒介与项目一致，不能写相冲突的三视图要求。",
+      "generation_prompt保存完整可执行生图提示词，不受prompt_en摘要长度影响：角色主卡和子卡固定竖版9:16，不继承项目视频画幅，采用正面头像、90度侧脸、颈部以下正面身体、含头背面全身四宫格；场景为空人物的微缩空间总览；道具为独立空置本体。媒介与项目一致，不能写相冲突的三视图要求。",
       "微缩场景按真实空间类型设计：围合室内保留实际四墙和门窗，半室外保留顶棚与敞开边界，外景表达道路建筑地形，不能凭空添加四墙或宋式陈设。记录固定地标与可站立anchors，不为凑数虚构结构。",
       "分析不漏物件，但仅有独立制作、跨镜识别、关键动作或特写价值的道具独立建卡。背景陈设在spatial_layout记录，普通消耗品合理归组。道具production_priority为high/medium/low，低优先级默认不排图。",
       "design保存role、identity_appearance、clothing、body_description、prop_design、spatial_layout、production_priority，characters/props/environments引用真实资产标准名。evidence为{kind:原文/推导/设计建议,location,text}，states为{location,trigger,state}。阶段损伤磨亮换轮不得倒灌到初始图。",

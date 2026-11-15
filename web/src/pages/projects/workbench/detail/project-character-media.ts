@@ -35,11 +35,12 @@ export function characterTurnaroundRequest(input: {
     versionId: string;
     name: string;
     definition: Record<string, unknown>;
+    fourPanel?: boolean;
     projectStyle?: ProjectStylePrompt;
     config: AiConfig;
 }): Parameters<typeof runBackendCanvasGenerationTask>[0] {
     const promptTemplateVariables = characterTurnaroundVariables(input.name, input.definition, input.projectStyle);
-    const generationConfig = { ...input.config, count: "1" };
+    const generationConfig = { ...input.config, count: "1", ...(input.fourPanel ? { size: "9:16" } : {}) };
     const requestConfig = resolveModelRequestConfig(generationConfig, generationConfig.model);
     const styleExecutionPlan = input.projectStyle?.profile ? resolveStyleExecutionPlan(input.projectStyle.profile, { mode: "image", model: requestConfig.model, interfaceType: requestConfig.interfaceType || requestConfig.apiFormat }) : undefined;
     if (styleExecutionPlan?.status === "blocked" && !logicalModelIDForConfig(generationConfig)) throw new Error(`当前图片模型无法完整执行项目风格：${styleExecutionPlan.warnings.join("；")}。请切换到支持所需参考素材的图片模型`);
@@ -47,7 +48,7 @@ export function characterTurnaroundRequest(input: {
         projectId: input.projectId,
         nodeId: `${CHARACTER_TURNAROUND_NODE_PREFIX}${input.assetId}`,
         mode: "image",
-        prompt: promptTemplateTaskPlaceholder("角色三视图"),
+        prompt: promptTemplateTaskPlaceholder(input.fourPanel ? "角色四宫格（9:16）" : "角色三视图"),
         config: generationConfig,
         metadata: {
             operation: PromptTemplateOperation.CharacterTurnaround,

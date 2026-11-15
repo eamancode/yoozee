@@ -43,6 +43,7 @@ test("工作流选择位于每段时长与视频模型之间，说明五条流�
     expect(html.indexOf('aria-label="工作流"')).toBeGreaterThan(html.indexOf('aria-label="每段时长"'));
     expect(html.indexOf('aria-label="工作流"')).toBeLessThan(html.indexOf('aria-label="视频模型"'));
     expect(html).toContain("角色四宫格");
+    expect(html).toContain("固定 9:16");
     expect(html).toContain("微缩场景图");
     expect(html).toContain("角色三视图");
     expect(html).toContain("流水线一 SSS 电影导演");

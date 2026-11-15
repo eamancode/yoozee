@@ -41,6 +41,13 @@ function sameNameConfig() {
 }
 
 describe("短剧出图模板", () => {
+    test("人物四宫格手动提交固定9:16，原三视图保留模型配置", () => {
+        const config = { ...sameNameConfig(), size: "16:9" };
+        const input = { projectId: "p", assetId: "a", versionId: "v", name: "林深", definition: { appearance: "青年男性，深灰西装" }, config };
+        expect(characterTurnaroundRequest({ ...input, fourPanel: true }).config.size).toBe("9:16");
+        expect(characterTurnaroundRequest({ ...input, fourPanel: false }).config.size).toBe("16:9");
+        expect(config.size).toBe("16:9");
+    });
     test("主卡实际提交保留项目模型，不能被全局图片模型覆盖", () => {
         const config = sameNameConfig();
         const projectModel = encodeChannelModel("personal", "pr30-image");
