@@ -2,6 +2,7 @@ package drama
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"math"
@@ -226,8 +227,83 @@ func stepBriefPrompt(briefJSON string, intro string) string {
 	return out
 }
 
+// ScriptAdaptConceptTurn 是 SSS 流水线拆剧本多出的第一轮「立意与全集结构」（轮次 ID）：只写立意页和全集结构表，不写剧本。
+const ScriptAdaptConceptTurn = "concept"
+
+// ScriptAdaptConceptTitles 是立意与全集结构这一轮必须写的两部分（标题一字不改）。
+var ScriptAdaptConceptTitles = []string{"立意页", "全集结构表"}
+
+// ScriptAdaptWithConcept 在各集前面加一轮「立意与全集结构」。
+func ScriptAdaptWithConcept(turns []ShotsScene) []ShotsScene {
+	return append([]ShotsScene{{ID: ScriptAdaptConceptTurn, Heading: "立意与全集结构"}}, turns...)
+}
+
+func scriptAdaptHasConcept(turns []ShotsScene) bool {
+	return len(turns) > 0 && turns[0].ID == ScriptAdaptConceptTurn
+}
+
+// ScriptAdaptConceptText 取立意与全集结构这一轮的两部分原文（标题行起）；缺一部分返回空。text 可以是整次运行的输出：
+// 第一集的 JSON 头及之后的剧本不算进来。
+func ScriptAdaptConceptText(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, raw := range lines {
+		if _, ok := adaptHeader(jsTrim(raw)); ok {
+			text = strings.Join(lines[:i], "\n")
+			break
+		}
+	}
+	var parts []string
+	for _, title := range ScriptAdaptConceptTitles {
+		body, ok := SSSSection(text, title)
+		if !ok || strings.TrimSpace(body) == "" {
+			return ""
+		}
+		parts = append(parts, "## "+title+"\n\n"+body)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// CountScriptAdaptConcept 校验立意与全集结构这一轮：两部分都有正文，不写剧集（没有 JSON 头）。
+func CountScriptAdaptConcept(text string) (int, error) {
+	if err := SSSRequireSections(text, ScriptAdaptConceptTitles...); err != nil {
+		return 0, err
+	}
+	if episodes, _ := ScriptAdaptEpisodesFromText(text); len(episodes) > 0 && episodes[0].Header {
+		return 0, errors.New("这一轮只写立意页和全集结构表，不写剧集（不要输出 JSON 头）")
+	}
+	return 1, nil
+}
+
+// CountScriptAdaptRun 是剧本优化一轮的校验：立意与全集结构轮按两部分校验，其余按一集校验。
+func CountScriptAdaptRun(text string, turn TurnContext) (int, error) {
+	if turn.Turn.ID == ScriptAdaptConceptTurn {
+		return CountScriptAdaptConcept(text)
+	}
+	return CountScriptAdaptTurn(text, turn.Sources)
+}
+
+// ScriptAdaptNextPrompt 是第 k 轮（k ≥ 2）的续写指令；有立意轮时第 k 轮写第 k-1 集。
+func ScriptAdaptNextPrompt(turns []ShotsScene, k int) string {
+	if !scriptAdaptHasConcept(turns) {
+		return ScriptAdaptTurnPrompt(turns, k)
+	}
+	episodes := turns[1:]
+	if k == 2 {
+		which := ""
+		if t := episodes[0]; t.Heading != "" && t.Heading != "第 1 集" {
+			which = "，对应【剧集 1】「" + t.Heading + "」"
+		}
+		return "现在写第 1 集" + which + "：按上一回合全集结构表里第 1 集的任务、开场和卡点写，JSON 头的 no 写 1。只输出这一集（JSON 头加正文）。"
+	}
+	return ScriptAdaptTurnPrompt(episodes, k-1)
+}
+
 // ScriptAdaptTurnPlan 是第一轮接在提示词后面的分回合说明。
 func ScriptAdaptTurnPlan(turns []ShotsScene) string {
+	if scriptAdaptHasConcept(turns) {
+		n := len(turns) - 1
+		return fmt.Sprintf("【分回合输出】本次共 %d 集，这个对话分 %d 个回合写完：第 1 回合只写立意与全集结构，依次输出 `## 立意页`、`## 全集结构表` 两部分（标题一字不改，全集结构表每集一行、共 %d 集），这一回合不写剧本、不输出 JSON 头；我说「继续」时再从第 1 集起一回合写一集（JSON 头加正文），每一集按全集结构表里这一集的任务写。", n, n+1, n)
+	}
 	n := len(turns)
 	first := "本回合只写第 1 集（JSON 头加正文）"
 	if turns[0].Heading != "" && turns[0].Heading != "第 1 集" {

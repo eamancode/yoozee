@@ -69,6 +69,8 @@ type dramaAdaptMeta struct {
 	// AssetImages 是请求带了 assetImageTask（模板和任务输入一起加密存）：按生成模式一路接着跑的导演定画风、场次色卡、
 	// 各集提取资产都带着它，提取完自动给新资产出图。
 	AssetImages bool `json:"assetImages,omitempty"`
+	// Concept 表示 SSS 流水线：第一轮写立意页与全集结构表，收尾存成项目文档（concept）。
+	Concept bool `json:"concept,omitempty"`
 }
 
 // DramaEpisodeImpact 是重跑会动到的一集：替换（adapt）或改写（rhythm）前在确认框里列出。
@@ -274,13 +276,17 @@ func scriptAdaptPlan(project *model.Project, sources []model.ProjectUnit, mode s
 	for _, u := range sources {
 		records = append(records, map[string]any{"unitId": u.ID, "title": u.Title, "kind": string(u.Kind)})
 	}
-	adapt := &dramaAdaptMeta{Mode: mode, SourceUnitIDs: ids, Episodes: episodes, ReplaceUnitIDs: replace}
+	adapt := &dramaAdaptMeta{Mode: mode, SourceUnitIDs: ids, Episodes: episodes, ReplaceUnitIDs: replace, Concept: usage.Workflow.ScriptSkill != ""}
 	if mode == drama.ScriptAdaptModeAdapt {
 		adapt.Paragraphs = paragraphs
 	}
+	turns := drama.ScriptAdaptTurns(mode, inputs, episodes)
+	if adapt.Concept {
+		turns = drama.ScriptAdaptWithConcept(turns)
+	}
 	return &dramaStepPlan{
 		usage: usage, prompt: prompt, skill: skill,
-		scenes: drama.ScriptAdaptTurns(mode, inputs, episodes),
+		scenes: turns,
 		record: map[string]any{"requirements": "输出可直接进入提取资产和生成分段的短剧剧本，一集一块。", "dramaSources": records},
 		adapt:  adapt,
 	}, nil
@@ -495,6 +501,12 @@ func (s *Service) applyScriptAdaptTask(task model.Task, meta *dramaStepTaskMeta,
 	if adapt.Mode == drama.ScriptAdaptModeRhythm && len(episodes) != len(adapt.SourceUnitIDs) {
 		return DramaScriptAdaptOutcome{}, fmt.Errorf("只调节奏应改写 %d 集，解析出 %d 集，没有写入", len(adapt.SourceUnitIDs), len(episodes))
 	}
+	concept := ""
+	if adapt.Concept {
+		if concept = drama.ScriptAdaptConceptText(text); concept == "" {
+			return DramaScriptAdaptOutcome{}, errors.New("第一回合没有写出立意页和全集结构表，没有写入剧集")
+		}
+	}
 	units, err := s.repo.ProjectUnits(projectID)
 	if err != nil {
 		return DramaScriptAdaptOutcome{}, err
@@ -556,6 +568,12 @@ func (s *Service) applyScriptAdaptTask(task model.Task, meta *dramaStepTaskMeta,
 			return DramaScriptAdaptOutcome{}, errors.New("要改写的剧集已被删除，没有写入")
 		}
 		return DramaScriptAdaptOutcome{}, err
+	}
+	if concept != "" {
+		// 剧集已写入；立意页与全集结构表按任务幂等写（重新收尾不重复加版本），之后的导演定画风和分镜读它。
+		if err := s.writeOntologyDocs(task, projectID, []ontologyDocWrite{{"", model.OntologyDocConcept, concept}}); err != nil {
+			return DramaScriptAdaptOutcome{}, fmt.Errorf("剧集已写入，立意页与全集结构表保存失败：%w", err)
+		}
 	}
 	return outcome, nil
 }

@@ -54,9 +54,10 @@ func seedOntologyWorkflowMigration(t *testing.T, db *gorm.DB) {
 	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
 		t.Fatal(err)
 	}
-	// Exercise the real migration ledger with only v97 pending, against v96 columns.
+	// Exercise the real migration ledger with only v97 pending, against v96 columns
+	// (later versions are recorded as applied; v100's second renumbering has its own test).
 	for _, item := range schemaMigrations {
-		if item.version >= 97 {
+		if item.version == 97 {
 			continue
 		}
 		if err := db.Create(&schemaMigration{Version: item.version, Name: item.name, Checksum: item.checksum, AppliedAt: time.Now().UTC()}).Error; err != nil {

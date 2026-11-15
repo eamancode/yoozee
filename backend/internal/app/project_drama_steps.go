@@ -139,6 +139,8 @@ type dramaStepPlan struct {
 	referenceImages []map[string]any
 	// ontology 是本体论导演分镜（流水线一）的运行参数（metadata.dramaOntology）。
 	ontology *dramaOntologyMeta
+	// sss 是 SSS 电影 / 短剧导演分镜（流水线一、二）的运行参数（metadata.dramaSSS）。
+	sss *dramaSSSMeta
 }
 
 func dramaStep(stepID string) (drama.Step, error) {
@@ -182,6 +184,9 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *
 	if step.ID == drama.StepChapterShots && workflow.StoryboardMode == drama.StoryboardModeOntology {
 		return s.ontologyStepSkill(project, workflow, step)
 	}
+	if step.ID == drama.StepChapterShots && workflow.StoryboardMode == drama.StoryboardModeSSS {
+		return s.sssStepSkill(project, workflow, step)
+	}
 	binding := step
 	var genre *DramaStepGenre
 	if step.ID == drama.StepChapterShots {
@@ -203,13 +208,22 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *
 	var skill drama.StepSkill
 	var bound bool
 	var err error
-	if step.ID == drama.StepAssetsExtract && workflow.AssetsSkill != "" {
+	// 流水线自带的拆剧本、导演定画风技能（SSS 流水线拆出的单文件技能）不走风格档案绑定表。
+	workflowSkill := map[string]string{drama.StepScriptAdapt: workflow.ScriptSkill, drama.StepStyleLock: workflow.StyleSkill}[step.ID]
+	switch {
+	case step.ID == drama.StepAssetsExtract && workflow.AssetsSkill != "":
 		loaded, loadErr := s.assetWorkflowSkill(workflow, "")
 		err, bound = loadErr, false
 		if loadErr == nil {
 			skill = loaded
 		}
-	} else {
+	case workflowSkill != "":
+		pkg, loadErr := s.skillDomain().StepSkillPackage(workflowSkill)
+		err = loadErr
+		if loadErr == nil {
+			skill = stepSkillOf(pkg)
+		}
+	default:
 		skill, bound, err = s.dramaBoundSkill(profileID, binding)
 	}
 	if err != nil {
@@ -351,8 +365,8 @@ func (s *Service) prepareDramaStepRun(userID string, project *model.Project, uni
 	if err != nil {
 		return nil, dramaRunMeta{}, err
 	}
-	if plan.ontology != nil && (len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 || regenre != nil) {
-		return nil, dramaRunMeta{}, BadAuthRequest("本体论导演分镜不按场或小节重写；要改某一段请在导演文档里对这一段返修")
+	if (plan.ontology != nil || plan.sss != nil) && (len(req.OnlyScenes) > 0 || len(req.OnlySections) > 0 || regenre != nil) {
+		return nil, dramaRunMeta{}, BadAuthRequest("导演分镜不按场或小节重写；要改某一段请在导演文档里对这一段返修")
 	}
 	if regenre != nil {
 		if plan.shots == nil {
@@ -382,6 +396,12 @@ func (s *Service) prepareDramaStepRun(userID string, project *model.Project, uni
 	}
 	if plan.ontology != nil {
 		if err := s.prepareOntologyRun(userID, project.ID, unitID, plan, &run, req.Discard); err != nil {
+			return nil, dramaRunMeta{}, err
+		}
+		return plan, run, nil
+	}
+	if plan.sss != nil {
+		if err := s.prepareSSSRun(userID, project.ID, unitID, plan, &run, req.Discard); err != nil {
 			return nil, dramaRunMeta{}, err
 		}
 		return plan, run, nil
@@ -462,6 +482,9 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	}
 	if plan.ontology != nil {
 		metadata["dramaOntology"] = plan.ontology
+	}
+	if plan.sss != nil {
+		metadata["dramaSSS"] = plan.sss
 	}
 	// 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
 	input := map[string]any{"mode": "text", "metadata": metadata}
@@ -572,6 +595,9 @@ func (s *Service) planDramaStepWith(userID string, project *model.Project, unitI
 	}
 	if usage.Workflow.StoryboardMode == drama.StoryboardModeOntology {
 		return s.planOntologyShots(userID, project, unit, usage, skill, rule, nil)
+	}
+	if usage.Workflow.StoryboardMode == drama.StoryboardModeSSS {
+		return s.planSSSShots(userID, project, unit, usage, skill, rule, nil)
 	}
 	genre, m, err := projectShotGenre(project, rule)
 	if err != nil {

@@ -15,7 +15,7 @@ import (
 func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
 	s, db := newDramaWorkerTestService(t)
 	project, _ := seedQichuang(t, s, db)
-	for _, wf := range []string{drama.WorkflowOntology, drama.WorkflowIntegrated, drama.WorkflowOriginal} {
+	for _, wf := range []string{drama.WorkflowSSSFilm, drama.WorkflowSSSDrama, drama.WorkflowOntology, drama.WorkflowIntegrated, drama.WorkflowOriginal} {
 		if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("workflow_id", wf).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -282,14 +282,14 @@ func TestIntegratedSceneRequiresAndTransmitsDesignedProp(t *testing.T) {
 
 func TestAssetWorkflowCreateDefaultsAndExplicitSelection(t *testing.T) {
 	s, _ := newDramaWorkerTestService(t)
-	for _, id := range []string{"", drama.WorkflowOntology, drama.WorkflowIntegrated, drama.WorkflowOriginal} {
+	for _, id := range []string{"", drama.WorkflowSSSFilm, drama.WorkflowSSSDrama, drama.WorkflowOntology, drama.WorkflowIntegrated, drama.WorkflowOriginal} {
 		project, err := s.CreateProject("user-1", CreateProjectRequest{Name: "工作流" + id, VisualType: "live_action", WorkflowID: id})
 		if err != nil {
 			t.Fatal(err)
 		}
 		want := id
 		if want == "" {
-			want = drama.WorkflowOntology
+			want = drama.WorkflowSSSDrama // 新建项目默认流水线二 SSS 短剧导演
 		}
 		if project.WorkflowID != want || project.WorkflowVersion != drama.WorkflowVersion {
 			t.Fatalf("wrong workflow: %+v", project)

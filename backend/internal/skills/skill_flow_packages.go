@@ -418,7 +418,7 @@ func (s *Service) flowPackageVersions(skillID string) (*FlowPackageSummary, []Fl
 		if step.ID == drama.StepAssetsExtract && summary.Contract == drama.ContractIntegratedAssets {
 			summary.StepContract = summary.Contract
 		}
-		if step.ID == drama.StepChapterShots && summary.Contract == drama.ContractOntologyDirector {
+		if step.ID == drama.StepChapterShots && (summary.Contract == drama.ContractOntologyDirector || summary.Contract == drama.ContractSSSDirector) {
 			summary.StepContract = summary.Contract
 		}
 	}

@@ -6,19 +6,19 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
-	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
 )
 
 // MigrateSchema runs this and the v97 ledger insert in one transaction. The ledger
 // is essential: replaying this data transform would renumber integrated projects twice.
+// IDs and labels are frozen as of v97 (v100 renumbers again); never read them from drama.Workflow.
 func migrateOntologyWorkflowRenumber(tx *gorm.DB) error {
 	for _, mapping := range [][2]string{{"pipeline-2", "pipeline-3"}, {"pipeline-1", "pipeline-2"}, {"", "pipeline-3"}} {
 		if err := tx.Table("projects").Where("workflow_id = ?", mapping[0]).UpdateColumn("workflow_id", mapping[1]).Error; err != nil {
 			return err
 		}
 	}
-	if err := tx.Table("projects").Where("workflow_id IS NULL").UpdateColumn("workflow_id", drama.WorkflowOriginal).Error; err != nil {
+	if err := tx.Table("projects").Where("workflow_id IS NULL").UpdateColumn("workflow_id", "pipeline-3").Error; err != nil {
 		return err
 	}
 	// 列默认值改成 pipeline-3。SQLite 改默认值要重建整张表（AlterColumn 会丢掉 projects 的独立索引和唯一约束），所以只在
@@ -80,19 +80,19 @@ func renumberTaskWorkflow(input string) (string, bool, error) {
 	if err := json.Unmarshal(workflow["id"], &id); err != nil {
 		return "", false, err
 	}
+	labels := map[string]string{"pipeline-2": "流水线二 资产一体化", "pipeline-3": "流水线三 原流程"}
 	switch id {
 	case "pipeline-2", "":
-		id = drama.WorkflowOriginal
+		id = "pipeline-3"
 	case "pipeline-1":
-		id = drama.WorkflowIntegrated
+		id = "pipeline-2"
 	case "pipeline-3":
 		return input, false, nil
 	default:
 		return "", false, errors.New("invalid historical workflow")
 	}
-	definition, _ := drama.Workflow(id)
 	workflow["id"], _ = json.Marshal(id)
-	workflow["label"], _ = json.Marshal(definition.Label)
+	workflow["label"], _ = json.Marshal(labels[id])
 	metadata["assetWorkflow"], _ = json.Marshal(workflow)
 	doc["metadata"], _ = json.Marshal(metadata)
 	encoded, err := json.Marshal(doc)

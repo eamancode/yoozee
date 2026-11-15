@@ -211,7 +211,7 @@ type CharacterVoiceBinding struct {
 
 // Project 是短剧领域聚合根；CanvasProject 仍代表可独立创作的画布文档。
 type Project struct {
-	WorkflowID        string `json:"workflowId" gorm:"size:32;not null;default:pipeline-3"`
+	WorkflowID        string `json:"workflowId" gorm:"size:32;not null;default:pipeline-5"`
 	WorkflowVersion   string `json:"workflowVersion" gorm:"size:24;not null;default:1"`
 	ID                string `json:"id" gorm:"primaryKey;size:36"`
 	UserID            string `json:"userId" gorm:"index;size:36;uniqueIndex:idx_projects_user_name,priority:1"`
@@ -671,17 +671,19 @@ type BannerAnnouncement struct {
 	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
-// 本体论导演分镜（流水线一）的文档种类。
+// 导演分镜文档的种类：本体论导演（流水线三）与 SSS 电影、短剧导演（流水线一、二）共用这张表，按项目流水线解释。
 const (
-	OntologyDocBible     = "bible"     // 项目级世界圣经卡（UnitID 为空）
-	OntologyDocSetup     = "setup"     // 立项回合的待确认清单与补图建议（UnitID 为空）
-	OntologyDocEpisode   = "episode"   // 一集的七部分
+	OntologyDocBible     = "bible"     // 项目级世界圣经卡 / 全剧圣经（UnitID 为空）
+	OntologyDocSetup     = "setup"     // 立项回合的待确认清单（本体论另有补图建议；UnitID 为空）
+	OntologyDocEpisode   = "episode"   // 一集的七部分（本体论）/ 八部分（SSS）
+	OntologyDocConcept   = "concept"   // SSS：拆剧本写的立意页与全集结构表（UnitID 为空）
+	OntologyDocWorld     = "world"     // SSS：导演定画风写的世界基准段、视觉总谱、声音总谱（UnitID 为空）
 	OntologyDocHandoff   = "handoff"   // 一集的集交接卡，下一集的材料包读它
 	OntologyDocMaterials = "materials" // 一集生成时的素材清单（JSON），返修按它解释原单元卡里的 @图N
 	OntologyDocGate      = "gate"      // 一集自检硬失败里还没返修的项（JSON 字符串数组，如 "s02-u6 H1"）；非空时流水线停在分镜
 )
 
-// ProjectOntologyDocument 是本体论导演分镜的文档。只追加：每次生成或编辑写一条新版本（Version 递增），读取取最新版本。
+// ProjectOntologyDocument 是导演分镜的文档（本体论、SSS 共用）。只追加：每次生成或编辑写一条新版本（Version 递增），读取取最新版本。
 type ProjectOntologyDocument struct {
 	ID        string    `json:"id" gorm:"primaryKey;size:36"`
 	ProjectID string    `json:"projectId" gorm:"size:36;uniqueIndex:idx_project_ontology_docs_version,priority:1"`

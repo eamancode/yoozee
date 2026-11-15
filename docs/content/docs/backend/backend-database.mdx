@@ -5,6 +5,10 @@ description: 柚子后端核心持久化表与状态边界
 
 # 后端数据库
 
+## 五条流水线与第二次顺延（迁移 100）
+
+迁移 100 在最前面加入「流水线一 SSS 电影导演」「流水线二 SSS 短剧导演」：同一事务里依次把已有项目 `pipeline-3 → pipeline-5`、`pipeline-2 → pipeline-4`、`pipeline-1 → pipeline-3`、空字符串或 NULL → `pipeline-5`（由高到低，不会二次顺延），PostgreSQL 上把列默认改为 `pipeline-5`（SQLite 同迁移 97 不重建表）；`tasks.input_json` 的 `metadata.assetWorkflow` 同样改写 `id` 与 `label`，其余字节保留，快照损坏或 ID 非法则中止且不输出正文。账本记录版本 100，重复启动不再顺延。迁移 97 的编号与标签已冻结成字面值，不随现行定义变化。现行编号：一 SSS 电影、二 SSS 短剧（新建默认）、三 本体论、四 资产一体化、五 原流程。下面「迁移 97」一节描述的是当时的编号。
+
 ## 三条流水线与编号顺延（迁移 97）
 
 `projects.workflow_id`、`workflow_version` 保存项目选定的工作流及配置版本。`pipeline-1` 为「流水线一 本体论导演」，`pipeline-2` 为「流水线二 资产一体化」，`pipeline-3` 为「流水线三 原流程」。创建接口省略时写入 `pipeline-1`，数据库列默认 `pipeline-3` / `1`，读取空 ID 按流水线三；创建后不可切换。
@@ -595,13 +599,14 @@ Schema 32 为 `channel_models` 新增 `tags`（TEXT、NOT NULL、默认 `'[]'`�
 
 ## 本体论导演文档（迁移 98）
 
-`project_ontology_documents` 保存流水线一本体论导演分镜的文档，只追加版本，读取取最新版本：
+`project_ontology_documents` 保存导演分镜的文档（迁移 98 时是流水线一本体论导演；迁移 100 后本体论是流水线三，SSS 电影 / 短剧的流水线一、二共用这张表），只追加版本，读取取最新版本：
 
 | 列 | 说明 |
 | --- | --- |
 | `id` | 主键 |
 | `project_id`、`unit_id`、`kind`、`version` | 联合唯一索引 `idx_project_ontology_docs_version`；`unit_id` 为空是项目级文档 |
 | `kind` | `bible` 世界圣经卡（项目级）、`setup` 立项待确认清单与补图建议（项目级）、`episode` 一集的七部分、`handoff` 一集的集交接卡、`materials` 一集生成时的素材清单 JSON（返修按它解释原单元卡的 `@图N`）、`gate` 一集自检硬失败里还没返修的项（JSON 字符串数组，非空时流水线停在分镜，返修某单元后去掉该单元的项） |
+| `kind`（SSS 增补） | `concept` 拆剧本写的立意页与全集结构表（项目级）、`world` 导演定画风写的世界基准段与视听总谱（项目级）；SSS 的 `bible` 是全剧圣经、`setup` 是立项待确认、`episode` 是一集的八部分、`materials` 是素材清单（返修按它解释 `@名称`）；SSS 不写 `gate`。`kind` 是字符串列，不需要新迁移 |
 | `content` | 文档原文（Markdown） |
 | `task_id`、`created_by`、`created_at` | 来源任务、写入人、时间；手改圣经卡没有 `task_id` |
 

@@ -10,7 +10,7 @@ import { settingsPath } from "@/lib/settings-navigation";
 import type { DramaModel, DramaRunMode } from "@/services/api/project-drama";
 import { dramaStyleLibraryCoverUrl, type DramaStyleLibraryItem } from "@/services/api/drama-style-library";
 import type { ProjectVisualType, ProjectAssetWorkflow } from "@/services/api/projects";
-import { PROJECT_WORKFLOWS, projectWorkflow } from "@/lib/project-workflow";
+import { DEFAULT_PROJECT_WORKFLOW, PROJECT_WORKFLOWS, projectWorkflow } from "@/lib/project-workflow";
 
 import { DRAMA_RUN_MODES, DRAMA_VIDEO_STOP_NOTE } from "../drama-model";
 import { PipelineStrip } from "../pipeline-strip";
@@ -351,7 +351,7 @@ export function ProductionSection(props: {
                     optionClassName="project-choice"
                     render={(id) => (
                         <>
-                            <strong>{projectWorkflow(id as ProjectAssetWorkflow).label}{id === "pipeline-1" ? " · 默认" : ""}</strong>
+                            <strong>{projectWorkflow(id as ProjectAssetWorkflow).label}{id === DEFAULT_PROJECT_WORKFLOW ? " · 默认" : ""}</strong>
                             <span>{projectWorkflow(id as ProjectAssetWorkflow).description}</span>
                         </>
                     )}

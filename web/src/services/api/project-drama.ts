@@ -910,26 +910,27 @@ export function dramaScenePaletteOutcomeOf(task: Pick<GenerationTask, "resultJso
     return outcome && outcome.step === "scene.palette" && typeof outcome.scenes === "number" ? outcome : undefined;
 }
 
-/** 本体论导演分镜（流水线一）的文档：每个文档只追加版本，接口返回最新版本。 */
-export type OntologyDocument = { id: string; projectId: string; unitId: string; kind: "bible" | "setup" | "episode" | "handoff"; version: number; content: string; taskId?: string; createdAt: string };
-export type OntologyDocuments = { bible?: OntologyDocument; setup?: OntologyDocument; episodes: OntologyDocument[]; handoffs: OntologyDocument[] };
+/** 导演分镜的文档（SSS 电影 / 短剧：流水线一、二；本体论：流水线三）：每个文档只追加版本，接口返回最新版本。 */
+export type OntologyDocument = { id: string; projectId: string; unitId: string; kind: "bible" | "setup" | "episode" | "handoff" | "concept" | "world"; version: number; content: string; taskId?: string; createdAt: string };
+/** mode：sss 是八部分（另有拆剧本写的立意与结构 concept、导演定画风写的世界与总谱 world），ontology 是七部分。 */
+export type OntologyDocuments = { mode: "sss" | "ontology" | ""; bible?: OntologyDocument; setup?: OntologyDocument; concept?: OntologyDocument; world?: OntologyDocument; episodes: OntologyDocument[]; handoffs: OntologyDocument[] };
 
 export function ontologyDocumentsKey(projectId: string) {
     // 放在 ["project", projectId] 下：生成分段、返修收尾后刷新项目时一起失效。
     return ["project", projectId, "ontology-documents"] as const;
 }
 
-/** 世界圣经卡（项目级）、立项待确认清单、各集七部分与集交接卡。 */
+/** 圣经（项目级）、立项待确认、SSS 的立意与结构和世界与总谱、各集七部分 / 八部分与集交接卡。 */
 export function getOntologyDocuments(projectId: string, signal?: AbortSignal) {
     return http.get<OntologyDocuments>(`/projects/${encodeURIComponent(projectId)}/drama/ontology`, { signal });
 }
 
-/** 手改世界圣经卡：写一个新版本，只影响之后生成的集。 */
+/** 手改圣经：写一个新版本，只影响之后生成的集。 */
 export function updateOntologyBible(projectId: string, content: string) {
     return http.put<OntologyDocument>(`/projects/${encodeURIComponent(projectId)}/drama/ontology/bible`, { content });
 }
 
-/** 对一个本体论单元段返修：服务端读原单元卡和症状跑返修回合，只替换这一段。 */
+/** 对一个导演分镜单元段返修：服务端读原单元卡和症状跑返修回合（SSS 另跑一轮编译），只替换这一段。 */
 export function repairOntologySegment(projectId: string, unitId: string, input: { shotId: string; symptom: string; model: string; logicalModelId?: string; config: Record<string, unknown> }) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/ontology/repair`, input);
 }

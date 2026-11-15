@@ -2382,7 +2382,7 @@ paths:
                 generationModel: {type: string, description: kb-dialects/models.json 的模型族 id}
                 segmentSeconds: {type: integer, minimum: 1, description: 单段最长秒数（建项目选 15 / 30），写进 brief_json.segment_seconds；不超过生成模型一段的上限；不传按模型上限}
                 whiteModelStoryboardEnabled: {type: boolean, default: false, description: 是否开启同场景自动白模分镜；独立于生成模式}
-                workflowId: {type: string, enum: [pipeline-1, pipeline-2, pipeline-3], default: pipeline-1, description: 流水线一本体论导演；流水线二资产一体化；流水线三原流程。一、二共用角色四宫格和微缩场景。创建后不可切换}
+                workflowId: {type: string, enum: [pipeline-1, pipeline-2, pipeline-3, pipeline-4, pipeline-5], default: pipeline-2, description: 流水线一 SSS 电影导演；流水线二 SSS 短剧导演；流水线三本体论导演；流水线四资产一体化；流水线五原流程。一至四共用角色四宫格和微缩场景；一、二的拆剧本、导演定画风、分镜用各自的 SSS 技能。创建后不可切换}
                 styleProfile: {type: string, description: 不传按画风对照表推荐}
       responses:
         "200":
@@ -2647,11 +2647,11 @@ paths:
         schema: { type: string }
     get:
       tags: [drama]
-      summary: 读本体论导演分镜（流水线一）的文档
-      description: 返回世界圣经卡 bible、立项待确认清单 setup（最新版本，可能为空）及各集 episodes（七部分）、handoffs（集交接卡）。文档只追加版本，这里只给最新版本。
+      summary: 读导演分镜的文档（SSS 电影 / 短剧：流水线一、二；本体论：流水线三）
+      description: mode 是 sss（每集八部分）或 ontology（每集七部分）。返回圣经 bible（SSS 叫全剧圣经，本体论叫世界圣经卡）、立项待确认 setup（最新版本，可能为空）、SSS 另有拆剧本写的立意页与全集结构表 concept、导演定画风写的世界基准段与视听总谱 world，及各集 episodes、handoffs（集交接卡）。文档只追加版本，这里只给最新版本。
       responses:
         "200":
-          description: "{ code: 0, data: { bible?: OntologyDocument, setup?: OntologyDocument, episodes: OntologyDocument[], handoffs: OntologyDocument[] } }"
+          description: "{ code: 0, data: { mode: 'sss'|'ontology'|'', bible?: OntologyDocument, setup?: OntologyDocument, concept?: OntologyDocument, world?: OntologyDocument, episodes: OntologyDocument[], handoffs: OntologyDocument[] } }"
         "401":
           $ref: "#/components/responses/Error"
         "404":
@@ -2664,7 +2664,7 @@ paths:
         schema: { type: string }
     put:
       tags: [drama]
-      summary: 手改世界圣经卡（写新版本，只影响之后生成的集）
+      summary: 手改圣经（SSS 全剧圣经 / 本体论世界圣经卡；写新版本，只影响之后生成的集）
       requestBody:
         required: true
         content:
@@ -2695,8 +2695,8 @@ paths:
         schema: { type: string }
     post:
       tags: [drama]
-      summary: 对一个本体论单元段返修（只替换这一段）
-      description: 读这一集七部分里的原单元卡和生成时的素材清单，按症状跑返修回合（诊断 → 回责任环节重写 → 编译 → 自检），收尾只替换目标段并给七部分写新版本。受任务创建限流。
+      summary: 对一个导演分镜单元段返修（只替换这一段）
+      description: 读这一集七部分 / 八部分里的原单元卡和生成时的素材清单，按症状跑返修回合（本体论：诊断 → 回责任环节重写 → 编译 → 自检；SSS：诊断重写单元卡、再一轮编译粘贴提示词），收尾只替换目标段并给七部分 / 八部分写新版本。受任务创建限流。
       requestBody:
         required: true
         content:

@@ -38,23 +38,27 @@ type dramaStyleLockMeta struct {
 	// Pipeline 是流水线跑的导演定画风（建项选了「交给导演分析」）：收尾直接锁定、存进平台风格库（来源 director），
 	// 再按生成模式接着跑场次色卡。
 	Pipeline bool `json:"pipeline,omitempty"`
+	// World 表示 SSS 流水线：另写世界基准段、视觉总谱、声音总谱，锁定时存成项目文档（world）。
+	World bool `json:"world,omitempty"`
 }
 
 // DramaStyleLockOutcome 是风格锁定收尾写进 result.dramaStep 的候选：用户点「锁定此风格」时取它写进项目。
 type DramaStyleLockOutcome struct {
-	PersonalStyleError string                    `json:"personalStyleError,omitempty"`
-	StyleProfileID     string                    `json:"styleProfileId,omitempty"`
-	StyleProfile       map[string]any            `json:"styleProfile,omitempty"`
-	Step               string                    `json:"step"`
-	Status             string                    `json:"status"`
-	Source             string                    `json:"source"`
-	ProjectType        string                    `json:"projectType"`
-	StyleAnchor        *drama.StyleAnchor        `json:"styleAnchor"`
-	MasterPalette      drama.MasterPalette       `json:"masterPalette"`
-	Parse              drama.StyleLockParseStats `json:"parse"`
-	Errors             int                       `json:"errors"`
-	Warnings           int                       `json:"warnings"`
-	Items              []drama.CheckItem         `json:"items,omitempty"`
+	PersonalStyleError string         `json:"personalStyleError,omitempty"`
+	StyleProfileID     string         `json:"styleProfileId,omitempty"`
+	StyleProfile       map[string]any `json:"styleProfile,omitempty"`
+	Step               string         `json:"step"`
+	Status             string         `json:"status"`
+	Source             string         `json:"source"`
+	ProjectType        string         `json:"projectType"`
+	// World 是 SSS 流水线写的世界基准段、视觉总谱、声音总谱（锁定时存成项目文档）。
+	World         string                    `json:"world,omitempty"`
+	StyleAnchor   *drama.StyleAnchor        `json:"styleAnchor"`
+	MasterPalette drama.MasterPalette       `json:"masterPalette"`
+	Parse         drama.StyleLockParseStats `json:"parse"`
+	Errors        int                       `json:"errors"`
+	Warnings      int                       `json:"warnings"`
+	Items         []drama.CheckItem         `json:"items,omitempty"`
 	// Locked 是收尾直接锁定（AutoLock）写进项目的锁定记录。
 	Locked *drama.StyleLockRecord `json:"locked,omitempty"`
 	// LibraryID 是导演定画风锁定后存进平台风格库的条目（存不进只记日志，为空）。
@@ -195,6 +199,16 @@ func (s *Service) planStyleLock(userID string, project *model.Project, step dram
 		return nil, err
 	}
 	plan.referenceImages = refs
+	if lock.World {
+		// SSS：拆剧本写好的立意页与全集结构表一并给导演（没有时不写）。
+		doc, err := s.repo.LatestOntologyDocument(project.ID, "", model.OntologyDocConcept)
+		switch {
+		case err == nil:
+			plan.prompt.Text += "\n\n【立意页与全集结构表】（拆剧本写的）\n" + strings.TrimSpace(doc.Content)
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			return nil, err
+		}
+	}
 	return plan, nil
 }
 
@@ -255,11 +269,17 @@ func styleLockPlan(project *model.Project, lock *dramaStyleLockMeta, story strin
 	if err != nil {
 		return nil, err
 	}
-	return &dramaStepPlan{
+	plan := &dramaStepPlan{
 		usage: usage, prompt: prompt, skill: skill,
 		record: map[string]any{"requirements": "锁定全片风格：输出全局风格锚和按主角组、配角组、道具组、环境组分组的主基调色卡。"},
 		lock:   lock,
-	}, nil
+	}
+	if usage.Workflow.StyleSkill != "" {
+		lock.World = true
+		plan.prompt.Text += "\n\n" + drama.StyleLockWorldInstruction()
+		plan.scenes = []drama.ShotsScene{{ID: drama.StyleLockWorldTurn, Heading: "导演定画风"}}
+	}
+	return plan, nil
 }
 
 // taskDramaStyleLock 从任务输入读 metadata.dramaStyleLock。
@@ -299,9 +319,15 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 			}
 		}
 	}
+	world := ""
+	if lock.World {
+		if world = drama.StyleLockWorldText(text); world == "" {
+			return DramaStyleLockOutcome{}, errors.New("导演定画风没有写出世界基准段、视觉总谱、声音总谱")
+		}
+	}
 	outcome := DramaStyleLockOutcome{
-		StyleProfile: out.StyleProfile,
-		Step:         meta.Step, Status: DramaStyleLockOutcomeCandidate, Source: lock.Source, ProjectType: lock.ProjectType,
+		StyleProfile: out.StyleProfile, World: world,
+		Step: meta.Step, Status: DramaStyleLockOutcomeCandidate, Source: lock.Source, ProjectType: lock.ProjectType,
 		StyleAnchor: out.Anchor, MasterPalette: out.Palette, Parse: stats, Errors: report.Errors, Warnings: report.Warnings,
 	}
 	for _, item := range report.Items {
@@ -319,6 +345,11 @@ func (s *Service) applyStyleLockTask(task model.Task, meta *dramaStepTaskMeta, r
 		}
 		if locked.FontNote != "" {
 			_ = s.log(task.UserID, task.ID, "warn", "主色卡图没有中文字体，只画了 HEX 和英文名", locked.FontNote)
+		}
+		if world != "" {
+			if err := s.writeOntologyDocs(task, projectID, []ontologyDocWrite{{"", model.OntologyDocWorld, world}}); err != nil {
+				return DramaStyleLockOutcome{}, fmt.Errorf("风格已锁定，世界基准段与视听总谱保存失败：%w", err)
+			}
 		}
 		outcome.Status, outcome.Locked = DramaStyleLockOutcomeLocked, &locked.StyleLock
 		outcome.PersonalStyleError = locked.PersonalStyleError
@@ -340,6 +371,8 @@ func (s *Service) LockDramaStyle(userID string, projectID string, req DramaStyle
 		return DramaStyleLockResult{}, BadAuthRequest("锁定风格要点名风格分析任务或风格库条目（二选一）")
 	}
 	var lock styleLockInput
+	var worldTask *model.Task
+	var world string
 	if libraryID != "" {
 		entry, err := s.repo.DramaStyleLibraryEntry(libraryID)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -381,9 +414,18 @@ func (s *Service) LockDramaStyle(userID string, projectID string, req DramaStyle
 		if planned := taskDramaStyleLock(task.InputJSON); planned != nil {
 			lock.ExpectedProfileRevision = planned.ProfileRevision
 		}
+		worldTask, world = task, strings.TrimSpace(outcome.World)
 	}
 	lock.ImageTask = req.ImageTask
-	return s.applyDramaStyleLock(userID, project, lock)
+	locked, err := s.applyDramaStyleLock(userID, project, lock)
+	if err != nil || world == "" {
+		return locked, err
+	}
+	// SSS 流水线的风格分析：锁定时把世界基准段与视听总谱存成项目文档（按任务幂等）。
+	if err := s.writeOntologyDocs(*worldTask, project.ID, []ontologyDocWrite{{"", model.OntologyDocWorld, world}}); err != nil {
+		return DramaStyleLockResult{}, fmt.Errorf("风格已锁定，世界基准段与视听总谱保存失败：%w", err)
+	}
+	return locked, nil
 }
 
 // styleLockInput 是要写进项目的锁定风格。

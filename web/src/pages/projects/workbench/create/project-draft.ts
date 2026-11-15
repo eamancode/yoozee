@@ -34,11 +34,12 @@ export type ProjectCreateDraft = {
 };
 
 const DRAFT_KEY = "yingce:project-create-draft";
-const DRAFT_VERSION = 2;
+// 3：流水线顺延成五条（SSS 电影、SSS 短剧排在最前）。
+const DRAFT_VERSION = 3;
 
 export const EMPTY_PROJECT_DRAFT: ProjectCreateDraft = {
     draftVersion: DRAFT_VERSION,
-    workflowId: "pipeline-1",
+    workflowId: "pipeline-2",
     text: "",
     ideaEpisodes: 5,
     ideaEpisodeSeconds: 60,
@@ -55,13 +56,19 @@ export async function loadProjectDraft(scope: string): Promise<ProjectCreateDraf
     if (typeof raw !== "string" || !raw) return undefined;
     try {
         const draft = JSON.parse(raw) as Partial<ProjectCreateDraft>;
-        if ((draft.draftVersion ?? 1) === 1) {
-            // Unversioned drafts use the two-workflow numbering, including old empty values.
-            if (draft.workflowId === "pipeline-1") draft.workflowId = "pipeline-2";
-            else if (!draft.workflowId || draft.workflowId === "pipeline-2") draft.workflowId = "pipeline-3";
+        const version = draft.draftVersion ?? 1;
+        if (version === 1) {
+            // Unversioned drafts use the two-workflow numbering (integrated / original), including old empty values.
+            if (draft.workflowId === "pipeline-1") draft.workflowId = "pipeline-4";
+            else if (!draft.workflowId || draft.workflowId === "pipeline-2") draft.workflowId = "pipeline-5";
             else return undefined;
-        } else if (draft.draftVersion !== DRAFT_VERSION) return undefined;
-        if (!["pipeline-1", "pipeline-2", "pipeline-3"].includes(draft.workflowId ?? "")) return undefined;
+        } else if (version === 2) {
+            // v2 drafts use the three-workflow numbering (ontology / integrated / original); same shift as the v100 migration.
+            const shifted = ({ "pipeline-1": "pipeline-3", "pipeline-2": "pipeline-4", "pipeline-3": "pipeline-5" } as const)[draft.workflowId as "pipeline-1" | "pipeline-2" | "pipeline-3"];
+            if (!shifted) return undefined;
+            draft.workflowId = shifted;
+        } else if (version !== DRAFT_VERSION) return undefined;
+        if (!["pipeline-1", "pipeline-2", "pipeline-3", "pipeline-4", "pipeline-5"].includes(draft.workflowId ?? "")) return undefined;
         return { ...EMPTY_PROJECT_DRAFT, ...draft, draftVersion: DRAFT_VERSION };
     } catch {
         return undefined;

@@ -1,0 +1,25 @@
+{
+  "owner": "yingce-system",
+  "inputKind": "byte-preserved vendor import",
+  "sourceDirectory": "sss短剧导演分镜",
+  "originalName": "sss-short-drama-director",
+  "version": "1.0.0",
+  "sourceFileCount": 53,
+  "sourceBytes": 1497705,
+  "checksumManifest": "../yz-sss-drama-director.SHA256SUMS",
+  "catalogMetadata": "agents/catalog.yaml",
+  "runtimeContext": "runtime-context.json",
+  "outputContract": "sss.director@1",
+  "contextPolicy": "Each turn kind loads a complete allowlist; the 启发库 index loads in the cut turn and each unit card turn loads the whole library files that unit picked (at most 4); 范例/ never enters the model context; never truncate files.",
+  "excludedPaths": [
+    "范例/"
+  ],
+  "splitSkills": [
+    "yz-sss-drama-script",
+    "yz-sss-drama-style"
+  ],
+  "pathRenames": {
+    "启发库/E01_情绪表演过程（上）.md": "启发库/E01_情绪表演过程(上).md",
+    "启发库/E01_情绪表演过程（下）.md": "启发库/E01_情绪表演过程(下).md"
+  }
+}

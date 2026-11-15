@@ -74,6 +74,19 @@ type StepPackageRuleSet struct {
 	IDPattern       string                  `json:"idPattern"`
 	VersionPattern  string                  `json:"versionPattern"`
 	ContractPattern string                  `json:"contractPattern"`
+	// SSS 是 SSS 导演分镜包（契约 sss.director@1）分轮装载清单的规则。
+	SSS SSSPackageRules `json:"sss"`
+}
+
+// SSSPackageRules 是 SSS 导演分镜包分轮装载清单的上限（build.py 读同一份）。
+type SSSPackageRules struct {
+	Contract         string   `json:"contract"`
+	TurnKinds        []string `json:"turnKinds"`
+	RequiredFiles    []string `json:"requiredFiles"`
+	ExcludedPaths    []string `json:"excludedPaths"`
+	StageBudgetChars int      `json:"stageBudgetChars"`
+	StageMaxFiles    int      `json:"stageMaxFiles"`
+	MaxPerUnit       int      `json:"maxPerUnit"`
 }
 
 type StepPackageStepLimits struct {
@@ -101,6 +114,8 @@ func StepPackageRules() StepPackageRuleSet {
 		Profiles: BuiltinProfileIDs(), RequiredReading: skillRequiredReading.String(), CardReference: skillCardReference.String(),
 		TextExtensions: slices.Clone(skillTextExtensions), IDPattern: packageIDPattern.String(), VersionPattern: packageVersionPattern.String(),
 		ContractPattern: packageContractPattern.String(),
+		SSS: SSSPackageRules{Contract: ContractSSSDirector, TurnKinds: slices.Clone(SSSTurnKinds), RequiredFiles: []string{"SKILL.md", "参数.md"}, ExcludedPaths: []string{"范例/"},
+			StageBudgetChars: SSSStageBudgetChars, StageMaxFiles: SSSStageMaxFiles, MaxPerUnit: sssMaxHeuristicsPerUnit},
 	}
 	for _, s := range steps {
 		out.Steps = append(out.Steps, StepPackageStepLimits{ID: s.ID, Contract: s.Contract, SkillBudgetChars: s.SkillBudgetChars, SkillLinkedFiles: s.SkillLinkedFiles, EvalSet: slices.Clone(s.EvalSet)})
@@ -108,8 +123,8 @@ func StepPackageRules() StepPackageRuleSet {
 			out.Steps[len(out.Steps)-1].Contracts = []string{ContractIntegratedAssets}
 		}
 		if s.ID == StepChapterShots {
-			out.Steps[len(out.Steps)-1].Contracts = []string{ContractOntologyDirector}
-			out.Steps[len(out.Steps)-1].StagedContracts = []string{ContractOntologyDirector}
+			out.Steps[len(out.Steps)-1].Contracts = []string{ContractOntologyDirector, ContractSSSDirector}
+			out.Steps[len(out.Steps)-1].StagedContracts = []string{ContractOntologyDirector, ContractSSSDirector}
 		}
 	}
 	return out
@@ -194,7 +209,7 @@ func CheckStepPackage(m StepPackageManifest, files map[string][]byte) []StepPack
 			known = append(known, s.ID)
 		}
 		add(PackageRuleStep, "", "step「%s」不在线上步骤表里（现有：%s）", m.Step, strings.Join(known, "、"))
-	} else if m.Contract != step.Contract && !(m.Step == StepAssetsExtract && m.Contract == ContractIntegratedAssets) && !(m.Step == StepChapterShots && m.Contract == ContractOntologyDirector) {
+	} else if m.Contract != step.Contract && !(m.Step == StepAssetsExtract && m.Contract == ContractIntegratedAssets) && !(m.Step == StepChapterShots && (m.Contract == ContractOntologyDirector || m.Contract == ContractSSSDirector)) {
 		add(PackageRuleContract, "", "清单声明满足契约 %s，线上「%s」这一步的契约是 %s", m.Contract, step.Label, step.Contract)
 	}
 	for _, id := range m.Profiles {
@@ -238,9 +253,12 @@ func CheckStepPackage(m StepPackageManifest, files map[string][]byte) []StepPack
 		add(PackageRuleRequiredCard, ref, "SKILL.md 点名必读 %s，但 files 里没有", ref)
 	}
 	if stepOK {
-		if m.Step == StepChapterShots && m.Contract == ContractOntologyDirector {
+		switch {
+		case m.Step == StepChapterShots && m.Contract == ContractOntologyDirector:
 			out = append(out, checkStagedPackageContext(step, files)...)
-		} else {
+		case m.Step == StepChapterShots && m.Contract == ContractSSSDirector:
+			out = append(out, checkSSSPackageContext(files)...)
+		default:
 			out = append(out, checkPackageBudget(step, entry, m.Files, files)...)
 		}
 	}

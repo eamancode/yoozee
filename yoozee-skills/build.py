@@ -332,6 +332,8 @@ def check_step_package(m, files, rules):
         out.append(_problem("required_card", f"SKILL.md 点名必读 {ref}，但 files 里没有", ref))
     if step is None:
         return out
+    if m["contract"] == rules.get("sss", {}).get("contract"):
+        return out + check_sss_context(files, rules)
     if m["contract"] in step.get("stagedContracts", []):
         return out + check_staged_context(files, step, rules)
     cards = []
@@ -414,6 +416,62 @@ def check_staged_context(files, step, rules):
     return out
 
 
+def check_sss_context(files, rules):
+    """SSS 导演分镜包（sss.director@1）的分轮装载清单，与后端 checkSSSPackageContext 同一套规则。"""
+    sss = rules["sss"]
+    context_file = "runtime-context.json"
+    out = []
+
+    def add(rule, message):
+        out.append(_problem(rule, message, context_file))
+
+    try:
+        context = json.loads(files.get(context_file, b""))
+    except (ValueError, UnicodeDecodeError):
+        context = None
+    if not isinstance(context, dict) or type(context.get("schemaVersion")) is not int or context["schemaVersion"] != 1             or not isinstance(context.get("stages"), dict) or not isinstance(context.get("excludedPaths"), list):
+        add("manifest", "runtime-context.json 必须是 schemaVersion=1 的分轮装载清单（excludedPaths、heuristics、stages）")
+        return out
+    excluded = context["excludedPaths"]
+    stages = context["stages"]
+    for prefix in sss["excludedPaths"]:
+        if prefix not in excluded:
+            add("files", "分轮装载清单必须排除 " + prefix)
+    h = context.get("heuristics") if isinstance(context.get("heuristics"), dict) else {}
+    d, index, per = h.get("dir") or "", h.get("index") or "", h.get("maxPerUnit")
+    if not d or type(per) is not int or per <= 0 or per > sss["maxPerUnit"] or not index.startswith(d):
+        add("manifest", f"runtime-context.json 的 heuristics 需要 dir、dir 下的 index，maxPerUnit 在 1–{sss['maxPerUnit']} 之间")
+    elif index not in files:
+        add("files", "启发库总索引不存在：" + index)
+    kinds = sss["turnKinds"]
+    if len(stages) != len(kinds):
+        add("files", "分轮装载清单必须且只能包含 " + "、".join(kinds))
+    for kind in kinds:
+        paths = stages.get(kind)
+        if not isinstance(paths, list):
+            add("files", "分轮装载清单缺少轮次 " + kind)
+            continue
+        if any(f not in paths for f in sss["requiredFiles"]):
+            add("files", kind + " 必须装载 " + " 和 ".join(sss["requiredFiles"]))
+        if len(set(paths)) != len(paths):
+            add("files", kind + " 装载清单包含重复文件")
+        total = 0
+        for p in paths:
+            try:
+                text = files[p].decode("utf-8")
+                if not _clean_path(p) or not _text_file(p, rules):
+                    raise ValueError(p)
+            except (KeyError, UnicodeDecodeError, ValueError, AttributeError):
+                add("files", kind + " 装载文件不存在或不是有效文本：" + str(p))
+                continue
+            if any(p.startswith(prefix) for prefix in excluded):
+                add("files", kind + " 不得装载排除路径：" + p)
+            total += js_len(text)
+        if len(paths) - 1 > sss["stageMaxFiles"] or total > sss["stageBudgetChars"]:
+            add("budget", f"{kind} 装载 {total} 字、{len(paths)-1} 张关联卡；上限 {sss['stageBudgetChars']} 字、{sss['stageMaxFiles']} 张，不得截断")
+    return out
+
+
 def package_problems(manifest_raw, files, rules=None):
     """上传时的顺序：清单不合格就不往下查。"""
     rules = rules or package_rules()
@@ -475,10 +533,25 @@ def build_package(pid):
     return out
 
 
+# 这些流程技能包的唯一规范源就在 backend/builtin（原样导入的导演技能、由原技能拆出的单文件技能）：
+# 只读、打包、校验，不在 packages/ 另存一份，也不重新生成或渲染它们的字节。
+CANONICAL_BUILTIN_PACKAGES = (
+    "yz-ontology-director",
+    "yz-sss-film-director",
+    "yz-sss-drama-director",
+    "yz-sss-film-script",
+    "yz-sss-film-style",
+    "yz-sss-drama-script",
+    "yz-sss-drama-style",
+)
+
+
 def flow_packages():
     dirs = list(PACKAGES.iterdir()) if PACKAGES.exists() else []
-    # This vendor import is canonical in builtin; never regenerate or render its source bytes.
-    dirs.append(BUILTIN / "yz-ontology-director")
+    clash = sorted(d.name for d in dirs if d.name in CANONICAL_BUILTIN_PACKAGES)
+    if clash:
+        raise SystemExit(f"packages/ 里不能再放这些包（规范源在 backend/builtin）：{'、'.join(clash)}")
+    dirs += [BUILTIN / name for name in CANONICAL_BUILTIN_PACKAGES]
     return sorted(d for d in dirs if (d / "package.json").exists())
 
 
@@ -675,7 +748,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--no-yozi", action="store_true")
-    ap.add_argument("--package", metavar="ID", help="只构建一个流程技能包 packages/<ID>")
+    ap.add_argument("--package", metavar="ID", help="只构建一个流程技能包 packages/<ID>（导演技能与拆出的单文件技能取 backend/builtin/<ID>）")
     a = ap.parse_args()
     if a.package:
         build_package(a.package)
