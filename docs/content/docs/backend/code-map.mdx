@@ -5,6 +5,14 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## SSS 电影 / 短剧导演流水线（流水线一、二）
+
+- 技能：`backend/builtin/yz-sss-film-director/`、`yz-sss-drama-director/` 逐字节导入（同级 `*.SHA256SUMS`；Go embed 不收全角括号，`启发库/E01_…（上/下）.md` 存成半角括号，`sources.json` 记改名），另加 `agents/catalog.yaml`、`agents/interface.yaml`、`sources.json`、`runtime-context.json`、`package.json`；拆出的单文件技能 `yz-sss-{film,drama}-{script,style}/SKILL.md`。生成脚本不在仓库里（章节原文照录，测试 `drama/sss_test.go` 核对）。
+- 编号与迁移：`drama/workflows.go`（`WorkflowSSSFilm/Drama`、`DefaultWorkflow`、`ScriptSkill/StyleSkill`），`database/sss_workflow_migration.go`（v100）。
+- 包校验：契约 `sss.director@1`，`drama/step_package_context.go` 的 `checkSSSPackageContext`，导出规则 `contracts/step-packages.json` 的 `sss`，`yoozee-skills/build.py` 的 `check_sss_context`。
+- 运行时：纯函数 `drama/sss.go`（分轮装载、启发库、材料包、各轮解析与校验、`@名称` → `@图k`、八部分）；编排、收尾、返修 `app/project_sss.go`；拆剧本立意轮 `drama/step_script_adapt.go`（`ScriptAdaptConceptTurn`）、定画风三部分 `drama/step_style_lock.go`（`StyleLockWorldTurn`），写文档在 `app/project_drama_script_adapt.go`、`app/project_drama_style_lock.go`；技能路由 `app/project_drama_steps.go` 的 `dramaStepSkill`。
+- 前端：`lib/project-workflow.ts`（五条、默认二、预填画幅、`hasDirectorDocuments`）；创建草稿版本 3 顺延；导演文档侧栏 `workbench/detail/ontology-documents-drawer.tsx`（两种模式，旧版头部与新版 `drama-flow/detail.tsx` 共用）；新版分镜状态条 `drama-flow/parts/stage-shots.tsx`。
+
 ## 本体论导演技能包
 
 - 原样源文件与独立目录元数据：`backend/builtin/yz-ontology-director/`；SHA-256 清单在同级 `yz-ontology-director.SHA256SUMS`。源文件一致性和外部源目录缺失跳过逻辑：`internal/skills/skills_ontology_builtin_test.go`。
