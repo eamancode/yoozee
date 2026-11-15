@@ -632,3 +632,43 @@ for (const [override, expected, notExpected] of [
         }
     });
 }
+
+for (const [workflowId, title] of [
+    ["pipeline-1", "SSS 导演文档"],
+    ["pipeline-2", "SSS 导演文档"],
+    ["pipeline-3", "本体论导演文档"],
+] as const) {
+    test(`SSS-01 导演流水线（${workflowId}）：新工作流有「导演文档」，分镜状态按段说，不提镜头表`, async () => {
+        const page = await mount(`/drama-flow/${P}/shots`, { workflowId });
+        try {
+            expect(page.text()).toContain("导演分镜已装成 2 段");
+            expect(page.text()).not.toContain("还没有镜头表");
+            expect(buttonByText(document.body, "整集重新生成")).toBeTruthy();
+            await page.click(buttonByText(document.body, "导演文档"));
+            const drawer = document.querySelector(".ant-drawer");
+            expect(drawer?.textContent).toContain(title);
+            if (workflowId !== "pipeline-3") {
+                for (const tab of ["全剧圣经", "立意与结构", "世界与总谱", "E01 随行鲜"]) expect(drawer?.textContent).toContain(tab);
+            } else {
+                expect(drawer?.textContent).toContain("世界圣经卡");
+                expect(drawer?.textContent).not.toContain("立意与结构");
+            }
+            expect(fixture.calls.some((call) => call.path === `/projects/${P}/drama/ontology`)).toBe(true);
+            expect(fixture.unknown).toEqual([]);
+            expect(page.errors).toEqual([]);
+        } finally {
+            await page.dispose();
+        }
+    });
+}
+
+test("SSS-01 原流程项目：没有「导演文档」，分镜状态仍按镜头表说", async () => {
+    const page = await mount(`/drama-flow/${P}/shots`);
+    try {
+        expect(page.text()).toContain("还没有镜头表");
+        expect(buttonByText(document.body, "导演文档")).toBeFalsy();
+        expect(fixture.calls.some((call) => call.path === `/projects/${P}/drama/ontology`)).toBe(false);
+    } finally {
+        await page.dispose();
+    }
+});

@@ -71,7 +71,8 @@ function longSegmentSpec(id: string, firstText: string, count: number) {
  */
 export type FixtureChains = "none" | "history" | "failed" | "running";
 
-export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean; chains?: FixtureChains; extraSegments?: number } = {}) {
+/** workflowId：项目的流水线（不给时按流水线五原流程）；SSS 电影 / 短剧时导演文档接口返回 sss 模式的文档。 */
+export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean; chains?: FixtureChains; extraSegments?: number; workflowId?: string } = {}) {
     const style = options.style ?? "none";
     const overrides = new Map<string, FixtureOverride>();
     const state = {
@@ -110,6 +111,7 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         bibleJson: JSON.stringify(bibleFor(style)),
         styleProfileJson: "",
         stylePresetId: "",
+        ...(options.workflowId ? { workflowId: options.workflowId, workflowVersion: "1" } : {}),
         createdAt: now,
         updatedAt: now,
     };
@@ -276,6 +278,17 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
             if (path === `${base}/drama/progress`) return ok({ progress: progress() });
             if (path === `${base}/drama/bible`) return ok({ document: bibleFor(style) });
             if (path === `${base}/drama/brief`) return ok({ document: {} });
+            if (path === `${base}/drama/ontology`) {
+                const doc = (kind: string, content: string, unitId = "") => ({ id: `doc-${kind}`, projectId: FIXTURE_PROJECT_ID, unitId, kind, version: 1, content, createdAt: now });
+                return ok({
+                    mode: options.workflowId === "pipeline-3" ? "ontology" : "sss",
+                    bible: doc("bible", "## 世界\n> 林深：二十八岁男性。"),
+                    concept: doc("concept", "## 立意页\n一句话：雨夜送橙汁。"),
+                    world: doc("world", "## 世界基准段\n真人实拍质感的竖屏短剧。"),
+                    episodes: [doc("episode", "## 第五部分　单元卡\n\n### E1-U1｜短档｜叙事 14 秒＋定格 1 秒＝15 秒｜2 镜＋定格｜雨棚（本场 1 段）｜钩子\n\n## 第八部分　复看记录与待确认\n\n### 待确认\n1. 阿婆的口音。", FIXTURE_UNIT_ID)],
+                    handoffs: [doc("handoff", "### 第 1 集交接卡\n林深在雨棚下。", FIXTURE_UNIT_ID)],
+                });
+            }
             if (path === `${base}/drama/episodes`) return ok({ episodes: [{ id: FIXTURE_UNIT_ID, title: unit.title }], adaptedChapterIds: [] });
             if (path === `${base}/units/${FIXTURE_UNIT_ID}/workspace`) return ok(workspace());
             if (path === `${base}/drama/segments`) return ok({ segments: state.segments });

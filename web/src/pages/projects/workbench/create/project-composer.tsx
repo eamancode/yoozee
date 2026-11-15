@@ -7,6 +7,7 @@ import { useNavigate } from "react-router";
 import { Select } from "@/components/ui/base/select";
 import { detectProjectSource, formatSourceChars, plainTextToHtml, sourceCharCount, sourceDetectionLabel, suggestProjectName, PROJECT_SOURCE_MAX_CHARS, type ProjectSourceKind } from "@/lib/project-source";
 import { projectVisualTypeLabel, styleProfileSupportsVisualType } from "@/lib/project-visual-type";
+import { projectWorkflow } from "@/lib/project-workflow";
 import { listDramaStyleLibrary, dramaStyleLibraryCoverUrl, dramaStyleLibraryKey, sortDramaStyleLibrary, type DramaStyleLibraryItem } from "@/services/api/drama-style-library";
 import type { CreateProjectInput, ProjectVisualType } from "@/services/api/projects";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -589,7 +590,8 @@ function AccountProjectComposer({ userId, flow }: { userId: string; flow: boolea
                             segmentSeconds={draft.segmentSeconds}
                             whiteModelStoryboardEnabled={draft.whiteModelStoryboardEnabled}
                             workflowId={draft.workflowId}
-                            onWorkflowId={(workflowId) => update({ workflowId })}
+                            // 选 SSS 电影 / 短剧时预填横屏 / 竖屏（只是预填，之后照样能改画幅）。
+                            onWorkflowId={(workflowId) => update({ workflowId, aspectRatio: projectWorkflow(workflowId).aspectRatio ?? draft.aspectRatio })}
                             onWhiteModelStoryboardEnabled={(whiteModelStoryboardEnabled) => update({ whiteModelStoryboardEnabled })}
                             segmentEstimate={segmentEstimate}
                             models={dramaModels.data?.models || []}

@@ -171,7 +171,7 @@ var steps = []Step{
 			Unit:  "轮",
 			Intro: func([]ShotsScene) string { return "" },
 			Next:  func([]ShotsScene, int, int) string { return "" },
-			Count: CountStyleLockTurn,
+			Count: CountStyleLockRun,
 		},
 	},
 	{
@@ -200,8 +200,8 @@ var steps = []Step{
 		Turns: TurnPlan{
 			Unit:  "集",
 			Intro: ScriptAdaptTurnPlan,
-			Next:  func(turns []ShotsScene, k int, _ int) string { return ScriptAdaptTurnPrompt(turns, k) },
-			Count: func(text string, turn TurnContext) (int, error) { return CountScriptAdaptTurn(text, turn.Sources) },
+			Next:  func(turns []ShotsScene, k int, _ int) string { return ScriptAdaptNextPrompt(turns, k) },
+			Count: CountScriptAdaptRun,
 		},
 	},
 	{

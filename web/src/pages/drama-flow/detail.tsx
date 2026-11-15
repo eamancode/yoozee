@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown } from "antd";
-import { ArrowLeft, History, Inbox, Info, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, BookOpen, History, Inbox, Info, MoreHorizontal } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
 import { useDramaModelConfig } from "@/hooks/use-drama-model-config";
+import { hasDirectorDocuments } from "@/lib/project-workflow";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaImageStatusOf } from "@/pages/projects/workbench/detail/drama-image-summary";
 import { assetImageTaskTemplate } from "@/pages/projects/workbench/detail/drama-image-task";
 import { dramaProgressKey } from "@/pages/projects/workbench/detail/drama-panels";
+import { OntologyDocumentsDrawer } from "@/pages/projects/workbench/detail/ontology-documents-drawer";
 import { continueProjectPipeline } from "@/pages/projects/workbench/detail/project-chapter-ai";
 import { VideoChainPanel } from "@/pages/projects/workbench/detail/video-chain-panel";
 import { dramaRunModeLabel } from "@/pages/projects/workbench/drama-model";
@@ -61,6 +63,8 @@ export default function DramaFlowDetailPage() {
     const focusId = search.get("item") || undefined;
     const tab = search.get("tab") || undefined;
     const panel = search.get("panel");
+    // SSS 电影 / 短剧、本体论流水线：圣经、立意与结构、世界与总谱、各集分镜文档、交接卡、待确认与单元返修（与旧版工作台同一个侧栏）。
+    const [directorOpen, setDirectorOpen] = useState(false);
 
     const stages = useMemo(() => flowStageStates(pipeline), [pipeline]);
     const stage: FlowStageKey = isFlowStageKey(stageParam) ? stageParam : defaultFlowStage(pipeline);
@@ -291,6 +295,11 @@ export default function DramaFlowDetailPage() {
                     {[rail.units.length ? `${rail.units.length} ${rail.noun}` : "", progress ? `${progress.counts.segments} 段` : "", project.aspectRatio, pipeline ? dramaRunModeLabel(pipeline.runMode) : ""].filter(Boolean).join(" · ")}
                 </span>
                 <div className="drama-flow-top-actions">
+                    {hasDirectorDocuments(project.workflowId) && data.detail ? (
+                        <Button icon={<BookOpen className="size-4" />} onClick={() => setDirectorOpen(true)}>
+                            导演文档
+                        </Button>
+                    ) : null}
                     <Button icon={<Inbox className="size-4" />} onClick={() => setInboxOpen(true)}>
                         待办
                         {inbox.length ? (
@@ -319,6 +328,7 @@ export default function DramaFlowDetailPage() {
                     </Dropdown>
                 </div>
             </header>
+            {hasDirectorDocuments(project.workflowId) && data.detail ? <OntologyDocumentsDrawer detail={data.detail} open={directorOpen} onClose={() => setDirectorOpen(false)} /> : null}
             <StageStrip stages={stages} facts={facts} active={stage} onSelect={(next) => go(next)} />
             <div className="drama-flow-main" data-rail={showRail ? undefined : "off"}>
                 {showRail ? <EpisodeRail label={rail.label} episodes={railEpisodes} activeId={unitId} onSelect={(id) => go(stage, { ep: id, tab })} /> : null}

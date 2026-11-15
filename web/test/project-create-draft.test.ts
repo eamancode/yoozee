@@ -22,11 +22,11 @@ test("切号后到达的建项草稿保存、读取和清理始终属于原账�
         setActiveUserScope("alice");
         await saveProjectDraft("alice", { ...EMPTY_PROJECT_DRAFT, text: "Alice 的剧本" });
         setActiveUserScope("bob");
-        await saveProjectDraft("bob", { ...EMPTY_PROJECT_DRAFT, text: "Bob 的剧本", workflowId: "pipeline-2" });
+        await saveProjectDraft("bob", { ...EMPTY_PROJECT_DRAFT, text: "Bob 的剧本", workflowId: "pipeline-4" });
         await saveProjectDraft("alice", { ...EMPTY_PROJECT_DRAFT, text: "Alice 延迟完成的草稿", whiteModelStoryboardEnabled: true });
         expect((await loadProjectDraft("bob"))?.text).toBe("Bob 的剧本");
-        expect((await loadProjectDraft("bob"))?.workflowId).toBe("pipeline-2");
-        expect((await loadProjectDraft("alice"))?.workflowId).toBe("pipeline-1");
+        expect((await loadProjectDraft("bob"))?.workflowId).toBe("pipeline-4");
+        expect((await loadProjectDraft("alice"))?.workflowId).toBe("pipeline-2");
         expect((await loadProjectDraft("alice"))?.text).toBe("Alice 延迟完成的草稿");
         expect((await loadProjectDraft("alice"))?.whiteModelStoryboardEnabled).toBe(true);
         expect((await loadProjectDraft("bob"))?.whiteModelStoryboardEnabled).toBe(false);
@@ -37,28 +37,36 @@ test("切号后到达的建项草稿保存、读取和清理始终属于原账�
         expect([...records.keys()]).toEqual(["yingce:project-create-draft:user:bob"]);
         expect([...preferences.keys()]).toEqual(["yingce:active-user-scope"]);
 
-        for (const [old, expected] of [["pipeline-1", "pipeline-2"], ["pipeline-2", "pipeline-3"], ["", "pipeline-3"], [undefined, "pipeline-3"]] as const) {
+        // 没有版本号的草稿是两条流水线时的编号（一体化、原流程），顺延两次。
+        for (const [old, expected] of [["pipeline-1", "pipeline-4"], ["pipeline-2", "pipeline-5"], ["", "pipeline-5"], [undefined, "pipeline-5"]] as const) {
             const key = "yingce:project-create-draft:user:alice";
             records.set(key, JSON.stringify({ text: "历史草稿", workflowId: old, whiteModelStoryboardEnabled: true }));
             const migrated = await loadProjectDraft("alice");
             expect(migrated?.workflowId).toBe(expected);
-            expect(migrated?.draftVersion).toBe(2);
+            expect(migrated?.draftVersion).toBe(3);
             expect(migrated?.text).toBe("历史草稿");
             expect(migrated?.whiteModelStoryboardEnabled).toBe(true);
             expect((await loadProjectDraft("alice"))?.workflowId).toBe(expected);
             await saveProjectDraft("alice", migrated!);
             expect((await loadProjectDraft("alice"))?.workflowId).toBe(expected);
-            expect((await loadProjectDraft("bob"))?.workflowId).toBe("pipeline-2");
+            expect((await loadProjectDraft("bob"))?.workflowId).toBe("pipeline-4");
         }
-        for (const id of ["pipeline-1", "pipeline-2", "pipeline-3"] as const) {
+        // 第 2 版草稿是三条流水线时的编号（本体论、一体化、原流程），与 v100 迁移同样顺延。
+        for (const [old, expected] of [["pipeline-1", "pipeline-3"], ["pipeline-2", "pipeline-4"], ["pipeline-3", "pipeline-5"]] as const) {
+            records.set("yingce:project-create-draft:user:alice", JSON.stringify({ draftVersion: 2, workflowId: old }));
+            expect((await loadProjectDraft("alice"))?.workflowId).toBe(expected);
+        }
+        for (const id of ["pipeline-1", "pipeline-2", "pipeline-3", "pipeline-4", "pipeline-5"] as const) {
             await saveProjectDraft("alice", { ...EMPTY_PROJECT_DRAFT, workflowId: id });
             expect((await loadProjectDraft("alice"))?.workflowId).toBe(id);
         }
         records.set("yingce:project-create-draft:user:alice", JSON.stringify({ draftVersion: 1, workflowId: "pipeline-1" }));
-        expect((await loadProjectDraft("alice"))?.workflowId).toBe("pipeline-2");
+        expect((await loadProjectDraft("alice"))?.workflowId).toBe("pipeline-4");
         records.set("yingce:project-create-draft:user:alice", JSON.stringify({ draftVersion: 99, workflowId: "pipeline-1" }));
         expect(await loadProjectDraft("alice")).toBeUndefined();
         records.set("yingce:project-create-draft:user:alice", JSON.stringify({ draftVersion: 2, workflowId: "forged" }));
+        expect(await loadProjectDraft("alice")).toBeUndefined();
+        records.set("yingce:project-create-draft:user:alice", JSON.stringify({ draftVersion: 3, workflowId: "pipeline-6" }));
         expect(await loadProjectDraft("alice")).toBeUndefined();
     } finally {
         Object.assign(localforage, original);

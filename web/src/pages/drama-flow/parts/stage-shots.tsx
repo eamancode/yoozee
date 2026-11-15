@@ -5,6 +5,7 @@ import { Button, Segmented } from "antd";
 import { dramaSegmentsKey, DramaSegmentCard, useInvalidateDrama } from "@/pages/projects/workbench/detail/drama-panels";
 import type { SegmentAsset } from "@/pages/projects/workbench/detail/shot-card-layout";
 import { unitEpisodeNumber } from "@/pages/projects/workbench/detail/unit-numbering";
+import { projectWorkflow } from "@/lib/project-workflow";
 import { assetPreviewUrl } from "@/pages/projects/workbench/detail/workflow-shot-references";
 import { listDramaSegments, type DramaSegmentProgress, type DramaSegmentView, type DramaSubShot } from "@/services/api/project-drama";
 import type { ProjectAsset, ProjectUnitWorkspace } from "@/services/api/projects";
@@ -127,7 +128,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                     />
                 </div>
             </div>
-            <ShotlistBar run={run} segmentCount={segments.length} />
+            <ShotlistBar run={run} segmentCount={segments.length} director={project ? projectWorkflow(project.workflowId).storyboardMode !== "" : false} />
             <SummaryRow
                 items={[
                     { label: "段", value: segmentsQuery.data && !segmentsQuery.isError ? segments.length : segmentsUnread(segmentsQuery.isLoading) },
@@ -174,19 +175,31 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
     );
 }
 
-function ShotlistBar({ run, segmentCount }: { run: StoryboardRun; segmentCount: number }) {
+/**
+ * 分镜状态条。导演分镜（SSS 电影 / 短剧、本体论）不写镜头表：服务端分轮写完直接装成段，单元卡、粘贴提示词和返修在「导演文档」里，
+ * 所以 director 时按段数说状态，不提镜头表和装段。
+ */
+function ShotlistBar({ run, segmentCount, director }: { run: StoryboardRun; segmentCount: number; director: boolean }) {
     const { shotlist, running, stream, latest, problemSections, repack, generate, code } = run;
     const errors = shotlist?.check.errors ?? 0;
     const warnings = shotlist?.check.warnings ?? 0;
     const status = running
-        ? `正在写分镜${stream.shotCount ? ` · 已出 ${stream.shotCount} 镜` : ""}`
-        : !shotlist
+        ? director
+            ? "导演正在分轮写分镜（立项、集设计、讲戏、切分、逐个单元写卡和编译、复看），写完直接装段"
+            : `正在写分镜${stream.shotCount ? ` · 已出 ${stream.shotCount} 镜` : ""}`
+        : director
           ? latest?.status === "failed"
-              ? `上一次生成失败：${latest.error || "没写原因"}`
-              : "还没有镜头表"
-          : shotlist.draft
-            ? `镜头表有 ${errors} 个问题，存成了草稿，还没装段`
-            : `镜头表已装成 ${segmentCount} 段${shotlist.accepted ? "（带着问题装的，问题标在段上）" : ""}${warnings ? ` · ${warnings} 条提醒` : ""}`;
+              ? `上一次生成失败：${latest.error || "没写原因"}${segmentCount ? `；现有 ${segmentCount} 段没动` : ""}`
+              : segmentCount
+                ? `导演分镜已装成 ${segmentCount} 段；单元卡、粘贴提示词和返修在右上角「导演文档」`
+                : "还没有分镜"
+          : !shotlist
+            ? latest?.status === "failed"
+                ? `上一次生成失败：${latest.error || "没写原因"}`
+                : "还没有镜头表"
+            : shotlist.draft
+              ? `镜头表有 ${errors} 个问题，存成了草稿，还没装段`
+              : `镜头表已装成 ${segmentCount} 段${shotlist.accepted ? "（带着问题装的，问题标在段上）" : ""}${warnings ? ` · ${warnings} 条提醒` : ""}`;
     return (
         <div className="drama-flow-note" data-tone={shotlist?.draft || latest?.status === "failed" ? "warn" : undefined}>
             <div className="drama-flow-bar-row">
@@ -211,7 +224,7 @@ function ShotlistBar({ run, segmentCount }: { run: StoryboardRun; segmentCount: 
                         </Button>
                     ) : null}
                     <Button size="small" loading={running} onClick={() => void generate()}>
-                        {shotlist ? "整集重新生成" : "生成这一集分镜"}
+                        {shotlist || (director && segmentCount) ? "整集重新生成" : "生成这一集分镜"}
                     </Button>
                 </div>
             </div>

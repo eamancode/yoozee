@@ -487,6 +487,42 @@ func decodePaletteGroups(raw json.RawMessage, notes *[]string) []MasterPaletteGr
 	return out
 }
 
+// StyleLockWorldTurn 是 SSS 流水线导演定画风的轮次 ID：契约 JSON 行之外另写世界基准段、视觉总谱、声音总谱三部分。
+const StyleLockWorldTurn = "world"
+
+// StyleLockWorldTitles 是 SSS 导演定画风要多写的三部分（标题一字不改）。
+var StyleLockWorldTitles = []string{"世界基准段", "视觉总谱", "声音总谱"}
+
+// StyleLockWorldInstruction 接在 SSS 导演定画风提示词最后（受保护输出契约之后）：契约的 JSON 行写完再写三部分。
+func StyleLockWorldInstruction() string {
+	return "【附加输出】按上面【受保护输出契约】把 JSON 行全部写完后，另起一行，依次输出三部分 Markdown，标题一字不改：`## 世界基准段`、`## 视觉总谱`、`## 声音总谱`（写法见技能正文的世界基准段、视觉总谱、声音总谱和柚子流程接入说明）。这三部分不放进 JSON，也不放进代码块。"
+}
+
+// StyleLockWorldText 取三部分原文（标题行起）；缺一部分返回空。
+func StyleLockWorldText(text string) string {
+	var parts []string
+	for _, title := range StyleLockWorldTitles {
+		body, ok := SSSSection(text, title)
+		if !ok || strings.TrimSpace(body) == "" {
+			return ""
+		}
+		parts = append(parts, "## "+title+"\n\n"+body)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// CountStyleLockRun 是风格锁定一轮的校验：SSS 流水线（轮次 world）另要求三部分 Markdown。
+func CountStyleLockRun(text string, turn TurnContext) (int, error) {
+	n, err := CountStyleLockTurn(text, turn)
+	if err != nil || turn.Turn.ID != StyleLockWorldTurn {
+		return n, err
+	}
+	if err := SSSRequireSections(text, StyleLockWorldTitles...); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // CountStyleLockTurn 校验这一轮的输出：要有风格锚、有色板，检查没有 error；不合格按临时失败重试。返回颜色数。
 func CountStyleLockTurn(text string, _ TurnContext) (int, error) {
 	out, stats := StyleLockFromText(text)

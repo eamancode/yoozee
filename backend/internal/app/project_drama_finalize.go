@@ -101,6 +101,18 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 			result["dramaStep"] = outcome
 			return true, nil
 		}
+		if sss := taskDramaSSS(task.InputJSON); sss != nil {
+			outcome, err := s.applySSSShotsTask(task, sss, result)
+			if err != nil {
+				return false, err
+			}
+			// 返修时不接下一集：停在分镜。
+			if target := taskProjectID(task); target != "" && sss.Repair == nil {
+				outcome.Chained = s.continueShotsQueue(task, target)
+			}
+			result["dramaStep"] = outcome
+			return true, nil
+		}
 		outcome, err := s.applyChapterShotsTask(task, meta, result)
 		if err != nil {
 			return false, err

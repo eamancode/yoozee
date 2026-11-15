@@ -270,7 +270,7 @@ export async function runScenePalette(input: ScenePaletteInput, options?: Chapte
 
 /** 订阅一个逐轮续写的步骤任务（生成分段、资产设计、风格锁定、剧本优化、场次色卡）直到结束，刷新页面后接回正在跑的任务也用它；失败时抛错，错误信息里有写到第几场 / 集。 */
 /**
- * 本体论导演单元返修：写症状，服务端按原单元卡跑返修回合（诊断 → 回责任环节重写 → 编译 → 自检），只替换这一段。页面跟任务文本流。
+ * 导演分镜单元返修（本体论、SSS）：写症状，服务端按原单元卡跑返修回合（本体论：诊断 → 回责任环节重写 → 编译 → 自检；SSS：诊断重写单元卡 → 编译），只替换这一段。页面跟任务文本流。
  */
 export async function repairOntologyUnit(input: { projectId: string; unitId: string; shotId: string; symptom: string; config: AiConfig }, options?: ChapterTaskOptions) {
     const model = input.config.textModel || input.config.model;

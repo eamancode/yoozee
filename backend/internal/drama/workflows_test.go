@@ -56,7 +56,7 @@ func TestIntegratedBuiltinPackageAndFullScriptContext(t *testing.T) {
 }
 
 func TestAssetWorkflowsSeparateLayoutsAndContracts(t *testing.T) {
-	for _, id := range []string{WorkflowOntology, WorkflowIntegrated, WorkflowOriginal} {
+	for _, id := range []string{WorkflowSSSFilm, WorkflowSSSDrama, WorkflowOntology, WorkflowIntegrated, WorkflowOriginal} {
 		workflow, ok := Workflow(id)
 		if !ok {
 			t.Fatal(id)
@@ -79,25 +79,58 @@ func TestAssetWorkflowsSeparateLayoutsAndContracts(t *testing.T) {
 	}
 }
 
+// v100 起 SSS 电影、SSS 短剧排在最前，本体论、资产一体化、原流程顺延为三、四、五：顺延后的定义（技能、契约、版式）不能变。
 func TestWorkflowRenumberPreservesLegacyDefinitions(t *testing.T) {
-	integrated, ok := Workflow("pipeline-2")
-	if !ok || integrated != (AssetWorkflow{ID: "pipeline-2", Version: "1", Label: "流水线二 资产一体化", AssetsSkill: "yz-assets-integrated", AssetsContract: "assets.extract@2", CharacterLayout: "four-panel", SceneLayout: "spatial-master"}) {
+	integrated, ok := Workflow("pipeline-4")
+	if !ok || integrated != (AssetWorkflow{ID: "pipeline-4", Version: "1", Label: "流水线四 资产一体化", AssetsSkill: "yz-assets-integrated", AssetsContract: "assets.extract@2", CharacterLayout: "four-panel", SceneLayout: "spatial-master"}) {
 		t.Fatalf("old integrated definition changed: %+v", integrated)
 	}
-	original, ok := Workflow("pipeline-3")
-	if !ok || original != (AssetWorkflow{ID: "pipeline-3", Version: "1", Label: "流水线三 原流程", AssetsContract: "assets.extract@1", CharacterLayout: "turnaround", SceneLayout: "concept"}) {
+	original, ok := Workflow("pipeline-5")
+	if !ok || original != (AssetWorkflow{ID: "pipeline-5", Version: "1", Label: "流水线五 原流程", AssetsContract: "assets.extract@1", CharacterLayout: "turnaround", SceneLayout: "concept"}) {
 		t.Fatalf("old original definition changed: %+v", original)
 	}
 	if empty, ok := Workflow(""); !ok || empty != original {
 		t.Fatal("empty workflow must use original", empty)
 	}
-	ontology, ok := Workflow("pipeline-1")
-	if !ok || ontology.StoryboardMode != "ontology" || ontology.StoryboardSkill != "yz-ontology-director" {
+	ontology, ok := Workflow("pipeline-3")
+	if !ok || ontology.StoryboardMode != "ontology" || ontology.StoryboardSkill != "yz-ontology-director" || ontology.Label != "流水线三 本体论导演" {
 		t.Fatal("ontology storyboard route missing", ontology)
 	}
 	ontology.ID, ontology.Label, ontology.StoryboardMode, ontology.StoryboardSkill = integrated.ID, integrated.Label, "", ""
 	if ontology != integrated {
 		t.Fatal("ontology changed the integrated asset protocol", ontology, integrated)
+	}
+	if _, ok := Workflow("pipeline-6"); ok {
+		t.Fatal("unknown pipeline accepted")
+	}
+}
+
+// SSS 两条流水线：资产与资产一体化完全一致（四宫格、微缩场景），只换分镜、拆剧本、导演定画风三个技能。
+func TestSSSWorkflowsUseIntegratedAssetsAndOwnSkills(t *testing.T) {
+	integrated, _ := Workflow(WorkflowIntegrated)
+	for id, kind := range map[string]string{"pipeline-1": SSSKindFilm, "pipeline-2": SSSKindDrama} {
+		w, ok := Workflow(id)
+		if !ok || SSSWorkflowKind(id) != kind {
+			t.Fatal(id, w)
+		}
+		if w.StoryboardMode != StoryboardModeSSS || w.StoryboardSkill != "yz-sss-"+kind+"-director" || w.ScriptSkill != "yz-sss-"+kind+"-script" || w.StyleSkill != "yz-sss-"+kind+"-style" {
+			t.Fatalf("%s skills = %+v", id, w)
+		}
+		w.ID, w.Label, w.StoryboardMode, w.StoryboardSkill, w.ScriptSkill, w.StyleSkill = integrated.ID, integrated.Label, "", "", "", ""
+		if w != integrated {
+			t.Fatal("SSS workflow changed the integrated asset protocol", id, w)
+		}
+	}
+	if film, _ := Workflow("pipeline-1"); film.Label != "流水线一 SSS 电影导演" {
+		t.Fatal(film.Label)
+	}
+	if drama, _ := Workflow("pipeline-2"); drama.Label != "流水线二 SSS 短剧导演" || DefaultWorkflow != "pipeline-2" {
+		t.Fatal(drama.Label, DefaultWorkflow)
+	}
+	for _, id := range []string{"pipeline-3", "pipeline-4", "pipeline-5", ""} {
+		if w, _ := Workflow(id); w.ScriptSkill != "" || w.StyleSkill != "" || SSSWorkflowKind(id) != "" {
+			t.Fatal("legacy workflow got SSS skills", id, w)
+		}
 	}
 }
 

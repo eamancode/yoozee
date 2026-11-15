@@ -80,6 +80,10 @@ type dramaRunTurn struct {
 	KeptRows string `json:"keptRows,omitempty"`
 	// Ontology 是本体论导演分镜这一轮的种类（project / plan / direct / unit / check / repair），单元轮的单元编号在 Scene。
 	Ontology string `json:"ontology,omitempty"`
+	// SSS 是 SSS 导演分镜这一轮的种类（setup / plan / direct / cut / card / compile / review / repair），单元编号在 Scene；
+	// Codes 是切分轮读出的各单元启发库库号（单元卡轮按它装库）。
+	SSS   string              `json:"sss,omitempty"`
+	Codes map[string][]string `json:"codes,omitempty"`
 }
 
 // dramaRunProgress 是任务 result.dramaRun：运行进度。前端按 Completed / Total 显示「从第 N 场继续」。
@@ -115,6 +119,10 @@ func newDramaRunMeta(plan *dramaStepPlan, unitID string) dramaRunMeta {
 	if plan.ontology != nil {
 		// 本体论分镜的轮数要等规划轮写出节奏总表才知道；这里是估计值，只用来放大预授权和任务墙钟，结算按实际调用。
 		run.Turns = plan.ontology.EstimatedTurns
+	}
+	if plan.sss != nil {
+		// SSS 分镜同理：切分轮写出单元总表后才知道单元数。
+		run.Turns = plan.sss.EstimatedTurns
 	}
 	if plan.adapt != nil && plan.adapt.Mode == drama.ScriptAdaptModeAdapt {
 		run.Sources = plan.adapt.SourceUnitIDs

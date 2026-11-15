@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { projectWorkflow } from "@/lib/project-workflow";
+import { hasDirectorDocuments, projectWorkflow } from "@/lib/project-workflow";
 import { BookOpen } from "lucide-react";
 import { OntologyDocumentsDrawer } from "./detail/ontology-documents-drawer";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -167,7 +167,8 @@ export default function ProjectDetailPage() {
 function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, chapterHref, workflowHref, onCreateCanvas }: { detail: ProjectDetail; projectId: string; activeView: DetailView; unitId?: string; stage?: string; chapterHref: string; workflowHref: string; onCreateCanvas: () => void }) {
     const archived = detail.project.status === "archived";
     const [ontologyOpen, setOntologyOpen] = useState(false);
-    const ontology = detail.project.workflowId === "pipeline-1";
+    // SSS 电影 / 短剧、本体论导演流水线有导演文档（圣经、各集七部分 / 八部分、交接卡、单元返修）。
+    const ontology = hasDirectorDocuments(detail.project.workflowId);
     const createCanvasLabel = activeView === "chapters" && detail.units.length ? "新建当前章节画布" : "新建项目画布";
     return (
         <header className="project-workspace-header">
@@ -200,7 +201,7 @@ function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, 
             </nav>
             <div className="project-workspace-actions">
                 {ontology ? (
-                    <button type="button" onClick={() => setOntologyOpen(true)} className="project-workspace-create" aria-label="本体论导演文档：世界圣经卡、各集七部分、单元返修" title="本体论导演文档">
+                    <button type="button" onClick={() => setOntologyOpen(true)} className="project-workspace-create" aria-label="导演文档：圣经、各集分镜文档、单元返修" title="导演文档">
                         <BookOpen />
                         <span>导演文档</span>
                     </button>

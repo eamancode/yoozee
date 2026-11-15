@@ -766,7 +766,7 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		return DramaStepTaskOutcome{}, err
 	}
 	// 先删不再需要的旧段（事务内逐段复核产物后立即删除），再写段、按新顺序排；删除被拦下时什么都不写。
-	if err := s.deleteOntologyRemovedShots(target.ProjectID, target.UnitID, removed, meta); err != nil {
+	if err := s.deleteDirectorRemovedShots(target.ProjectID, target.UnitID, removed, meta.Discard, meta.Confirmed); err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
 	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: segments}); err != nil {
@@ -845,10 +845,10 @@ func (s *Service) ontologyRemovedShots(userID string, projectID string, unitID s
 // errOntologyRemovalBlocked 表示要删的旧段有未确认（或确认后又增加）的产物。
 var errOntologyRemovalBlocked = errors.New("ontology removal blocked")
 
-// deleteOntologyRemovedShots 在一个事务里逐段复核产物并立即删除：没有产物的段直接删；有产物的段必须是建任务时确认过（discard）
+// deleteDirectorRemovedShots 在一个事务里逐段复核产物并立即删除（本体论、SSS 导演分镜共用）：没有产物的段直接删；有产物的段必须是建任务时确认过（discard）
 // 且产物没有增加。任一段不满足就整体回滚、一段都不删，返回需要确认的段。SQLite 写事务独占，计数与删除之间没有窗口；
 // PostgreSQL 先锁镜头行，计数与删除是同一事务里紧挨着的两条语句。
-func (s *Service) deleteOntologyRemovedShots(projectID string, unitID string, removed []string, meta *dramaOntologyMeta) error {
+func (s *Service) deleteDirectorRemovedShots(projectID string, unitID string, removed []string, discard bool, confirmedShots map[string]int) error {
 	if len(removed) == 0 {
 		return nil
 	}
@@ -860,7 +860,7 @@ func (s *Service) deleteOntologyRemovedShots(projectID string, unitID string, re
 			if err != nil {
 				return err
 			}
-			if confirmed, ok := meta.Confirmed[shotID]; n > 0 && (!meta.Discard || !ok || int(n) > confirmed) {
+			if confirmed, ok := confirmedShots[shotID]; n > 0 && (!discard || !ok || int(n) > confirmed) {
 				blocked = append(blocked, shotID)
 				continue
 			}
@@ -1023,21 +1023,28 @@ func ontologyProjectError(err error) error {
 
 // ProjectOntologyDocuments 是项目本体论分镜的文档（各文档最新版本）。
 type ProjectOntologyDocuments struct {
-	Bible    *model.ProjectOntologyDocument  `json:"bible,omitempty"`
-	Setup    *model.ProjectOntologyDocument  `json:"setup,omitempty"`
+	// Mode 是项目分镜环节的模式：ontology（本体论，七部分）或 sss（SSS 电影 / 短剧，八部分）。
+	Mode  string                         `json:"mode"`
+	Bible *model.ProjectOntologyDocument `json:"bible,omitempty"`
+	Setup *model.ProjectOntologyDocument `json:"setup,omitempty"`
+	// Concept / World 是 SSS 流水线拆剧本写的立意页与全集结构表、导演定画风写的世界基准段与视听总谱。
+	Concept  *model.ProjectOntologyDocument  `json:"concept,omitempty"`
+	World    *model.ProjectOntologyDocument  `json:"world,omitempty"`
 	Episodes []model.ProjectOntologyDocument `json:"episodes"`
 	Handoffs []model.ProjectOntologyDocument `json:"handoffs"`
 }
 
 func (s *Service) ProjectOntologyDocuments(userID string, projectID string) (ProjectOntologyDocuments, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
 		return ProjectOntologyDocuments{}, ontologyProjectError(err)
 	}
 	docs, err := s.repo.OntologyDocumentsForProject(projectID)
 	if err != nil {
 		return ProjectOntologyDocuments{}, err
 	}
-	out := ProjectOntologyDocuments{Episodes: []model.ProjectOntologyDocument{}, Handoffs: []model.ProjectOntologyDocument{}}
+	workflow, _ := drama.Workflow(project.WorkflowID)
+	out := ProjectOntologyDocuments{Mode: workflow.StoryboardMode, Episodes: []model.ProjectOntologyDocument{}, Handoffs: []model.ProjectOntologyDocument{}}
 	for i := range docs {
 		doc := docs[i]
 		switch doc.Kind {
@@ -1045,6 +1052,10 @@ func (s *Service) ProjectOntologyDocuments(userID string, projectID string) (Pro
 			out.Bible = &doc
 		case model.OntologyDocSetup:
 			out.Setup = &doc
+		case model.OntologyDocConcept:
+			out.Concept = &doc
+		case model.OntologyDocWorld:
+			out.World = &doc
 		case model.OntologyDocEpisode:
 			out.Episodes = append(out.Episodes, doc)
 		case model.OntologyDocHandoff:
@@ -1064,8 +1075,8 @@ func (s *Service) UpdateOntologyBible(userID string, projectID string, req Updat
 	if err != nil {
 		return nil, ontologyProjectError(err)
 	}
-	if workflow, ok := drama.Workflow(project.WorkflowID); !ok || workflow.StoryboardMode != drama.StoryboardModeOntology {
-		return nil, BadAuthRequest("只有本体论导演流水线的项目有世界圣经卡")
+	if workflow, ok := drama.Workflow(project.WorkflowID); !ok || (workflow.StoryboardMode != drama.StoryboardModeOntology && workflow.StoryboardMode != drama.StoryboardModeSSS) {
+		return nil, BadAuthRequest("只有导演分镜流水线（SSS 电影、SSS 短剧、本体论）的项目有圣经")
 	}
 	content := strings.TrimSpace(req.Content)
 	if content == "" || len([]rune(content)) > 60000 {
@@ -1100,8 +1111,11 @@ func (s *Service) RepairOntologySegment(userID string, projectID string, unitID 
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}
+	if usage.Workflow.StoryboardMode == drama.StoryboardModeSSS {
+		return s.RepairSSSSegment(userID, project, unitID, req, usage, skill)
+	}
 	if usage.Workflow.StoryboardMode != drama.StoryboardModeOntology {
-		return DramaStepRunResult{}, BadAuthRequest("只有本体论导演流水线的项目能用单元卡返修")
+		return DramaStepRunResult{}, BadAuthRequest("只有导演分镜流水线的项目能用单元卡返修")
 	}
 	symptom := strings.TrimSpace(req.Symptom)
 	if symptom == "" || len([]rune(symptom)) > 2000 {
