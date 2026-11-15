@@ -1,2 +1,4 @@
 plugin-packages/*.sh text eol=lf
 backend/builtin/yz-ontology-director/** -text
+backend/builtin/yz-sss-film-director/** -text
+backend/builtin/yz-sss-drama-director/** -text

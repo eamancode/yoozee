@@ -1,0 +1,12 @@
+---
+name: SSS 短剧导演分镜
+description: 按立项、每集与返修回合，把短剧剧本做成全集导演分镜（本集设计、台词定稿、讲戏、单元总表、单元卡、后期备忘、集交接卡、复看与待确认）和可直接粘贴的即梦十五段提示词；支持真人写实、二维动画、三维动画。
+metadata:
+  version: "1.0.0"
+  author: 柚子
+  owner: yingce-system
+  tag: drama
+  source: 3
+  createdAt: "2026-11-14T00:00:00Z"
+  updatedAt: "2026-11-14T00:00:00Z"
+---
