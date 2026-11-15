@@ -154,4 +154,7 @@ func TestIntegratedTaskDoesNotInheritThreeViewInstruction(t *testing.T) {
 	if strings.Contains(prompt.Text, "角色是三视图设定图") || !strings.Contains(prompt.Text, "微缩母版") {
 		t.Fatal(prompt.Text)
 	}
+	if !strings.Contains(prompt.Text, "固定竖版9:16四宫格") || !strings.Contains(prompt.Text, "不继承项目视频画幅") {
+		t.Fatal("character sheets inherited video aspect ratio", prompt.Text)
+	}
 }

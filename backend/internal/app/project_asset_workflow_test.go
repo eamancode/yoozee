@@ -24,7 +24,7 @@ func TestWorkflowSkillRoutingRemainsProjectScoped(t *testing.T) {
 			t.Fatal(err)
 		}
 		if drama.IntegratedAssets(wf) {
-			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.3" || usage.Contract != drama.ContractIntegratedAssets {
+			if usage.Skill.ID != drama.IntegratedAssetsSkill || usage.Skill.Version != "1.0.4" || usage.Contract != drama.ContractIntegratedAssets {
 				t.Fatal(usage)
 			}
 		} else if usage.Skill.ID != "yz-assets-extract" || usage.Contract != drama.ContractAssetsExtract {
@@ -83,7 +83,7 @@ func TestWorkflowActivationAndFrozenImageRecipe(t *testing.T) {
 	if err := db.First(&candidate, "id = ?", active.VersionID).Error; err != nil {
 		t.Fatal(err)
 	}
-	candidate.ID, candidate.VersionLabel = newID(), "1.0.4"
+	candidate.ID, candidate.VersionLabel = newID(), "1.0.5"
 	if err := db.Create(&candidate).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -155,12 +155,12 @@ func TestSpatialCompilerReminderUsesActualVersionAndTag(t *testing.T) {
 
 func TestWorkflowImageRatiosUseDeclaredProviderPixelMapping(t *testing.T) {
 	profile := DefaultModelCapabilityConfigForModel("opaque-provider", "opaque-model")
-	profile.Image.Parameters = []protocol.ImageParameter{{Name: "size", Label: "Size", Type: "string", Values: []any{"1024x1536", "1024x1024", "1536x864"}, Default: "1024x1024", Binding: "aspectRatio", Encoding: "pixels"}}
-	profile.Image.Size.Presets = []ImageSizePreset{{Tier: "1k", Ratio: "2:3", Width: 1024, Height: 1536, Size: "1024x1536"}, {Tier: "1k", Ratio: "1:1", Width: 1024, Height: 1024, Size: "1024x1024"}, {Tier: "1k", Ratio: "16:9", Width: 1536, Height: 864, Size: "1536x864"}}
+	profile.Image.Parameters = []protocol.ImageParameter{{Name: "size", Label: "Size", Type: "string", Values: []any{"1024x1536", "1024x1024", "1536x864", "864x1536"}, Default: "1024x1024", Binding: "aspectRatio", Encoding: "pixels"}}
+	profile.Image.Size.Presets = []ImageSizePreset{{Tier: "1k", Ratio: "9:16", Width: 864, Height: 1536, Size: "864x1536"}, {Tier: "1k", Ratio: "2:3", Width: 1024, Height: 1536, Size: "1024x1536"}, {Tier: "1k", Ratio: "1:1", Width: 1024, Height: 1024, Size: "1024x1024"}, {Tier: "1k", Ratio: "16:9", Width: 1536, Height: 864, Size: "1536x864"}}
 	if err := projectImageParameters(profile.Image); err != nil {
 		t.Fatal(err)
 	}
-	for ratio, pixels := range map[string]string{"2:3": "1024x1536", "1:1": "1024x1024", "16:9": "1536x864"} {
+	for ratio, pixels := range map[string]string{"9:16": "864x1536", "2:3": "1024x1536", "1:1": "1024x1024", "16:9": "1536x864"} {
 		config := providerConfig{InterfaceType: "opaque-provider", Size: ratio, ImageParameters: map[string]any{"size": ratio}}
 		if err := applyImageParameterValues(&config, profile.Image); err != nil {
 			t.Fatal(ratio, err)
@@ -244,8 +244,46 @@ func TestIntegratedCharacterVariantActuallyReceivesParentSheet(t *testing.T) {
 	if _, exists := input["metadata"].(map[string]any)["promptTemplateOperation"]; exists {
 		t.Fatal("old three-view template can overwrite four-panel recipe")
 	}
-	if input["config"].(map[string]any)["size"] != "2:3" {
+	if input["config"].(map[string]any)["size"] != "9:16" {
 		t.Fatal("four-panel ratio lost")
+	}
+}
+
+func TestFourPanelSubmissionUsesPortraitAcrossWorkflows(t *testing.T) {
+	s, db, projectID, asset := seedProjectVisualAsset(t, model.AssetCategoryEnvironment)
+	ensureWorkflowSkillFixture(t, s, db)
+	if err := db.Model(&model.Asset{}).Where("id = ?", asset.ID).Update("category", model.AssetCategoryCharacter).Error; err != nil {
+		t.Fatal(err)
+	}
+	definition := `{"appearance":"黑发青年，身体比例2:3","generationPrompt":"landscape 16:9 four-panel，黑发青年，身高1.8米"}`
+	if err := db.Model(&model.AssetVersion{}).Where("id = ?", asset.PrimaryVersionID).Update("definition_json", definition).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, workflow := range []string{drama.WorkflowSSSFilm, drama.WorkflowSSSDrama, drama.WorkflowOntology, drama.WorkflowIntegrated} {
+		t.Run(workflow, func(t *testing.T) {
+			if err := db.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"workflow_id": workflow, "aspect_ratio": "16:9"}).Error; err != nil {
+				t.Fatal(err)
+			}
+			input := map[string]any{"mode": "image", "capabilityOptions": map[string]any{"size": "2:3"}, "config": map[string]any{"size": "2:3", "imageParameters": map[string]any{"size": "16:9"}}, "metadata": map[string]any{"operation": "character_turnaround", "characterAssetId": asset.ID}}
+			prompt, err := s.prepareProjectAssetWorkflow("user-1", projectID, input, "old")
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := input["config"].(map[string]any)
+			if config["size"] != "9:16" || config["imageParameters"].(map[string]any)["size"] != "9:16" || strings.Contains(prompt, "landscape 16:9") || !strings.Contains(prompt, "竖版9:16 four-panel，黑发青年，身高1.8米") {
+				t.Fatal("frame or appearance inconsistent", config, prompt)
+			}
+			if intent := ModelRequestIntentFromTaskInput(input, "canvas_image", "image"); intent.Options["size"] != "9:16" {
+				t.Fatal("model matching and pricing intent kept old aspect ratio", intent)
+			}
+			if second, err := s.prepareProjectAssetWorkflow("user-1", projectID, input, prompt); err != nil || second != prompt {
+				t.Fatal("repeated admission stacked format instructions", second, err)
+			}
+		})
+	}
+	stored, err := s.repo.AssetVersion(asset.PrimaryVersionID)
+	if err != nil || stored.DefinitionJSON != definition {
+		t.Fatal("submission changed historical asset definition", stored, err)
 	}
 }
 

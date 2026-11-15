@@ -5,10 +5,10 @@ import type { ProjectAssetWorkflow } from "@/services/api/projects";
  * 空（原分镜流程）。aspectRatio 是选这条流水线时预填的画幅（用户仍可改）。
  */
 export const PROJECT_WORKFLOWS = [
-    { value: "pipeline-1", label: "流水线一 SSS 电影导演", description: "SSS 电影导演分镜 · 角色四宫格 · 微缩场景图", integratedAssets: true, storyboardMode: "sss", aspectRatio: "16:9" },
-    { value: "pipeline-2", label: "流水线二 SSS 短剧导演", description: "SSS 短剧导演分镜 · 角色四宫格 · 微缩场景图", integratedAssets: true, storyboardMode: "sss", aspectRatio: "9:16" },
-    { value: "pipeline-3", label: "流水线三 本体论导演", description: "本体论导演分镜 · 角色四宫格 · 微缩场景图", integratedAssets: true, storyboardMode: "ontology", aspectRatio: undefined },
-    { value: "pipeline-4", label: "流水线四 资产一体化", description: "原分镜流程 · 角色四宫格 · 微缩场景图", integratedAssets: true, storyboardMode: "", aspectRatio: undefined },
+    { value: "pipeline-1", label: "流水线一 SSS 电影导演", description: "SSS 电影导演分镜 · 角色四宫格（固定 9:16） · 微缩场景图", integratedAssets: true, storyboardMode: "sss", aspectRatio: "16:9" },
+    { value: "pipeline-2", label: "流水线二 SSS 短剧导演", description: "SSS 短剧导演分镜 · 角色四宫格（固定 9:16） · 微缩场景图", integratedAssets: true, storyboardMode: "sss", aspectRatio: "9:16" },
+    { value: "pipeline-3", label: "流水线三 本体论导演", description: "本体论导演分镜 · 角色四宫格（固定 9:16） · 微缩场景图", integratedAssets: true, storyboardMode: "ontology", aspectRatio: undefined },
+    { value: "pipeline-4", label: "流水线四 资产一体化", description: "原分镜流程 · 角色四宫格（固定 9:16） · 微缩场景图", integratedAssets: true, storyboardMode: "", aspectRatio: undefined },
     { value: "pipeline-5", label: "流水线五 原流程", description: "原分镜与资产提取 · 角色三视图 · 场景概念图", integratedAssets: false, storyboardMode: "", aspectRatio: undefined },
 ] as const satisfies ReadonlyArray<{ value: ProjectAssetWorkflow; label: string; description: string; integratedAssets: boolean; storyboardMode: "sss" | "ontology" | ""; aspectRatio: string | undefined }>;
 

@@ -99,7 +99,7 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 		if asset.Category != model.AssetCategoryCharacter {
 			return "", BadAuthRequest("请选择人物资产")
 		}
-		recipe, setting, ratio = "character-four-panel", characterTurnaroundSetting(definition), "2:3"
+		recipe, setting, ratio = "character-four-panel", characterTurnaroundSetting(definition), "9:16"
 		metadata["imageLayout"] = "four-panel"
 		metadata["resolvedCharacterVersions"] = []map[string]string{{"assetId": asset.ID, "versionId": version.ID}}
 		delete(metadata, "promptTemplateOperation")
@@ -127,6 +127,12 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 	}
 	if strings.TrimSpace(setting) == "" {
 		return "", BadAuthRequest("资产缺少可执行外观设计")
+	}
+	if recipe == "character-four-panel" {
+		// Frozen recipes retain identity/layout instructions, but new requests use
+		// the current output format, independently of the project's video ratio.
+		prefix = drama.FourPanelPortraitPrompt(prefix)
+		setting = drama.FourPanelPortraitPrompt(setting)
 	}
 	refs, err := s.dramaAssetImageRefs(userID, project, *asset, definition)
 	if err != nil {
@@ -165,8 +171,16 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 	if ratio != "" {
 		parameters["size"] = ratio
 	}
+	if recipe == "character-four-panel" {
+		if options, ok := input["capabilityOptions"].(map[string]any); ok {
+			options["size"] = ratio
+		}
+	}
 	metadata["resolvedAssetVersionId"] = version.ID
 	compiled := strings.Join([]string{prefix, "【当前资产】" + asset.Title, setting, "【项目画风】\n" + style.Prompt, note}, "\n\n")
+	if recipe == "character-four-panel" {
+		compiled += "\n\n【四宫格输出画幅】整张图片固定为竖版9:16，严格两列两行；四宫格内部裁切按上述布局执行。项目视频画幅及历史设定中的其他画幅、横竖方向要求不适用于本张人物设定图。"
+	}
 	input["prompt"] = compiled
 	return compiled, nil
 }

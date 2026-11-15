@@ -409,7 +409,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             const config = { ...effectiveConfig, model };
             if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
             const projectStyle = resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson);
-            await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, projectStyle, config });
+            await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, fourPanel: projectWorkflow(detail.project.workflowId).integratedAssets, projectStyle, config });
             return getProjectCharacter(detail.project.id, asset.id);
         },
         onSuccess: (result) => { if (result) { syncPersonalCharacterProjection(result.asset); done(`${characterImageLabel}已生成并绑定到新角色版本`); } },
