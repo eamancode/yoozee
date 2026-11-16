@@ -47,7 +47,7 @@ export function OntologyDocumentsDrawer({ detail, open, onClose }: Props) {
         ...generated.map((unit) => ({ key: unit.id, label: unit.title, children: <EpisodePanel detail={detail} unitId={unit.id} docs={docs.data} mode={mode} /> })),
     ];
     return (
-        <AppDrawer open={open} onClose={onClose} title={`${terms.director}文档`} width={880}>
+        <AppDrawer open={open} onClose={onClose} title={`${terms.director}文档`} size={880}>
             {docs.isLoading ? <p className="text-[var(--fs-label)] text-foreground/55">正在读取…</p> : docs.isError ? <EmptyState size="compact" title="读取失败" description={docs.error instanceof Error ? docs.error.message : "请稍后再试"} /> : <Tabs items={items} />}
         </AppDrawer>
     );
@@ -145,7 +145,7 @@ function SegmentList({ detail, unitId, episode, mode }: { detail: ProjectDetail;
             {units.map((segment) => (
                 <SegmentCard key={segment.shotId} segment={segment} card={directorCard(mode, episode, segment.spec.title || "")} parts={terms.parts} onRepair={() => setRepairing(segment)} />
             ))}
-            {repairing ? <RepairModal detail={detail} unitId={unitId} segment={repairing} director={terms.director} onClose={() => setRepairing(null)} /> : null}
+            {repairing ? <DirectorRepairModal projectId={detail.project.id} unitId={unitId} segment={repairing} director={terms.director} onClose={() => setRepairing(null)} /> : null}
         </div>
     );
 }
@@ -190,7 +190,8 @@ function SegmentCard({ segment, card, parts, onRepair }: { segment: DramaSegment
     );
 }
 
-function RepairModal({ detail, unitId, segment, director, onClose }: { detail: ProjectDetail; unitId: string; segment: DramaSegmentView; director: string; onClose: () => void }) {
+/** 导演分镜单元的症状返修：导演文档的单元段和分镜卡（导演段只读，改动走这里）共用。只替换这一段。 */
+export function DirectorRepairModal({ projectId, unitId, segment, director, onClose, onRepaired }: { projectId: string; unitId: string; segment: DramaSegmentView; director: string; onClose: () => void; onRepaired?: () => Promise<unknown> | void }) {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const effectiveConfig = useDramaModelConfig();
@@ -201,7 +202,7 @@ function RepairModal({ detail, unitId, segment, director, onClose }: { detail: P
             const textModel = effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
             const config = { ...effectiveConfig, model: textModel, textModel };
             if (!isAiConfigReady(config, textModel)) throw new Error("还没配置可用的文本模型，请先到设置里选择");
-            return repairOntologyUnit({ projectId: detail.project.id, unitId, shotId: segment.shotId, symptom: symptom.trim(), config });
+            return repairOntologyUnit({ projectId, unitId, shotId: segment.shotId, symptom: symptom.trim(), config });
         },
         onMutate: () => {
             message.info(`返修 ${segment.spec.title} 已开始，只替换这一段`);
@@ -209,10 +210,11 @@ function RepairModal({ detail, unitId, segment, director, onClose }: { detail: P
         onSuccess: async () => {
             message.success(`${segment.spec.title} 已返修`);
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ontologySegmentsKey(detail.project.id, unitId) }),
-                queryClient.invalidateQueries({ queryKey: ontologyDocumentsKey(detail.project.id) }),
-                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
+                queryClient.invalidateQueries({ queryKey: ontologySegmentsKey(projectId, unitId) }),
+                queryClient.invalidateQueries({ queryKey: ontologyDocumentsKey(projectId) }),
+                queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
             ]);
+            await onRepaired?.();
             onClose();
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "返修失败"),

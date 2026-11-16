@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CachedResourceImage } from "@/components/cached-resource-image";
-import { AppModal } from "@/components/ui/product/app-modal";
+import { ImageZoomPreview } from "@/components/image-zoom-preview";
 import { AssetImageLibraryPicker } from "@/components/assets/asset-image-library-picker";
 import { getProjectDramaScenes, type DramaImageTaskTemplate } from "@/services/api/project-drama";
 import { queueDramaAssetImages } from "@/services/drama-model-submission";
@@ -233,20 +233,8 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                     message.success("子卡图片已绑定并保存为新版本");
                 }}
             />
-            <AppModal open={Boolean(preview)} onCancel={() => setPreview(null)} footer={null} title={preview?.title || "子卡图片预览"} width={960}>
-                {preview ? (
-                    <CachedResourceImage
-                        key={preview.resourceId}
-                        storageKey={`resource:${preview.resourceId}`}
-                        src={resourceFileUrl(preview.resourceId)}
-                        alt={`${preview.title}完整图片`}
-                        eager
-                        className="block max-h-[75vh] w-full object-contain"
-                        loadingFallback={<p role="status">正在加载完整图片…</p>}
-                        fallback={<p role="alert">图片暂时无法加载，请关闭后重新打开。</p>}
-                    />
-                ) : null}
-            </AppModal>
+            {/* 子卡图片放大：与资产详情同一个预览器（缩放、拖动、Esc 退出，按原图比例）。 */}
+            {preview ? <ImageZoomPreview src={resourceFileUrl(preview.resourceId)} alt={`${preview.title}完整图片`} onClose={() => setPreview(null)} /> : null}
             <Modal
                 className="library-modal"
                 title={editing === "new" ? `给「${parent.title}」新增子卡` : `编辑子卡「${editing?.title || ""}」`}

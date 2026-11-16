@@ -842,7 +842,8 @@ export type DramaRunProgress = {
     total: number;
     completed: number;
     scenes?: Array<{ scene: string; heading: string; opening: string; section?: string; genre?: DramaShotGenreId; est?: number }>;
-    turns: Array<{ index: number; scene?: string; heading?: string; section?: string; rows: number; attempts: number; taskId: string; kept?: boolean }>;
+    /** sss / ontology 是导演分镜这一轮的种类（SSS：setup / plan / direct / cut / card / compile / review / repair）。 */
+    turns: Array<{ index: number; scene?: string; heading?: string; section?: string; rows: number; attempts: number; taskId: string; kept?: boolean; sss?: string; ontology?: string }>;
     /** 按小节生成时这次运行的戏类。 */
     genre?: DramaShotGenreId;
 };

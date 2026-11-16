@@ -16,11 +16,19 @@ export const FIXTURE_ASSET_ID = "asset-linshen";
 export const FIXTURE_ASSET_ID_2 = "asset-apo";
 export const FIXTURE_VIDEO_MODEL = "CHANNEL_000001::lec-vp-seedance-2-5-f";
 export const FIXTURE_VIDEO_MODEL_NAME = "Seedance 2.5 Fast";
+export const FIXTURE_IMAGE_PORTRAIT = "res-linshen-portrait";
+export const FIXTURE_IMAGE_SQUARE = "res-market-square";
+// 夹具图片（base64 PNG）：竖版 90×160 和方形 120×120 的纯色图。
+const FIXTURE_PNG_PORTRAIT =
+    "iVBORw0KGgoAAAANSUhEUgAAAFoAAACgCAIAAAADw+wqAAAA50lEQVR4nO3QMQ0AIADAMIQhDInI4kMC42gyAUvHXlO3kR98FQ4cOHDgwIEDBw4cfThw4MCBAwcOHDhw9OHAgQMHDhw4cODA0YcDBw4cOHDgwIEDRx8OHDhw4MCBAwcOHH04cODAgQMHDhw4cPThwIEDBw4cOHDgwNGHAwcOHDhw4MCBA0cfDhw4cODAgQMHDhx9OHDgwIEDBw4cOHD04cCBAwcOHDhw4MDRhwMHDhw4cODAgQNHHw4cOHDgwIEDBw4cfThw4MCBAwcOHDhw9OHAgQMHDhw4cODA0YcDBw4cOHDgwPGqAyifg95oCoAaAAAAAElFTkSuQmCC";
+const FIXTURE_PNG_SQUARE =
+    "iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAIAAAC2BqGFAAAA60lEQVR4nO3QAQkAIADAMIMZzIjGsoXCHTzA2Zhr60Lj+cEngQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtzpQ+4PevierUgAAAABJRU5ErkJggg==";
 
 export type StyleFixture = "none" | "anchor_only" | "locked";
 
 type Envelope = { code: number; data?: unknown; msg: string; reason?: string; details?: Record<string, unknown> };
-export type FixtureResponse = { status: number; body: Envelope };
+/** binary / contentType：二进制响应（资源文件 PNG，base64），E2E 按 contentType 回；JSON 接口不用。 */
+export type FixtureResponse = { status: number; body: Envelope | null; binary?: string; contentType?: string };
 export type FixtureCall = { method: string; path: string };
 
 const now = "2026-11-12T08:00:00Z";
@@ -72,7 +80,22 @@ function longSegmentSpec(id: string, firstText: string, count: number) {
 export type FixtureChains = "none" | "history" | "failed" | "running";
 
 /** workflowId：项目的流水线（不给时按流水线五原流程）；SSS 电影 / 短剧时导演文档接口返回 sss 模式的文档。 */
-export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: unknown[]; videoModel?: string; imageModel?: string; flowEnabled?: boolean; chains?: FixtureChains; extraSegments?: number; workflowId?: string } = {}) {
+export function createDramaFlowFixture(
+    options: {
+        style?: StyleFixture;
+        tasks?: unknown[];
+        videoModel?: string;
+        imageModel?: string;
+        flowEnabled?: boolean;
+        chains?: FixtureChains;
+        extraSegments?: number;
+        workflowId?: string;
+        name?: string;
+        stopAtAssets?: boolean;
+        directorSegments?: boolean;
+        assetImages?: boolean;
+    } = {},
+) {
     const style = options.style ?? "none";
     const overrides = new Map<string, FixtureOverride>();
     const state = {
@@ -86,7 +109,11 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         previews: 0,
         /** 每次预览请求里真实发出的视频配置（含被拒的）。 */
         previewConfigs: [] as Array<Record<string, unknown>>,
+        /** stopAtAssets 时「继续：角色场景资产」确认后真实发出的出图请求（只记不建任务）。 */
+        imageQueues: [] as Array<{ assetIds?: string[]; imageTask?: { model?: string } }>,
     };
+    // directorSegments：S01 是导演分镜单元（SSS / 本体论装出的段带 verbatim，提交用单元卡原文），S02 仍是原流程的段。
+    if (options.directorSegments) Object.assign(state.segments[0].spec, { verbatim: "15秒，雨夜便民市场。@图1把温橙汁推到@图2手边。" });
     // extraSegments：再加几段短内容（S03…），出片列表变长、需要滚动，用来验证每张段卡的操作都点得到。
     for (let index = 0; index < (options.extraSegments ?? 0); index += 1) {
         const id = `S${String(index + 3).padStart(2, "0")}`;
@@ -98,7 +125,7 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
 
     const project = {
         id: FIXTURE_PROJECT_ID,
-        name: "新工作流无模型回归",
+        name: options.name ?? "新工作流无模型回归",
         description: "",
         status: "active",
         sourceType: "blank",
@@ -129,7 +156,53 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         createdAt: now,
         updatedAt: now,
     });
-    const assets = [asset(FIXTURE_ASSET_ID, "林深", "none"), asset(FIXTURE_ASSET_ID_2, "阿婆", "failed")];
+    // stopAtAssets：两个资产都还没出图（没有失败待办，主按钮才是「继续：角色场景资产」）。
+    const assets: Array<Record<string, unknown>> = [asset(FIXTURE_ASSET_ID, "林深", "none"), asset(FIXTURE_ASSET_ID_2, "阿婆", options.stopAtAssets ? "none" : "failed")];
+    // assetImages：林深主卡（竖版 90×160）带一张已出图的子卡（雨衣），另加一个方形图的场景，图片走资源文件接口（夹具回真 PNG）。
+    if (options.assetImages) {
+        const linshen = assets[0] as { image: unknown; character: Record<string, unknown> };
+        linshen.image = { status: "bound" };
+        linshen.character.representations = [{ id: "rep-linshen", role: "primary", resourceId: FIXTURE_IMAGE_PORTRAIT }];
+        Object.assign(linshen, {
+            variants: [
+                {
+                    id: "asset-linshen-rain",
+                    projectId: FIXTURE_PROJECT_ID,
+                    title: "林深·雨衣",
+                    category: "character",
+                    status: "active",
+                    usages: [],
+                    image: { status: "bound" },
+                    // 和后端 ProjectAssetVariantSummary 同一形状：scenes 没指定时是空数组（后端把 nil 归成 []），look / promptEn 是字符串。
+                    variant: { parentId: FIXTURE_ASSET_ID, parentTitle: "林深", label: "雨衣", kind: "costume", scenes: [], look: "深色雨衣，帽檐压低", promptEn: "" },
+                    character: {
+                        versionId: "asset-linshen-rain-v1",
+                        version: 1,
+                        definition: { name: "林深·雨衣" },
+                        representations: [{ id: "rep-linshen-rain", role: "primary", resourceId: FIXTURE_IMAGE_PORTRAIT }],
+                        visualStatus: "ready",
+                        voiceStatus: "missing",
+                    },
+                    createdAt: now,
+                    updatedAt: now,
+                },
+            ],
+        });
+        assets.push({
+            id: "asset-market",
+            projectId: FIXTURE_PROJECT_ID,
+            title: "便民市场雨棚",
+            category: "environment",
+            status: "active",
+            usages: [],
+            mediaType: "image",
+            storageKey: `resource:${FIXTURE_IMAGE_SQUARE}`,
+            image: { status: "bound" },
+            visual: { versionId: "asset-market-v1", version: 1, definition: { description: "雨夜便民市场的雨棚" } },
+            createdAt: now,
+            updatedAt: now,
+        });
+    }
     const stages = ["script", "style", "palette", "assets", "shots", "pack", "video", "cut"].map((key) => ({ key, label: key, state: key === "script" ? "done" : "pending" }));
     const segmentProgress = () =>
         state.segments.map((segment) => ({
@@ -157,7 +230,9 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         counts: { segments: state.segments.length, script: state.segments.length, refs: 0, generated: 0, takes: 0, reviewed: 0, inCut: 0, accepted: 0, overLimit: 0, issues: 0 },
         line: "",
         endStates: [],
-        pipeline: { runMode: "every_step", runModeLabel: "每步都问我", stages, current: "style" },
+        pipeline: options.stopAtAssets
+            ? { runMode: "every_step", runModeLabel: "每步都问我", stages, current: "assets", stop: { stage: "assets", label: "角色场景资产", reason: "资产已提取，等你确认出图", action: "继续：角色场景资产", continuable: true } }
+            : { runMode: "every_step", runModeLabel: "每步都问我", stages, current: "style" },
     });
     const workspace = () => ({ unit: fullUnit, assets, tasks: [], workflows: [], shots: [], shotRevisions: [], shotArtifacts: [], shotReferences: [], assetCandidates: [] });
     const catalog = {
@@ -167,7 +242,11 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
                 id: "CHANNEL_000001",
                 displayName: "柚子系统渠道",
                 sortOrder: 0,
-                models: [{ modelKey: "lec-vp-seedance-2-5-f", displayName: FIXTURE_VIDEO_MODEL_NAME, available: true, capability: "video", priceTiers: [], capabilityConfig: FIXTURE_VIDEO_CAPABILITY }],
+                models: [
+                    { modelKey: "lec-vp-seedance-2-5-f", displayName: FIXTURE_VIDEO_MODEL_NAME, available: true, capability: "video", priceTiers: [], capabilityConfig: FIXTURE_VIDEO_CAPABILITY },
+                    // stopAtAssets 时目录里有 imageModel 这个图片模型（确认面板的模型选择用它）；其余用例的 imageModel 可能故意是已下架的模型，不放进目录。
+                    ...(options.stopAtAssets && options.imageModel ? [{ modelKey: options.imageModel.replace(/^CHANNEL_000001::/, ""), displayName: "验收图片模型", available: true, capability: "image", priceTiers: [] }] : []),
+                ],
             },
         ],
     };
@@ -269,6 +348,9 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
         if (override === "capability") return capabilityReject([{ name: "videoGenerateAudio", reason: "参数 同步音频超出支持范围" }]);
         if (override === "capability-bare") return capabilityReject([{ name: "videoGenerateAudio", reason: "参数 同步音频超出支持范围" }], false);
         if (call.method === "GET") {
+            // 资源文件：assetImages 时回真 PNG（竖版 90×160 / 方形 120×120），预览器按原图比例显示。
+            if (options.assetImages && path === `/resources/${FIXTURE_IMAGE_PORTRAIT}/file`) return { status: 200, body: null, binary: FIXTURE_PNG_PORTRAIT, contentType: "image/png" };
+            if (options.assetImages && path === `/resources/${FIXTURE_IMAGE_SQUARE}/file`) return { status: 200, body: null, binary: FIXTURE_PNG_SQUARE, contentType: "image/png" };
             if (path === "/auth/session") return ok({ user, features });
             if (path === "/features") return ok({ features });
             if (path === "/drama/models") return ok({ models: registry });
@@ -332,6 +414,27 @@ export function createDramaFlowFixture(options: { style?: StyleFixture; tasks?: 
             const segment = state.segments.find((item) => item.shotId === shotId);
             const prompt = segment ? segment.spec.shots.map((shot) => shot.text).join("\n") : "";
             return ok({ compiled: { shotId, spec: segment?.spec, derived: false, result: { segment: segment?.spec.id || "", model: FIXTURE_VIDEO_MODEL, duration: 15, prompt, files: [], chars: prompt.length, issues: [] } } });
+        }
+        // 资源显示授权（批量取图片显示地址，只读，不改任何数据）：assetImages 时按后端形状回平台代理地址，指向上面回真 PNG 的资源文件接口。
+        if (options.assetImages && call.method === "POST" && path === "/resources/access") {
+            const requests = (Array.isArray(body) ? body : []) as Array<{ resourceId?: string; variant?: string }>;
+            const issuedAt = new Date().toISOString();
+            const items = requests.map((item) => {
+                const resourceId = String(item.resourceId || "");
+                if (resourceId !== FIXTURE_IMAGE_PORTRAIT && resourceId !== FIXTURE_IMAGE_SQUARE) return { resourceId, error: { msg: "资源不存在" } };
+                const variant = item.variant || "original";
+                return {
+                    resourceId,
+                    access: { resourceId, requestedVariant: variant, actualVariant: variant, url: `/api/resources/${resourceId}/file`, delivery: "platform-proxy", issuedAt, refreshAt: new Date(Date.now() + 10 * 60_000).toISOString(), revision: "r1" },
+                };
+            });
+            return ok({ items });
+        }
+        // 「继续：角色场景资产」确认面板提交的出图请求：只记下选了哪些资产、用的哪个模型，不建任务。
+        if (options.stopAtAssets && call.method === "POST" && path === `${base}/drama/assets/images`) {
+            const input = (body || {}) as { assetIds?: string[]; imageTask?: { model?: string } };
+            state.imageQueues.push(input);
+            return ok({ queued: input.assetIds || [], waiting: [], failed: [] });
         }
         if (call.method !== "GET") {
             forbidden.push(call);

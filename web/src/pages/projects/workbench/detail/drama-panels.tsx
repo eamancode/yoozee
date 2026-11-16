@@ -19,7 +19,8 @@ import type { ReferenceImage } from "@/types/image";
 import { dramaRunModeLabel } from "../drama-model";
 import { buildAssetChecklist, checklistSummary, draftBibleFromAssets, setChecklistChecked, type ChecklistItem, type ChecklistKind } from "./drama-asset-checklist";
 import { formatDialogue, parseDialogue, type SegmentDurationRule } from "./chapter-segments";
-import { editShotCard, editSubShot, failedSegmentEditHint, mergeWithNext, moveEdgeShot, segmentLacksReferences, shotFixEdit, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
+import { editShotCard, editSubShot, failedSegmentEditHint, isDirectorSegment, mergeWithNext, moveEdgeShot, segmentLacksReferences, shotFixEdit, splitSegment, subShotSeconds, type SegmentEdit } from "./segment-edit";
+import { DirectorRepairModal } from "./ontology-documents-drawer";
 import { ShotCardEditor } from "./shot-card-editor";
 import { changeChapterSectionGenre } from "./project-chapter-ai";
 import { sectionGenreConfirm, sectionGenreSpan, sectionGenreTarget, type SectionGenreTarget } from "./section-genre";
@@ -478,6 +479,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingShot, setEditingShot] = useState<number | null>(null);
+    const [repairing, setRepairing] = useState(false);
     // 保存失败的改动留在这里（拆合、移镜头、改镜头），可以重试或放弃；不能因为网关 502 之类的失败让改动悄悄没了。
     const [failed, setFailed] = useState<{ edit: SegmentEdit; success: string; error: string } | null>(null);
     const spec = useMemo(() => {
@@ -559,9 +561,11 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
     });
     if (!spec) return null;
     const result = compileQuery.data?.result;
-    const editable = Boolean(durationRule && index >= 0 && !list[index].derived);
-    const previous = index > 0 && !list[index - 1].derived ? list[index - 1] : undefined;
-    const next = index >= 0 && index < list.length - 1 && !list[index + 1].derived ? list[index + 1] : undefined;
+    // 导演分镜段（SSS、本体论）只读：提交用单元卡原文，镜头只供看；拆合也不能跨到导演段上。改动走症状返修。
+    const director = isDirectorSegment(spec);
+    const editable = Boolean(durationRule && index >= 0 && !list[index].derived && !director);
+    const previous = index > 0 && !list[index - 1].derived && !isDirectorSegment(list[index - 1].spec) ? list[index - 1] : undefined;
+    const next = index >= 0 && index < list.length - 1 && !list[index + 1].derived && !isDirectorSegment(list[index + 1].spec) ? list[index + 1] : undefined;
     const takesOf = (id: string) => takeCounts?.[id] || 0;
 
     /** 写回一次段编辑：成功提示 success；失败把改动和原因留在卡片上（重试或放弃），不吞掉。 */
@@ -720,7 +724,29 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
                     <Button size="small" type="link" onClick={() => setOpen((value) => !value)}>{open ? "收起编译结果" : "生成前看提示词"}</Button>
                 </span>
             </div>
-            {durationRule ? <p className="mt-1 leading-5 text-foreground/40">{editable ? `段长按视频渠道（${durationRule.label}）取档：拆段、合并、改时长后自动取能提交的段长。` : segmentsQuery.isLoading ? "正在读取本章分段…" : segmentsQuery.isError ? "本章分段读取失败，暂时不能拆合。" : "这一段还不是分段表里的段，不能拆合。"}</p> : null}
+            {director ? (
+                <Callout
+                    tone="info"
+                    className="mt-2 px-2.5 py-2"
+                    action={index >= 0 ? <Button size="small" onClick={() => setRepairing(true)}>症状返修</Button> : undefined}
+                >
+                    导演分镜单元：视频提交用单元卡的粘贴提示词原文（「生成前看提示词」就是实际提交的内容），下面的镜头只供查看，不能在这里改画面、台词、时长或拆合。要改请写症状返修，只替换这一段，已有视频会标为过期。
+                </Callout>
+            ) : null}
+            {director && repairing && index >= 0 ? (
+                <DirectorRepairModal
+                    projectId={projectId}
+                    unitId={unitId}
+                    segment={list[index]}
+                    director="导演"
+                    onClose={() => setRepairing(false)}
+                    onRepaired={async () => {
+                        await queryClient.invalidateQueries({ queryKey: dramaSegmentsKey(projectId, unitId) });
+                        await onEdited?.();
+                    }}
+                />
+            ) : null}
+            {durationRule && !director ? <p className="mt-1 leading-5 text-foreground/40">{editable ? `段长按视频渠道（${durationRule.label}）取档：拆段、合并、改时长后自动取能提交的段长。` : segmentsQuery.isLoading ? "正在读取本章分段…" : segmentsQuery.isError ? "本章分段读取失败，暂时不能拆合。" : "这一段还不是分段表里的段，不能拆合。"}</p> : null}
             {failed ? (
                 <Callout
                     tone="error"
@@ -731,7 +757,7 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
                     {failedSegmentEditHint(failed.edit, failed.error)}
                 </Callout>
             ) : null}
-            {lacksReferences ? <Callout tone="warning" className="mt-2 px-2.5 py-2" action={onPickAssets ? <Button size="small" onClick={onPickAssets}>选择资产</Button> : undefined}>{NO_REFERENCE_HINT}</Callout> : null}
+            {lacksReferences && !director ? <Callout tone="warning" className="mt-2 px-2.5 py-2" action={onPickAssets ? <Button size="small" onClick={onPickAssets}>选择资产</Button> : undefined}>{NO_REFERENCE_HINT}</Callout> : null}
             <SectionLayoutHead layout={layout} />
             <ol className="mt-2 space-y-1.5">
                 {spec.shots.map((shot, shotIndex) => {

@@ -128,11 +128,20 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 	if strings.TrimSpace(setting) == "" {
 		return "", BadAuthRequest("资产缺少可执行外观设计")
 	}
-	if recipe == "character-four-panel" {
+	stylePrompt := style.Prompt
+	switch recipe {
+	case "character-four-panel":
 		// Frozen recipes retain identity/layout instructions, but new requests use
 		// the current output format, independently of the project's video ratio.
 		prefix = drama.FourPanelPortraitPrompt(prefix)
 		setting = drama.FourPanelPortraitPrompt(setting)
+	case "scene-spatial-master":
+		// 资产设定（英文描述常带项目的 landscape 16:9）和项目画风里的画幅标注会压过配方的方形要求：统一换成方形。
+		setting = drama.AssetFramePrompt(setting, "方形1:1")
+		stylePrompt = drama.AssetFramePrompt(stylePrompt, "方形1:1")
+	case "prop-body":
+		setting = drama.AssetFramePrompt(setting, "")
+		stylePrompt = drama.AssetFramePrompt(stylePrompt, "")
 	}
 	refs, err := s.dramaAssetImageRefs(userID, project, *asset, definition)
 	if err != nil {
@@ -171,15 +180,22 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 	if ratio != "" {
 		parameters["size"] = ratio
 	}
-	if recipe == "character-four-panel" {
+	if ratio != "" {
+		// 三处尺寸字段都按这张资产图的画幅写，上游按哪一处取都一致（四宫格 9:16、空间母版 1:1）；收尾按它核对实际比例。
 		if options, ok := input["capabilityOptions"].(map[string]any); ok {
 			options["size"] = ratio
 		}
+		metadata["assetImageRatio"] = ratio
 	}
 	metadata["resolvedAssetVersionId"] = version.ID
-	compiled := strings.Join([]string{prefix, "【当前资产】" + asset.Title, setting, "【项目画风】\n" + style.Prompt, note}, "\n\n")
-	if recipe == "character-four-panel" {
+	compiled := strings.Join([]string{prefix, "【当前资产】" + asset.Title, setting, "【项目画风】\n" + stylePrompt, note}, "\n\n")
+	switch recipe {
+	case "character-four-panel":
 		compiled += "\n\n【四宫格输出画幅】整张图片固定为竖版9:16，严格两列两行；四宫格内部裁切按上述布局执行。项目视频画幅及历史设定中的其他画幅、横竖方向要求不适用于本张人物设定图。"
+	case "scene-spatial-master":
+		compiled += "\n\n" + drama.SpatialMasterOutputNote
+	case "prop-body":
+		compiled += "\n\n" + drama.PropBodyOutputNote(asset.Title)
 	}
 	input["prompt"] = compiled
 	return compiled, nil

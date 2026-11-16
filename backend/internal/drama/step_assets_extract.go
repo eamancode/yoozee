@@ -315,17 +315,16 @@ func NormalizeAssetCategory(category string) string {
 	return key
 }
 
-// AssetsExtractFromText 逐行解析资产设计的输出：一行一个 JSON 对象。回合标记、代码块围栏、非 JSON 的说明文字跳过；
-// aliases 写成一句话、first_scene 写成字符串（「2」「S02」）也认。
+// AssetsExtractFromText 逐行解析资产设计的输出：一行一个（或几个相邻的）JSON 对象，读法见 AssetLineObjects——说明文字和对象
+// 在同一行时对象照样读出。回合标记、代码块围栏、纯说明文字跳过；aliases 写成一句话、first_scene 写成字符串（「2」「S02」）也认。
 func AssetsExtractFromText(text string) ([]AssetsExtractRow, AssetsExtractParseStats) {
 	rows := []AssetsExtractRow{}
 	var stats AssetsExtractParseStats
 	for _, raw := range strings.Split(text, "\n") {
-		line := strings.TrimSuffix(jsTrim(raw), ",")
-		if !strings.HasPrefix(line, "{") {
+		objects, matched, err := AssetLineObjects(raw)
+		if !matched {
 			continue
 		}
-		objects, err := assetJSONObjects(line)
 		if err != nil {
 			stats.Invalid++
 			continue
@@ -469,6 +468,8 @@ const (
 	RuleAssetPaletteHex = "R-ASSET-009"
 	// RuleAssetVariant 是子卡写得不全（没有变体名、没有外观、场序超出），这一项没建。
 	RuleAssetVariant = "R-ASSET-010"
+	// RuleAssetMissingCharacter 是剧本里有台词的人物，这次没提取、项目里也没有对应人物资产（图片都出完也不等于人物都提全了）。
+	RuleAssetMissingCharacter = "R-ASSET-011"
 )
 
 // AssetsExtractCheckContext 是检查资产设计输出要用的输入：项目已有资产、本单元的场数（0 表示不查场序）、本集场次色卡、
@@ -479,6 +480,8 @@ type AssetsExtractCheckContext struct {
 	ColorScript    []ColorScriptEntry
 	Master         MasterPalette
 	SceneLocations []string
+	// Speakers 是本集剧本里有台词的人物（按出场顺序）：这次没提取、项目里也没有的，报覆盖提醒。
+	Speakers []string
 }
 
 // AssetsExtractResult 是检查后的资产：Rows 是要写的（合并行 Merge=true，同一资产写了几行已经并成一行），Skipped 是没写的行数，
@@ -621,6 +624,54 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 			return false
 		}, add)
 		checkAssetsHexes(out.Rows[i], ctx, add)
+	}
+	for _, name := range MissingAssetSpeakers(ctx.Speakers, out.Rows, ctx.Known) {
+		add("warn", RuleAssetMissingCharacter, name, fmt.Sprintf("剧本里「%s」有台词，这次没有提取成人物，项目里也没有这个人物资产：请检查是否漏提，需要时重新提取本集", name))
+	}
+	return out
+}
+
+// MissingAssetSpeakers 是有台词却没有对应人物资产的说话人（按名字或别名比对这次提取的行和项目已有人物；旁白、群体称呼照常报，由人判断）。
+func MissingAssetSpeakers(speakers []string, rows []AssetsExtractRow, known []AssetsKnown) []string {
+	have := map[string]bool{}
+	add := func(category, name string, aliases []string) {
+		if category != AssetCharacter {
+			return
+		}
+		for _, n := range append([]string{name}, aliases...) {
+			if key := AssetNameKey(n); key != "" {
+				have[key] = true
+			}
+		}
+	}
+	for _, r := range rows {
+		add(r.Category, r.Name, r.Aliases)
+	}
+	for _, k := range known {
+		add(k.Category, k.Name, k.Aliases)
+	}
+	var missing []string
+	seen := map[string]bool{}
+	for _, s := range speakers {
+		key := AssetNameKey(s)
+		if key == "" || have[key] || seen[key] || s == "旁白" || s == "画外音" {
+			continue
+		}
+		seen[key] = true
+		missing = append(missing, jsTrim(s))
+	}
+	return missing
+}
+
+// ScriptSpeakers 是剧本里说台词的人（按第一次开口的顺序）。
+func ScriptSpeakers(script Script) []string {
+	var out []string
+	for _, sc := range script.Scenes {
+		for _, b := range sc.Beats {
+			if b.isLine() && jsTrim(b.Speaker) != "" && !slices.Contains(out, jsTrim(b.Speaker)) {
+				out = append(out, jsTrim(b.Speaker))
+			}
+		}
 	}
 	return out
 }

@@ -181,6 +181,10 @@ func TestSSSRunWritesSegmentsAndDocuments(t *testing.T) {
 	if strings.Contains(cardU2, "【本集剧本】第一集") || !strings.Contains(upstream.prompts[1], "【本集剧本】第一集") || !strings.Contains(cardU2, "【前序产物：上一个单元的单元卡（接缝用）】") || !strings.Contains(cardU2, "### E1-U1") {
 		t.Fatal("unit card turn carries the shot table and the previous card, not the script")
 	}
+	// 第五轮：单元卡轮带上单元总表里本单元的原行做时长核算，并写明定格 / 技术尾巴进镜头表、最后一行等于总时长。
+	if !strings.Contains(cardU2, "【单元总表核算】") || !strings.Contains(cardU2, "| E1-U2 | 短 | 10 秒 |") || strings.Contains(cardU2, "| E1-U1 | 短 | 12 秒 |\n镜头表最后一行") || !strings.Contains(cardU2, "最后一行的结束秒必须等于标题的总时长") {
+		t.Fatal("unit card turn must carry its own unit-table row and the timing contract")
+	}
 	if !strings.Contains(upstream.prompts[5], "【前序产物：本单元的单元卡】") || !strings.Contains(upstream.prompts[5], "<skill-file path=\"模板/05_提示词骨架.md\">") {
 		t.Fatal("compile turn must carry the unit card and the prompt skeleton")
 	}

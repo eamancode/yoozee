@@ -59,6 +59,9 @@ const (
 	// ReasonDramaSegmentsDiscard 是装段（重新装段、先装段）或整章重新生成会删掉已有分镜图 / 预演 / 视频，请求没带 discard=true；
 	// details.discards 按段列出会丢的产物。
 	ReasonDramaSegmentsDiscard ErrorReason = "drama_segments_discard_required"
+	// ReasonDirectorSegmentReadonly 是普通写段要改导演分镜段（SSS、本体论，视频提交用单元卡粘贴提示词原文）：
+	// 改画面、台词、时长、参考或拆合删都被拒，要用返修；details.segment 是那一段的段号。
+	ReasonDirectorSegmentReadonly ErrorReason = "director_segment_readonly"
 	// ReasonPrevizRequired 是预演闸门生效时给镜头建视频任务，这一段还没有选中的黑白预演（action_board）。
 	ReasonPrevizRequired ErrorReason = "previz_required"
 	// ReasonPaletteRequired 是这一集（章）还没有场次色卡就提取资产：资产按色卡约束，要先在章节页「生成场次色卡」。

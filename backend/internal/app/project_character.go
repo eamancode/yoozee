@@ -426,6 +426,10 @@ func (s *Service) finalizeCharacterTurnaroundTask(task model.Task, result map[st
 	if len(output.Images) == 0 || strings.TrimSpace(output.Images[0].ResourceID) == "" {
 		return false, errors.New("三视图任务没有返回已持久化的图片资源")
 	}
+	if input.Metadata.ImageLayout == "four-panel" {
+		// 四宫格固定 9:16：核对上游实际返回比例，不符只提示（原流程三视图不在此列）。
+		s.checkAssetImageAspect(task, decrypted, output.Images[0].ResourceID, result)
+	}
 
 	s.characterTaskMu.Lock()
 	defer s.characterTaskMu.Unlock()

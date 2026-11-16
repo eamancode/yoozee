@@ -12,13 +12,13 @@ import (
 func ValidateIntegratedAssetsText(text string) error {
 	records := 0
 	for _, raw := range strings.Split(text, "\n") {
-		line := strings.TrimSuffix(jsTrim(raw), ",")
-		if !strings.HasPrefix(line, "{") {
+		// 与解析同一个入口：说明文字和对象同一行时也校验这个对象，不能解析读出、校验却跳过。
+		objects, matched, err := AssetLineObjects(raw)
+		if !matched {
 			continue
 		}
-		objects, err := assetJSONObjects(line)
 		if err != nil {
-			return errors.New("资产一体化流程的资产行不是完整JSON对象")
+			return errors.New("资产一体化流程的资产行不是完整JSON对象（说明文字后面的对象也要完整），请重新输出完整本轮")
 		}
 		for _, fields := range objects {
 			if _, marker := fields[ShotLinesMarkerKey]; marker {

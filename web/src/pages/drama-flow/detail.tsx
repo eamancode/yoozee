@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown } from "antd";
 import { ArrowLeft, BookOpen, History, Inbox, Info, MoreHorizontal } from "lucide-react";
@@ -10,6 +10,7 @@ import { hasDirectorDocuments } from "@/lib/project-workflow";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaImageStatusOf } from "@/pages/projects/workbench/detail/drama-image-summary";
 import { assetImageTaskTemplate } from "@/pages/projects/workbench/detail/drama-image-task";
+import { AssetImageRecovery } from "@/pages/projects/workbench/detail/asset-image-recovery";
 import { dramaProgressKey } from "@/pages/projects/workbench/detail/drama-panels";
 import { OntologyDocumentsDrawer } from "@/pages/projects/workbench/detail/ontology-documents-drawer";
 import { continueProjectPipeline } from "@/pages/projects/workbench/detail/project-chapter-ai";
@@ -23,6 +24,7 @@ import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 import { projectTasksKey, useFlowData } from "./hooks/use-flow-data";
+import { assetImageQueueMessage, pendingAssetImages } from "./model/asset-images";
 import { chainVideoConfig } from "./model/video-config";
 import { buildInbox, inboxCounts, readIgnoredSuggestions, writeIgnoredSuggestions, type InboxItem } from "./model/inbox";
 import { flowPrimaryAction, type FlowAction } from "./model/primary-action";
@@ -150,6 +152,30 @@ export default function DramaFlowDetailPage() {
     const [inboxOpen, setInboxOpen] = useState(false);
     const [chainTarget, setChainTarget] = useState<{ unitId: string; shotId: string } | undefined>(undefined);
     const [busyAction, setBusyAction] = useState<FlowAction["kind"] | undefined>(undefined);
+    // 「继续：角色场景资产」先给确认面板（选图片模型、看单价、排除不想出的资产），确认后才建出图任务；与旧工作台资产页同一个面板。
+    const [imagePanelOpen, setImagePanelOpen] = useState(false);
+    const queueLock = useRef(false);
+    const pendingImageAssets = useMemo(() => pendingAssetImages(assets), [assets]);
+    const queueImages = useMutation({
+        mutationKey: ["drama-flow-asset-images", projectId],
+        mutationFn: async ({ model, assetIds }: { model: string; assetIds: string[] }) => {
+            if (!assetIds.length) throw new Error("请至少选择一个资产");
+            const config = { ...effectiveConfig, model };
+            if (!model || !isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
+            return queueDramaAssetImages(projectId, { assetIds, imageTask: await assetImageTaskTemplate(config, model) });
+        },
+        onSuccess: async (result) => {
+            setImagePanelOpen(false);
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["project", projectId, "assets"] }),
+                queryClient.invalidateQueries({ queryKey: dramaProgressKey(projectId) }),
+                queryClient.invalidateQueries({ queryKey: projectTasksKey(projectId) }),
+            ]);
+            const notice = assetImageQueueMessage(result);
+            message[notice.level](notice.text);
+        },
+        onError: (error) => message.error(errorText(error, "资产出图没排上")),
+    });
 
     const [retryingImages, setRetryingImages] = useState<Set<string>>(new Set());
     const retryImages = useMutation({
@@ -186,13 +212,25 @@ export default function DramaFlowDetailPage() {
 
     const runContinue = async () => {
         if (!project) return;
+        // 停在「角色场景资产」：有没出图的资产时先开确认面板，不直接替所有资产出图；还没提取时这一次只跑提取，出图同样要等确认。
+        const atAssets = pipeline?.stop?.stage === "assets";
+        // 资产列表还没读到时不能当成「没有待出图的资产」往下走：那样会跳过确认面板直接续跑。
+        if (atAssets && (!data.assetsQuery.data || data.assetsQuery.isError)) {
+            message.info(data.assetsQuery.isError ? "资产列表没读到，刷新后再点「继续」" : "正在读资产列表，读到后再点「继续」");
+            if (data.assetsQuery.isError) void data.assetsQuery.refetch();
+            return;
+        }
+        if (atAssets && pendingImageAssets.length) {
+            setImagePanelOpen(true);
+            return;
+        }
         const textModel = effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
         const config = { ...effectiveConfig, model: textModel, textModel };
         if (!textModel || !isAiConfigReady(config, textModel)) {
             navigateToSettings({ continueCreation: true });
             return;
         }
-        await continueProjectPipeline(project.id, config, project.defaultImageModel);
+        await continueProjectPipeline(project.id, config, project.defaultImageModel, undefined, atAssets ? { withoutImages: true } : undefined);
         await Promise.all([queryClient.invalidateQueries({ queryKey: dramaProgressKey(project.id) }), queryClient.invalidateQueries({ queryKey: projectTasksKey(project.id) })]);
     };
 
@@ -370,6 +408,23 @@ export default function DramaFlowDetailPage() {
             <InboxPanel open={inboxOpen} items={inbox} busyId={inboxBusyId} onClose={() => setInboxOpen(false)} onAct={actInbox} onLocate={locate} onIgnore={ignore} />
             <RunsPanel open={panel === "runs"} data={data} onClose={() => setParam("panel")} />
             <InfoPanel open={panel === "info"} data={data} onClose={() => setParam("panel")} />
+            {imagePanelOpen ? (
+                <AssetImageRecovery
+                    assets={pendingImageAssets}
+                    config={effectiveConfig}
+                    defaultModel={project.defaultImageModel || effectiveConfig.imageModel || effectiveConfig.model}
+                    busy={queueImages.isPending}
+                    onClose={() => {
+                        if (!queueImages.isPending) setImagePanelOpen(false);
+                    }}
+                    onSubmit={(selection) => {
+                        // 同一拍里连点两下时 isPending 还没刷新：用 ref 锁住，一次确认只建一批出图任务。
+                        if (queueLock.current || queueImages.isPending) return;
+                        queueLock.current = true;
+                        queueImages.mutate(selection, { onSettled: () => void (queueLock.current = false) });
+                    }}
+                />
+            ) : null}
             {chainTarget ? (
                 <VideoChainPanel
                     open

@@ -73,8 +73,10 @@ export function RunsPanel({ open, data, onClose }: { open: boolean; data: FlowDa
                                     <span>{new Date(row.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
                                     {row.model ? <span>{models.nameOf(row.model, "").text}</span> : null}
                                     {row.seconds !== undefined ? <span>用时 {durationText(row.seconds)}</span> : null}
+                                    {row.waited !== undefined ? <span>已等 {durationText(row.waited)}</span> : null}
                                     {row.cost !== undefined ? <span>{creditsText(row.cost)}</span> : null}
                                 </div>
+                                {row.rounds ? <p className="drama-flow-runs-rounds">{row.rounds}</p> : null}
                                 {row.error ? <p className="drama-flow-runs-error">{row.error}</p> : null}
                                 {row.active ? (
                                     <Button size="small" loading={cancel.isPending && cancel.variables === row.id} onClick={() => cancel.mutate(row.id)}>

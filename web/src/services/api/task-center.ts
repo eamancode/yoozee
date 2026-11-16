@@ -19,6 +19,14 @@ export type GenerationTaskOutput = {
     materializationErrorCode?: string;
 };
 
+export type TaskDramaRounds = {
+    mode: "sss" | "ontology";
+    completed: number;
+    total: number;
+    repair?: boolean;
+    turns: Array<{ kind: string; heading?: string }>;
+};
+
 export type GenerationTask = {
     userId?: string;
     id: string;
@@ -65,6 +73,8 @@ export type GenerationTask = {
     dramaRun?: boolean;
     /** 「用已写好的 N 节重新写入」的生成分段任务（服务端判定：只重新收尾、不调模型、不建计费单）：任务中心不给重试，回章节页重新写入。 */
     refinalizeOnly?: boolean;
+    /** 导演分镜（SSS、本体论）的轮次摘要：已保存几轮、总轮数（规划 / 切分前是估计）、每轮的种类和标题。列表不带任务输入和结果，靠它显示轮次。 */
+    dramaRounds?: TaskDramaRounds;
     billing?: {
         /** 建单时的预授权额。 */
         amountMicrocredits: number;
