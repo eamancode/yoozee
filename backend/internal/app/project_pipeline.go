@@ -14,7 +14,9 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"net/http"
 	"slices"
 	"strings"
@@ -84,10 +86,11 @@ type pipelineState struct {
 	draft     map[string]int
 	packed    map[string]bool
 	// ontologyOpen 是本体论自检硬失败还没返修的集（单元 ID → 失败项）。
-	ontologyOpen map[string][]string
-	assets       pipelineAssets
-	locked       bool
-	lockedVia    string
+	ontologyOpen        map[string][]string
+	directorSetupDetail string
+	assets              pipelineAssets
+	locked              bool
+	lockedVia           string
 }
 
 // pipelineAssets 是资产设计建的角色、场景、道具的出图情况。
@@ -182,6 +185,31 @@ func (s *Service) loadPipelineState(userID string, project *model.Project) (*pip
 	}
 	for _, unitID := range ontologyUnits {
 		st.shotlist[unitID] = true
+	}
+	if workflow, _ := drama.Workflow(project.WorkflowID); workflow.StoryboardMode == drama.StoryboardModeSSS {
+		if active := st.active[drama.StepDirectorSetup]; len(active) > 0 {
+			task, err := s.repo.TaskForUser(userID, active[0].ID)
+			if err != nil {
+				return nil, err
+			}
+			if rounds := taskDramaRounds(*task); rounds != nil {
+				st.directorSetupDetail = fmt.Sprintf("全剧立项 第 %d/%d 批", min(rounds.Completed+1, rounds.Total), rounds.Total)
+			}
+		} else {
+			bible, err := s.repo.LatestOntologyDocument(project.ID, "", model.OntologyDocBible)
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
+			if bible != nil && err == nil {
+				basis, err := s.directorBibleBasis(userID, project.ID, bible)
+				if err != nil {
+					return nil, err
+				}
+				if basis.Legacy || basis.Outdated {
+					st.directorSetupDetail = "建议重新立项"
+				}
+			}
+		}
 	}
 	gates, err := s.repo.LatestOntologyDocumentsOfKind(project.ID, model.OntologyDocGate)
 	if err != nil {
@@ -350,6 +378,13 @@ func (s *Service) projectPipeline(userID string, project *model.Project, progres
 
 	shots := drama.PipelineFacts{Done: len(st.episodes) > 0 && len(st.withoutShotlist()) == 0, Running: len(st.active[drama.StepChapterShots]) > 0}
 	shots.Detail = fmt.Sprintf("%d/%d 集", len(st.episodes)-len(st.withoutShotlist()), len(st.episodes))
+	if st.directorSetupDetail != "" {
+		shots.Detail += " · " + st.directorSetupDetail
+	}
+	if len(st.active[drama.StepDirectorSetup]) > 0 {
+		shots.Running = true
+		shots.Done = false
+	}
 	if !shots.Done {
 		for _, unitID := range st.withoutShotlist() {
 			if reason := st.failedLatest(drama.StepChapterShots, unitID); reason != "" {
@@ -553,6 +588,13 @@ func failedPrecondition(message string) *AppError {
 	return err
 }
 
+func sssPrecondition(reason ErrorReason, message string, details map[string]any) *AppError {
+	e := failedPrecondition(message)
+	e.Reason = reason
+	e.Details = details
+	return e
+}
+
 // briefEpisodeCount 是需求文档里写了几集（建项选创意时按「生成 N 集」写的）；没写返回 0。
 func briefEpisodeCount(briefJSON string) int {
 	var doc struct {
@@ -602,6 +644,9 @@ func (s *Service) dramaTaskText(task model.Task) (*DramaPipelineText, dramaChain
 // continueAfterScript 在剧本优化写完剧集后接下一步：交给导演分析、还没锁定风格时接导演定画风；已锁定时接场次色卡。
 // 生成模式不让接时返回 nil。
 func (s *Service) continueAfterScript(task model.Task, projectID string) *DramaChainedTask {
+	if adapt := taskDramaAdapt(task.InputJSON); adapt != nil && adapt.Mode == "design" {
+		return nil
+	}
 	project, err := s.activeProjectForUser(task.UserID, projectID)
 	if err != nil {
 		return &DramaChainedTask{Step: drama.StepScenePalette, Error: err.Error()}
@@ -690,7 +735,7 @@ func (s *Service) continueAfterAssets(userID string, projectID string, text *Dra
 		}
 		st.active[drama.StepAssetsExtract] = slices.DeleteFunc(st.active[drama.StepAssetsExtract], func(t model.Task) bool { return t.ID == finishing.ID })
 	}
-	if len(st.active[drama.StepAssetsExtract]) > 0 || len(st.active[drama.StepChapterShots]) > 0 || !st.assetsReady() {
+	if len(st.active[drama.StepAssetsExtract]) > 0 || len(st.active[drama.StepChapterShots]) > 0 || len(st.active[drama.StepDirectorSetup]) > 0 || !st.assetsReady() {
 		return nil
 	}
 	queue := st.withoutShotlist()
@@ -708,12 +753,42 @@ func (s *Service) continueAfterAssets(userID string, projectID string, text *Dra
 // 一个都建不成时返回最后一个原因。
 func (s *Service) startShotsQueue(userID string, projectID string, text *DramaPipelineText, from string, queue []string) *DramaChainedTask {
 	chained := &DramaChainedTask{Step: drama.StepChapterShots}
+	project, err := s.activeProjectForUser(userID, projectID)
+	if err != nil {
+		chained.Error = err.Error()
+		return chained
+	}
+	workflow, _ := drama.Workflow(project.WorkflowID)
+	if workflow.StoryboardMode == drama.StoryboardModeSSS && len(queue) > 0 {
+		_, err := s.repo.LatestOntologyDocument(projectID, "", model.OntologyDocBible)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			chained.Step = drama.StepDirectorSetup
+			result, err := s.RunDramaProjectStep(userID, projectID, drama.StepDirectorSetup, DramaProjectStepRunRequest{Model: text.Model, LogicalModelID: text.LogicalModelID, Config: text.Config, shotsQueue: queue, chainedFrom: from})
+			if err != nil {
+				chained.Error = err.Error()
+			} else {
+				chained.TaskID = result.Task.ID
+				chained.Remaining = len(queue)
+			}
+			return chained
+		}
+		if err != nil {
+			chained.Error = err.Error()
+			return chained
+		}
+	}
 	for i, unitID := range queue {
 		req := DramaStepRunRequest{Model: text.Model, LogicalModelID: text.LogicalModelID, Config: text.Config, chainedFrom: from, pipelineQueue: slices.Clone(queue[i+1:])}
 		result, err := s.RunDramaStep(userID, projectID, unitID, drama.StepChapterShots, req)
 		if err != nil {
 			chained.Error = userFacingTaskError(err.Error())
 			_ = s.log(userID, from, "warn", "没有接着生成分镜", chained.Error)
+			var cause *AppError
+			if workflow.StoryboardMode == drama.StoryboardModeSSS || (errors.As(err, &cause) && (cause.Reason == ReasonPreviousHandoffRequired || cause.Reason == ReasonEpisodeDesignRequired || cause.Reason == ReasonDirectorBibleRequired)) {
+				chained.UnitID = unitID
+				chained.Remaining = len(queue) - i
+				return chained
+			}
 			continue
 		}
 		chained.TaskID, chained.UnitID, chained.Error = result.Task.ID, unitID, ""
@@ -723,7 +798,69 @@ func (s *Service) startShotsQueue(userID string, projectID string, text *DramaPi
 	return chained
 }
 
-// continueShotsQueue 在一集生成分镜收尾后，接着生成同一队列里下一集（期间已经有了镜头表的跳过）。不是流水线排的、队列空了返回 nil。
+// SSS 的新队列在前一项提交成功、释放活跃任务名额后继续。仅使用这一次完成回调里的加密输入建下一项。
+func (s *Service) afterSSSQueueTask(task *model.Task, originalInput string) {
+	queue := taskDramaPipeline(originalInput)
+	if queue == nil || len(queue.Queue) == 0 {
+		return
+	}
+	if taskDirectorSetup(originalInput) == nil {
+		sss := taskDramaSSS(originalInput)
+		if sss == nil || sss.Flow < 2 || sss.Repair != nil {
+			return
+		}
+	}
+	parent := *task
+	parent.InputJSON = originalInput
+	chained := s.continueShotsQueue(parent, task.ProjectID)
+	if chained == nil {
+		return
+	}
+	if err := s.recordSSSQueueOutcome(task, chained); err != nil {
+		_ = s.log(task.UserID, task.ID, "error", "记录分镜队列接续结果失败", err.Error())
+	}
+}
+
+func (s *Service) recordSSSQueueOutcome(task *model.Task, chained *DramaChainedTask) error {
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(task.ResultJSON), &result); err != nil {
+		return err
+	}
+	var step DramaStepTaskOutcome
+	if err := json.Unmarshal(result["dramaStep"], &step); err != nil {
+		return err
+	}
+	step.Chained = chained
+	raw, err := json.Marshal(step)
+	if err != nil {
+		return err
+	}
+	result["dramaStep"] = raw
+	updated, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	policy, err := s.RuntimePolicy()
+	if err != nil {
+		return err
+	}
+	s.storageMu.Lock()
+	defer s.storageMu.Unlock()
+	usage, err := s.repo.UserStorageUsage(task.UserID)
+	if err != nil {
+		return err
+	}
+	if err := validateTaskDataGrowthQuotaWithPolicy(usage, int64(len(updated)-len(task.ResultJSON)), policy.Resource); err != nil {
+		return err
+	}
+	if err := s.repo.UpdateSucceededTaskResult(task.UserID, task.ID, task.ResultJSON, string(updated)); err != nil {
+		return err
+	}
+	task.ResultJSON = string(updated)
+	return nil
+}
+
+// 同一队列里只接着生成还没有镜头表的集。
 func (s *Service) continueShotsQueue(task model.Task, projectID string) *DramaChainedTask {
 	meta := taskDramaPipeline(task.InputJSON)
 	if meta == nil || len(meta.Queue) == 0 {

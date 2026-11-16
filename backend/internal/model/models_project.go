@@ -676,6 +676,7 @@ const (
 	OntologyDocBible     = "bible"     // 项目级世界圣经卡 / 全剧圣经（UnitID 为空）
 	OntologyDocSetup     = "setup"     // 立项回合的待确认清单（本体论另有补图建议；UnitID 为空）
 	OntologyDocEpisode   = "episode"   // 一集的七部分（本体论）/ 八部分（SSS）
+	OntologyDocDesign    = "design"    // 每集的设计与定稿台词
 	OntologyDocConcept   = "concept"   // SSS：拆剧本写的立意页与全集结构表（UnitID 为空）
 	OntologyDocWorld     = "world"     // SSS：导演定画风写的世界基准段、视觉总谱、声音总谱（UnitID 为空）
 	OntologyDocHandoff   = "handoff"   // 一集的集交接卡，下一集的材料包读它

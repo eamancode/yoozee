@@ -45,6 +45,7 @@ export function chapterTaskIdentity(task: GenerationTask): { chapterId: string; 
 }
 
 type ChapterStoryboardGenerationInput = {
+    allowMissingHandoff?: boolean;
     projectId: string;
     chapterId: string;
     config: AiConfig;
@@ -76,6 +77,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
         ...(input.onlySections?.length ? { onlySections: input.onlySections } : {}),
         ...(input.discard ? { discard: true } : {}),
+        ...(input.allowMissingHandoff ? { allowMissingHandoff: true } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);

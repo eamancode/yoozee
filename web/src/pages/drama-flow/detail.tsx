@@ -6,7 +6,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
 import { useDramaModelConfig } from "@/hooks/use-drama-model-config";
-import { hasDirectorDocuments } from "@/lib/project-workflow";
+import { hasDirectorDocuments, projectWorkflow } from "@/lib/project-workflow";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { dramaImageStatusOf } from "@/pages/projects/workbench/detail/drama-image-summary";
 import { assetImageTaskTemplate } from "@/pages/projects/workbench/detail/drama-image-task";
@@ -430,6 +430,7 @@ export default function DramaFlowDetailPage() {
                     open
                     projectId={projectId}
                     whiteModelStoryboardEnabled={project.whiteModelStoryboardEnabled === true}
+                    sss={projectWorkflow(project.workflowId).storyboardMode === "sss"}
                     unitId={chainTarget.unitId}
                     shotId={chainTarget.shotId}
                     onClose={() => setChainTarget(undefined)}

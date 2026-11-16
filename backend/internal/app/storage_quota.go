@@ -107,6 +107,7 @@ func (s *Service) saveTaskCompletionWithinStorageQuota(task *model.Task, resultJ
 		return err
 	}
 	s.afterDramaAssetImageTask(*task, inputJSON)
+	s.afterSSSQueueTask(task, inputJSON)
 	return nil
 }
 

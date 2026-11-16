@@ -16,6 +16,7 @@ export type StreamEpisode = {
     scenes: string[];
     /** 正文各行（场次头、动作、台词）。 */
     lines: string[];
+    design?: string[];
     /** 回合标记里的轮次 ID：剧集轮是集号；SSS 流水线拆剧本的第一轮是 concept（立意与全集结构，不是剧集）。 */
     turn?: string;
 };
@@ -82,6 +83,10 @@ export function parseScriptAdaptStream(text: string): ScriptAdaptStreamState {
             continue;
         }
         if (!episode) continue;
+        if (episode.turn !== SCRIPT_ADAPT_CONCEPT_TURN && (episode.design || /^##\s+第一部分\s+本集设计$/.test(line))) {
+            (episode.design ??= []).push(line);
+            continue;
+        }
         // 立意轮的「## 立意页」「## 全集结构表」不是场次头。
         if (episode.turn !== SCRIPT_ADAPT_CONCEPT_TURN && SCENE_HEADING.test(line)) episode.scenes.push(line.replace(/^#+\s*/, ""));
         episode.lines.push(line);

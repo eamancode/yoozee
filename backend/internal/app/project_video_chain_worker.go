@@ -38,6 +38,9 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		}
 		step.ReferenceSkipped = true
 		step.ReferenceWarning = "未使用上一组白模站位参考：" + sanitizeUserVisibleError(cause.Error())
+		if step.FreezeReference {
+			step.ReferenceWarning = "未使用上一段站位参考：" + sanitizeUserVisibleError(cause.Error())
+		}
 		step.Phase = "waiting"
 		return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" · 已跳过可选白模参考", "")
 	}
@@ -121,7 +124,11 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 			} else {
 				err = s.withDramaVideoFile(task.UserID, step.SourceVideoResourceID, func(resource *model.Resource, path string) error {
 					var extractErr error
-					id, extractErr = s.saveDramaTailFrame(task.UserID, resource, path, &observation)
+					if step.FreezeReference {
+						id, extractErr = s.saveDramaFrameBeforeEnd(task.UserID, resource, path, 0.5, &observation)
+					} else {
+						id, extractErr = s.saveDramaTailFrame(task.UserID, resource, path, &observation)
+					}
 					return extractErr
 				})
 			}

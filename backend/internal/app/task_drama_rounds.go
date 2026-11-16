@@ -10,6 +10,7 @@ import (
 // TaskDramaRounds 是任务列表里导演分镜（SSS、本体论）一次运行的轮次摘要：已保存几轮、总轮数（规划 / 切分前是建任务时的估计）、
 // 每一轮的种类和标题。只从任务已存的 metadata.dramaRun 和 result.dramaRun 读，不下发提示词、模型输出或其他 metadata。
 type TaskDramaRounds struct {
+	Flow int `json:"flow,omitempty"`
 	// Mode 是 sss 或 ontology。
 	Mode      string `json:"mode"`
 	Completed int    `json:"completed"`
@@ -31,6 +32,8 @@ func taskDramaRounds(task model.Task) *TaskDramaRounds {
 	}
 	mode := ""
 	switch {
+	case strings.Contains(task.InputJSON, `"dramaSetup"`):
+		mode = "setup"
 	case strings.Contains(task.InputJSON, `"dramaSSS"`):
 		mode = "sss"
 	case strings.Contains(task.InputJSON, `"dramaOntology"`):
@@ -46,6 +49,7 @@ func taskDramaRounds(task model.Task) *TaskDramaRounds {
 	if mode == "sss" {
 		if meta := taskDramaSSS(task.InputJSON); meta != nil {
 			rounds.Repair = meta.Repair != nil
+			rounds.Flow = meta.Flow
 		}
 	}
 	if !strings.Contains(task.ResultJSON, `"dramaRun"`) {

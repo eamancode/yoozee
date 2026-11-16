@@ -62,9 +62,10 @@ type DramaStepGenre struct {
 
 // DramaStepRunRequest 是「对这一章跑这一步」：只带文本模型选择，提示词由服务端组装。
 type DramaStepRunRequest struct {
-	Model          string         `json:"model"`
-	LogicalModelID string         `json:"logicalModelId"`
-	Config         map[string]any `json:"config"`
+	AllowMissingHandoff bool           `json:"allowMissingHandoff,omitempty"`
+	Model               string         `json:"model"`
+	LogicalModelID      string         `json:"logicalModelId"`
+	Config              map[string]any `json:"config"`
 	// ResumeTaskID 是「从第 N 场继续」：同一章上一次没跑完的生成分段任务，新任务带上它已写完的场接着写。
 	ResumeTaskID string `json:"resumeTaskId,omitempty"`
 	// OnlyScenes 是生成分段的「重新生成问题场」：只重写这几场（剧本场编号，如 E01S02），其余场的镜头行取本章镜头表里已有的。
@@ -117,6 +118,7 @@ type dramaStepCharacterRecord struct {
 
 // dramaStepPlan 是组装好的一次步骤运行。
 type dramaStepPlan struct {
+	setup  *directorSetupMeta
 	usage  DramaStepUsage
 	prompt drama.StepPrompt
 	skill  drama.StepSkill
@@ -218,6 +220,9 @@ func (s *Service) dramaStepSkill(project *model.Project, step drama.Step, rule *
 			skill = loaded
 		}
 	case workflowSkill != "":
+		if step.ID == drama.StepScriptAdapt {
+			binding.Contract = drama.ContractSSSScriptAdapt
+		}
 		pkg, loadErr := s.skillDomain().StepSkillPackage(workflowSkill)
 		err = loadErr
 		if loadErr == nil {
@@ -361,7 +366,7 @@ func (s *Service) prepareDramaStepRun(userID string, project *model.Project, uni
 			}
 		}
 	}
-	plan, err := s.planDramaStepWith(userID, project, unitID, stepID, req.Rule, overrides)
+	plan, err := s.planDramaStepWith(userID, project, unitID, stepID, req.Rule, overrides, req)
 	if err != nil {
 		return nil, dramaRunMeta{}, err
 	}
@@ -468,6 +473,12 @@ func dramaStepTaskRequest(projectID string, unitID string, plan *dramaStepPlan, 
 	if plan.adapt != nil {
 		metadata["dramaAdapt"] = plan.adapt
 	}
+	if plan.setup != nil {
+		metadata["dramaSetup"] = plan.setup
+		if len(plan.setup.Queue) > 0 {
+			metadata["dramaPipeline"] = dramaPipelineMeta{Queue: plan.setup.Queue}
+		}
+	}
 	if plan.palette != nil {
 		metadata["dramaScenePalette"] = plan.palette
 	}
@@ -554,7 +565,7 @@ func (s *Service) planDramaStep(userID string, project *model.Project, unitID st
 }
 
 // planDramaStepWith 同 planDramaStep；overrides 不为 nil 时生成分段按它切节（「改为武戏 / 改回文戏」算好的新范围），不读镜头表存下的。
-func (s *Service) planDramaStepWith(userID string, project *model.Project, unitID string, stepID string, rule *DramaShotlistRule, overrides *[]drama.GenreOverride) (*dramaStepPlan, error) {
+func (s *Service) planDramaStepWith(userID string, project *model.Project, unitID string, stepID string, rule *DramaShotlistRule, overrides *[]drama.GenreOverride, requests ...DramaStepRunRequest) (*dramaStepPlan, error) {
 	step, err := dramaStep(stepID)
 	if err != nil {
 		return nil, err
@@ -597,7 +608,22 @@ func (s *Service) planDramaStepWith(userID string, project *model.Project, unitI
 		return s.planOntologyShots(userID, project, unit, usage, skill, rule, nil)
 	}
 	if usage.Workflow.StoryboardMode == drama.StoryboardModeSSS {
-		return s.planSSSShots(userID, project, unit, usage, skill, rule, nil)
+		opts := sssShotOptions{Flow: 2}
+		if len(requests) > 0 {
+			req := requests[0]
+			opts.AllowMissingHandoff = req.AllowMissingHandoff
+			if req.ResumeTaskID != "" {
+				prev, err := s.repo.TaskForUser(userID, req.ResumeTaskID)
+				if err != nil {
+					return nil, BadAuthRequest("要继续的分镜任务不存在")
+				}
+				if old := taskDramaSSS(prev.InputJSON); old != nil && prev.ProjectID == project.ID {
+					opts.Flow = old.Flow
+					opts.AllowMissingHandoff = old.IndependentStart
+				}
+			}
+		}
+		return s.planSSSShots(userID, project, unit, usage, skill, rule, nil, opts)
 	}
 	genre, m, err := projectShotGenre(project, rule)
 	if err != nil {

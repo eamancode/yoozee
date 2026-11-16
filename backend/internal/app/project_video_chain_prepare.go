@@ -32,7 +32,9 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 		enabled = *snapshot
 	}
 	state.WhiteModelStoryboardEnabled = &enabled
-	if req.PrepareOnly && !enabled {
+	workflow, _ := drama.Workflow(project.WorkflowID)
+	sss := workflow.StoryboardMode == drama.StoryboardModeSSS
+	if req.PrepareOnly && !enabled && !sss {
 		return state, failedPrecondition("白模分镜已关闭，无需准备站位参考")
 	}
 	if _, err := s.repo.ProjectUnit(projectID, req.UnitID); err != nil {
@@ -143,15 +145,32 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 			operation = "video_to_video"
 		}
 		hasPosition := enabled && i > sceneFirst
+		freezeReference := sss && strings.TrimSpace(compiled.Spec.Verbatim) != ""
+		if freezeReference {
+			hasPosition = false
+			if i > sceneFirst {
+				var prev drama.Segment
+				if err := json.Unmarshal([]byte(revisions[shots[i-1].ID].SpecJSON), &prev); err != nil {
+					return state, err
+				}
+				hasPosition = drama.SegmentEndsWithFreeze(prev)
+			}
+			if req.PrepareOnly && !hasPosition {
+				return state, failedPrecondition("上一段没有同场景定格，无需准备站位参考")
+			}
+		}
 		var prior *model.ShotArtifact
 		referenceWarning := ""
 		usePosition := hasPosition
 		if hasPosition && req.Scope == "single" {
-			prior, err = s.videoChainExistingPredecessor(userID, projectID, shots[i-1])
+			prior, err = s.videoChainExistingPredecessor(userID, projectID, shots[i-1], freezeReference)
 			if err != nil {
 				return state, err
 			}
 			if prior == nil {
+				if freezeReference {
+					return state, failedPrecondition("上一段视频尚未完成，无法提交同场景后续段")
+				}
 				usePosition = false
 				referenceWarning = "上一组没有可用的白模来源视频，本次使用原正文与参考图"
 			}
@@ -207,6 +226,9 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 			usePosition = false
 			referenceWarning = "所选模型不支持额外站位图或参考图容量已满，本次保留原参考图并跳过白模"
 		}
+		if freezeReference && !usePosition && referenceWarning != "" {
+			referenceWarning = "未使用上一段站位参考：所选模型不支持额外参考图或名额已满"
+		}
 		if usePosition {
 			images = append(images, map[string]any{"id": "pending-position", "role": "reference", "type": "image/png", "mimeType": "image/png"})
 			input["referenceImages"] = images
@@ -225,7 +247,11 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 		}
 		original := compiled.Result.Prompt
 		finalPrompt := original
-		if usePosition {
+		if freezeReference && usePosition {
+			finalPrompt = drama.ApplyPositionReference(finalPrompt, tag)
+		} else if freezeReference {
+			finalPrompt = drama.StripPositionReference(finalPrompt)
+		} else if usePosition {
 			finalPrompt = videoChainPositionPrompt(tag) + "\n\n" + finalPrompt
 		}
 		// 本体论单元的粘贴提示词自带 1 秒站位交接镜头，不再追加白模收尾。
@@ -271,6 +297,7 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 		signature := videoChainHash([]any{shot.ID, shot.CurrentRevisionID, scene, content.Dur, ending, input, previousSignature})
 		step := videoChainStepState{ProjectVideoChainStep: ProjectVideoChainStep{ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Title: shot.Title, Scene: scene, ContentSeconds: content.Dur, GenerationSeconds: generation, Model: choice.Model, Status: "waiting", Phase: "waiting", ReferenceCount: len(images), ReferenceTag: tag, Ending: ending, Quote: quote}, Input: input, LogicalModelID: choice.LogicalModelID, Signature: signature, Uploads: map[string]string{}}
 		step.ReferenceSkipped, step.ReferenceWarning = hasPosition && !usePosition, referenceWarning
+		step.FreezeReference = freezeReference
 		if hasPosition {
 			step.SourceShotID = shots[i-1].ID
 			step.SourceRevisionID = shots[i-1].CurrentRevisionID
@@ -290,7 +317,7 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 	return state, nil
 }
 
-func (s *Service) videoChainExistingPredecessor(userID, projectID string, shot model.Shot) (*model.ShotArtifact, error) {
+func (s *Service) videoChainExistingPredecessor(userID, projectID string, shot model.Shot, fromFreeze bool) (*model.ShotArtifact, error) {
 	artifacts, err := s.repo.ProjectUnitShotArtifacts(projectID, shot.UnitID)
 	if err != nil {
 		return nil, err
@@ -323,7 +350,7 @@ func (s *Service) videoChainExistingPredecessor(userID, projectID string, shot m
 	submission, _ := metadata[dramaSubmissionKey].(map[string]any)
 	// 能当站位参考来源的前序视频：追加过白模收尾的旧段，或自带站位交接镜头的本体论单元。
 	whiteModel := submission["endingApplied"] == true && strings.Contains(task.Prompt, "无贴图的哑光白色三维白模")
-	if task.Status != model.TaskStatusSucceeded || !whiteModel && submission["handoffShot"] != true {
+	if task.Status != model.TaskStatusSucceeded || !fromFreeze && !whiteModel && submission["handoffShot"] != true {
 		return nil, nil
 	}
 	if _, err := s.videoChainReadyResource(userID, selected.ResourceID, "video/"); err != nil {

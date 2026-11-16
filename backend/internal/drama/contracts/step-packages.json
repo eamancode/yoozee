@@ -16,6 +16,9 @@
       ]
     },
     {
+      "contracts": [
+        "sss.script@1"
+      ],
       "id": "script.adapt",
       "contract": "script.adapt@1",
       "skillBudgetChars": 32000,

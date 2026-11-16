@@ -6,6 +6,7 @@ import { ScrollText } from "lucide-react";
 import { ModelPicker } from "@/components/model-picker";
 import { Callout } from "@/components/ui/product/callout";
 import { projectWorkflow } from "@/lib/project-workflow";
+import { useSSSDocuments } from "./sss-project-panels";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import {
     dramaEpisodesKey,
@@ -56,7 +57,7 @@ function previousAdaptRun(task?: GenerationTask) {
         const adapt = (JSON.parse(task?.inputJson || "{}") as { metadata?: { dramaAdapt?: { mode?: string; sourceUnitIds?: string[]; episodes?: number; replaceUnitIds?: string[]; assetImages?: boolean } } }).metadata?.dramaAdapt;
         if (!adapt?.sourceUnitIds?.length) return undefined;
         return {
-            mode: (adapt.mode === "rhythm" ? "rhythm" : "adapt") as DramaScriptAdaptMode,
+            mode: (adapt.mode === "design" || adapt.mode === "rhythm" ? adapt.mode : "adapt") as DramaScriptAdaptMode,
             sourceUnitIds: adapt.sourceUnitIds,
             episodes: adapt.episodes || adapt.sourceUnitIds.length,
             replace: Boolean(adapt.replaceUnitIds?.length),
@@ -114,16 +115,17 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
     const concept = Boolean(streamState.concept || dramaRunProgressOfConcept(taskDetail));
     const runUnit = concept ? "轮" : "集";
     const integratedAssets = projectWorkflow(detail.project.workflowId).integratedAssets;
+    const designs = useSSSDocuments(projectId, projectWorkflow(detail.project.workflowId).storyboardMode === "sss");
     const adapted = useMemo(() => new Set(episodesQuery.data?.adaptedChapterIds || []), [episodesQuery.data]);
-    const candidates = settings.mode === "rhythm" ? episodes : chapters;
+    const candidates = settings.mode === "adapt" ? chapters : episodes;
 
     // 打开对话框时按当前项目给默认值：没改编过的原文章节（全都改编过就不勾）、一章一集、每集时长取需求文档。
-    const openDialog = () => {
-        modePendingRef.current = !episodesQuery.data;
+    const openDialog = (design = false) => {
+        modePendingRef.current = !design && !episodesQuery.data;
         setPrecheckError("");
         setSettings((current) => ({
             ...current,
-            mode: defaultMode(episodesQuery.data?.adaptedChapterIds),
+            mode: design ? "design" : defaultMode(episodesQuery.data?.adaptedChapterIds),
             textModel: effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
             imageModel: turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel),
         }));
@@ -140,7 +142,8 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             }
         }
         setSettings((current) => {
-            const ids = current.mode === "rhythm" ? episodes.map((unit) => unit.id) : chapters.filter((unit) => !adapted.has(unit.id)).map((unit) => unit.id);
+            const existing = new Set(designs.data?.designs?.map((doc) => doc.unitId));
+            const ids = current.mode === "design" ? episodes.filter((unit) => !existing.has(unit.id)).map((unit) => unit.id) : current.mode === "rhythm" ? episodes.map((unit) => unit.id) : chapters.filter((unit) => !adapted.has(unit.id)).map((unit) => unit.id);
             return { ...current, sourceIds: ids, targetEpisodes: Math.max(1, ids.length) };
         });
     }, [open, episodesQuery.data, settings.mode]);
@@ -157,11 +160,11 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
         new Promise<boolean>((resolve) => {
             const withShots = impacts.filter((item) => item.shots || item.hasShotlist);
             modal.confirm({
-                title: mode === "rhythm" ? `改写 ${impacts.length} 集剧集的正文？` : `替换已有的 ${impacts.length} 集剧集？`,
+                title: mode === "design" ? `为 ${impacts.length} 集补写设计并更新定稿台词？` : mode === "rhythm" ? `改写 ${impacts.length} 集剧集的正文？` : `替换已有的 ${impacts.length} 集剧集？`,
                 content: (
                     <div className="space-y-2 text-sm leading-6 text-foreground/62">
                         <p>
-                            {mode === "rhythm"
+                            {mode === "design" ? "按所选剧集保存新版设计与台词定稿表。台词有改动时会更新剧本正文，已有镜头表、段和导演文档保留原版本。" : mode === "rhythm"
                                 ? "只调节奏会原地改写这些剧集的正文，已有的镜头表和段不会自动更新，需要时在剧集上重新生成分段。"
                                 : "所选章节已经改编过。新剧本写完后会整体替换下面这些剧集，连同它们的镜头表、段和生成产物；生成失败时现有剧集不受影响。"}
                         </p>
@@ -179,7 +182,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                         {withShots.length ? <p>其中 {withShots.length} 集已有镜头表或段，此操作无法撤销。</p> : null}
                     </div>
                 ),
-                okText: mode === "rhythm" ? "改写" : "生成成功后替换",
+                okText: mode === "design" ? "补写设计" : mode === "rhythm" ? "改写" : "生成成功后替换",
                 okButtonProps: { danger: true },
                 cancelText: "取消",
                 centered: true,
@@ -199,10 +202,10 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             navigateToSettings({ continueCreation: true });
             return;
         }
-        if (!sourceUnitIds.length) return message.warning(mode === "rhythm" ? "请选择要调节奏的剧集" : "请选择要改编的原文章节");
+        if (!sourceUnitIds.length) return message.warning(mode === "design" ? "请选择要补写设计的剧集" : mode === "rhythm" ? "请选择要调节奏的剧集" : "请选择要改编的原文章节");
         // 出图开着时出图模板在开跑前组好（续跑沿用上一次的开关）：组不出来时不建任务，原因留在对话框里（续跑时直接提示）。
         let assetImageTask: Awaited<ReturnType<typeof assetImageTaskTemplate>> | undefined;
-        if (previous ? previous.images : settings.images) {
+        if (mode !== "design" && (previous ? previous.images : settings.images)) {
             const imageModel = settings.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
             const imageConfig = { ...effectiveConfig, model: imageModel };
             const fail = (reason: string) => (options.resumeTaskId ? void message.error(`没有继续剧本优化：${reason}`) : setPrecheckError(reason));
@@ -294,9 +297,10 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
 
     return (
         <>
-            <Button size="small" icon={<ScrollText className="size-3.5" />} disabled={disabled || running || (!chapters.length && !episodes.length)} loading={running} onClick={openDialog} aria-label="剧本优化">
+            <Button size="small" icon={<ScrollText className="size-3.5" />} disabled={disabled || running || (!chapters.length && !episodes.length)} loading={running} onClick={() => openDialog()} aria-label="剧本优化">
                 {running ? "剧本优化中" : "剧本优化"}
             </Button>
+            {projectWorkflow(detail.project.workflowId).storyboardMode === "sss" && episodes.length > 0 ? <Button size="small" disabled={disabled || running} onClick={() => openDialog(true)}>补写本集设计</Button> : null}
             {running || latestTask ? (
                 <Button size="small" onClick={() => setPanelOpen(true)} aria-label="查看剧本优化进度">
                     {resume && !running ? `剧本停在第 ${resume.from} ${runUnit}` : "剧本进度"}
@@ -307,9 +311,9 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                 title="剧本优化"
                 open={open}
                 width={580}
-                okText={settings.mode === "rhythm" ? "调节奏" : "改编成剧本"}
+                okText={settings.mode === "design" ? "补写所选集设计" : settings.mode === "rhythm" ? "调节奏" : "改编成剧本"}
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.images && !settings.imageModel), loading: preparing }}
+                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.mode !== "design" && settings.images && !settings.imageModel), loading: preparing }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -323,11 +327,12 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                         options={[
                             { label: "小说转剧本", value: "adapt", disabled: !chapters.length },
                             { label: "只调节奏（已是剧本）", value: "rhythm", disabled: !episodes.length },
+                            ...(projectWorkflow(detail.project.workflowId).storyboardMode === "sss" ? [{ label: "补写本集设计", value: "design", disabled: !episodes.length }] : []),
                         ]}
                     />
                     <div>
                         <div className="mb-1.5 flex items-center justify-between text-xs">
-                            <span className="font-medium text-foreground/68">{settings.mode === "rhythm" ? "要调节奏的剧集" : "要改编的原文章节"}</span>
+                            <span className="font-medium text-foreground/68">{settings.mode === "design" ? "要补写设计的剧集" : settings.mode === "rhythm" ? "要调节奏的剧集" : "要改编的原文章节"}</span>
                             <span className="tabular-nums text-foreground/40">
                                 已选 {settings.sourceIds.length} / {candidates.length}
                             </span>
@@ -395,7 +400,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                             onMissingConfig={() => navigateToSettings({ continueCreation: true })}
                         />
                     </label>
-                    <div className="grid gap-2 rounded-lg border border-border/70 px-3 py-2.5">
+                    {settings.mode !== "design" ? <div className="grid gap-2 rounded-lg border border-border/70 px-3 py-2.5">
                         <label className="flex items-center justify-between gap-3 text-xs">
                             <span className="font-medium text-foreground/68">出图：接着提取资产后给新资产出图</span>
                             <Switch
@@ -426,7 +431,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                                 onMissingConfig={() => navigateToSettings({ continueCreation: true })}
                             />
                         ) : null}
-                    </div>
+                    </div> : null}
                     {precheckError ? (
                         <Callout tone="error" title="还没开始：资产出图准备没通过">
                             {precheckError}
@@ -444,7 +449,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                                         本步使用：<span className="font-medium text-foreground/85">{usage.skill.name}</span> {usage.skill.version}（{usage.profile.label}）
                                     </div>
                                     <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">
-                                        技能由项目的风格档案决定，管理员在后台「流程技能」里绑定。{settings.mode === "rhythm" ? "所选剧集原地改写，集数不变。" : "原文章节保留，改编出的剧集排在章节之后。"}
+                                        技能由项目的风格档案决定，管理员在后台「流程技能」里绑定。{settings.mode === "design" ? "仅补写勾选剧集的设计与台词定稿表。" : settings.mode === "rhythm" ? "所选剧集原地改写，集数不变。" : "原文章节保留，改编出的剧集排在章节之后。"}
                                     </div>
                                 </>
                             ) : (

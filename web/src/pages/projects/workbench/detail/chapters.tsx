@@ -88,6 +88,9 @@ import { plainTextToHtml } from "@/lib/project-source";
 import { chapterTaskIdentity, followDramaRunTask, generateChapterStoryboard, isScenePaletteTask, isScriptAdaptTask, isStyleLockTask } from "./project-chapter-ai";
 import { AssetsExtractControl } from "./chapter-assets-extract";
 import { ScriptAdaptControl } from "./chapter-script-adapt";
+import { DirectorSetup, EpisodeDesign } from "./sss-project-panels";
+import { projectWorkflow } from "@/lib/project-workflow";
+import { useDirectorPrecondition } from "./director-preconditions";
 import { followChainedScenePalette, ScenePaletteControl } from "./chapter-scene-palette";
 import { projectStyleMissing as styleMissingOf, StyleLockControl } from "./chapter-style-lock";
 import { ChapterSceneList } from "./chapter-scene-list";
@@ -110,6 +113,7 @@ function formatChapterListCount(value: number) {
 
 export default function ProjectChaptersView({ detail, refreshProject }: ProjectDetailViewProps) {
     const { message, modal } = App.useApp();
+    const handleDirectorPrecondition = useDirectorPrecondition();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { chapterId = "" } = useParams();
@@ -534,7 +538,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "drama-shotlist"] });
         },
     });
-    const createStoryboard = async (options: { replaceConfirmed?: boolean; resumeTaskId?: string; refinalize?: boolean; onlySections?: string[] } = {}) => {
+    const createStoryboard = async (options: { independent?: boolean;replaceConfirmed?: boolean; resumeTaskId?: string; refinalize?: boolean; onlySections?: string[] } = {}) => {
         const unit = selectedUnit;
         if (!unit) return message.warning("章节正文尚未加载完成");
         if (dirty) return message.warning("请先保存当前章节，再生成分镜");
@@ -559,7 +563,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         setRunPanelOpen(true);
         message.info(options.refinalize ? "用上一次写好的各节重新写入镜头表，不再调模型" : options.resumeTaskId ? "从中断的那一节接着写，可继续编辑或切换章节" : options.onlySections?.length ? `只重写 ${options.onlySections.map((section) => projectSceneCode(section, unitEpisodeNumber(detail.units, unit.id))).join("、")}，其余小节的镜头不动；可继续编辑或切换章节` : "分镜生成任务已开始，可继续编辑或切换章节；关掉页面也会在后台写完");
         try {
-            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: dramaRule, resumeTaskId: options.resumeTaskId, onlySections: options.onlySections, discard: whole }, {
+            const result = await generateChapterStoryboard({ projectId: detail.project.id, chapterId: unit.id, config, rule: dramaRule, resumeTaskId: options.resumeTaskId, onlySections: options.onlySections, discard: whole,allowMissingHandoff:options.independent }, {
                 onTaskUpdate: (task) => {
                     followedStoryboardTasksRef.current.add(task.id);
                     updateChapterOperation(unit.id, "storyboard", task);
@@ -580,6 +584,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         } catch (error) {
             refreshProject();
             void queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", detail.project.id] });
+            if (handleDirectorPrecondition(error,{previous:(id)=>{setRunPanelOpen(false);selectChapter(id)},independent:()=>void createStoryboard({...options,replaceConfirmed:true,independent:true}),design:()=>{setRunPanelOpen(false);selectChapter(unit.id)}}))return;
             message.error(error instanceof Error ? `章节分镜生成失败：${error.message}` : "章节分镜生成失败");
         } finally {
             finishChapterOperation(unit.id, "storyboard");
@@ -835,6 +840,12 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         <ChapterSceneList scenes={scenesQuery.data} editor={editor} dirty={dirty} />
                         <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">
                             <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>
+                            {selectedUnit?.kind === "episode" && projectWorkflow(detail.project.workflowId).storyboardMode === "sss" ? (
+                                <>
+                                    <EpisodeDesign projectId={detail.project.id} unitId={selectedUnit.id} />
+                                    <DirectorSetup projectId={detail.project.id} tasks={chapterTasksQuery.data || []} />
+                                </>
+                            ) : null}
                         </div>
                     </div>
                 ) : <WorkspaceState icon="projects" compact className="h-full" title="请选择章节" description="从左侧章节列表选择一章开始编辑；项目风格可以先定。" action={<div className="flex flex-wrap justify-center gap-1.5"><StyleLockControl detail={detail} tasks={chapterTasksQuery.data} /></div>} />}

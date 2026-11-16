@@ -289,8 +289,26 @@ func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
 
 // ApplyDramaEpisodes 是剧本优化的写库（同一事务）：删掉被整体替换的剧集（连同镜头、镜头表等，与删除单元同一套），
 // 新建剧集、原地改写调节奏的剧集，再按 order 重排整个项目的单元。
-func (r *Repository) ApplyDramaEpisodes(projectID string, deleteIDs []string, create []model.ProjectUnit, update []model.ProjectUnit, order []string) error {
+func (r *Repository) ApplyDramaEpisodes(projectID string, deleteIDs []string, create []model.ProjectUnit, update []model.ProjectUnit, order []string, documents []model.ProjectOntologyDocument) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		txRepo := &Repository{db: tx}
+		writtenCount := 0
+		for i := range documents {
+			doc := &documents[i]
+			written, err := txRepo.OntologyDocumentWrittenByTask(projectID, doc.UnitID, doc.Kind, doc.TaskID)
+			if err != nil {
+				return err
+			}
+			if written {
+				writtenCount++
+			}
+		}
+		if writtenCount > 0 {
+			if writtenCount == len(documents) {
+				return nil
+			}
+			return errors.New("本次剧本优化的文档记录不完整，请检查剧集写入状态")
+		}
 		for _, id := range deleteIDs {
 			if err := deleteProjectUnitTx(tx, projectID, id); err != nil {
 				return fmt.Errorf("删除被替换的剧集 %s：%w", id, err)
@@ -317,6 +335,11 @@ func (r *Repository) ApplyDramaEpisodes(projectID string, deleteIDs []string, cr
 			}
 		}
 		now := time.Now()
+		for i := range documents {
+			if err := txRepo.AppendOntologyDocument(&documents[i]); err != nil {
+				return err
+			}
+		}
 		for position, id := range order {
 			if err := tx.Model(&model.ProjectUnit{}).Where("id = ? AND project_id = ?", id, projectID).Updates(map[string]any{"position": position}).Error; err != nil {
 				return err
@@ -335,6 +358,9 @@ func (r *Repository) DramaShotlistUnitIDs(projectID string) ([]string, error) {
 
 // deleteProjectUnitTx 删除一个单元和挂在它上面的画布关联、镜头、产物、工作流、候选资产与镜头表（不动项目 revision）。
 func deleteProjectUnitTx(tx *gorm.DB, projectID string, id string) error {
+	if err := tx.Where("project_id = ? AND unit_id = ? AND kind = ?", projectID, id, model.OntologyDocDesign).Delete(&model.ProjectOntologyDocument{}).Error; err != nil {
+		return err
+	}
 	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.CanvasUnitLink{}).Error; err != nil {
 		return err
 	}

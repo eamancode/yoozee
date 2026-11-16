@@ -356,9 +356,14 @@ func (s *Service) ontologyMaterials(userID string, projectID string) ([]drama.On
 
 // previousOntologyHandoff 是同一项目里排在本集前面的那一集的最新交接卡；第一集或上一集还没生成时为空。
 func (s *Service) previousOntologyHandoff(projectID string, unit *model.ProjectUnit) (string, error) {
+	_, text, err := s.previousEpisodeHandoff(projectID, unit)
+	return text, err
+}
+
+func (s *Service) previousEpisodeHandoff(projectID string, unit *model.ProjectUnit, adjacentOnly ...bool) (*model.ProjectUnit, string, error) {
 	units, err := s.repo.ProjectUnits(projectID)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	sort.SliceStable(units, func(i, j int) bool { return units[i].Position < units[j].Position })
 	var previous *model.ProjectUnit
@@ -368,19 +373,21 @@ func (s *Service) previousOntologyHandoff(projectID string, unit *model.ProjectU
 		}
 		if units[i].Kind == unit.Kind {
 			previous = &units[i]
+		} else if len(adjacentOnly) > 0 && adjacentOnly[0] {
+			previous = nil
 		}
 	}
 	if previous == nil {
-		return "", nil
+		return nil, "", nil
 	}
 	doc, err := s.repo.LatestOntologyDocument(projectID, previous.ID, model.OntologyDocHandoff)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return "", nil
+		return previous, "", nil
 	}
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return doc.Content, nil
+	return previous, doc.Content, nil
 }
 
 type ontologyPrior struct{ Title, Text string }
@@ -1023,6 +1030,8 @@ func ontologyProjectError(err error) error {
 
 // ProjectOntologyDocuments 是项目本体论分镜的文档（各文档最新版本）。
 type ProjectOntologyDocuments struct {
+	BibleBasis *directorBibleBasis             `json:"bibleBasis,omitempty"`
+	Designs    []model.ProjectOntologyDocument `json:"designs"`
 	// Mode 是项目分镜环节的模式：ontology（本体论，七部分）或 sss（SSS 电影 / 短剧，八部分）。
 	Mode  string                         `json:"mode"`
 	Bible *model.ProjectOntologyDocument `json:"bible,omitempty"`
@@ -1045,9 +1054,12 @@ func (s *Service) ProjectOntologyDocuments(userID string, projectID string) (Pro
 	}
 	workflow, _ := drama.Workflow(project.WorkflowID)
 	out := ProjectOntologyDocuments{Mode: workflow.StoryboardMode, Episodes: []model.ProjectOntologyDocument{}, Handoffs: []model.ProjectOntologyDocument{}}
+	out.Designs = []model.ProjectOntologyDocument{}
 	for i := range docs {
 		doc := docs[i]
 		switch doc.Kind {
+		case model.OntologyDocDesign:
+			out.Designs = append(out.Designs, doc)
 		case model.OntologyDocBible:
 			out.Bible = &doc
 		case model.OntologyDocSetup:
@@ -1061,6 +1073,13 @@ func (s *Service) ProjectOntologyDocuments(userID string, projectID string) (Pro
 		case model.OntologyDocHandoff:
 			out.Handoffs = append(out.Handoffs, doc)
 		}
+	}
+	if workflow.StoryboardMode == drama.StoryboardModeSSS {
+		basis, err := s.directorBibleBasis(userID, projectID, out.Bible)
+		if err != nil {
+			return out, err
+		}
+		out.BibleBasis = &basis
 	}
 	return out, nil
 }

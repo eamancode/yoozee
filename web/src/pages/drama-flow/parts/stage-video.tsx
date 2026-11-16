@@ -207,6 +207,12 @@ export function StageVideo({
                                     {isFailed && chosen ? <span className="drama-flow-asset-error">最近一次失败：{step?.error || "没写原因"}</span> : null}
                                     {blocked ? <span className="drama-flow-asset-error">分镜有问题没改完，先去「分镜」里改</span> : null}
                                     {step?.step.referenceWarning ? <span className="drama-flow-muted">{step.step.referenceWarning}</span> : null}
+                                    {step?.step.frameResourceId && !step.step.referenceSkipped ? (
+                                        <figure>
+                                            <img width={96} src={resourceFileUrl(step.step.frameResourceId)} alt="上一段站位参考" />
+                                            <figcaption>{step.step.frameSelection === "freeze-mid" ? "站位参考：来自上一段定格" : "站位参考：来自上一段末帧"}</figcaption>
+                                        </figure>
+                                    ) : null}
                                     {/* 操作放在中间这一列、左对齐：右侧那一列贴着页面右下角，默认位置的柚智浮层（含透明热区）会截走点击。 */}
                                     <div className="drama-flow-vcard-actions">
                                         {isFailed ? (

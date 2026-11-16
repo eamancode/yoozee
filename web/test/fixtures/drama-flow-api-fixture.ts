@@ -93,6 +93,9 @@ export function createDramaFlowFixture(
         name?: string;
         stopAtAssets?: boolean;
         directorSegments?: boolean;
+        directorSetup?: "missing" | "legacy" | "current";
+        handoffGate?: boolean;
+        freezeRelay?: "ready" | "skipped";
         assetImages?: boolean;
     } = {},
 ) {
@@ -122,6 +125,7 @@ export function createDramaFlowFixture(
     const calls: FixtureCall[] = [];
     const unknown: FixtureCall[] = [];
     const forbidden: FixtureCall[] = [];
+    const handoffRequests: boolean[] = [];
 
     const project = {
         id: FIXTURE_PROJECT_ID,
@@ -243,6 +247,7 @@ export function createDramaFlowFixture(
                 displayName: "柚子系统渠道",
                 sortOrder: 0,
                 models: [
+                    ...(options.handoffGate ? [{ modelKey: "fixture-text", displayName: "验收文本模型", available: true, capability: "text", priceTiers: [] }] : []),
                     { modelKey: "lec-vp-seedance-2-5-f", displayName: FIXTURE_VIDEO_MODEL_NAME, available: true, capability: "video", priceTiers: [], capabilityConfig: FIXTURE_VIDEO_CAPABILITY },
                     // stopAtAssets 时目录里有 imageModel 这个图片模型（确认面板的模型选择用它）；其余用例的 imageModel 可能故意是已下架的模型，不放进目录。
                     ...(options.stopAtAssets && options.imageModel ? [{ modelKey: options.imageModel.replace(/^CHANNEL_000001::/, ""), displayName: "验收图片模型", available: true, capability: "image", priceTiers: [] }] : []),
@@ -277,6 +282,19 @@ export function createDramaFlowFixture(
         ...(error ? { error } : {}),
     });
     const chainList = () => {
+        if (options.freezeRelay)
+            return [
+                chainOf("freeze-history", "succeeded", [
+                    chainStep(
+                        FIXTURE_SHOT_ID_2,
+                        "S02",
+                        "succeeded",
+                        options.freezeRelay === "ready"
+                            ? { sourceShotId: FIXTURE_SHOT_ID, frameResourceId: "freeze-image", frameSelection: "freeze-mid" }
+                            : { sourceShotId: FIXTURE_SHOT_ID, referenceSkipped: true, referenceWarning: "未使用上一段站位参考：截帧失败" },
+                    ),
+                ]),
+            ];
         const mode = options.chains ?? "none";
         if (mode === "history") return [chainOf("chain-history", "succeeded", [chainStep(FIXTURE_SHOT_ID, "S01", "succeeded")])];
         if (mode === "failed") return [chainOf("chain-failed", "failed", [chainStep(FIXTURE_SHOT_ID, "S01", "failed", { error: "上游超时" })], "上游超时")];
@@ -343,11 +361,18 @@ export function createDramaFlowFixture(
         const call = { method: method.toUpperCase(), path: `${path}${url.search}` };
         calls.push(call);
         const override = overrides.get(path);
+        if (options.handoffGate && method.toUpperCase() === "POST" && path === `${base}/units/${FIXTURE_UNIT_ID}/drama/steps/chapter.shots/run`) {
+            const independent = (body as { allowMissingHandoff?: boolean })?.allowMissingHandoff === true;
+            handoffRequests.push(independent);
+            if (independent) return reject(409, "fixture_independent_request_recorded");
+            return { status: 409, body: { code: 409, msg: "第一集还没有交接卡", reason: "previous_handoff_required", details: { previousUnitId: "previous-episode", previousTitle: "第一集" } } };
+        }
         if (override === "pending") return undefined;
         if (override === "error") return reject(500, "fixture_read_failed");
         if (override === "capability") return capabilityReject([{ name: "videoGenerateAudio", reason: "参数 同步音频超出支持范围" }]);
         if (override === "capability-bare") return capabilityReject([{ name: "videoGenerateAudio", reason: "参数 同步音频超出支持范围" }], false);
         if (call.method === "GET") {
+            if (options.freezeRelay === "ready" && path === "/resources/freeze-image/file") return { status: 200, body: null, binary: FIXTURE_PNG_PORTRAIT, contentType: "image/png" };
             // 资源文件：assetImages 时回真 PNG（竖版 90×160 / 方形 120×120），预览器按原图比例显示。
             if (options.assetImages && path === `/resources/${FIXTURE_IMAGE_PORTRAIT}/file`) return { status: 200, body: null, binary: FIXTURE_PNG_PORTRAIT, contentType: "image/png" };
             if (options.assetImages && path === `/resources/${FIXTURE_IMAGE_SQUARE}/file`) return { status: 200, body: null, binary: FIXTURE_PNG_SQUARE, contentType: "image/png" };
@@ -355,7 +380,16 @@ export function createDramaFlowFixture(
             if (path === "/features") return ok({ features });
             if (path === "/drama/models") return ok({ models: registry });
             if (path === `${base}/core`) return ok({ project });
-            if (path === `${base}/units`) return ok({ units: [unit], canvasCounts: {} });
+            if (path === `${base}/units`)
+                return ok({
+                    units: options.handoffGate
+                        ? [
+                              { ...unit, id: "previous-episode", title: "第一集", position: 0 },
+                              { ...unit, title: "第二集", position: 1 },
+                          ]
+                        : [unit],
+                    canvasCounts: {},
+                });
             if (path === `${base}/assets`) return ok({ assets });
             if (path === `${base}/drama/progress`) return ok({ progress: progress() });
             if (path === `${base}/drama/bible`) return ok({ document: bibleFor(style) });
@@ -364,14 +398,23 @@ export function createDramaFlowFixture(
                 const doc = (kind: string, content: string, unitId = "") => ({ id: `doc-${kind}`, projectId: FIXTURE_PROJECT_ID, unitId, kind, version: 1, content, createdAt: now });
                 return ok({
                     mode: options.workflowId === "pipeline-3" ? "ontology" : "sss",
-                    bible: doc("bible", "## 世界\n> 林深：二十八岁男性。"),
+                    bible: options.directorSetup === "missing" ? undefined : doc("bible", "## 世界\n> 林深：二十八岁男性。"),
+                    bibleBasis: { episodes: options.directorSetup === "missing" ? 0 : 1, total: 1, legacy: options.directorSetup === "legacy", outdated: false },
+                    designs: options.directorSetup === "current" ? [doc("design", "## 第一部分　本集设计\n雨夜相遇。\n## 第二部分　台词定稿表\n| 定稿台词 |\n| --- |\n| 收着。 |", FIXTURE_UNIT_ID)] : [],
                     concept: doc("concept", "## 立意页\n一句话：雨夜送橙汁。"),
                     world: doc("world", "## 世界基准段\n真人实拍质感的竖屏短剧。"),
-                    episodes: [doc("episode", "## 第五部分　单元卡\n\n### E1-U1｜短档｜叙事 14 秒＋定格 1 秒＝15 秒｜2 镜＋定格｜雨棚（本场 1 段）｜钩子\n\n## 第八部分　复看记录与待确认\n\n### 待确认\n1. 阿婆的口音。", FIXTURE_UNIT_ID)],
+                    episodes: [
+                        doc(
+                            "episode",
+                            "## 第一部分　本集设计\n雨棚重逢。\n## 第二部分　台词定稿表\n收着。\n## 第三部分　讲戏本\n阿婆递杯。\n## 第四部分　单元总表\n雨棚一段。\n## 第五部分　单元卡\n\n### E1-U1｜短档｜叙事 14 秒＋定格 1 秒＝15 秒｜2 镜＋定格｜雨棚（本场 1 段）｜钩子\n\n## 第六部分　后期备忘\n雨棚。\n## 第七部分　集交接卡\n保持站位。\n## 第八部分　复看记录与待确认\n\n### 待确认\n1. 阿婆的口音。",
+                            FIXTURE_UNIT_ID,
+                        ),
+                    ],
                     handoffs: [doc("handoff", "### 第 1 集交接卡\n林深在雨棚下。", FIXTURE_UNIT_ID)],
                 });
             }
-            if (path === `${base}/drama/episodes`) return ok({ episodes: [{ id: FIXTURE_UNIT_ID, title: unit.title }], adaptedChapterIds: [] });
+            if (path === `${base}/drama/episodes`)
+                return ok({ episodes: [{ unitId: FIXTURE_UNIT_ID, title: unit.title, position: unit.position, wordCount: unit.wordCount, sources: [], shots: state.segments.length, hasShotlist: true }], adaptedChapterIds: [] });
             if (path === `${base}/units/${FIXTURE_UNIT_ID}/workspace`) return ok(workspace());
             if (path === `${base}/drama/segments`) return ok({ segments: state.segments });
             if (path === `${base}/units/${FIXTURE_UNIT_ID}/drama/shotlist`) return ok({ shotlist: null });
@@ -444,7 +487,7 @@ export function createDramaFlowFixture(
         return reject(404, "fixture_not_found");
     }
 
-    return { handle, calls, unknown, forbidden, state, project, overrides, catalog };
+    return { handle, calls, unknown, forbidden, state, project, overrides, catalog, handoffRequests };
 }
 
 export type DramaFlowFixture = ReturnType<typeof createDramaFlowFixture>;

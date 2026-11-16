@@ -201,6 +201,7 @@ type SSSBrief struct {
 
 // SSSDocs 是材料包里由前面环节写好的文档：立意页与全集结构表（拆剧本）、世界与总谱（导演定画风）、全剧圣经、上一集交接卡。
 type SSSDocs struct {
+	Design  string `json:"design,omitempty"`
 	Concept string `json:"concept,omitempty"`
 	World   string `json:"world,omitempty"`
 	Bible   string `json:"bible,omitempty"`
@@ -232,7 +233,7 @@ func SSSMaterialPackage(brief SSSBrief, materials []SSSMaterial, docs SSSDocs) s
 	if brief.MaxImages > 0 {
 		fmt.Fprintf(&b, "一个单元最多带 %d 张参考图；", brief.MaxImages)
 	}
-	b.WriteString("本平台没有参考视频和参考音频，也不传上一段的定格截图：提示词里不写 @视频、@音频、@某某声音、@站位参考（声线串照写，前面不加 @；站位写进首帧与走位）。提示词按即梦十五段输出。\n")
+	b.WriteString("本平台没有参考视频和参考音频，提示词里不写 @视频、@音频、@某某声音。只有本轮任务指定「本单元要写 @站位参考」时，在生效参考素材中单独写一行「@站位参考：上一段最后一秒的全景定格画面；人物位置、朝向和持物以此为准」。其他单元不写该行。提示词按即梦十五段输出。\n")
 	b.WriteString("6. 用户手里有：本集剧本（见【本集剧本】）、拆剧本写好的立意页与全集结构表、导演定画风写好的世界基准段与视听总谱、资产出图的参考图（见【素材清单】）。\n")
 	if brief.EpisodeSeconds > 0 {
 		fmt.Fprintf(&b, "每集目标时长：约 %d 秒。\n", brief.EpisodeSeconds)
@@ -288,7 +289,7 @@ func SSSTurnInstruction(kind string, unit string, codes []string) string {
 	case SSSTurnCut:
 		return "【本轮任务】按手册/07 预切单元、写各单元的导演阐述和视觉策略，按手册/08 整场排镜头表，再装箱定下单元总表。依次输出三部分，标题一字不改：\n" +
 			"1. `## 整场镜头表`：按场写，每场一张完整镜头表（镜头的顺序、时长、台词定稿后不再动），表后写每个单元装哪几镜、各单元的导演阐述和视觉策略要点；\n" +
-			"2. `## 第四部分　单元总表`：表头第一列写「单元」，每个单元一行，单元编号写成 E〔集〕-U〔单元〕（如 E2-U1），表后写合计、成本、装满检查、在场检查、节奏检查；\n" +
+			"2. `## 第四部分　单元总表`：表头第一列写「单元」，另列「场次」与讲戏本小节的场次号一致，每个单元一行，单元编号写成 E〔集〕-U〔单元〕（如 E2-U1），表后写合计、成本、装满检查、在场检查、节奏检查；\n" +
 			"3. `## 启发库选用`：一张表 `| 单元 | 库号 |`，每个单元一行，按启发库总索引给这个单元选 1 到 4 个库号（如 A05、F01、D01，只写库号，用顿号隔开），后面写单元卡时会把这几个库整份给你。"
 	case SSSTurnCard:
 		return fmt.Sprintf("【本轮任务】只写单元 %s 的单元卡（模板/04 的版式），这一轮写到「接缝」为止，不写「粘贴提示词」和「风险与备选」（下一轮编译时写）。先一行标题 `### %s｜〔长档／短档〕｜叙事〔T〕秒＋定格 1 秒＝〔总时长〕秒｜〔镜数〕镜＋定格｜〔场景〕（本场第〔n〕段／共〔N〕段）｜〔功能词〕`（不定格的单元写「〔总时长〕秒｜〔镜数〕镜」），再依次写难事与在场、导演阐述、视觉策略、声光设计、镜头表、表演时间轴、物理要点、接缝。镜头的顺序、时长、台词照【整场镜头表】里分给这个单元的那几镜，不改。镜头表从 0 秒开始、各行首尾相接；标题写了「＋定格 1 秒」的，镜头表最后一行就是那一秒全景定格（职责栏填「全景定格」），最后一行的结束秒必须等于标题的总时长——定格和换场景留的技术尾巴都要写进镜头表，不能只写在标题里。这一单元查用的启发库：%s（已整份附上）。只写这一个单元。", unit, unit, strings.Join(codes, "、"))
@@ -843,9 +844,10 @@ func SSSPasteTags(paste string, materials []SSSMaterial) (used []int, problems [
 
 // SSSUnitLimits 是校验单元卡用的边界。
 type SSSUnitLimits struct {
-	MaxSeconds int
-	MaxImages  int
-	Materials  []SSSMaterial
+	PositionReference bool
+	MaxSeconds        int
+	MaxImages         int
+	Materials         []SSSMaterial
 	// CapSeconds 是本集各单元合计时长上限（0 不限），UsedSeconds 是本集其他单元已占的秒数。
 	CapSeconds  float64
 	UsedSeconds float64
@@ -924,8 +926,33 @@ func ValidateSSSPaste(card SSSUnitCard, lim SSSUnitLimits) error {
 			problems = append(problems, "粘贴提示词里出现了「"+w+"」")
 		}
 	}
+	if lim.PositionReference {
+		count := 0
+		section := ""
+		for _, line := range strings.Split(paste, "\n") {
+			if name := sssSectionName(line); slices.Contains(SSSPromptSections, name) {
+				section = name
+				continue
+			}
+			for _, m := range sssScanTags(line, lim.Materials) {
+				if positionToken(m.raw) {
+					count++
+					if section != "生效参考素材" || strings.TrimSpace(line[:m.start]) != "" || strings.Contains(line[m.end:], "@") {
+						problems = append(problems, "@站位参考 必须在生效参考素材中单独起一行，避免跳过站位图时误删其他指令")
+					}
+				}
+			}
+		}
+		if count != 1 {
+			problems = append(problems, "同场景后续段必须写一次 @站位参考")
+		}
+		paste = ApplyPositionReference(paste, "")
+	}
 	used, tagProblems := SSSPasteTags(paste, lim.Materials)
 	problems = append(problems, tagProblems...)
+	if lim.PositionReference && lim.MaxImages > 0 && len(used)+1 > lim.MaxImages {
+		problems = append(problems, "同场景后续段要给站位参考图留一个名额")
+	}
 	if lim.MaxImages > 0 && len(used) > lim.MaxImages {
 		problems = append(problems, fmt.Sprintf("这一单元用了 %d 张参考图，超过视频模型上限 %d 张", len(used), lim.MaxImages))
 	}
@@ -962,13 +989,16 @@ func ParseSSSCompile(body SSSUnitCard, compile string) SSSUnitCard {
 
 // SSSSegment 把单元卡装成一段：粘贴提示词原文存在 Verbatim（@名称 按本段第一次出现的顺序换成 @图1..k，与 Refs 顺序一致），
 // 镜头表转成段内镜头（只供分镜卡显示、时长判断，不参与编译）。order 从 1 数，段号 S01、S02……
-func SSSSegment(card SSSUnitCard, order int, materials []SSSMaterial) (Segment, error) {
+func SSSSegment(card SSSUnitCard, order int, materials []SSSMaterial, allowPosition ...bool) (Segment, error) {
 	tags := sssScanTags(card.Paste, materials)
 	remap := map[int]int{}
 	var refs []Ref
 	var b strings.Builder
 	last := 0
 	for _, t := range tags {
+		if positionToken(t.raw) && len(allowPosition) > 0 && allowPosition[0] {
+			continue
+		}
 		if t.material < 0 {
 			return Segment{}, fmt.Errorf("单元 %s 的标签 %s 对不上素材清单", card.ID, t.raw)
 		}

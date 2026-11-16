@@ -216,6 +216,70 @@ func TestVideoChainABCOrderingFramesAndIdempotency(t *testing.T) {
 	}
 }
 
+func TestSSSVideoChainFreezeRelay(t *testing.T) {
+	for _, phase := range []string{"success", "frame", "upload", "capacity"} {
+		t.Run(phase, func(t *testing.T) {
+			f := newVideoChainFixture(t, "当铺", "当铺", "车站")
+			if err := f.db.Model(&model.Project{}).Where("id = ?", f.projectID).Updates(map[string]any{"workflow_id": drama.WorkflowSSSDrama, "white_model_storyboard_enabled": false}).Error; err != nil {
+				t.Fatal(err)
+			}
+			for i, scene := range []string{"当铺", "当铺", "车站"} {
+				seg := drama.Segment{ID: fmt.Sprintf("S%02d", i+1), Scene: scene, Dur: 10, Mode: drama.ModeTextOnly, Verbatim: "原始正文", Shots: []drama.SubShot{{At: 0, Size: "全景", Text: "两人在柜台前", Purpose: "全景定格"}}}
+				if i == 1 {
+					seg.Verbatim += "\n@站位参考：承接上一段人物站位。\n保留这行"
+				}
+				raw, _ := json.Marshal(seg)
+				if err := f.db.Model(&model.ShotRevision{}).Where("id = ?", fmt.Sprint("rs", i)).Updates(map[string]any{"spec_json": string(raw), "video_prompt": seg.Verbatim}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.failFrame.Store(phase == "frame")
+			f.failUpload.Store(phase == "upload")
+			if phase == "capacity" {
+				config := f.req.Model.Input["config"].(map[string]any)
+				config["capabilityConfig"].(*ModelCapabilityConfig).Video.References.MaxImages = 0
+			}
+			chain := f.start(t)
+			if len(chain.Steps) != 2 || chain.Steps[0].Ending || chain.Steps[1].Ending {
+				t.Fatal("跨场或白模收尾", chain.Steps)
+			}
+			first := f.untilTask(t, chain.ID, 0)
+			f.tick(t, chain.ID)
+			var count int64
+			f.db.Model(&model.Task{}).Where("type = ?", "canvas_video").Count(&count)
+			if count != 1 {
+				t.Fatal("提前提交", count)
+			}
+			f.complete(t, first.Steps[0].TaskID)
+			second := f.untilTask(t, chain.ID, 1).Steps[1]
+			child, err := f.s.repo.TaskForUser("user-1", second.TaskID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := f.s.decryptTaskInputJSON(child.InputJSON)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var input struct {
+				ReferenceImages []map[string]any `json:"referenceImages"`
+			}
+			if err = json.Unmarshal([]byte(raw), &input); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(child.Prompt, "【站位参考】") || strings.Contains(child.Prompt, "@站位参考") || !strings.Contains(child.Prompt, "保留这行") {
+				t.Fatal("正文/标签", child.Prompt)
+			}
+			if phase != "success" {
+				if len(input.ReferenceImages) != 0 || strings.Contains(child.Prompt, "承接上一段") || !strings.HasPrefix(second.ReferenceWarning, "未使用上一段站位参考") {
+					t.Fatalf("降级错误: %q / %s", child.Prompt, second.ReferenceWarning)
+				}
+			} else if second.FrameResourceID != f.frameID || len(input.ReferenceImages) != 1 || !strings.Contains(child.Prompt, "@图片1：承接上一段") {
+				t.Fatalf("引用错误: %q images=%v source=%q", child.Prompt, input.ReferenceImages, second.FrameResourceID)
+			}
+		})
+	}
+}
+
 func TestVideoChainOptionalFrameAndUploadFailuresContinue(t *testing.T) {
 	for _, phase := range []string{"frame", "upload"} {
 		t.Run(phase, func(t *testing.T) {

@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { useDirectorPrecondition } from "@/pages/projects/workbench/detail/director-preconditions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App } from "antd";
 
@@ -24,6 +26,8 @@ const active = (status: string) => status === "queued" || status === "running";
  */
 export function useStoryboardRun(data: FlowData) {
     const { message, modal } = App.useApp();
+    const navigate = useNavigate();
+    const handlePrecondition = useDirectorPrecondition();
     const queryClient = useQueryClient();
     const effectiveConfig = useDramaModelConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
@@ -89,7 +93,7 @@ export function useStoryboardRun(data: FlowData) {
         },
     });
 
-    const generate = async (onlySections?: string[]) => {
+    const generate = async (onlySections?: string[], independent = false) => {
         if (!project || !unit || !detail) return;
         // 和旧工作台同一口径：没有锁定的风格锚、画风快照也没写风格提示词，才拦下。
         if (projectStyleMissing(project)) return message.warning("项目还没锁定画风：先到「定妆 · 画风」让导演定画风，再生成分镜");
@@ -101,14 +105,14 @@ export function useStoryboardRun(data: FlowData) {
             return;
         }
         const whole = !onlySections?.length;
-        if (whole) {
+        if (whole && !independent) {
             const discards = chapterSegmentDiscards(detail.shots, detail.shotArtifacts, unit.id);
             if (discards.length && !(await confirmDiscard(discards, "整集重新生成"))) return;
         }
         setStreamText("");
         try {
             const result = await generateChapterStoryboard(
-                { projectId, chapterId: unit.id, config, rule: dramaRule, onlySections, discard: whole },
+                { projectId, chapterId: unit.id, config, rule: dramaRule, onlySections, discard: whole, allowMissingHandoff: independent },
                 {
                     onTaskUpdate: (task) => setLiveTaskId(task.id),
                     onStreamText: (text) => setStreamText(text),
@@ -118,6 +122,14 @@ export function useStoryboardRun(data: FlowData) {
             if (outcome?.status === "draft") message.warning(`镜头表检查有 ${outcome.errors} 个问题，存成了草稿还没装段；在上面的条里处理`, 8);
             else message.success(outcome ? `已生成 ${outcome.segments} 段（${outcome.scenes} 场）` : "分镜已写入");
         } catch (error) {
+            if (
+                handlePrecondition(error, {
+                    previous: (id) => navigate(`/drama-flow/${projectId}/shots?ep=${encodeURIComponent(id)}`),
+                    independent: () => void generate(onlySections, true),
+                    design: () => navigate(`/drama-flow/${projectId}/script?ep=${encodeURIComponent(unit.id)}`),
+                })
+            )
+                return;
             message.error(error instanceof Error ? `分镜生成失败：${error.message}` : "分镜生成失败");
         } finally {
             setLiveTaskId("");

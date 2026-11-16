@@ -673,7 +673,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     return (
         <div className="workflow-production-shell">
-            {activeStage === "video" ? <VideoChainPanel open={videoChainOpen} projectId={projectId} whiteModelStoryboardEnabled={detail.project.whiteModelStoryboardEnabled === true} unitId={unitId} shotId={selectedShot.id} onClose={() => setVideoChainOpen(false)} onRefresh={onRefresh} buildModel={async () => {
+            {activeStage === "video" ? <VideoChainPanel open={videoChainOpen} projectId={projectId} sss={projectWorkflow(detail.project.workflowId).storyboardMode === "sss"} whiteModelStoryboardEnabled={detail.project.whiteModelStoryboardEnabled === true} unitId={unitId} shotId={selectedShot.id} onClose={() => setVideoChainOpen(false)} onRefresh={onRefresh} buildModel={async () => {
                 if (editorDirty) throw new Error("请先保存镜头修改，再准备站位参考或启动连续生成");
                 const task = await prepareBackendGenerationTask({ projectId, mode: "video", prompt: "连续生成预览", config: generationConfig });
                 return { model: task.model || routedModel, logicalModelId: task.logicalModelId, input: task.input || {} };

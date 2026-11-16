@@ -44,8 +44,9 @@ type ScriptAdaptSource struct {
 
 // ScriptAdaptInput 是组装剧本优化提示词的全部输入。
 type ScriptAdaptInput struct {
-	Mode    string
-	Sources []ScriptAdaptSource
+	Contract string
+	Mode     string
+	Sources  []ScriptAdaptSource
 	// Episodes 是要写几集（已按请求、每集秒数或章节数算好）。
 	Episodes       int
 	EpisodeSeconds float64
@@ -132,7 +133,7 @@ func ScriptAdaptTask(mode string, sources []ScriptAdaptSource, episodes int) str
 // BuildScriptAdaptPrompt 组装剧本优化的提示词。
 func BuildScriptAdaptPrompt(in ScriptAdaptInput) (StepPrompt, error) {
 	step, _ := StepByID(StepScriptAdapt)
-	contract, err := BuiltinContract(step.Contract)
+	contract, err := BuiltinContract(firstNonBlank(in.Contract, step.Contract))
 	if err != nil {
 		return StepPrompt{}, err
 	}
@@ -279,6 +280,23 @@ func CountScriptAdaptRun(text string, turn TurnContext) (int, error) {
 	if turn.Turn.ID == ScriptAdaptConceptTurn {
 		return CountScriptAdaptConcept(text)
 	}
+	if turn.Contract == ContractSSSScriptAdapt {
+		script, _, table, err := SplitSSSScriptEpisode(text)
+		if err != nil {
+			return 0, err
+		}
+		if err := SSSLineTableCheck(table, script); err != nil {
+			return 0, err
+		}
+		ep, _ := ScriptAdaptEpisodesFromText(script)
+		if len(ep) != 1 || !ep[0].Header {
+			return 0, errors.New("本集必须有 JSON 集头")
+		}
+		if err := checkSSSLockedLines(turn, ep[0], script); err != nil {
+			return 0, err
+		}
+		text = script
+	}
 	return CountScriptAdaptTurn(text, turn.Sources)
 }
 
@@ -335,6 +353,7 @@ type AdaptScene struct {
 
 // AdaptEpisode 是解析出的一集。
 type AdaptEpisode struct {
+	Design  string        `json:"-"`
 	No      int           `json:"no"`
 	Title   string        `json:"title"`
 	Sources []AdaptSource `json:"sources"`
@@ -402,7 +421,7 @@ func adaptHeader(line string) (map[string]any, bool) {
 
 // ScriptAdaptEpisodesFromText 解析剧本优化的模型输出：一行 JSON 头开始一集，下面的行是正文，直到下一个头；
 // 回合标记、代码块围栏、头之前的说明文字跳过。整段没有 JSON 头但有场次头时按一集算（Header=false）。
-func ScriptAdaptEpisodesFromText(text string) ([]AdaptEpisode, AdaptParseStats) {
+func ScriptAdaptEpisodesFromText(text string, contract ...string) ([]AdaptEpisode, AdaptParseStats) {
 	var episodes []AdaptEpisode
 	var body []string
 	var cur *AdaptEpisode
@@ -410,6 +429,15 @@ func ScriptAdaptEpisodesFromText(text string) ([]AdaptEpisode, AdaptParseStats) 
 	flush := func() {
 		if cur == nil {
 			return
+		}
+		if len(contract) > 0 && contract[0] == ContractSSSScriptAdapt {
+			script, design, lines, err := SplitSSSScriptEpisode(strings.Join(body, "\n"))
+			if err == nil {
+				cur.Design = "## 第一部分　本集设计\n" + design + "\n\n## 第二部分　台词定稿表\n" + lines
+				body = strings.Split(script, "\n")
+			} else {
+				body = nil
+			}
 		}
 		finishAdaptEpisode(cur, body)
 		episodes = append(episodes, *cur)

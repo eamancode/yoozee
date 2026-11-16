@@ -53,7 +53,7 @@ export function OntologyDocumentsDrawer({ detail, open, onClose }: Props) {
     );
 }
 
-function DocumentText({ text }: { text: string }) {
+export function DocumentText({ text }: { text: string }) {
     return <pre className="thin-scrollbar max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-surface-active p-3 text-[var(--fs-label)] leading-6">{text}</pre>;
 }
 
@@ -92,6 +92,7 @@ function BiblePanel({ projectId, docs, mode }: { projectId: string; docs?: Ontol
                 )}
             </div>
             {editing ? <Input.TextArea value={draft} onChange={(event) => setDraft(event.target.value)} autoSize={{ minRows: 16, maxRows: 32 }} aria-label={terms.bible} /> : <DocumentText text={docs?.bible?.content || ""} />}
+            {docs?.bibleBasis && docs.bible ? <p>立项依据 {docs.bibleBasis.episodes}/{docs.bibleBasis.total} 集{docs.bibleBasis.legacy || docs.bibleBasis.outdated ? " · 建议重新立项" : ""}</p> : null}
             {docs?.setup?.content ? (
                 <details className="rounded-md border border-border p-3">
                     <summary className="cursor-pointer text-[var(--fs-label)]">{terms.setup}</summary>

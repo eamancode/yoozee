@@ -6,6 +6,7 @@ import { dramaSegmentsKey, DramaSegmentCard, useInvalidateDrama } from "@/pages/
 import type { SegmentAsset } from "@/pages/projects/workbench/detail/shot-card-layout";
 import { unitEpisodeNumber } from "@/pages/projects/workbench/detail/unit-numbering";
 import { projectWorkflow } from "@/lib/project-workflow";
+import { DirectorSetup } from "@/pages/projects/workbench/detail/sss-project-panels";
 import { assetPreviewUrl } from "@/pages/projects/workbench/detail/workflow-shot-references";
 import { listDramaSegments, type DramaSegmentProgress, type DramaSegmentView, type DramaSubShot } from "@/services/api/project-drama";
 import type { ProjectAsset, ProjectUnitWorkspace } from "@/services/api/projects";
@@ -132,6 +133,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                 </div>
             </div>
             <ShotlistBar run={run} segmentCount={segments.length} director={director} />
+            {project && projectWorkflow(project.workflowId).storyboardMode === "sss" ? <DirectorSetup projectId={project.id} tasks={data.projectTasks} /> : null}
             <SummaryRow
                 items={[
                     { label: "段", value: segmentsQuery.data && !segmentsQuery.isError ? segments.length : segmentsUnread(segmentsQuery.isLoading) },

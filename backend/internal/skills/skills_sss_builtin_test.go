@@ -110,14 +110,19 @@ func TestSSSBuiltinSeedAndCatalog(t *testing.T) {
 	}{
 		"yz-sss-film-director":  {"SSS 电影导演分镜", drama.ContractSSSDirector, 58},
 		"yz-sss-drama-director": {"SSS 短剧导演分镜", drama.ContractSSSDirector, 58},
-		"yz-sss-film-script":    {"yoozee · SSS 电影拆剧本（立意、全集结构与分集剧本）", drama.ContractScriptAdapt, 2},
+		"yz-sss-film-script":    {"yoozee · SSS 电影拆剧本（立意、全集结构与分集剧本）", drama.ContractSSSScriptAdapt, 2},
+		"yz-sss-drama-script":   {"yoozee · SSS 短剧拆剧本（立意、全集结构与分集剧本）", drama.ContractSSSScriptAdapt, 2},
 		"yz-sss-drama-style":    {"yoozee · SSS 短剧导演定画风（世界基准段与视听总谱）", drama.ContractStyleLock, 2},
 	} {
 		skill, err := s.repo.Skill(id)
 		if err != nil {
 			t.Fatal(id, err)
 		}
-		if skill.Name != want.name || skill.VersionLabel != "1.0.0" || skill.FileCount != want.files {
+		version := "1.0.0"
+		if want.contract == drama.ContractSSSScriptAdapt {
+			version = "1.1.0"
+		}
+		if skill.Name != want.name || skill.VersionLabel != version || skill.FileCount != want.files {
 			t.Fatalf("%s catalog = %q %q %d", id, skill.Name, skill.VersionLabel, skill.FileCount)
 		}
 		summary, versions, err := s.AdminFlowPackageVersions(admin, id)

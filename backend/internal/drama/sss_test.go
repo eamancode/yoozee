@@ -157,9 +157,27 @@ func TestSSSPasteValidatesTheSkillsOwnPromptExample(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "@站位参考") {
 		t.Fatal("@站位参考 has no screenshot on this platform and must be rejected", err)
 	}
+	withFrame := lim
+	withFrame.PositionReference = true
+	if err := ValidateSSSPaste(card, withFrame); err != nil {
+		t.Fatal("有相邻定格时应支持技能示例", err)
+	}
+	mixed := card
+	mixed.Paste = strings.Replace(paste, "@站位参考", "角色动作与 @站位参考", 1)
+	if err := ValidateSSSPaste(mixed, withFrame); err == nil || !strings.Contains(err.Error(), "单独起一行") {
+		t.Fatal("共用一行会随站位图一起误删的动作指令应退回", err)
+	}
+	withFrame.MaxImages = 4
+	if err := ValidateSSSPaste(card, withFrame); err == nil || !strings.Contains(err.Error(), "留一个名额") {
+		t.Fatal("站位图占用名额", err)
+	}
 	lines := strings.Split(paste, "\n")
 	lines = slices.DeleteFunc(lines, func(l string) bool { return strings.HasPrefix(l, "@站位参考") })
 	card.Paste = strings.Join(lines, "\n")
+	withFrame.MaxImages = 9
+	if err := ValidateSSSPaste(card, withFrame); err == nil || !strings.Contains(err.Error(), "必须写一次") {
+		t.Fatal("缺必需站位图", err)
+	}
 	if err := ValidateSSSPaste(card, lim); err != nil {
 		t.Fatal(err)
 	}

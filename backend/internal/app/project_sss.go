@@ -30,12 +30,15 @@ const sssMaxPromptRunes = 160000
 
 // dramaSSSMeta 是任务 metadata.dramaSSS：建任务时算好的材料，运行时按它组每一轮的提示词。
 type dramaSSSMeta struct {
-	Kind      string              `json:"kind"`
-	Brief     drama.SSSBrief      `json:"brief"`
-	Materials []drama.SSSMaterial `json:"materials"`
-	Docs      drama.SSSDocs       `json:"docs"`
-	UnitTitle string              `json:"unitTitle"`
-	Script    string              `json:"script"`
+	Flow             int                 `json:"flow,omitempty"`
+	IndependentStart bool                `json:"independentStart,omitempty"`
+	PreviousTitle    string              `json:"previousTitle,omitempty"`
+	Kind             string              `json:"kind"`
+	Brief            drama.SSSBrief      `json:"brief"`
+	Materials        []drama.SSSMaterial `json:"materials"`
+	Docs             drama.SSSDocs       `json:"docs"`
+	UnitTitle        string              `json:"unitTitle"`
+	Script           string              `json:"script"`
 	// Setup 表示项目还没有全剧圣经，这次运行先跑立项轮。
 	Setup bool `json:"setup,omitempty"`
 	// EstimatedTurns 是建任务时估的轮数（预授权、墙钟用）。
@@ -48,12 +51,13 @@ type dramaSSSMeta struct {
 
 // sssRepairMeta 是返修回合：只重写一个段。
 type sssRepairMeta struct {
-	ShotID       string  `json:"shotId"`
-	SegmentID    string  `json:"segmentId"`
-	Unit         string  `json:"unit"`
-	Symptom      string  `json:"symptom"`
-	Card         string  `json:"card"`
-	OtherSeconds float64 `json:"otherSeconds,omitempty"`
+	PositionReference bool    `json:"positionReference,omitempty"`
+	ShotID            string  `json:"shotId"`
+	SegmentID         string  `json:"segmentId"`
+	Unit              string  `json:"unit"`
+	Symptom           string  `json:"symptom"`
+	Card              string  `json:"card"`
+	OtherSeconds      float64 `json:"otherSeconds,omitempty"`
 }
 
 // sssFingerprint 是一次运行的输入指纹：续跑时剧本、素材、各文档、画风与时长约束改过就不能接着旧轮次写。
@@ -118,7 +122,12 @@ func (s *Service) sssStepSkill(project *model.Project, workflow drama.AssetWorkf
 }
 
 // planSSSShots 组一次 SSS 分镜运行：材料包（素材清单按项目有图的资产）、立意与结构、世界与总谱、全剧圣经、上一集交接卡、本集剧本。
-func (s *Service) planSSSShots(userID string, project *model.Project, unit *model.ProjectUnit, usage DramaStepUsage, skill drama.StepSkill, rule *DramaShotlistRule, repair *sssRepairMeta) (*dramaStepPlan, error) {
+type sssShotOptions struct {
+	Flow                int
+	AllowMissingHandoff bool
+}
+
+func (s *Service) planSSSShots(userID string, project *model.Project, unit *model.ProjectUnit, usage DramaStepUsage, skill drama.StepSkill, rule *DramaShotlistRule, repair *sssRepairMeta, options sssShotOptions) (*dramaStepPlan, error) {
 	m, err := dramaShotlistModel(project, briefSegmentRule(project.BriefJSON, rule))
 	if err != nil {
 		return nil, err
@@ -156,8 +165,45 @@ func (s *Service) planSSSShots(userID string, project *model.Project, unit *mode
 		}
 	}
 	meta.Setup = strings.TrimSpace(meta.Docs.Bible) == "" && repair == nil
-	if meta.Docs.Handoff, err = s.previousOntologyHandoff(project.ID, unit); err != nil {
+	meta.Flow = options.Flow
+	if meta.Flow >= 2 && repair == nil {
+		design, err := s.repo.LatestOntologyDocument(project.ID, unit.ID, model.OntologyDocDesign)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, sssPrecondition(ReasonEpisodeDesignRequired, "这一集还没有本集设计：先在剧本阶段补写本集设计", map[string]any{"unitId": unit.ID, "title": unit.Title})
+		}
+		if err != nil {
+			return nil, err
+		}
+		meta.Docs.Design = design.Content
+		units, err := s.repo.ProjectUnits(project.ID)
+		if err != nil {
+			return nil, err
+		}
+		number := 0
+		for _, ep := range units {
+			if ep.Kind == unit.Kind {
+				number++
+			}
+			if ep.ID == unit.ID {
+				break
+			}
+		}
+		meta.Docs.Concept = drama.SSSConceptForEpisode(meta.Docs.Concept, number)
+		if meta.Setup {
+			return nil, sssPrecondition(ReasonDirectorBibleRequired, "还没有全剧立项：先跑全剧立项", nil)
+		}
+	}
+	prev, handoff, err := s.previousEpisodeHandoff(project.ID, unit, meta.Flow >= 2)
+	if err != nil {
 		return nil, err
+	}
+	meta.Docs.Handoff = handoff
+	if meta.Flow >= 2 && prev != nil && handoff == "" && repair == nil {
+		if !options.AllowMissingHandoff {
+			return nil, sssPrecondition(ReasonPreviousHandoffRequired, prev.Title+"还没有出分镜（没有交接卡）：先完成它，或确认独立开局", map[string]any{"previousUnitId": prev.ID, "previousTitle": prev.Title})
+		}
+		meta.IndependentStart = true
+		meta.PreviousTitle = prev.Title
 	}
 	first := drama.SSSTurnPlan
 	priors := []ontologyPrior(nil)
@@ -167,6 +213,9 @@ func (s *Service) planSSSShots(userID string, project *model.Project, unit *mode
 		priors = []ontologyPrior{{"原单元卡", repair.Card}, {"翻车症状", repair.Symptom}}
 	case meta.Setup:
 		first = drama.SSSTurnSetup
+	case meta.Flow >= 2:
+		first = drama.SSSTurnDirect
+		priors = sssTurnPriors(first, meta, sssOutputs{})
 	}
 	if repair == nil {
 		meta.EstimatedTurns = sssEstimatedTurns(meta, maxSeconds)
@@ -194,11 +243,7 @@ func sssEstimatedTurns(meta *dramaSSSMeta, maxSeconds int) int {
 		seconds = 120
 	}
 	units := max(2, int(math.Ceil(float64(seconds)/math.Max(1, float64(maxSeconds)*0.8))))
-	turns := 4 + 2*units
-	if meta.Setup {
-		turns++
-	}
-	return turns
+	return sssTotalTurns(meta, units)
 }
 
 func sssProjectBrief(project *model.Project, kind string, maxSeconds int) drama.SSSBrief {
@@ -274,6 +319,12 @@ func sssTurnPrompt(skillContext string, meta *dramaSSSMeta, kind string, unit st
 		}
 	}
 	parts = append(parts, drama.SSSTurnInstruction(kind, unit, codes))
+	if meta.Flow >= 2 && kind == drama.SSSTurnDirect {
+		parts = append(parts, "本集设计与台词定稿表已在剧本阶段写好，台词以本集剧本为准，不再改台词。")
+	}
+	if meta.IndependentStart && kind == drama.SSSTurnReview {
+		parts = append(parts, "本集是独立开局，没有上一集交接卡。")
+	}
 	return strings.Join(parts, "\n\n")
 }
 
@@ -381,9 +432,9 @@ func sssNextTurn(meta *dramaSSSMeta, out sssOutputs) (sssTurnSpec, bool) {
 		return sssTurnSpec{}, true
 	}
 	switch {
-	case meta.Setup && out.Setup == "":
+	case meta.Flow < 2 && meta.Setup && out.Setup == "":
 		return sssTurnSpec{drama.SSSTurnSetup, "", "立项：全剧圣经"}, false
-	case out.Plan == "":
+	case meta.Flow < 2 && out.Plan == "":
 		return sssTurnSpec{drama.SSSTurnPlan, "", "本集设计与台词定稿"}, false
 	case out.Direct == "":
 		return sssTurnSpec{drama.SSSTurnDirect, "", "讲戏本"}, false
@@ -404,6 +455,9 @@ func sssNextTurn(meta *dramaSSSMeta, out sssOutputs) (sssTurnSpec, bool) {
 func sssTotalTurns(meta *dramaSSSMeta, units int) int {
 	if meta.Repair != nil {
 		return 2
+	}
+	if meta.Flow >= 2 {
+		return 3 + 2*units
 	}
 	total := 4 + 2*units
 	if meta.Setup {
@@ -434,6 +488,12 @@ func sssRepairCardText(text string) string {
 
 // sssTurnPriors 是这一轮要带的前序产物。
 func sssTurnPriors(kind string, meta *dramaSSSMeta, out sssOutputs) []ontologyPrior {
+	if meta.Flow >= 2 {
+		out.Plan = meta.Docs.Design
+		if (kind == drama.SSSTurnCard || kind == drama.SSSTurnCompile) && len(out.Compiles) < len(out.Units) {
+			out.Direct = drama.SSSDirectForScenes(out.Direct, drama.SSSUnitScenes(out.Cut, out.Units[len(out.Compiles)]))
+		}
+	}
 	switch kind {
 	case drama.SSSTurnDirect:
 		return []ontologyPrior{{"本集设计与台词定稿表", out.Plan}}
@@ -448,6 +508,13 @@ func sssTurnPriors(kind string, meta *dramaSSSMeta, out sssOutputs) []ontologyPr
 	case drama.SSSTurnCompile:
 		if meta.Repair != nil {
 			return []ontologyPrior{{"本单元的单元卡", sssRepairCardText(out.Repair)}}
+		}
+		if meta.Flow >= 2 {
+			priors := []ontologyPrior{{"本集设计与台词定稿表", out.Plan}, {"本场讲戏本", out.Direct}, {"切分结果", out.Cut}, {"本单元的单元卡", out.Cards[len(out.Cards)-1]}}
+			if len(out.Cards) > 1 {
+				priors = append(priors, ontologyPrior{"上一个单元的单元卡", out.Cards[len(out.Cards)-2]})
+			}
+			return priors
 		}
 		return []ontologyPrior{{"本单元的单元卡", out.Cards[len(out.Cards)-1]}}
 	case drama.SSSTurnReview:
@@ -502,6 +569,7 @@ func sssUsedSeconds(kind string, meta *dramaSSSMeta, out sssOutputs) float64 {
 // sssTurnCheck 是这一轮输出的校验（不合格按临时失败重试，错误文字会回给模型）。
 func sssTurnCheck(kind string, unit string, meta *dramaSSSMeta, skill drama.StepSkill, out sssOutputs, used float64) func(string, drama.TurnContext) (int, error) {
 	limits := sssLimits(meta, used)
+	limits.PositionReference = kind == drama.SSSTurnCompile && sssPositionNeeded(meta, out, unit)
 	return func(text string, _ drama.TurnContext) (int, error) {
 		if drama.OntologyUnfinished(text) {
 			return 0, errors.New("输出里出现了未完续写标记：本轮必须一次写完，不使用「回复继续」")
@@ -564,6 +632,26 @@ func sssCompileBody(meta *dramaSSSMeta, out sssOutputs) string {
 		return sssRepairCardText(out.Repair)
 	}
 	return out.Cards[len(out.Cards)-1]
+}
+
+func sssPositionNeeded(meta *dramaSSSMeta, out sssOutputs, unit string) bool {
+	if meta.Repair != nil {
+		return meta.Repair.Unit == unit && meta.Repair.PositionReference
+	}
+	i := slices.Index(out.Units, unit)
+	if meta.Flow < 2 || i < 1 || i >= len(out.Cards) {
+		return false
+	}
+	prev, err := sssCardOf(out.Cards[i-1], out.Units[i-1])
+	if err != nil {
+		return false
+	}
+	rows, err := drama.SSSShotTable(prev)
+	if err != nil || len(rows) == 0 || !strings.Contains(rows[len(rows)-1].Duty, "定格") {
+		return false
+	}
+	cur, err := sssCardOf(out.Cards[i], unit)
+	return err == nil && cur.Scene != "" && cur.Scene == prev.Scene
 }
 
 // sssCutChoices 读切分轮的启发库选用并对照技能包里的库号。
@@ -633,7 +721,13 @@ func (s *Service) runSSSRun(ctx context.Context, input canvasGenerationInput, ru
 			return nil, err
 		}
 		turnInput.Prompt = sssTurnPrompt(skillCtx, meta, spec.kind, spec.unit, codes, sssTurnPriors(spec.kind, meta, out))
+		if spec.kind == drama.SSSTurnCompile && sssPositionNeeded(meta, out, spec.unit) {
+			turnInput.Prompt += "\n本单元要写 @站位参考，给这张图留一个名额。"
+		}
 		if spec.kind == drama.SSSTurnReview && len([]rune(turnInput.Prompt)) > sssMaxPromptRunes {
+			if meta.Flow >= 2 {
+				out.Plan = meta.Docs.Design
+			}
 			turnInput.Prompt = sssTurnPrompt(skillCtx, meta, spec.kind, spec.unit, codes, sssReviewPriorsSlim(out))
 		}
 		used := sssUsedSeconds(spec.kind, meta, out)
@@ -684,7 +778,7 @@ func (s *Service) runSSSRun(ctx context.Context, input canvasGenerationInput, ru
 		if err != nil {
 			return nil, err
 		}
-		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, fmt.Sprintf("已写完第 %d/%d 轮：%s", k, max(progress.Total, k), spec.label), 35+60*k/max(progress.Total, k), string(encoded)); err != nil {
+		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, fmt.Sprintf("已写完第 %d/%d 轮：%s，输入 %d 字", k, max(progress.Total, k), spec.label, len([]rune(turnInput.Prompt))), 35+60*k/max(progress.Total, k), string(encoded)); err != nil {
 			return nil, fmt.Errorf("保存第 %d 轮进度失败：%w", k, err)
 		}
 	}
@@ -725,6 +819,7 @@ func sssEpisodeCards(meta *dramaSSSMeta, out sssOutputs) ([]drama.SSSUnitCard, e
 			return nil, err
 		}
 		lim := sssLimits(meta, used)
+		lim.PositionReference = sssPositionNeeded(meta, out, unit)
 		if err := drama.ValidateSSSCardBody(body, unit, lim); err != nil {
 			return nil, err
 		}
@@ -778,7 +873,7 @@ func (s *Service) applySSSShotsTask(task model.Task, meta *dramaSSSMeta, result 
 	order := make([]string, 0, len(cards))
 	scenes := map[string]bool{}
 	for i, card := range cards {
-		seg, err := drama.SSSSegment(card, i+1, meta.Materials)
+		seg, err := drama.SSSSegment(card, i+1, meta.Materials, sssPositionNeeded(meta, out, card.ID))
 		if err != nil {
 			return DramaStepTaskOutcome{}, err
 		}
@@ -797,7 +892,24 @@ func (s *Service) applySSSShotsTask(task model.Task, meta *dramaSSSMeta, result 
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
-	docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocEpisode, drama.SSSEpisodeDocument(out.Plan, out.Direct, out.Cut, cards, out.Review)},
+	if meta.Flow >= 2 {
+		out.Plan = meta.Docs.Design
+	}
+	episode := drama.SSSEpisodeDocument(out.Plan, out.Direct, out.Cut, cards, out.Review)
+	if meta.IndependentStart {
+		header := "## " + drama.SSSEpisodeParts[7] + "\n"
+		before, eighth, ok := strings.Cut(episode, header)
+		if ok {
+			note := "本集独立开局：生成时" + meta.PreviousTitle + "还没有交接卡。\n"
+			if strings.Contains(eighth, "### 待确认\n") {
+				eighth = strings.Replace(eighth, "### 待确认\n", "### 待确认\n"+note, 1)
+			} else {
+				eighth = strings.TrimRight(eighth, "\n") + "\n\n### 待确认\n" + note
+			}
+			episode = before + header + eighth
+		}
+	}
+	docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocEpisode, episode},
 		ontologyDocWrite{target.UnitID, model.OntologyDocMaterials, string(materials)})
 	if handoff, ok := drama.SSSHandoffText(out.Review); ok {
 		docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocHandoff, handoff})
@@ -845,6 +957,7 @@ func (s *Service) applySSSRepair(task model.Task, target dramaStepTaskTarget, me
 		return DramaStepTaskOutcome{}, errors.New("返修后的单元还没有编译出粘贴提示词")
 	}
 	card := drama.ParseSSSCompile(body, out.RepairCompile)
+	lim.PositionReference = repair.PositionReference
 	if err := drama.ValidateSSSPaste(card, lim); err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
@@ -852,7 +965,7 @@ func (s *Service) applySSSRepair(task model.Task, target dramaStepTaskTarget, me
 	if err != nil || order <= 0 {
 		return DramaStepTaskOutcome{}, fmt.Errorf("返修的段号 %q 无效", repair.SegmentID)
 	}
-	seg, err := drama.SSSSegment(card, order, meta.Materials)
+	seg, err := drama.SSSSegment(card, order, meta.Materials, repair.PositionReference)
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
@@ -949,12 +1062,15 @@ func (s *Service) RepairSSSSegment(userID string, project *model.Project, unitID
 		return DramaStepRunResult{}, BadAuthRequest(fmt.Sprintf("八部分里找不到单元卡 %s", seg.Title))
 	}
 	repair := &sssRepairMeta{ShotID: segments[idx].ShotID, SegmentID: seg.ID, Unit: seg.Title, Symptom: symptom, Card: cards[cardIdx].Text()}
+	if idx > 0 && seg.Scene != "" && segments[idx-1].Spec.Scene == seg.Scene {
+		repair.PositionReference = drama.SegmentEndsWithFreeze(segments[idx-1].Spec)
+	}
 	for i, c := range cards {
 		if i != cardIdx {
 			repair.OtherSeconds += c.TotalSeconds
 		}
 	}
-	plan, err := s.planSSSShots(userID, project, unit, usage, skill, req.Rule, repair)
+	plan, err := s.planSSSShots(userID, project, unit, usage, skill, req.Rule, repair, sssShotOptions{Flow: 2})
 	if err != nil {
 		return DramaStepRunResult{}, err
 	}

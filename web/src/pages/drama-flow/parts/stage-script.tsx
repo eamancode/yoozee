@@ -6,6 +6,8 @@ import { Pencil } from "lucide-react";
 import { plainTextToHtml } from "@/lib/project-source";
 import { briefEpisodeSeconds } from "@/pages/projects/workbench/detail/drama-brief";
 import { ScriptAdaptControl } from "@/pages/projects/workbench/detail/chapter-script-adapt";
+import { EpisodeDesign, useSSSDocuments } from "@/pages/projects/workbench/detail/sss-project-panels";
+import { projectWorkflow } from "@/lib/project-workflow";
 import { followChainedScenePalette } from "@/pages/projects/workbench/detail/chapter-scene-palette";
 import { withEpisodeSourcesComment } from "@/pages/projects/workbench/detail/episode-sources";
 import { isScriptAdaptTask } from "@/pages/projects/workbench/detail/project-chapter-ai";
@@ -48,6 +50,8 @@ type ScriptTab = "episodes" | "source" | "check";
 export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots }: { data: FlowData; stage?: FlowStageView; tab?: string; onTab: (tab: ScriptTab) => void; onSelectUnit: (unitId: string) => void; onRedoShots: (unitId: string) => void }) {
     const { detail, unit, fullUnit, workspaceQuery, unitsQuery, rail, episodes, episodesQuery, brief, projectTasks, chapters, episodeUnits, allUnits, project, dramaRule } = data;
     const active: ScriptTab = tab === "source" || tab === "check" ? tab : "episodes";
+    const sss = Boolean(project && projectWorkflow(project.workflowId).storyboardMode === "sss");
+    const designs = useSSSDocuments(project?.id || "", sss);
     const adaptTasks = useMemo(() => projectTasks.filter(isScriptAdaptTask), [projectTasks]);
     const lastOutcome = useMemo(() => {
         for (const task of adaptTasks) {
@@ -119,22 +123,26 @@ export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots
                                         {(row?.wordCount ?? item.wordCount).toLocaleString("zh-CN")} 字{row ? ` · 来源 ${row.sources.length} 处` : ""}
                                     </span>
                                     <span data-tone={row?.shots ? "ok" : undefined}>{row ? (row.shots ? `已分镜 ${row.shots} 个镜头` : row.hasShotlist ? "镜头表是草稿" : "还没分镜") : ""}</span>
+                                    {sss && row && designs.data && !designs.data.designs?.some((d) => d.unitId === item.id) ? <span>缺本集设计</span> : null}
                                 </button>
                             );
                         })}
                     </div>
-                    <EpisodeScript
-                        key={unit.id}
-                        projectId={project.id}
-                        unit={unit}
-                        full={fullUnit}
-                        loadError={workspaceQuery.isError}
-                        onReload={() => void workspaceQuery.refetch()}
-                        episode={unitEpisodeNumber(allUnits, unit.id)}
-                        hasShots={Boolean(episodeRows.find((row) => row.unitId === unit.id)?.shots)}
-                        rule={dramaRule}
-                        onRedoShots={() => onRedoShots(unit.id)}
-                    />
+                    <div className="min-w-0">
+                        <EpisodeScript
+                            key={unit.id}
+                            projectId={project.id}
+                            unit={unit}
+                            full={fullUnit}
+                            loadError={workspaceQuery.isError}
+                            onReload={() => void workspaceQuery.refetch()}
+                            episode={unitEpisodeNumber(allUnits, unit.id)}
+                            hasShots={Boolean(episodeRows.find((row) => row.unitId === unit.id)?.shots)}
+                            rule={dramaRule}
+                            onRedoShots={() => onRedoShots(unit.id)}
+                        />
+                        {sss && unit.kind === "episode" ? <EpisodeDesign projectId={project.id} unitId={unit.id} /> : null}
+                    </div>
                 </div>
             ) : active === "source" ? (
                 <SourceCompare
