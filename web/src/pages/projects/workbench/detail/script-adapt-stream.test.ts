@@ -29,6 +29,18 @@ test("同一集重试时清掉之前的半截输出", () => {
     assert.deepEqual(state.episodes[0].scenes, ["内·客厅·日"]);
 });
 
+test("SSS 本集设计和台词定稿表在流式与检查点视图中均独立于场次", () => {
+    const body = ["## 外·雨棚·夜", "阿婆：进来躲。"];
+    const design = ["## 第一部分　本集设计", "雨棚重逢", "## 第二部分 台词定稿表", "| 阿婆 | 进来躲。 |"];
+    const text = [header(1, "雨棚"), ...body, ...design].join("\n");
+    const checkpoint = { dramaRun: { total: 1, turns: [{ index: 1, scene: "1", text }] } };
+    for (const view of [parseScriptAdaptStream([marker(1), text].join("\n")), scriptAdaptStreamFromResult(JSON.stringify(checkpoint))]) {
+        assert.equal(view.sceneCount, 1);
+        assert.deepEqual(view.episodes[0].lines, body);
+        assert.deepEqual(view.episodes[0].design, design);
+    }
+});
+
 test("scriptAdaptStreamFromResult 从失败任务的各轮原文或成功任务的 text 还原", () => {
     const failed = scriptAdaptStreamFromResult(JSON.stringify({ dramaRun: { total: 3, turns: [{ index: 1, heading: "第 1 集", text: `${header(1, "a")}\n## 内·客厅·夜\n甲：你好。` }] } }));
     assert.equal(failed.total, 3);

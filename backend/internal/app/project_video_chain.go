@@ -35,6 +35,7 @@ type ProjectVideoChainRequest struct {
 }
 
 type ProjectVideoChainStep struct {
+	FreezeReference       bool               `json:"freezeReference,omitempty"`
 	ShotID                string             `json:"shotId"`
 	RevisionID            string             `json:"revisionId"`
 	Title                 string             `json:"title"`

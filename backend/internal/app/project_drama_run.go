@@ -67,11 +67,13 @@ type dramaRunTurn struct {
 	Section string `json:"section,omitempty"`
 	Genre   string `json:"genre,omitempty"`
 	// Rows 是这一轮写了几条：生成分段是镜头行数，剧本优化是集数（1）。
-	Rows     int            `json:"rows"`
-	Attempts int            `json:"attempts"`
-	Prompt   string         `json:"prompt,omitempty"`
-	Text     string         `json:"text,omitempty"`
-	Usage    map[string]any `json:"usage,omitempty"`
+	Rows          int            `json:"rows"`
+	Attempts      int            `json:"attempts"`
+	InputRunes    int            `json:"inputRunes,omitempty"`
+	SetupEpisodes []string       `json:"setupEpisodes,omitempty"`
+	Prompt        string         `json:"prompt,omitempty"`
+	Text          string         `json:"text,omitempty"`
+	Usage         map[string]any `json:"usage,omitempty"`
 	// TaskID 是写出这一轮的任务（从上一次任务接过来的轮次指向原任务）。
 	TaskID string `json:"taskId"`
 	// Kept 表示这一轮没调模型：「重新生成问题场」时不重写的场，Text 是镜头表里原有的镜头行；按小节生成时 Text 是这一节存下的
@@ -235,11 +237,13 @@ func (s *Service) resumeDramaRun(userID string, projectID string, unitID string,
 		return dramaRunMeta{}, BadAuthRequest("要继续的任务不是这一次的" + label)
 	case meta.Contract == drama.ContractIntegratedAssets && (meta.Contract != plan.usage.Contract || meta.VersionID != plan.skill.VersionID):
 		return dramaRunMeta{}, BadAuthRequest("资产技能版本已更新，请重新提取，不能混用旧检查点")
+	case meta.Step == drama.StepScriptAdapt && meta.Contract != plan.usage.Contract:
+		return dramaRunMeta{}, BadAuthRequest("剧本契约已更新，请重新生成剧本")
 	case previous.Status != model.TaskStatusFailed && previous.Status != model.TaskStatusCancelled:
 		return dramaRunMeta{}, BadAuthRequest("只有失败或取消的" + label + "任务才能从中间继续")
 	case progress == nil || progress.Completed == 0 || len(progress.Turns) < progress.Completed:
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("上一次一%s都没写完，请重新%s", unit, label))
-	case progress.Completed >= progress.Total && plan.usage.Step != drama.StepChapterShots:
+	case progress.Completed >= progress.Total && plan.usage.Step != drama.StepChapterShots && plan.usage.Step != drama.StepDirectorSetup:
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("上一次各%s都已写完，请重新%s", unit, label))
 	case !sameShotsScenes(run.Scenes, plan.scenes):
 		return dramaRunMeta{}, BadAuthRequest(fmt.Sprintf("正文的%s次改过了（或场次规则已更新：连续同地点的场次头并成一场），不能从中间继续，请重新%s", unit, label))
@@ -252,6 +256,14 @@ func (s *Service) resumeDramaRun(userID string, projectID string, unitID string,
 		if err != nil || record.Version != run.BaseShotlistVersion {
 			return dramaRunMeta{}, BadAuthRequest("本章镜头表在上一次任务之后又改过，不能拿上一次的输出重新收尾，请重新" + label)
 		}
+	}
+	if plan.setup != nil {
+		previousSetup := taskDirectorSetup(previous.InputJSON)
+		if previousSetup == nil {
+			return dramaRunMeta{}, BadAuthRequest("上一条立项任务缺少批次信息，请重新立项")
+		}
+		plan.setup.Queue = slices.Clone(previousSetup.Queue)
+		run.Turns = progress.Total
 	}
 	return dramaRunMeta{RunID: run.RunID, Step: run.Step, UnitID: unitID, Scenes: run.Scenes, Sources: run.Sources, Turns: run.Turns, ResumeFrom: progress.Completed + 1, ResumeTaskID: previous.ID,
 		OnlyScenes: run.OnlyScenes, OnlySections: run.OnlySections, BaseShotlistVersion: run.BaseShotlistVersion}, nil
@@ -322,6 +334,27 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 	// 按小节生成：一轮一节，每一节的本轮指令建任务时已经组好；一个戏类一条对话（续写历史只带同一戏类的轮次），当轮按这一节戏类的
 	// 转换器校验，转出的镜头行另写一行进文本流给侧栏显示。
 	shots := taskDramaShots(task.InputJSON)
+	setup := taskDirectorSetup(task.InputJSON)
+	if run.Step == drama.StepDirectorSetup && (setup == nil || len(setup.Batches) == 0) {
+		return nil, errors.New("全剧立项批次信息不完整")
+	}
+	doneEpisodes := 0
+	if setup != nil {
+		setup.Batches = nil
+		for _, turn := range turns {
+			n := len(turn.SetupEpisodes)
+			if n == 0 || doneEpisodes+n > len(setup.Basis) || !slices.Equal(turn.SetupEpisodes, setup.Basis[doneEpisodes:doneEpisodes+n]) {
+				return nil, errors.New("全剧立项检查点与剧集顺序不一致")
+			}
+			setup.Batches = append(setup.Batches, turn.SetupEpisodes)
+			doneEpisodes += n
+		}
+		if doneEpisodes < len(setup.Basis) {
+			total = max(total, len(turns)+1)
+		} else {
+			total = len(turns)
+		}
+	}
 	if shots != nil {
 		if len(shots.Turns) != len(shots.Sections) || len(shots.Sections) != total {
 			return nil, errors.New("按小节生成的任务参数不完整，请重新生成")
@@ -376,6 +409,23 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		turnPlan, history := plan, dramaRunHistory(input.TextHistory, progress.Turns)
 		genreLabel := ""
 		switch {
+		case setup != nil:
+			previous := ""
+			if k > 1 {
+				previous = progress.Turns[k-2].Text
+			}
+			remaining, batchErr := setup.remainingBatches(doneEpisodes, previous)
+			if batchErr != nil {
+				return nil, batchErr
+			}
+			setup.Batches = append(setup.Batches[:k-1], remaining...)
+			total = len(setup.Batches)
+			progress.Total = total
+			prompt, err = setup.prompt(k, progress.Turns)
+			if err != nil {
+				return nil, err
+			}
+			history = nil
 		case shots != nil:
 			sec := shots.Sections[k-1]
 			g, _ := drama.ShotGenreByID(sec.Genre)
@@ -401,11 +451,29 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 			}
 		}
 		check := drama.TurnContext{Index: k, Sources: run.Sources, Prior: dramaRunPriorText(progress.Turns)}
+		if setup != nil {
+			marker.Heading = fmt.Sprintf("全剧立项 第 %d/%d 批", k, total)
+		}
 		if meta := taskDramaStep(task.InputJSON); meta != nil {
 			check.Contract = meta.Contract
 		}
 		if k <= len(run.Scenes) {
 			check.Turn = run.Scenes[k-1]
+		}
+		if check.Contract == drama.ContractSSSScriptAdapt {
+			if adapt := taskDramaAdapt(task.InputJSON); adapt != nil {
+				check.LockedLines = adapt.LockedLines
+				i := k - 1
+				if adapt.Concept {
+					i--
+				}
+				if (adapt.Mode == drama.ScriptAdaptModeRhythm || adapt.Mode == "design") && i >= 0 && i < len(adapt.SourceUnitIDs) {
+					check.SourceEpisode = adapt.SourceUnitIDs[i]
+				}
+			}
+		}
+		if check.Contract == drama.ContractSSSScriptAdapt && check.Turn.ID != drama.ScriptAdaptConceptTurn && k > 1 {
+			turnInput.Prompt += "\n" + drama.SSSScriptEpisodeInstruction
 		}
 		var turn dramaRunTurn
 		if rows, ok := kept[key]; ok {
@@ -430,6 +498,10 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 			}
 		}
 		turn.TaskID, turn.Section = task.ID, marker.Section
+		if setup != nil {
+			turn.SetupEpisodes = slices.Clone(setup.Batches[k-1])
+			doneEpisodes += len(turn.SetupEpisodes)
+		}
 		if shots != nil {
 			turn.Genre = shots.Sections[k-1].Genre
 		}
@@ -453,6 +525,9 @@ func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, 
 		if shots == nil {
 			progress.Turns[i].Text = ""
 		}
+	}
+	if setup != nil {
+		texts = texts[len(texts)-1:]
 	}
 	return map[string]any{"mode": "text", "text": strings.Join(texts, "\n") + "\n", "dramaRun": progress}, nil
 }
@@ -561,7 +636,7 @@ func (s *Service) runDramaTurn(ctx context.Context, task model.Task, input canva
 				continue
 			}
 			stream.finishTurn(text)
-			turn := dramaRunTurn{Index: marker.Index, Scene: marker.Scene, Heading: marker.Heading, Rows: count, Attempts: attempt, Prompt: attemptInput.Prompt, Text: text}
+			turn := dramaRunTurn{Index: marker.Index, Scene: marker.Scene, Heading: marker.Heading, Rows: count, Attempts: attempt, InputRunes: len([]rune(attemptInput.Prompt)), Prompt: attemptInput.Prompt, Text: text}
 			if usage, ok := result["usage"].(map[string]any); ok {
 				turn.Usage = usage
 			}

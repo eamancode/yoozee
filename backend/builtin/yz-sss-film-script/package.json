@@ -1,7 +1,7 @@
 {
   "id": "yz-sss-film-script",
   "step": "script.adapt",
-  "contract": "script.adapt@1",
+  "contract": "sss.script@1",
   "profiles": [
     "action-epic",
     "anime-3d",
@@ -9,7 +9,7 @@
     "game-ip",
     "live-realism"
   ],
-  "version": "1.0.0",
+  "version": "1.1.0",
   "files": [
     "SKILL.md"
   ],

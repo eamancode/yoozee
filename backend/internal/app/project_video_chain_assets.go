@@ -9,6 +9,9 @@ import (
 )
 
 func videoChainFrameAssetID(projectID string, step *videoChainStepState) string {
+	if step.FreezeReference {
+		return videoChainHash([]string{projectID, step.SourceShotID, step.SourceRevisionID, step.SourceVideoResourceID, "freeze-mid"})[:32]
+	}
 	return videoChainHash([]string{projectID, step.SourceShotID, step.SourceRevisionID, step.SourceVideoResourceID})[:32]
 }
 

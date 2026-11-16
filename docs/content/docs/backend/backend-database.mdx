@@ -606,7 +606,7 @@ Schema 32 为 `channel_models` 新增 `tags`（TEXT、NOT NULL、默认 `'[]'`�
 | `id` | 主键 |
 | `project_id`、`unit_id`、`kind`、`version` | 联合唯一索引 `idx_project_ontology_docs_version`；`unit_id` 为空是项目级文档 |
 | `kind` | `bible` 世界圣经卡（项目级）、`setup` 立项待确认清单与补图建议（项目级）、`episode` 一集的七部分、`handoff` 一集的集交接卡、`materials` 一集生成时的素材清单 JSON（返修按它解释原单元卡的 `@图N`）、`gate` 一集自检硬失败里还没返修的项（JSON 字符串数组，非空时流水线停在分镜，返修某单元后去掉该单元的项） |
-| `kind`（SSS 增补） | `concept` 拆剧本写的立意页与全集结构表（项目级）、`world` 导演定画风写的世界基准段与视听总谱（项目级）；SSS 的 `bible` 是全剧圣经、`setup` 是立项待确认、`episode` 是一集的八部分、`materials` 是素材清单（返修按它解释 `@名称`）；SSS 不写 `gate`。`kind` 是字符串列，不需要新迁移 |
+| `kind`（SSS 增补） | `concept` 拆剧本写的立意页与全集结构表（项目级）、`world` 导演定画风写的世界基准段与视听总谱（项目级）；SSS 的 `bible` 是全剧圣经、`setup` 是立项待确认、`episode` 是一集的八部分、`materials` 是素材清单（返修按它解释 `@名称`）；剧本阶段按集保存本集设计和台词定稿表（`design`），全剧立项依据由任务 `metadata.dramaSetup.basis` 记录；SSS 不写 `gate`。`kind` 是字符串列，不需要新迁移 |
 | `content` | 文档原文（Markdown） |
 | `task_id`、`created_by`、`created_at` | 来源任务、写入人、时间；手改圣经卡没有 `task_id` |
 

@@ -50,7 +50,7 @@ function secondsBetween(from: string | undefined, to: number) {
 }
 
 /** SSS 下一轮的种类与标题（与服务端 sssNextTurn 同序）。 */
-function sssNext(turns: Turn[], setup: boolean, units: number, repair: boolean): { kind: string; label: string } | undefined {
+function sssNext(turns: Turn[], setup: boolean, units: number, repair: boolean, flow: number): { kind: string; label: string } | undefined {
     const count = (kind: string) => turns.filter((turn) => turn.kind === kind).length;
     if (repair) {
         if (!count("repair")) return { kind: "repair", label: "返修" };
@@ -58,7 +58,7 @@ function sssNext(turns: Turn[], setup: boolean, units: number, repair: boolean):
         return undefined;
     }
     if (setup && !count("setup")) return { kind: "setup", label: "立项：全剧圣经" };
-    if (!count("plan")) return { kind: "plan", label: "本集设计与台词定稿" };
+    if (flow < 2 && !count("plan")) return { kind: "plan", label: "本集设计与台词定稿" };
     if (!count("direct")) return { kind: "direct", label: "讲戏本" };
     if (!count("cut")) return { kind: "cut", label: "整场镜头表与单元总表" };
     const cards = count("card");
@@ -89,11 +89,13 @@ export function directorRunView(task: Pick<GenerationTask, "status" | "dramaRoun
         return view;
     }
     // 立项只在第一集：总轮数为奇数（4 + 2n + 1）或已经写过立项轮。
-    const setup = turns.some((turn) => turn.kind === "setup") || (!repair && total % 2 === 1);
-    const units = repair ? 1 : Math.max(0, Math.floor((total - 4 - (setup ? 1 : 0)) / 2));
-    const next = active ? sssNext(turns, setup, units, repair) : undefined;
+    const flow = rounds.flow ?? 1;
+    const setup = flow < 2 && (turns.some((turn) => turn.kind === "setup") || (!repair && total % 2 === 1));
+    const base = flow >= 2 ? 3 : 4 + Number(setup);
+    const units = repair ? 1 : Math.max(0, Math.floor((total - base) / 2));
+    const next = active ? sssNext(turns, setup, units, repair, flow) : undefined;
     if (next) view.current = { index: saved + 1, label: streamHeading || next.label };
-    const phases = repair ? SSS_REPAIR_PHASES : SSS_PHASES.filter((phase) => phase.kind !== "setup" || setup);
+    const phases = repair ? SSS_REPAIR_PHASES : SSS_PHASES.filter((phase) => (phase.kind !== "setup" || setup) && (phase.kind !== "plan" || flow < 2));
     view.phases = phases.map(({ kind, label }) => {
         const done = turns.filter((turn) => turn.kind === kind).length;
         const planned = kind === "card" || kind === "compile" ? units : 1;

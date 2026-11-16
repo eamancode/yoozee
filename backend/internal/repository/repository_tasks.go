@@ -24,6 +24,14 @@ func (r *Repository) Task(id string) (*model.Task, error) {
 	return &task, nil
 }
 
+func (r *Repository) UpdateSucceededTaskResult(userID, id, previous, updated string) error {
+	q := r.db.Model(&model.Task{}).Where("user_id = ? AND id = ? AND status = ? AND result_json = ?", userID, id, model.TaskStatusSucceeded, previous).UpdateColumn("result_json", updated)
+	if q.Error == nil && q.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return q.Error
+}
+
 // TaskChainedFromExists 是这个用户有没有任务是接着 taskID 建的（任务输入 metadata.chainedFrom = taskID）。
 func (r *Repository) TaskChainedFromExists(userID string, taskID string) (bool, error) {
 	var count int64

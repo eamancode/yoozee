@@ -95,6 +95,12 @@ export function ScriptAdaptRunPanel({ open, onClose, running, stage, stream, uni
                                 ),
                             )}
                             {!episode.lines.length ? <div className="text-foreground/40">{concept ? "等待立意页和全集结构表…" : "等待这一集的正文…"}</div> : null}
+                            {episode.design?.length ? (
+                                <details>
+                                    <summary>本集设计与台词定稿</summary>
+                                    <div className="whitespace-pre-wrap">{episode.design.join("\n")}</div>
+                                </details>
+                            ) : null}
                         </div>
                     ),
                 };

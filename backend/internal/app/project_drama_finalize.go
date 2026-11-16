@@ -107,7 +107,7 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 				return false, err
 			}
 			// 返修时不接下一集：停在分镜。
-			if target := taskProjectID(task); target != "" && sss.Repair == nil {
+			if target := taskProjectID(task); target != "" && sss.Repair == nil && sss.Flow < 2 {
 				outcome.Chained = s.continueShotsQueue(task, target)
 			}
 			result["dramaStep"] = outcome
@@ -122,6 +122,22 @@ func (s *Service) finalizeDramaStepTask(task model.Task, result map[string]inter
 			outcome.Chained = s.continueShotsQueue(task, target)
 		}
 		result["dramaStep"] = outcome
+		return true, nil
+	case drama.StepDirectorSetup:
+		projectID := taskProjectID(task)
+		if _, err := s.activeProjectForUser(task.UserID, projectID); err != nil {
+			return false, err
+		}
+		text, _ := result["text"].(string)
+		if err := drama.SSSRequireSections(text, "全剧圣经", "待确认"); err != nil {
+			return false, err
+		}
+		bible, _ := drama.SSSBibleText(text)
+		pending, _ := drama.SSSSection(text, "待确认")
+		if err := s.writeOntologyDocs(task, projectID, []ontologyDocWrite{{"", model.OntologyDocBible, bible}, {"", model.OntologyDocSetup, "## 待确认\n\n" + pending}}); err != nil {
+			return false, err
+		}
+		result["dramaStep"] = DramaStepTaskOutcome{Step: meta.Step, Status: DramaStepOutcomeWritten}
 		return true, nil
 	case drama.StepScriptAdapt:
 		outcome, err := s.applyScriptAdaptTask(task, meta, result)

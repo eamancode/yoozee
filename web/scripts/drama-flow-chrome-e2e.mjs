@@ -62,7 +62,8 @@ function freePort() {
 }
 
 async function launchVite(port) {
-    const child = spawn("bunx", ["vite", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" });
+    const mode = process.env.DRAMA_FLOW_E2E_PREVIEW === "1" ? ["preview"] : [];
+    const child = spawn("bunx", ["vite", ...mode, "--host", "127.0.0.1", "--port", String(port), "--strictPort"], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" });
     let log = "";
     child.stdout.on("data", (chunk) => (log += chunk));
     child.stderr.on("data", (chunk) => (log += chunk));
@@ -784,6 +785,81 @@ async function main() {
         check(await cdp.poll(`document.body.innerText.includes("导演正在写第 3 轮：整场镜头表与单元总表")`, "sss early", 30000), "R4-SSS-RUN 切分前显示第 3 轮切分");
         check(await cdp.evaluate(`(document.querySelector(".drama-flow-note")?.innerText || "").includes("已保存 2/10 轮（预估总轮数")`), "R4-SSS-RUN 切分前写明是预估总轮数");
 
+        fixture = useFixture({ workflowId: "pipeline-2", directorSetup: "current" });
+        for (const width of [1024, 1280]) {
+            for (const theme of ["light", "dark"]) {
+                await cdp.evaluate(`localStorage.setItem("yingce:theme_store", JSON.stringify({ state: { theme: ${JSON.stringify(theme)} }, version: 0 }))`);
+                await layoutCase(cdp, { viewport: { width, height: 900 }, path: `/drama-flow/${P}/script`, label: `R7 本集设计 ${width} ${theme}` });
+                check(await cdp.poll(`document.querySelectorAll('[aria-label="本集导演文档"] summary').length === 2`, "设计及定稿表"), "R7-E01 两部分独立展示");
+                await cdp.evaluate(`document.querySelectorAll('[aria-label="本集导演文档"] summary').forEach(el => el.click())`);
+                check(await cdp.evaluate(`document.querySelector('[aria-label="本集导演文档"]').innerText.includes("收着。")`), "R7-E01 可展开定稿台词");
+                if (outDir) await cdp.shot(join(outDir, `r7-script-${width}-${theme}.png`));
+            }
+        }
+        fixture = useFixture({ workflowId: "pipeline-2", directorSetup: "missing" });
+        await cdp.navigate(`/drama-flow/${P}/shots`);
+        check(await cdp.poll(`document.querySelector('[aria-label="全剧立项"]')?.innerText.includes("未立项")`, "未立项状态"), "R7-E02 分镜页可发起立项");
+        await cdp.navigate(`/drama-flow/${P}/script`);
+        check(await cdp.poll(`document.body.innerText.includes("缺本集设计") && document.body.innerText.includes("补写本集设计")`, "补写入口"), "R7-E01 旧项目可补写设计");
+        fixture = useFixture({
+            workflowId: "pipeline-2",
+            directorSetup: "legacy",
+            tasks: [
+                {
+                    ...runningSSS,
+                    dramaRounds: {
+                        mode: "sss",
+                        flow: 2,
+                        completed: 2,
+                        total: 7,
+                        turns: [
+                            { kind: "direct", heading: "讲戏" },
+                            { kind: "cut", heading: "切分" },
+                        ],
+                    },
+                },
+            ],
+        });
+        await cdp.navigate(`/drama-flow/${P}/shots`);
+        check(await cdp.poll(`document.body.innerText.includes("建议重新立项")`, "旧立项提示"), "R7-E02 旧圣经可继续使用");
+        check(await cdp.poll(`document.querySelectorAll(".drama-flow-director-phases li").length === 5`, "Flow 2 阶段数"), "R7-E04 展示五个阶段");
+        await cdp.click(buttonIn("document", "导演文档"), "导演文档");
+        check(await cdp.poll(`document.body.innerText.includes("立项依据 1/1 集")`, "圣经依据"), "R7-E06 圣经展示依据集数");
+        await cdp.click(byText('[role="tab"]', "E01 随行鲜"), "本集导演文档");
+        await cdp.click(byText(".ant-segmented-item", "八部分"), "查看八部分");
+        check(await cdp.poll(`["一","二","三","四","五","六","七","八"].every(n => document.body.innerText.includes("第"+n+"部分"))`, "本集八部分"), "R7-E06 本集导演文档八部分齐全");
+        fixture = useFixture({
+            workflowId: "pipeline-2",
+            directorSetup: "current",
+            tasks: [{ ...runningSSS, id: "task-project-setup", clientContext: {}, stage: "全剧立项 第 2/3 批", dramaRounds: { mode: "setup", completed: 1, total: 3, turns: [{ kind: "setup", heading: "全剧立项 第 1/3 批" }] } }],
+        });
+        await cdp.navigate(`/drama-flow/${P}/shots?fixture=project-setup`);
+        check(await cdp.poll(`document.querySelector('[aria-label="全剧立项"]')?.innerText.includes("第 2/3 批")`, "增补批进度"), "R7-E02 全剧立项运行时显示当前批次");
+
+        fixture = useFixture({ workflowId: "pipeline-2", directorSetup: "current", style: "locked", handoffGate: true });
+        await cdp.navigate(`/drama-flow/${P}/shots?ep=${FIXTURE_UNIT_ID}`);
+        const wholeEpisode = buttonIn("document", "整集重新生成");
+        check(await cdp.poll(exists(wholeEpisode), "分镜生成入口"), "R7-E03 第二集可请求生成");
+        await cdp.click(wholeEpisode, "第二集分镜");
+        const independent = buttonIn("document", "独立开局（不接上一集）");
+        check(await cdp.poll(exists(independent), "缺少交接卡确认"), "R7-E03 缺交接卡显示独立开局与上一集选项");
+        check(await cdp.evaluate(exists(buttonIn("document", "先去做第一集"))), "R7-E03 可以返回前一集");
+        if (outDir) await cdp.shot(join(outDir, "r7-handoff.png"));
+        await cdp.click(buttonIn("document", "先去做第一集"), "先去上一集");
+        check((await cdp.poll(`new URLSearchParams(location.search).get("ep") === "previous-episode"`, "定位上一集")) && JSON.stringify(fixture.handoffRequests) === "[false]", "R7-E03 回到上一集不提交生成");
+        await cdp.navigate(`/drama-flow/${P}/shots?ep=${FIXTURE_UNIT_ID}`);
+        await cdp.click(wholeEpisode, "重新查看第二集前置条件");
+        await cdp.click(independent, "独立开局");
+        await cdp.poll(`document.body.innerText.includes("fixture_independent_request_recorded")`, "收到独立开局请求");
+        check(JSON.stringify(fixture.handoffRequests) === "[false,false,true]", "R7-E03 仅明确选择后提交 allowMissingHandoff");
+        for (const freezeRelay of ["ready", "skipped"]) {
+            fixture = useFixture({ workflowId: "pipeline-2", freezeRelay });
+            await cdp.navigate(`/drama-flow/${P}/video`);
+            const expected = freezeRelay === "ready" ? 'document.querySelector("img[alt=上一段站位参考]") && document.body.innerText.includes("来自上一段定格")' : 'document.body.innerText.includes("未使用上一段站位参考：截帧失败")';
+            check(await cdp.poll(expected, "站位参考状态"), `R7-E05 ${freezeRelay} 展示来源或跳过原因`);
+            if (outDir) await cdp.shot(join(outDir, `r7-reference-${freezeRelay}.png`));
+        }
+
         // UI-1024：侧栏展开、长中文项目名，1024×900 和 1280×900 下页面外壳都在可视区内；详情栏开关、五个阶段都看一遍。
         fixture = useFixture({ name: "雨夜便民市场里阿婆递给林深一杯温热橙汁之后发生的那些事情（第一季）" });
         for (const viewport of [
@@ -910,7 +986,8 @@ async function main() {
         const writes = fixtures.flatMap((item) => item.forbidden);
         check(writes.length === 0, `没有任何生成或改项目的写请求（${fixtures.length} 个夹具实例合计）`, writes.map((call) => `${call.method} ${call.path}`).join(" | "));
         // R8-02 那一项故意让预览回 400（能力不支持），只放过这一次；多出来的同类错误或别的错误照样判失败。
-        const expectedApiErrors = [`400 POST /api/projects/${P}/video-chains/preview`];
+        const handoffResponse = `409 POST /api/projects/${P}/units/${FIXTURE_UNIT_ID}/drama/steps/chapter.shots/run`;
+        const expectedApiErrors = [`400 POST /api/projects/${P}/video-chains/preview`, handoffResponse, handoffResponse, handoffResponse];
         const problems = cdp.problems.filter((item) => {
             if (item.kind === "api" && item.text.startsWith("404")) return false;
             const expected = expectedApiErrors.indexOf(item.text);
@@ -920,7 +997,7 @@ async function main() {
             }
             return true;
         });
-        check(!expectedApiErrors.length, "R8-02 预期的那一次能力错误确实发生了");
+        check(!expectedApiErrors.length, "费用预览和交接确认的夹具响应逐次匹配");
         const unknown = cdp.problems.filter((item) => item.kind === "api" && item.text.startsWith("404"));
         if (unknown.length) console.log(`      夹具没覆盖的读接口：\n        ${[...new Set(unknown.map((item) => item.text))].join("\n        ")}`);
         check(!problems.length, "浏览器没有未捕获异常或 console error", problems.map((item) => `${item.kind}: ${item.text}`).join(" | "));

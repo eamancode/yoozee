@@ -3,6 +3,7 @@
 （backend/internal/drama/step_package_test.go 跑同一份样例）；packages/ 下的包都能过校验，构建出的 zip 带清单和内容哈希。
   python3 yoozee-skills/tests/test_package.py"""
 import json
+import hashlib
 import pathlib
 import sys
 import tempfile
@@ -18,7 +19,19 @@ def expand(value):
     return value if isinstance(value, str) else value["repeat"] * value["times"]
 
 
+def test_sss_script_manuals():
+    for kind in ("film", "drama"):
+        director = B.BUILTIN / f"yz-sss-{kind}-director"
+        script = (B.BUILTIN / f"yz-sss-{kind}-script" / "SKILL.md").read_bytes()
+        for name in ("04_集设计.md", "05_台词手术.md"):
+            assert (director / "手册" / name).read_bytes() in script
+        for line in director.with_suffix(".SHA256SUMS").read_text(encoding="utf-8").splitlines():
+            digest, path = line.split("  ", 1)
+            assert hashlib.sha256((director / path).read_bytes()).hexdigest() == digest
+
+
 def main():
+    test_sss_script_manuals()
     rules = B.package_rules()
     failed = 0
     cases = json.loads((HERE / "packages" / "cases.json").read_text(encoding="utf-8"))["cases"]

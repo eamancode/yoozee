@@ -187,3 +187,51 @@ func TestVideoChainLocalTailFrameIsActualFinalFrame(t *testing.T) {
 		t.Fatal("extraction used an earlier blue frame or invented its timestamp", red, blue, observation)
 	}
 }
+
+func TestSSSFreezeMidFrame(t *testing.T) {
+	binary, err := renderFfmpegBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "freeze.mp4")
+	// 模拟最后 0.1 秒变红的坏尾帧，定格主体保持蓝色。
+	cmd := exec.Command(binary, "-loglevel", "error", "-f", "lavfi", "-i", "color=c=blue:s=16x16:r=30:d=2.9", "-f", "lavfi", "-i", "color=c=red:s=16x16:r=30:d=0.1", "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("生成本地色块样片: %v %s", err, out)
+	}
+	s, _ := newDramaWorkerTestService(t)
+	video, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource, err := s.UploadResourceFile("user-1", "freeze.mp4", int64(len(video)), "video", 16, 16, 3000, bytes.NewReader(video))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		offset float64
+		blue   bool
+	}{{0.5, true}, {0, false}, {0.000001, false}} {
+		var observed dramaTailFrameObservation
+		id, err := s.saveDramaFrameBeforeEnd("user-1", resource, path, tc.offset, &observed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, body, err := s.OpenResource("user-1", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		frame, _, err := image.Decode(body)
+		body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, _, b, _ := frame.At(8, 8).RGBA()
+		if tc.offset > 0 && !tc.blue && observed.Method == "freeze-mid" {
+			t.Fatal("无可读中段应回退至最后一帧", observed)
+		}
+		if (b > r) != tc.blue || tc.blue && (observed.Method != "freeze-mid" || observed.TimeSeconds == nil || *observed.TimeSeconds < 2.48 || *observed.TimeSeconds > 2.54) {
+			t.Fatalf("offset=%v rgba=%d,%d observation=%+v", tc.offset, r, b, observed)
+		}
+	}
+}

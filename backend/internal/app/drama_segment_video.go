@@ -554,13 +554,21 @@ func observeTailFrame(output []byte, method string, observation *dramaTailFrameO
 	observation.Method = method
 	frames := tailFrameTimestamp.FindAllSubmatch(output, -1)
 	if len(frames) > 0 {
-		if seconds, err := strconv.ParseFloat(string(frames[len(frames)-1][1]), 64); err == nil {
+		frame := frames[len(frames)-1]
+		if method == "freeze-mid" {
+			frame = frames[0]
+		}
+		if seconds, err := strconv.ParseFloat(string(frame[1]), 64); err == nil {
 			observation.TimeSeconds = &seconds
 		}
 	}
 }
 
 func (s *Service) saveDramaTailFrame(userID string, resource *model.Resource, input string, observations ...*dramaTailFrameObservation) (string, error) {
+	return s.saveDramaFrameBeforeEnd(userID, resource, input, 0, observations...)
+}
+
+func (s *Service) saveDramaFrameBeforeEnd(userID string, resource *model.Resource, input string, offset float64, observations ...*dramaTailFrameObservation) (string, error) {
 	ffmpegBin, err := renderFfmpegBinary()
 	if err != nil {
 		return "", fmt.Errorf("抽取尾帧失败：%w", err)
@@ -574,11 +582,22 @@ func (s *Service) saveDramaTailFrame(userID string, resource *model.Resource, in
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	// Decode every remaining frame and update the same output, so the saved image is the actual final frame.
-	cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "info", "-copyts", "-sseof", "-1", "-i", input, "-an", "-vf", "showinfo", "-update", "1", "-y", output)
+	args := []string{"-hide_banner", "-loglevel", "info", "-copyts", "-sseof", "-1", "-i", input, "-an", "-vf", "showinfo", "-update", "1", "-y", output}
+	if offset > 0 {
+		args[5] = strconv.FormatFloat(-offset, 'f', -1, 64)
+		args = append(args[:11], "-frames:v", "1", "-y", output)
+	}
+	cmd := exec.CommandContext(ctx, ffmpegBin, args...)
 	// A damaged tail may still yield the closest readable frame. Keep it even
 	// if the decoder reports a later error; otherwise try sequential decoding.
 	decoded, decodeErr := cmd.CombinedOutput()
 	method := "last-frame-tail-seek"
+	if offset > 0 {
+		if info, e := os.Stat(output); decodeErr != nil || e != nil || info.Size() == 0 {
+			return s.saveDramaTailFrame(userID, resource, input, observations...)
+		}
+		method = "freeze-mid"
+	}
 	if decodeErr != nil {
 		method = "closest-readable-tail-frame"
 	}
@@ -607,7 +626,11 @@ func (s *Service) saveDramaTailFrame(userID string, resource *model.Resource, in
 	if err != nil {
 		return "", err
 	}
-	saved, err := s.UploadResourceFile(userID, "tail.png", info.Size(), "image", resource.Width, resource.Height, 0, image, "drama-tail:"+resource.ID)
+	resourceKey := "drama-tail:" + resource.ID
+	if offset > 0 {
+		resourceKey = "drama-freeze:" + resource.ID
+	}
+	saved, err := s.UploadResourceFile(userID, "tail.png", info.Size(), "image", resource.Width, resource.Height, 0, image, resourceKey)
 	if err != nil {
 		return "", err
 	}

@@ -32,6 +32,10 @@ export const API_ERROR_REASON = {
     PackageEvalNotPassed: "package_eval_not_passed",
     /** 剧本优化会替换已有剧集（或改写有镜头表的剧集），请求没带 `replace: true`；`ApiError.details.episodes` 列出影响面。 */
     DramaEpisodesReplace: "drama_episodes_replace_required",
+    EpisodeDesignRequired: "episode_design_required",
+    DirectorBibleRequired: "director_bible_required",
+    DirectorSetupNotReady: "director_setup_not_ready",
+    PreviousHandoffRequired: "previous_handoff_required",
     /** 装段（重新装段、先装段）或整章重新生成会删掉已有的分镜图 / 预演 / 视频，请求没带 `discard: true`；`ApiError.details.discards` 按段列出。 */
     DramaSegmentsDiscard: "drama_segments_discard_required",
     /** 普通写段要改导演分镜段（SSS、本体论：视频提交用单元卡的粘贴提示词原文）：改镜头、参考或拆合删都被拒，要在导演文档里返修。`ApiError.details.segment` 是段号。 */

@@ -590,7 +590,18 @@ export function runDramaStep(
     projectId: string,
     unitId: string,
     step: "chapter.shots" | "assets.extract",
-    input: { model: string; logicalModelId?: string; config: Record<string, unknown>; rule?: DramaSegmentRule; resumeTaskId?: string; onlyScenes?: string[]; onlySections?: string[]; discard?: boolean; imageTask?: DramaImageTaskTemplate },
+    input: {
+        model: string;
+        logicalModelId?: string;
+        config: Record<string, unknown>;
+        rule?: DramaSegmentRule;
+        resumeTaskId?: string;
+        onlyScenes?: string[];
+        onlySections?: string[];
+        discard?: boolean;
+        allowMissingHandoff?: boolean;
+        imageTask?: DramaImageTaskTemplate;
+    },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);
 }
@@ -610,7 +621,7 @@ export function changeDramaSectionGenre(projectId: string, unitId: string, secti
  * 还没改编的原文章节、rhythm 取全部剧集；targetEpisodes / episodeSeconds 二选一。会替换已有剧集或改写有镜头表的剧集时，
  * 不带 replace 会被拒（ApiError.reason=drama_episodes_replace_required，details.episodes 列出影响面）。
  */
-export type DramaScriptAdaptMode = "adapt" | "rhythm";
+export type DramaScriptAdaptMode = "adapt" | "rhythm" | "design";
 
 /**
  * 资产出图的图片任务模板：前端按项目默认图片模型组好的任务（模型选择、input.config 等），服务端每个资产换上自己的
@@ -631,7 +642,7 @@ export function continueDramaPipeline(projectId: string, input: { model: string;
  */
 export function runDramaProjectStep(
     projectId: string,
-    step: "style.lock" | "script.adapt" | "scene.palette",
+    step: "style.lock" | "script.adapt" | "scene.palette" | "director.setup",
     input: {
         model: string;
         logicalModelId?: string;
@@ -675,7 +686,8 @@ export type DramaEpisodeImpact = { unitId: string; title: string; shots: number;
 export function dramaEpisodesReplaceImpact(error: unknown): { mode: DramaScriptAdaptMode; episodes: DramaEpisodeImpact[] } | undefined {
     if (!(error instanceof ApiError) || error.reason !== API_ERROR_REASON.DramaEpisodesReplace) return undefined;
     const episodes = error.details?.episodes as DramaEpisodeImpact[] | undefined;
-    return Array.isArray(episodes) ? { mode: error.details?.mode === "rhythm" ? "rhythm" : "adapt", episodes } : undefined;
+    const mode = error.details?.mode;
+    return Array.isArray(episodes) ? { mode: mode === "design" || mode === "rhythm" ? mode : "adapt", episodes } : undefined;
 }
 
 /** 一集剧集的来源：原文章节的第 from 到第 to 段（含首尾）。 */
@@ -912,9 +924,19 @@ export function dramaScenePaletteOutcomeOf(task: Pick<GenerationTask, "resultJso
 }
 
 /** 导演分镜的文档（SSS 电影 / 短剧：流水线一、二；本体论：流水线三）：每个文档只追加版本，接口返回最新版本。 */
-export type OntologyDocument = { id: string; projectId: string; unitId: string; kind: "bible" | "setup" | "episode" | "handoff" | "concept" | "world"; version: number; content: string; taskId?: string; createdAt: string };
+export type OntologyDocument = { id: string; projectId: string; unitId: string; kind: "bible" | "setup" | "episode" | "handoff" | "concept" | "world" | "design"; version: number; content: string; taskId?: string; createdAt: string };
 /** mode：sss 是八部分（另有拆剧本写的立意与结构 concept、导演定画风写的世界与总谱 world），ontology 是七部分。 */
-export type OntologyDocuments = { mode: "sss" | "ontology" | ""; bible?: OntologyDocument; setup?: OntologyDocument; concept?: OntologyDocument; world?: OntologyDocument; episodes: OntologyDocument[]; handoffs: OntologyDocument[] };
+export type OntologyDocuments = {
+    mode: "sss" | "ontology" | "";
+    bible?: OntologyDocument;
+    bibleBasis?: { episodes: number; total: number; legacy: boolean; outdated: boolean };
+    setup?: OntologyDocument;
+    concept?: OntologyDocument;
+    world?: OntologyDocument;
+    designs?: OntologyDocument[];
+    episodes: OntologyDocument[];
+    handoffs: OntologyDocument[];
+};
 
 export function ontologyDocumentsKey(projectId: string) {
     // 放在 ["project", projectId] 下：生成分段、返修收尾后刷新项目时一起失效。

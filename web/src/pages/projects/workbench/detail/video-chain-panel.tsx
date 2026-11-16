@@ -29,6 +29,7 @@ export function VideoChainPanel({
     open,
     projectId,
 	whiteModelStoryboardEnabled,
+    sss = false,
     unitId,
     shotId,
     buildModel,
@@ -38,6 +39,7 @@ export function VideoChainPanel({
     open: boolean;
     projectId: string;
 	whiteModelStoryboardEnabled: boolean;
+    sss?: boolean;
     unitId: string;
     shotId: string;
     buildModel: () => Promise<VideoChainModel>;
@@ -150,8 +152,8 @@ export function VideoChainPanel({
 
     return (
         <AppModal open={open} centered title="同场景连续生成" width={820} onCancel={onClose} footer={null} styles={{ body: { maxHeight: "calc(100dvh - 160px)", overflowY: "auto" } }}>
-            <p className="mb-4 text-foreground/65">按叙事顺序串联当前场景的连续镜头组，后一组等待前一组视频完成。开启白模分镜时尝试传递片末站位参考；缺失或准备失败时保留原参考图继续。切换场景时结束本链。</p>
-			<p className="mb-4 text-xs text-foreground/55">白模分镜：{(chain?.whiteModelStoryboardEnabled ?? whiteModelStoryboardEnabled) ? "开启。片末最后 1 秒硬切至 45° 俯视白模大全景，最后一组不添加片末结束段。" : "关闭。本次不自动添加白模结束段或传递片末站位参考。"}{chain?.id ? "（本链提交时设置）" : "（当前项目设置）"}</p>
+            <p className="mb-4 text-foreground/65">按叙事顺序串联当前场景的连续镜头组，后一组等待前一组视频完成。切换场景时结束本链。</p>
+            {sss ? <p className="mb-4 text-xs text-foreground/55">同场景上一段以全景定格收尾时，使用其最后 1 秒中间的画面作为站位参考。截帧或上传失败时，保留正文及原参考图继续生成。</p> : <p className="mb-4 text-xs text-foreground/55">白模分镜：{(chain?.whiteModelStoryboardEnabled ?? whiteModelStoryboardEnabled) ? "开启。片末最后 1 秒硬切至 45° 俯视白模大全景，最后一组不添加片末结束段。" : "关闭。本次不自动添加白模结束段或传递片末站位参考。"}{chain?.id ? "（本链提交时设置）" : "（当前项目设置）"}</p>}
             {problem || chains.error ? (
                 <div role="alert" className="mb-3">
                     <Callout tone="error">{problem || (chains.error as Error).message}</Callout>
@@ -205,7 +207,7 @@ export function VideoChainPanel({
                                 {step.frameResourceId ? (
                                     <div className="mt-2">
                                         <Image width={120} src={resourceFileUrl(step.frameResourceId)} alt={`来自上一组的站位参考 ${step.referenceTag}`} />
-                                        <span className="ml-2 text-xs text-foreground/55">上一组末帧 · {step.referenceTag}</span>
+                                        <span className="ml-2 text-xs text-foreground/55">{step.frameSelection==="freeze-mid" ? "站位参考：来自上一段定格" : "上一组末帧"} · {step.referenceTag}</span>
                                         {step.frameAssetId ? (
                                             <a className="ml-2 text-xs underline" href={`/projects/${projectId}/assets?category=storyboard_reference`}>
                                                 在分镜参考资产中查看
@@ -255,7 +257,7 @@ export function VideoChainPanel({
                         从失败步骤继续
                     </Button>
                 ) : null}
-                {!active && whiteModelStoryboardEnabled ? (
+                {!active && (sss || whiteModelStoryboardEnabled) ? (
                     <Button loading={busy} onClick={() => void preparePosition()}>
                         仅准备本组站位参考
                     </Button>

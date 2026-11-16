@@ -41,6 +41,7 @@ export interface VideoChainStep {
     sourceShotId?: string;
     referenceTag?: string;
     referenceCount: number;
+    freezeReference?: boolean;
     ending: boolean;
     quote?: LogicalModelQuote;
 }

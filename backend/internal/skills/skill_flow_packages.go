@@ -415,6 +415,9 @@ func (s *Service) flowPackageVersions(skillID string) (*FlowPackageSummary, []Fl
 	}
 	if step, ok := drama.StepByID(summary.Step); ok {
 		summary.StepLabel, summary.StepContract = step.Label, step.Contract
+		if step.ID == drama.StepScriptAdapt && summary.Contract == drama.ContractSSSScriptAdapt {
+			summary.StepContract = summary.Contract
+		}
 		if step.ID == drama.StepAssetsExtract && summary.Contract == drama.ContractIntegratedAssets {
 			summary.StepContract = summary.Contract
 		}

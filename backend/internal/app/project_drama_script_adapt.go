@@ -6,6 +6,7 @@
 package app
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 // DramaProjectStepRunRequest 是「对这个项目跑一步」（风格锁定、剧本优化、场次色卡）：选哪些单元，剧本优化另有怎么改、写几集，
 // 风格锁定另有项目类型、风格文字和参考图，加文本模型选择；提示词由服务端组装。
 type DramaProjectStepRunRequest struct {
+	shotsQueue     []string
 	Model          string         `json:"model"`
 	LogicalModelID string         `json:"logicalModelId"`
 	Config         map[string]any `json:"config"`
@@ -58,7 +60,8 @@ type DramaProjectStepRunRequest struct {
 
 // dramaAdaptMeta 是任务 metadata.dramaAdapt：收尾按它写剧集。
 type dramaAdaptMeta struct {
-	Mode string `json:"mode"`
+	LockedLines map[string]map[int]string `json:"lockedLines,omitempty"`
+	Mode        string                    `json:"mode"`
 	// SourceUnitIDs 是来源单元（按项目里的顺序）。
 	SourceUnitIDs []string `json:"sourceUnitIds"`
 	// Paragraphs 是来源原文章节 → 段数（检查 sources 的段号用）。
@@ -146,6 +149,19 @@ func (s *Service) RunDramaProjectStep(userID string, projectID string, stepID st
 	}
 	var plan *dramaStepPlan
 	switch step.ID {
+	case drama.StepDirectorSetup:
+		unlock := lockOntologyEpisode("director.setup/" + projectID)
+		defer unlock()
+		tasks, readErr := s.repo.ProjectPipelineTasks(userID, projectID)
+		if readErr != nil {
+			return DramaStepRunResult{}, readErr
+		}
+		for _, task := range tasks {
+			if active := taskDramaStep(task.InputJSON); taskActive(task) && active != nil && active.Step == stepID {
+				return DramaStepRunResult{}, failedPrecondition("全剧立项正在运行，请查看现有任务")
+			}
+		}
+		plan, err = s.planDirectorSetup(userID, project, step, req.shotsQueue)
 	case drama.StepStyleLock:
 		plan, err = s.planStyleLock(userID, project, step, req)
 	case drama.StepScriptAdapt:
@@ -198,6 +214,14 @@ func (s *Service) planScriptAdapt(project *model.Project, step drama.Step, req D
 	if mode == "" {
 		mode = drama.ScriptAdaptModeAdapt
 	}
+	designOnly := mode == "design"
+	if designOnly {
+		workflow, _ := drama.Workflow(project.WorkflowID)
+		if workflow.StoryboardMode != drama.StoryboardModeSSS {
+			return nil, BadAuthRequest("只有 SSS 流水线支持补写本集设计")
+		}
+		mode = drama.ScriptAdaptModeRhythm
+	}
 	if mode != drama.ScriptAdaptModeAdapt && mode != drama.ScriptAdaptModeRhythm {
 		return nil, BadAuthRequest("mode 只能是 adapt（小说转剧本）或 rhythm（只调节奏）")
 	}
@@ -228,6 +252,9 @@ func (s *Service) planScriptAdapt(project *model.Project, step drama.Step, req D
 		}
 		// 调节奏只改正文；没有镜头表和段的剧集不用确认。
 		if mode == drama.ScriptAdaptModeAdapt || slices.ContainsFunc(impacts, func(i DramaEpisodeImpact) bool { return i.Shots > 0 || i.HasShotlist }) {
+			if designOnly {
+				return nil, scriptAdaptReplaceRequired("design", impacts)
+			}
 			return nil, scriptAdaptReplaceRequired(mode, impacts)
 		}
 	}
@@ -235,7 +262,22 @@ func (s *Service) planScriptAdapt(project *model.Project, step drama.Step, req D
 	if err != nil {
 		return nil, err
 	}
-	return scriptAdaptPlan(project, sources, mode, req.TargetEpisodes, req.EpisodeSeconds, replace, usage, skill)
+	plan, err := scriptAdaptPlan(project, sources, mode, req.TargetEpisodes, req.EpisodeSeconds, replace, usage, skill)
+	if err != nil || !designOnly {
+		return plan, err
+	}
+	plan.adapt.Concept = false
+	plan.adapt.Mode = "design"
+	plan.scenes = plan.scenes[1:]
+	concept, err := s.repo.LatestOntologyDocument(project.ID, "", model.OntologyDocConcept)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	if concept != nil {
+		plan.prompt.Text += "\n\n【已有立意与全集结构】\n" + concept.Content
+	}
+	plan.prompt.Text += "\n本次只补写所选剧集的设计和台词表，一轮一集，保留剧情。" + drama.SSSScriptEpisodeInstruction
+	return plan, nil
 }
 
 // scriptAdaptPlan 把来源单元、改编方式和技能版本组装成提示词与运行参数（不读库，评测直接拿评测集的章节喂进来）。
@@ -265,7 +307,8 @@ func scriptAdaptPlan(project *model.Project, sources []model.ProjectUnit, mode s
 		episodeSeconds = briefEpisodeSeconds(project.BriefJSON)
 	}
 	prompt, err := drama.BuildScriptAdaptPrompt(drama.ScriptAdaptInput{
-		Mode: mode, Sources: inputs, Episodes: episodes, EpisodeSeconds: episodeSeconds,
+		Contract: usage.Contract,
+		Mode:     mode, Sources: inputs, Episodes: episodes, EpisodeSeconds: episodeSeconds,
 		SegmentSeconds: float64(briefSegmentSeconds(project.BriefJSON)), BriefJSON: project.BriefJSON, Skill: skill,
 		Anchor: projectLockedAnchor(project.BibleJSON),
 	})
@@ -277,6 +320,9 @@ func scriptAdaptPlan(project *model.Project, sources []model.ProjectUnit, mode s
 		records = append(records, map[string]any{"unitId": u.ID, "title": u.Title, "kind": string(u.Kind)})
 	}
 	adapt := &dramaAdaptMeta{Mode: mode, SourceUnitIDs: ids, Episodes: episodes, ReplaceUnitIDs: replace, Concept: usage.Workflow.ScriptSkill != ""}
+	if usage.Contract == drama.ContractSSSScriptAdapt {
+		adapt.LockedLines = drama.SSSLockedLines(inputs)
+	}
 	if mode == drama.ScriptAdaptModeAdapt {
 		adapt.Paragraphs = paragraphs
 	}
@@ -408,6 +454,9 @@ func scriptAdaptReplaceRequired(mode string, impacts []DramaEpisodeImpact) error
 	if mode == drama.ScriptAdaptModeRhythm {
 		message = "这次会改写已有镜头表或段的剧集正文，镜头表和段不会自动更新，请确认后再跑"
 	}
+	if mode == "design" {
+		message = "这次会补写已有分镜剧集的设计与台词定稿表。台词变化时会同步剧集正文，已有镜头表与段保留，请确认后再跑"
+	}
 	err := NewAppError(http.StatusConflict, message)
 	err.Reason = ReasonDramaEpisodesReplace
 	err.Details = map[string]any{"mode": mode, "episodes": impacts}
@@ -489,8 +538,12 @@ func (s *Service) applyScriptAdaptTask(task model.Task, meta *dramaStepTaskMeta,
 		return DramaScriptAdaptOutcome{}, err
 	}
 	text, _ := result["text"].(string)
-	episodes, stats := drama.ScriptAdaptEpisodesFromText(text)
-	report := drama.CheckScriptAdapt(episodes, drama.ScriptAdaptCheckContext{Mode: adapt.Mode, Paragraphs: adapt.Paragraphs, Episodes: adapt.Episodes})
+	episodes, stats := drama.ScriptAdaptEpisodesFromText(text, meta.Contract)
+	parseMode := adapt.Mode
+	if parseMode == "design" {
+		parseMode = drama.ScriptAdaptModeRhythm
+	}
+	report := drama.CheckScriptAdapt(episodes, drama.ScriptAdaptCheckContext{Mode: parseMode, Paragraphs: adapt.Paragraphs, Episodes: adapt.Episodes})
 	if report.Errors > 0 {
 		for _, item := range report.Items {
 			if item.Level == "error" {
@@ -498,7 +551,7 @@ func (s *Service) applyScriptAdaptTask(task model.Task, meta *dramaStepTaskMeta,
 			}
 		}
 	}
-	if adapt.Mode == drama.ScriptAdaptModeRhythm && len(episodes) != len(adapt.SourceUnitIDs) {
+	if parseMode == drama.ScriptAdaptModeRhythm && len(episodes) != len(adapt.SourceUnitIDs) {
 		return DramaScriptAdaptOutcome{}, fmt.Errorf("只调节奏应改写 %d 集，解析出 %d 集，没有写入", len(adapt.SourceUnitIDs), len(episodes))
 	}
 	concept := ""
@@ -524,17 +577,20 @@ func (s *Service) applyScriptAdaptTask(task model.Task, meta *dramaStepTaskMeta,
 	now := time.Now()
 	var create, update []model.ProjectUnit
 	var deleteIDs []string
-	if adapt.Mode == drama.ScriptAdaptModeRhythm {
+	if parseMode == drama.ScriptAdaptModeRhythm {
 		for k, ep := range episodes {
 			current, ok := byID[adapt.SourceUnitIDs[k]]
 			if !ok {
 				return DramaScriptAdaptOutcome{}, fmt.Errorf("要改写的剧集 %s 已被删除，没有写入", adapt.SourceUnitIDs[k])
 			}
+			original := current.SourceText
 			current.SourceText = drama.WithEpisodeSources(drama.EpisodeSourceText(nil, ep.Text), drama.EpisodeSources(current.SourceText))
 			current.WordCount = model.ProjectUnitWordCount(current.SourceText)
 			current.Status = model.ProjectUnitStatusReady
 			current.UpdatedAt = now
-			update = append(update, current)
+			if adapt.Mode != "design" || chapterPlainText(current.SourceText) != chapterPlainText(original) {
+				update = append(update, current)
+			}
 			outcome.Rewritten = append(outcome.Rewritten, current.ID)
 			outcome.Episodes = append(outcome.Episodes, DramaScriptAdaptEpisode{UnitID: current.ID, No: k + 1, Title: current.Title, ParentID: current.ParentID, Sources: unitEpisodeSources(current), Scenes: len(ep.Scenes)})
 		}
@@ -553,8 +609,13 @@ func (s *Service) applyScriptAdaptTask(task model.Task, meta *dramaStepTaskMeta,
 				title = string([]rune(title)[:model.ProjectUnitTitleMaxRunes])
 			}
 			sourceText := drama.EpisodeSourceText(ep.Sources, ep.Text)
+			id := newID()
+			if meta.Contract == drama.ContractSSSScriptAdapt {
+				hash := sha256.Sum256([]byte(fmt.Sprintf("sss-script-episode/%s/%s/%d", projectID, task.ID, k)))
+				id = fmt.Sprintf("%x", hash[:16])
+			}
 			unit := model.ProjectUnit{
-				ID: newID(), ProjectID: projectID, ParentID: drama.MainAdaptSource(ep.Sources), Kind: model.ProjectUnitKindEpisode, Title: title,
+				ID: id, ProjectID: projectID, ParentID: drama.MainAdaptSource(ep.Sources), Kind: model.ProjectUnitKindEpisode, Title: title,
 				SourceText: sourceText, WordCount: model.ProjectUnitWordCount(sourceText), Status: model.ProjectUnitStatusReady, CreatedAt: now, UpdatedAt: now,
 			}
 			create = append(create, unit)
@@ -563,17 +624,23 @@ func (s *Service) applyScriptAdaptTask(task model.Task, meta *dramaStepTaskMeta,
 		outcome.Replaced = deleteIDs
 	}
 	order := scriptAdaptUnitOrder(units, deleteIDs, create)
-	if err := s.repo.ApplyDramaEpisodes(projectID, deleteIDs, create, update, order); err != nil {
+	var documents []model.ProjectOntologyDocument
+	if meta.Contract == drama.ContractSSSScriptAdapt {
+		for i, ep := range episodes {
+			if ep.Design == "" {
+				return DramaScriptAdaptOutcome{}, fmt.Errorf("第 %d 集缺本集设计或台词定稿表", i+1)
+			}
+			documents = append(documents, model.ProjectOntologyDocument{ID: newID(), ProjectID: projectID, UnitID: outcome.Episodes[i].UnitID, Kind: model.OntologyDocDesign, Content: ep.Design, TaskID: task.ID, CreatedBy: task.UserID})
+		}
+	}
+	if concept != "" {
+		documents = append(documents, model.ProjectOntologyDocument{ID: newID(), ProjectID: projectID, Kind: model.OntologyDocConcept, Content: concept, TaskID: task.ID, CreatedBy: task.UserID})
+	}
+	if err := s.repo.ApplyDramaEpisodes(projectID, deleteIDs, create, update, order, documents); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return DramaScriptAdaptOutcome{}, errors.New("要改写的剧集已被删除，没有写入")
 		}
 		return DramaScriptAdaptOutcome{}, err
-	}
-	if concept != "" {
-		// 剧集已写入；立意页与全集结构表按任务幂等写（重新收尾不重复加版本），之后的导演定画风和分镜读它。
-		if err := s.writeOntologyDocs(task, projectID, []ontologyDocWrite{{"", model.OntologyDocConcept, concept}}); err != nil {
-			return DramaScriptAdaptOutcome{}, fmt.Errorf("剧集已写入，立意页与全集结构表保存失败：%w", err)
-		}
 	}
 	return outcome, nil
 }

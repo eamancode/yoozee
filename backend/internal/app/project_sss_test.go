@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -96,6 +97,9 @@ func (f *fakeSSSUpstream) handler(t *testing.T) http.HandlerFunc {
 			first := f.compileU2 == 1
 			f.mu.Unlock()
 			reply = sssFakeCompile(!first)
+			if strings.Contains(task, "本单元要写 @站位参考") {
+				reply = strings.Replace(sssFakeCompile(true), "生效参考素材\n", "生效参考素材\n@站位参考：承接上段。\n", 1)
+			}
 		case strings.Contains(task, "做导演复看与质检交接"):
 			reply = "## 第六部分　后期备忘\n\n剪掉两个定格秒。\n\n## 第七部分　集交接卡\n\n### 第 1 集交接卡\n林夏在柜台外，怀表在老秦手里。\n\n## 第八部分　复看记录与待确认\n\n### 待确认\n1. 无。\n"
 		default:
@@ -135,7 +139,7 @@ func TestSSSRunWritesSegmentsAndDocuments(t *testing.T) {
 	if err != nil || skill.ID != "yz-sss-drama-director" || usage.Contract != drama.ContractSSSDirector {
 		t.Fatalf("skill = %+v %+v %v", usage, skill.ID, err)
 	}
-	plan, err := svc.planSSSShots("user-1", &project, &units[0], usage, skill, nil, nil)
+	plan, err := svc.planSSSShots("user-1", &project, &units[0], usage, skill, nil, nil, sssShotOptions{Flow: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +272,7 @@ func TestSSSRunWritesSegmentsAndDocuments(t *testing.T) {
 		t.Fatal("episode document not updated by the repair")
 	}
 	// 第二集：读到第一集的交接卡，有圣经就不再立项。
-	next, err := svc.planSSSShots("user-1", &project, &units[1], usage, skill, nil, nil)
+	next, err := svc.planSSSShots("user-1", &project, &units[1], usage, skill, nil, nil, sssShotOptions{Flow: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,6 +282,118 @@ func TestSSSRunWritesSegmentsAndDocuments(t *testing.T) {
 	// SSS 项目也能手改圣经。
 	if _, err := svc.UpdateOntologyBible("user-1", project.ID, UpdateOntologyBibleRequest{Content: "新圣经"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSSSFlow2DirectorEpisode(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	svc, db := newChapterShotsTestService(t)
+	p := model.Project{ID: "p-flow2", UserID: "user-1", Name: "当铺", Status: model.ProjectStatusActive, WorkflowID: drama.WorkflowSSSDrama, WorkflowVersion: drama.WorkflowVersion, GenerationModel: "seedance-2.5", AspectRatio: "9:16", StyleProfileJSON: `{"prompt":"纪实夜景"}`}
+	if err := db.Create(&p).Error; err != nil {
+		t.Fatal(err)
+	}
+	units := []model.ProjectUnit{{ID: "ep-a", ProjectID: p.ID, Kind: model.ProjectUnitKindEpisode, Title: "第一集", Position: 0, SourceText: "上一集正文"}, {ID: "ep-b", ProjectID: p.ID, Kind: model.ProjectUnitKindEpisode, Title: "第二集", Position: 1, SourceText: "林夏：当了。"}}
+	if err := db.Create(&units).Error; err != nil {
+		t.Fatal(err)
+	}
+	u := &units[1]
+	usage, skill, err := svc.sssStepSkill(&p, mustWorkflow(t, p.WorkflowID), mustStep(t, drama.StepChapterShots))
+	if err != nil {
+		t.Fatal(err)
+	}
+	planEpisode := func(independent bool) (*dramaStepPlan, error) {
+		return svc.planSSSShots("user-1", &p, u, usage, skill, nil, nil, sssShotOptions{Flow: 2, AllowMissingHandoff: independent})
+	}
+	write := func(kind, id, content string) {
+		t.Helper()
+		if err := svc.repo.AppendOntologyDocument(&model.ProjectOntologyDocument{ID: newID(), ProjectID: p.ID, UnitID: id, Kind: kind, Content: content, TaskID: "source-" + kind, CreatedBy: "user-1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = planEpisode(false); err == nil || !strings.Contains(err.Error(), "本集设计") {
+		t.Fatalf("缺设计应拦截: %v", err)
+	}
+	design := "## 第一部分　本集设计\n原剧本阶段独有的设计\n\n## 第二部分　台词定稿表\n原剧本阶段独有的定稿表"
+	write(model.OntologyDocDesign, u.ID, design)
+	if _, err = planEpisode(false); err == nil || !strings.Contains(err.Error(), "全剧立项") {
+		t.Fatalf("缺圣经应拦截: %v", err)
+	}
+	write(model.OntologyDocBible, "", "项目圣经")
+	concept := "## 立意页\n当铺\n## 全集结构表\n| 集号 | 任务 |\n|---|---|\n"
+	for i := 1; i <= 30; i++ {
+		concept += fmt.Sprintf("| %d | 结构行[%02d] |\n", i, i)
+	}
+	write(model.OntologyDocConcept, "", concept)
+	_, blocked := svc.RunDramaStep(p.UserID, p.ID, u.ID, drama.StepChapterShots, DramaStepRunRequest{})
+	var problem *AppError
+	if !errors.As(blocked, &problem) || problem.Status != 409 || problem.Reason != ReasonPreviousHandoffRequired || problem.Details["previousUnitId"] != units[0].ID {
+		t.Fatalf("入口错误合同: %+v", blocked)
+	}
+	queue := svc.startShotsQueue(p.UserID, p.ID, &DramaPipelineText{Model: "local-fixture"}, "", []string{u.ID, "later"})
+	if queue.UnitID != u.ID || queue.TaskID != "" || queue.Remaining != 2 || !strings.Contains(queue.Error, "交接卡") {
+		t.Fatalf("前置失败却继续排队: %+v", queue)
+	}
+	if _, err = planEpisode(false); err == nil || !strings.Contains(err.Error(), "交接卡") {
+		t.Fatalf("缺交接卡应拦截: %v", err)
+	}
+	plan, err := planEpisode(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := &fakeSSSUpstream{}
+	server := httptest.NewServer(up.handler(t))
+	defer server.Close()
+	run := newDramaRunMeta(plan, u.ID)
+	req := dramaStepTaskRequest(p.ID, u.ID, plan, dramaStepTaskOptions{})
+	req.Input["metadata"].(map[string]any)["dramaRun"] = run
+	input, _ := json.Marshal(req.Input)
+	now := time.Now()
+	task := model.Task{ID: "task-flow2", UserID: "user-1", ProjectID: p.ID, Type: "canvas_text", Operation: "storyboard", Status: model.TaskStatusRunning, LeaseOwner: "worker", LeaseExpiresAt: ptr(now.Add(time.Hour)), InputJSON: string(input), CreatedAt: now, UpdatedAt: now}
+	if err = db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.runSSSRun(dramaRunCtx(task), dramaRunInput(server.URL), run, taskDramaSSS(task.InputJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := result["dramaRun"].(dramaRunProgress)
+	if progress.Completed != 7 || progress.Total != 7 || len(up.prompts) != 7 {
+		t.Fatalf("实际轮次 %d/%d 上游 %d", progress.Completed, progress.Total, len(up.prompts))
+	}
+	for i, prompt := range up.prompts {
+		if strings.Contains(prompt, "结构行[15]") || !strings.Contains(prompt, "结构行[02]") {
+			t.Fatalf("第 %d 轮带错结构表", i+1)
+		}
+		taskText := prompt[strings.LastIndex(prompt, "【本轮任务】"):]
+		if strings.Contains(taskText, "本单元要写 @站位参考") != (i == 5) {
+			t.Fatalf("第 %d 轮的站位参考要求错误", i+1)
+		}
+		if progress.Turns[i].InputRunes != len([]rune(prompt)) {
+			t.Fatal("轮次输入字数", i)
+		}
+	}
+	legacy := *plan.sss
+	legacy.Flow = 0
+	legacy.Docs.Concept = concept
+	before := sssTurnPrompt("", &legacy, drama.SSSTurnCard, "E1-U1", nil, nil)
+	after := sssTurnPrompt("", plan.sss, drama.SSSTurnCard, "E1-U1", nil, nil)
+	if len([]rune(before)) <= len([]rune(after)) {
+		t.Fatal("材料包没有缩短")
+	}
+	t.Logf("单元卡共用输入材料字数：裁剪前 %d，裁剪后 %d", len([]rune(before)), len([]rune(after)))
+	if !strings.Contains(up.prompts[0], "按手册/06 讲戏") || !strings.Contains(up.prompts[0], "原剧本阶段独有的设计") {
+		t.Fatal("讲戏未读取剧本设计")
+	}
+	if ok, err := svc.finalizeDramaStepTask(task, result); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	doc, err := svc.repo.LatestOntologyDocument(p.ID, u.ID, model.OntologyDocEpisode)
+	if err != nil || !strings.Contains(doc.Content, "原剧本阶段独有的定稿表") || !strings.Contains(doc.Content, "### 待确认\n本集独立开局") {
+		t.Fatal("八部分来源或独立开局标记错误", err)
+	}
+	segs, err := svc.DramaSegments("user-1", p.ID, u.ID)
+	if err != nil || len(segs) != 2 || strings.Count(segs[1].Spec.Verbatim, "@站位参考") != 1 {
+		t.Fatal("站位参考未保留", err)
 	}
 }
 
@@ -328,7 +444,7 @@ func TestSSSRunResumesFromAFailedCompileTurn(t *testing.T) {
 	if err != nil || skill.ID != "yz-sss-film-director" {
 		t.Fatal(skill.ID, err)
 	}
-	plan, err := svc.planSSSShots("user-1", &project, &unit, usage, skill, nil, nil)
+	plan, err := svc.planSSSShots("user-1", &project, &unit, usage, skill, nil, nil, sssShotOptions{Flow: 1})
 	if err != nil || plan.sss.Kind != drama.SSSKindFilm || !strings.Contains(plan.prompt.Text, "电影模式") || !strings.Contains(plan.prompt.Text, "横屏16:9") {
 		t.Fatal("film plan", err)
 	}
@@ -355,7 +471,7 @@ func TestSSSRunResumesFromAFailedCompileTurn(t *testing.T) {
 		t.Fatalf("progress before failure = %+v", progress)
 	}
 	// 从中断处继续：指纹相同，只再调 E1-U2 编译和复看。
-	again, err := svc.planSSSShots("user-1", &project, &unit, usage, skill, nil, nil)
+	again, err := svc.planSSSShots("user-1", &project, &unit, usage, skill, nil, nil, sssShotOptions{Flow: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +491,7 @@ func TestSSSRunResumesFromAFailedCompileTurn(t *testing.T) {
 	}
 	changedUnit := unit
 	changedUnit.SourceText = "<p>改过的剧本。</p>"
-	changed, err := svc.planSSSShots("user-1", &project, &changedUnit, usage, skill, nil, nil)
+	changed, err := svc.planSSSShots("user-1", &project, &changedUnit, usage, skill, nil, nil, sssShotOptions{Flow: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,6 +533,10 @@ func TestSSSWorkflowStepSkills(t *testing.T) {
 func TestSSSScriptAdaptWritesConceptThenEpisodes(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, chapters := seedNovelProject(t, svc, db)
+	setProjectRunMode(t, db, project.ID, drama.RunEveryStep)
+	if _, err := svc.UpdateFeatureAvailability(&model.User{ID: "admin", Role: model.UserRoleAdmin}, FeatureAvailability{CustomChannelsEnabled: true, TaskCenterEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("workflow_id", drama.WorkflowSSSDrama).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -425,13 +545,17 @@ func TestSSSScriptAdaptWritesConceptThenEpisodes(t *testing.T) {
 	upstream := &streamingShotsUpstream{scenes: map[string][]string{
 		"E01S01": {"## 立意页", "", "### 一句话故事", "夜班护士发现七床空了。", "", "## 全集结构表", "", "| 集 | 任务 | 卡点 |", "|---|---|---|", "| 1 | 七床空了 | 电梯门开 |", "| 2 | 刀 | 现在信了 |"},
 		"E01S02": episodeLines(1, "七床空了", fmt.Sprintf(`[{"unitId": %q, "from": 1, "to": 3}, {"unitId": %q, "from": 1, "to": 1}]`, c1, c2),
-			"## 内·病房走廊·夜", "林小满：七床？"),
+			"## 内·病房走廊·夜", "林小满：七床？", "## 第一部分　本集设计", "空床", "## 第二部分　台词定稿表", "| 定稿台词 | 处理 |", "|---|---|", "| 七床？ | 保留 |"),
 		"E01S03": episodeLines(2, "现在信了", fmt.Sprintf(`[{"unitId": %q, "from": 2, "to": 3}, {"unitId": %q, "from": 1, "to": 4}]`, c2, c3),
-			"## 内·电梯口·夜", "周岸：现在信了？"),
+			"## 内·电梯口·夜", "周岸：现在信了？", "## 第一部分　本集设计", "揭晓", "## 第二部分　台词定稿表", "| 定稿台词 | 处理 |", "|---|---|", "| 现在信了？ | 保留 |"),
 	}}
 	server := httptest.NewServer(upstream)
 	defer server.Close()
-	queueScriptAdaptTask(t, svc, db, project, server.URL, DramaProjectStepRunRequest{TargetEpisodes: 2})
+	config := map[string]any{"baseUrl": server.URL, "apiKey": "test-key", "interfaceType": "chat-completion", "model": "test"}
+	started, err := svc.RunDramaProjectStep(project.UserID, project.ID, drama.StepScriptAdapt, DramaProjectStepRunRequest{TargetEpisodes: 2, Model: "test", Config: config})
+	if err != nil || taskDramaStep(started.Task.InputJSON).Contract != drama.ContractSSSScriptAdapt {
+		t.Fatalf("剧本入口契约错误: %v", err)
+	}
 	done, err := runQueuedTask(t, svc)
 	if err != nil || done.Status != model.TaskStatusSucceeded {
 		t.Fatalf("拆剧本：%v %s %q", err, done.Status, done.Error)
@@ -451,6 +575,12 @@ func TestSSSScriptAdaptWritesConceptThenEpisodes(t *testing.T) {
 	}
 	units, _ := svc.repo.ProjectUnits(project.ID)
 	for _, u := range units {
+		if u.Kind == model.ProjectUnitKindEpisode {
+			design, err := svc.repo.LatestOntologyDocument(project.ID, u.ID, model.OntologyDocDesign)
+			if err != nil || !strings.Contains(design.Content, "第二部分　台词定稿表") || strings.Contains(u.SourceText, "本集设计") {
+				t.Fatalf("集设计写入错误 %v %+v", err, design)
+			}
+		}
 		if u.Kind == model.ProjectUnitKindEpisode && strings.Contains(u.SourceText, "立意") {
 			t.Fatal("concept leaked into an episode")
 		}
@@ -463,6 +593,33 @@ func TestSSSScriptAdaptWritesConceptThenEpisodes(t *testing.T) {
 	}
 	if !plan.lock.World || len(plan.scenes) != 1 || plan.scenes[0].ID != drama.StyleLockWorldTurn || !strings.Contains(plan.prompt.Text, "【附加输出】") || !strings.Contains(plan.prompt.Text, "夜班护士发现七床空了") || plan.usage.Skill.ID != "yz-sss-drama-style" {
 		t.Fatalf("style plan = %+v %s", plan.lock, plan.usage.Skill.ID)
+	}
+	var first string
+	for _, unit := range units {
+		if unit.Kind == model.ProjectUnitKindEpisode && unit.Title == "七床空了" {
+			first = unit.ID
+			break
+		}
+	}
+	if first == "" {
+		t.Fatal("第一集缺失")
+	}
+	upstream.calls = 0
+	upstream.scenes["E01S02"] = episodeLines(1, "七床空了", "[]", "## 内·病房走廊·夜", "林小满：人呢？", "## 第一部分　本集设计", "追问", "## 第二部分　台词定稿表", "| 定稿台词 | 处理 |", "|---|---|", "| 人呢？ | 改 |")
+	if _, err = svc.RunDramaProjectStep(project.UserID, project.ID, drama.StepScriptAdapt, DramaProjectStepRunRequest{Mode: drama.ScriptAdaptModeRhythm, SourceUnitIDs: []string{first}, Model: "test", Config: config}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := runQueuedTask(t, svc)
+	if err != nil || updated.Status != model.TaskStatusSucceeded {
+		t.Fatalf("调节奏任务失败: %v %s", err, updated.Error)
+	}
+	episode, err := svc.repo.ProjectUnit(project.ID, first)
+	if err != nil || !strings.Contains(episode.SourceText, "人呢？") {
+		t.Fatal("调节奏后剧集没有原地更新", err)
+	}
+	version, err := svc.repo.LatestOntologyDocument(project.ID, first, model.OntologyDocDesign)
+	if err != nil || version.Version != 2 || !strings.Contains(version.Content, "人呢？") {
+		t.Fatal("同集设计没有新增版本", err)
 	}
 }
 
@@ -483,7 +640,7 @@ func seedSSSEpisode(t *testing.T) (*Service, model.Project, model.ProjectUnit, *
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := svc.planSSSShots("user-1", &project, &unit, usage, skill, nil, nil)
+	plan, err := svc.planSSSShots("user-1", &project, &unit, usage, skill, nil, nil, sssShotOptions{Flow: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,7 +20,8 @@ export type GenerationTaskOutput = {
 };
 
 export type TaskDramaRounds = {
-    mode: "sss" | "ontology";
+    flow?: number;
+    mode: "sss" | "ontology" | "setup";
     completed: number;
     total: number;
     repair?: boolean;

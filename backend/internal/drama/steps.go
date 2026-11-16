@@ -8,7 +8,8 @@ import "slices"
 
 const (
 	// StepStyleLock 是风格锁定（建项目时的导演风格分析）：项目类型 + 风格文字 + 参考图 + 画风 → 全局风格锚 + 主基调色卡（分组色板）。
-	StepStyleLock = "style.lock"
+	StepStyleLock     = "style.lock"
+	StepDirectorSetup = "director.setup"
 	// ContractStyleLock 是风格锁定的输出契约：完整公共视觉字段、导演风格锚和分组色板。
 	ContractStyleLock = "style.lock@2"
 	// StepChapterShots 是生成分段：一章正文 → 镜头行（带 spec）。
@@ -82,6 +83,8 @@ type StepEvalChapter struct {
 
 // TurnContext 是校验一轮输出时可用的上下文。
 type TurnContext struct {
+	LockedLines   map[string]map[int]string
+	SourceEpisode string
 	// Index 是第几轮（从 1 数）；Turn 是这一轮（场或集）。
 	Index    int
 	Contract string
@@ -423,6 +426,12 @@ func Steps() []Step { return slices.Clone(steps) }
 
 // StepByID 查一个步骤。
 func StepByID(id string) (Step, bool) {
+	if id == StepDirectorSetup {
+		return Step{ID: id, Label: "全剧立项", Scope: StepScopeProject, Contract: ContractSSSDirector, TaskSource: "short-drama-director-setup",
+			Turns: TurnPlan{Unit: "批", Count: func(text string, _ TurnContext) (int, error) {
+				return 1, SSSRequireSections(text, "全剧圣经", "待确认")
+			}}}, true
+	}
 	for _, s := range steps {
 		if s.ID == id {
 			return s, true

@@ -53,7 +53,11 @@ const (
 	// ReasonDramaEpisodesReplace 见 kernel。
 	ReasonDramaEpisodesReplace = kernel.ReasonDramaEpisodesReplace
 	// ReasonDramaSegmentsDiscard 见 kernel。
-	ReasonDramaSegmentsDiscard = kernel.ReasonDramaSegmentsDiscard
+	ReasonDramaSegmentsDiscard    = kernel.ReasonDramaSegmentsDiscard
+	ReasonEpisodeDesignRequired   = kernel.ReasonEpisodeDesignRequired
+	ReasonDirectorBibleRequired   = kernel.ReasonDirectorBibleRequired
+	ReasonDirectorSetupNotReady   = kernel.ReasonDirectorSetupNotReady
+	ReasonPreviousHandoffRequired = kernel.ReasonPreviousHandoffRequired
 	// ReasonDirectorSegmentReadonly 见 kernel。
 	ReasonDirectorSegmentReadonly = kernel.ReasonDirectorSegmentReadonly
 	// ReasonPrevizRequired 见 kernel。

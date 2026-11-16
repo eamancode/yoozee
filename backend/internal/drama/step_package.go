@@ -122,6 +122,9 @@ func StepPackageRules() StepPackageRuleSet {
 		if s.ID == StepAssetsExtract {
 			out.Steps[len(out.Steps)-1].Contracts = []string{ContractIntegratedAssets}
 		}
+		if s.ID == StepScriptAdapt {
+			out.Steps[len(out.Steps)-1].Contracts = []string{ContractSSSScriptAdapt}
+		}
 		if s.ID == StepChapterShots {
 			out.Steps[len(out.Steps)-1].Contracts = []string{ContractOntologyDirector, ContractSSSDirector}
 			out.Steps[len(out.Steps)-1].StagedContracts = []string{ContractOntologyDirector, ContractSSSDirector}
@@ -209,7 +212,7 @@ func CheckStepPackage(m StepPackageManifest, files map[string][]byte) []StepPack
 			known = append(known, s.ID)
 		}
 		add(PackageRuleStep, "", "step「%s」不在线上步骤表里（现有：%s）", m.Step, strings.Join(known, "、"))
-	} else if m.Contract != step.Contract && !(m.Step == StepAssetsExtract && m.Contract == ContractIntegratedAssets) && !(m.Step == StepChapterShots && (m.Contract == ContractOntologyDirector || m.Contract == ContractSSSDirector)) {
+	} else if m.Contract != step.Contract && !(m.Step == StepScriptAdapt && m.Contract == ContractSSSScriptAdapt) && !(m.Step == StepAssetsExtract && m.Contract == ContractIntegratedAssets) && !(m.Step == StepChapterShots && (m.Contract == ContractOntologyDirector || m.Contract == ContractSSSDirector)) {
 		add(PackageRuleContract, "", "清单声明满足契约 %s，线上「%s」这一步的契约是 %s", m.Contract, step.Label, step.Contract)
 	}
 	for _, id := range m.Profiles {

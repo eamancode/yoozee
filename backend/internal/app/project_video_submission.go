@@ -164,10 +164,12 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		}
 		enabled = state.WhiteModelStoryboardEnabled == nil || *state.WhiteModelStoryboardEnabled
 	}
-	if !enabled && stringValue(marker["frameResourceId"]) != "" {
+	segment := segmentSubmissionContent(*shot, revision)
+	workflow, _ := drama.Workflow(project.WorkflowID)
+	sss := workflow.StoryboardMode == drama.StoryboardModeSSS && strings.TrimSpace(segment.Verbatim) != ""
+	if !enabled && !sss && stringValue(marker["frameResourceId"]) != "" {
 		return "", BadAuthRequest("白模分镜已关闭，请重新准备生成请求")
 	}
-	segment := segmentSubmissionContent(*shot, revision)
 	if !isPositiveVideoSeconds(segment.Dur) {
 		return "", BadAuthRequest("镜头组时长必须大于 0")
 	}
@@ -234,6 +236,9 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		break
 	}
 	prompt = basePrompt
+	if sss && stringValue(marker["frameResourceId"]) == "" {
+		prompt = drama.StripPositionReference(prompt)
+	}
 	if stringValue(marker["frameResourceId"]) != "" && (stringValue(marker["sourceShotId"]) != previousID || stringValue(marker["sourceRevisionId"]) != previousRevisionID || stringValue(marker["sourceVideoResourceId"]) == "") {
 		return "", failedPrecondition("站位参考的来源与当前相邻镜头不一致，请重新准备")
 	}
@@ -269,14 +274,26 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 			if stringValue(marker["referenceTag"]) != tag {
 				return "", BadAuthRequest("站位参考图编号与实际图片顺序不一致")
 			}
-			prompt = videoChainPositionPrompt(tag) + "\n\n" + prompt
+			if sss {
+				prompt = drama.ApplyPositionReference(prompt, tag)
+			} else {
+				prompt = videoChainPositionPrompt(tag) + "\n\n" + prompt
+			}
 		}
 	}
 	verbatim := strings.TrimSpace(segment.Verbatim) != ""
 	if enabled && sameScene && !verbatim && !strings.Contains(prompt, dramaSceneEnding) {
 		prompt += "\n\n" + dramaSceneEnding
 	}
-	metadata[dramaSubmissionKey] = map[string]any{"basePrompt": basePrompt, "endingApplied": enabled && sameScene && !verbatim, "handoffShot": enabled && sameScene && verbatim, "whiteModelStoryboardEnabled": enabled, "nextShotId": nextID, "contentSeconds": segment.Dur, "submissionSeconds": seconds}
+	handoffShot := enabled && sameScene && verbatim
+	if sss {
+		var spec drama.Segment
+		if err := json.Unmarshal([]byte(revision.SpecJSON), &spec); err != nil {
+			return "", err
+		}
+		handoffShot = sameScene && drama.SegmentEndsWithFreeze(spec)
+	}
+	metadata[dramaSubmissionKey] = map[string]any{"basePrompt": basePrompt, "endingApplied": enabled && sameScene && !verbatim, "handoffShot": handoffShot, "whiteModelStoryboardEnabled": enabled, "nextShotId": nextID, "contentSeconds": segment.Dur, "submissionSeconds": seconds}
 	metadata["shotRevisionId"] = shot.CurrentRevisionID
 	if artifact, ok := metadata["artifactMetadata"].(map[string]any); ok {
 		artifact["contentDurationSeconds"] = segment.Dur
