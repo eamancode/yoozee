@@ -155,7 +155,7 @@ func TestScenePropReferenceUnavailablePreservesRequiredBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		owner  string
-		status string
+		status model.ResourceStatus
 	}{
 		{name: "missing"},
 		{name: "foreign", owner: "other-user", status: model.ResourceStatusReady},
