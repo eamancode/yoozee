@@ -201,6 +201,7 @@ func (s *Service) finalizeProjectAssetImageTask(task model.Task, result map[stri
 	if len(output.Images) != 1 || output.Images[0].ResourceID == "" {
 		return false, BadAuthRequest("资产出图任务必须返回一张已保存图片")
 	}
+	s.checkAssetImageAspect(task, decrypted, output.Images[0].ResourceID, result)
 	applied, err := s.bindProjectAssetImage(task.UserID, task.ProjectID, input.Metadata.AssetID, BindProjectAssetImageRequest{ResourceID: output.Images[0].ResourceID, ExpectedVersionID: input.Metadata.VersionID}, task.ID)
 	if errors.Is(err, repository.ErrProjectAssetVersionChanged) {
 		// 出图期间设定或图片已有新版本：保留任务产物，不覆盖新版本，也不重发收费请求。

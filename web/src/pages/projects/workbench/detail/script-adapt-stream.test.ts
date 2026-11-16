@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { episodeSourcesComment, withEpisodeSourcesComment } from "./episode-sources";
 import { scriptAdaptDefaultMode } from "./script-adapt-mode";
-import { parseScriptAdaptStream, resumedScriptAdaptStream, scriptAdaptStreamFromResult } from "./script-adapt-stream";
+import { parseScriptAdaptStream, resumedScriptAdaptStream, scriptAdaptEpisodeNo, scriptAdaptGroupTitle, scriptAdaptRunningText, scriptAdaptStreamFromResult } from "./script-adapt-stream";
 
 const marker = (index: number, attempt = 1) => JSON.stringify({ "@turn": { index, total: 2, scene: String(index), heading: `第 ${index} 集`, attempt } });
 const header = (no: number, title: string) => JSON.stringify({ no, title, sources: [{ unitId: "c1", from: 1, to: 3 }] });
@@ -79,4 +79,48 @@ test("剧本优化默认模式：原文都改编过、导入剧本时只调节�
     assert.equal(scriptAdaptDefaultMode({ sourceType: "novel", chapterIds, episodeCount: 2 }), "adapt");
     assert.equal(scriptAdaptDefaultMode({ sourceType: "script", chapterIds, episodeCount: 0 }), "rhythm");
     assert.equal(scriptAdaptDefaultMode({ sourceType: "novel", chapterIds: [], episodeCount: 2 }), "rhythm");
+});
+
+// SSS 流水线拆剧本第 1 轮是「立意与全集结构」（轮次 ID concept）：不标成第 1 集，剧集轮按真实集号标。
+const sssMarker = (index: number, scene: string, heading: string, total = 3) => JSON.stringify({ "@turn": { index, total, scene, heading, attempt: 1 } });
+
+test("立意轮标「立意与全集结构」，剧集轮按集号标，立意页的二级标题不算场次", () => {
+    const text = [sssMarker(1, "concept", "立意与全集结构"), "## 立意页", "一句话：雨夜送橙汁。", "## 全集结构表", "| 集 | 任务 |", sssMarker(2, "1", "第 1 集"), header(1, "雨夜"), "## 内·雨棚·夜", "林深：谢谢。"].join("\n");
+    const state = parseScriptAdaptStream(text);
+    assert.equal(state.concept, true);
+    assert.equal(scriptAdaptGroupTitle(state.episodes[0], state), "立意与全集结构");
+    assert.equal(scriptAdaptGroupTitle(state.episodes[1], state), "第 1 集");
+    assert.deepEqual(state.episodes[0].scenes, []);
+    assert.equal(state.sceneCount, 1);
+    assert.equal(scriptAdaptRunningText(state), "正在写第 1/2 集");
+    // 集号取回合标记里的轮次 ID，不按轮次序号推：第 2 轮写的是第 5 集时就标第 5 集。
+    const shifted = parseScriptAdaptStream([sssMarker(1, "concept", "立意与全集结构"), "## 立意页", sssMarker(2, "5", "第 5 集")].join("\n"));
+    assert.equal(scriptAdaptGroupTitle(shifted.episodes[1], shifted), "第 5 集");
+});
+
+test("立意轮进行中写「立意与全集结构（第 1/N 轮）」；普通流水线照旧按集", () => {
+    assert.equal(scriptAdaptRunningText(parseScriptAdaptStream(sssMarker(1, "concept", "立意与全集结构", 4))), "正在写立意与全集结构（第 1/4 轮）");
+    assert.equal(scriptAdaptRunningText(parseScriptAdaptStream([marker(1), header(1, "七床空了"), marker(2)].join("\n"))), "正在写第 2/2 集");
+    assert.equal(scriptAdaptRunningText(parseScriptAdaptStream("")), "等待模型开始输出");
+});
+
+test("失败任务从结果还原时也认得立意轮（轮次带 scene）", () => {
+    const result = JSON.stringify({
+        dramaRun: {
+            total: 3,
+            turns: [
+                { index: 1, scene: "concept", heading: "立意与全集结构", text: "## 立意页\n一句话。\n## 全集结构表\n表" },
+                { index: 2, scene: "1", heading: "第 1 集", text: `${header(1, "雨夜")}\n## 内·雨棚·夜` },
+            ],
+        },
+    });
+    const state = scriptAdaptStreamFromResult(result);
+    assert.equal(state.concept, true);
+    assert.deepEqual(
+        state.episodes.map((episode) => scriptAdaptGroupTitle(episode, state)),
+        ["立意与全集结构", "第 1 集"],
+    );
+    // 轮次 ID 读不出时按序号推：有立意轮时减一。
+    assert.equal(scriptAdaptEpisodeNo({ index: 3, title: "", attempt: 1, scenes: [], lines: [] }, { concept: true }), 2);
+    assert.equal(scriptAdaptEpisodeNo({ index: 3, title: "", attempt: 1, scenes: [], lines: [] }, {}), 3);
 });

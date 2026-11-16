@@ -19,7 +19,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createDramaFlowFixture, FIXTURE_ASSET_ID, FIXTURE_ASSET_ID_2, FIXTURE_PROJECT_ID as P, FIXTURE_SHOT_ID, FIXTURE_SHOT_ID_2, FIXTURE_VIDEO_MODEL_NAME } from "../test/fixtures/drama-flow-api-fixture.ts";
+import { createDramaFlowFixture, FIXTURE_ASSET_ID, FIXTURE_ASSET_ID_2, FIXTURE_PROJECT_ID as P, FIXTURE_SHOT_ID, FIXTURE_SHOT_ID_2, FIXTURE_UNIT_ID, FIXTURE_VIDEO_MODEL_NAME } from "../test/fixtures/drama-flow-api-fixture.ts";
 
 const CHROME_CANDIDATES = [
     process.env.CHROME_BIN,
@@ -137,11 +137,12 @@ async function connect(cdpPort, appOrigin, getFixture) {
             const body = params.request.postData ? JSON.parse(params.request.postData) : undefined;
             const result = fixture.handle(params.request.method, `${url.pathname}${url.search}`, body) || { status: 504, body: { code: 504, msg: "pending" } };
             if (result.status >= 400) record("api", `${result.status} ${params.request.method} ${url.pathname}`);
+            // 夹具可以回二进制（资源文件的 PNG）：binary 是 base64，按 contentType 回。
             void send("Fetch.fulfillRequest", {
                 requestId: params.requestId,
                 responseCode: result.status,
-                responseHeaders: [{ name: "Content-Type", value: "application/json; charset=utf-8" }],
-                body: Buffer.from(JSON.stringify(result.body)).toString("base64"),
+                responseHeaders: [{ name: "Content-Type", value: result.contentType || "application/json; charset=utf-8" }],
+                body: result.binary || Buffer.from(JSON.stringify(result.body)).toString("base64"),
             }).catch(() => {});
         }
     });
@@ -478,12 +479,83 @@ async function cardActionsCase(cdp, { viewport, long, collapsed }) {
     const label = `R7-01 ${viewport.width}×${viewport.height} ${long ? "长列表" : "短列表"} 柚智${collapsed ? "收起" : "展开"}`;
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false });
     await cdp.navigate(`/drama-flow/${P}/video`);
-    check(await cdp.poll(`document.querySelectorAll(".drama-flow-vcard-actions button").length >= ${long ? 20 : 4}`, "card actions", 20000), `${label}：段卡操作都已渲染`);
+    const rendered = await pollOrDiagnose(
+        cdp,
+        `document.querySelectorAll(".drama-flow-vcard-actions button").length >= ${long ? 20 : 4}`,
+        "card actions",
+        20000,
+        `${label} card actions`,
+        `({ buttons: document.querySelectorAll(".drama-flow-vcard-actions button").length, cards: document.querySelectorAll("article.drama-flow-vcard").length, visibleButtons: [...document.querySelectorAll(".drama-flow-vcard-actions button")].filter((el) => el.getClientRects().length).length, shell: Boolean(document.querySelector(".drama-flow-shell")), stage: document.querySelector(".drama-flow-stage, .drama-flow-main")?.className || "" })`,
+    );
+    check(rendered.ok, `${label}：段卡操作都已渲染`, rendered.evidence);
     const launcher = await ensureLauncherCollapsed(cdp, collapsed);
     check(launcher && launcher.collapsed === collapsed && (collapsed || launcher.media), `${label}：柚智状态稳定`, JSON.stringify(launcher));
     const result = await cdp.evaluate(cardActionsHit);
     check(result.ok && (!long || result.scrolls), `${label}：每张段卡的操作中心和四角都点得到`, JSON.stringify(result));
     return { label, launcher, ...result };
+}
+
+// 页面外壳在可视区内：顶栏、阶段条、主区、底部操作、详情栏都不越出视口（不靠全局 overflow:hidden 掩盖）。
+const layoutProbe = `(() => {
+  const vw = document.documentElement.clientWidth;
+  const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width) }; };
+  const parts = {
+    shell: document.querySelector(".drama-flow-shell"),
+    top: document.querySelector(".drama-flow-top"),
+    strip: document.querySelector(".drama-flow-strip, .drama-flow-stages"),
+    main: document.querySelector(".drama-flow-main"),
+    bar: document.querySelector(".drama-flow-bar"),
+    pane: document.querySelector("aside.drama-flow-pane"),
+  };
+  const out = { vw, scrollWidth: document.documentElement.scrollWidth, parts: {}, clipped: [] };
+  for (const [name, el] of Object.entries(parts)) { const b = box(el); out.parts[name] = b; if (b && b.right > vw + 1) out.clipped.push(name + ":" + b.right); }
+  for (const el of document.querySelectorAll(".drama-flow-top button, .drama-flow-top a, .drama-flow-bar button, .drama-flow-top h1")) {
+    const r = el.getBoundingClientRect();
+    if (r.width && (r.right > vw + 1 || r.left < -1)) out.clipped.push((el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 20) + ":" + Math.round(r.right));
+  }
+  const title = document.querySelector(".drama-flow-top h1");
+  out.titleTruncated = title ? title.scrollWidth > title.clientWidth : null;
+  out.sidebar = box(document.querySelector(".app-workspace-sidebar"));
+  return out;
+})()`;
+
+async function layoutCase(cdp, { viewport, path, label, withPane }) {
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false });
+    await cdp.evaluate(`localStorage.setItem("yingce:workspace-sidebar-collapsed", "0")`);
+    await cdp.navigate(path);
+    await cdp.poll(`Boolean(document.querySelector(".drama-flow-top h1")) && Boolean(document.querySelector(".drama-flow-bar"))`, "layout ready", 30000);
+    if (withPane) await cdp.poll(`Boolean(document.querySelector("aside.drama-flow-pane"))`, "pane", 15000);
+    await sleep(400);
+    const got = await cdp.evaluate(layoutProbe);
+    check(got.sidebar && got.sidebar.width > 100, `UI-1024 ${label}：侧栏是展开的`, JSON.stringify(got.sidebar));
+    check(got.scrollWidth <= got.vw + 1 && got.clipped.length === 0, `UI-1024 ${label}：顶栏、阶段条、主区、底部操作、详情栏都在可视区内`, JSON.stringify(got));
+    return got;
+}
+
+/**
+ * 轮询失败时留证据（不改轮询表达式、超时和断言）：当时的地址、readyState、这条检查关心的 DOM 值、
+ * 夹具最近收到的 /api 请求、浏览器资源计时里最近的 /api 请求、到这时为止记下的 console / 异常问题，有输出目录时另存截图和 JSON。
+ * 证据直接写在 FAIL 行后面，没有输出目录（Codex 直接跑）时日志里也看得到。
+ */
+let currentFixture;
+
+async function pollOrDiagnose(cdp, expression, label, timeout, name, domProbe) {
+    const ok = await cdp.poll(expression, label, timeout);
+    if (ok) return { ok, evidence: "" };
+    const page = await cdp
+        .evaluate(
+            `(() => ({ url: location.pathname + location.search, ready: document.readyState, title: document.title, probe: (${domProbe}), body: (document.body?.innerText || "").replace(/\\s+/g, " ").slice(0, 400),
+            api: performance.getEntriesByType("resource").filter((e) => e.name.includes("/api/")).slice(-12).map((e) => ({ path: new URL(e.name).pathname + new URL(e.name).search, start: Math.round(e.startTime), ms: Math.round(e.duration) })) }))()`,
+        )
+        .catch((error) => ({ error: String(error) }));
+    const evidence = { label, timeout, page, fixtureCalls: (currentFixture?.calls || []).slice(-15), problems: cdp.problems.slice(-6) };
+    const outDir = process.env.DRAMA_FLOW_E2E_OUT || "";
+    if (outDir) {
+        const safe = name.replace(/[^\w\-]+/g, "_");
+        writeFileSync(join(outDir, `failure-${safe}.json`), JSON.stringify(evidence, null, 2));
+        await cdp.shot(join(outDir, `failure-${safe}.png`)).catch(() => {});
+    }
+    return { ok, evidence: JSON.stringify(evidence).slice(0, 2400) };
 }
 
 async function main() {
@@ -499,6 +571,7 @@ async function main() {
     const useFixture = (options) => {
         const next = createDramaFlowFixture(options);
         fixtures.push(next);
+        currentFixture = next;
         return next;
     };
     let fixture = useFixture();
@@ -568,6 +641,164 @@ async function main() {
         check(await cdp.evaluate(`${summary("视频模型")} === ${JSON.stringify(FIXTURE_VIDEO_MODEL_NAME)}`), "D-03 出片页视频模型显示名字");
         check(!(await cdp.evaluate(crashed)), "出片详情选择、切换、关闭不崩");
 
+        // R5-ZOOM：资产详情的图点开放大（角色主卡、已出图子卡、场景）：按原图比例显示，能放大，Esc 退出；不写任何东西。
+        fixture = useFixture({ workflowId: "pipeline-2", assetImages: true });
+        const zoomProbe = `(() => { const wrap = [...document.querySelectorAll(".ant-image-preview")].find((el) => getComputedStyle(el).display !== "none" && el.getBoundingClientRect().width > 0); const img = wrap?.querySelector("img.ant-image-preview-img, .ant-image-preview-img img, img"); if (!img) return null; const r = img.getBoundingClientRect(); return { natural: [img.naturalWidth, img.naturalHeight], shown: [Math.round(r.width), Math.round(r.height)], transform: img.style.transform || getComputedStyle(img).transform }; })()`;
+        const zoomCase = async (label, expectedRatio) => {
+            check(await cdp.poll(`Boolean(${zoomProbe}) && (${zoomProbe}).natural[0] > 0`, `${label} preview`, 15000), `R5-ZOOM ${label}：点图打开放大预览`);
+            const before = await cdp.evaluate(zoomProbe);
+            const ratio = before ? before.shown[0] / before.shown[1] : 0;
+            check(before && before.natural[0] / before.natural[1] === expectedRatio && Math.abs(ratio - expectedRatio) < 0.03, `R5-ZOOM ${label}：按原图比例显示`, JSON.stringify(before));
+            await cdp.evaluate(
+                `(() => { const btn = [...document.querySelectorAll(".ant-image-preview-actions-action, .ant-image-preview-operations-operation")].find((el) => /zoom-in|放大/.test(el.className + (el.getAttribute("aria-label") || "") + el.innerHTML)); btn?.click(); return Boolean(btn); })()`,
+            );
+            await sleep(400);
+            const after = await cdp.evaluate(zoomProbe);
+            check(after && after.shown[0] > before.shown[0], `R5-ZOOM ${label}：能放大`, JSON.stringify({ before, after }));
+            await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+            await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+            check(await cdp.poll(`!(${zoomProbe})`, `${label} closed`, 5000), `R5-ZOOM ${label}：Esc 退出预览`);
+            await sleep(300);
+            check(await cdp.evaluate(`Boolean(document.querySelector("aside.drama-flow-pane"))`), `R5-ZOOM ${label}：一次 Esc 只关预览，详情栏还在`);
+        };
+        await cdp.navigate(`/drama-flow/${P}/look?tab=character&item=${FIXTURE_ASSET_ID}`);
+        check(await cdp.poll(`Boolean(document.querySelector('aside.drama-flow-pane button.drama-flow-pane-media-zoom'))`, "zoom button", 30000), "R5-ZOOM 角色主卡图是可点的放大按钮");
+        await cdp.click(`document.querySelector('aside.drama-flow-pane button.drama-flow-pane-media-zoom')`, "点主卡图");
+        await zoomCase("角色主卡", 90 / 160);
+        // 子卡列表默认收起，和用户一样先点「子卡 1 张」展开。
+        await cdp.click(`[...document.querySelectorAll("aside.drama-flow-pane button[aria-expanded]")].find((el) => (el.textContent || "").includes("子卡 1 张"))`, "展开子卡");
+        check(await cdp.poll(`Boolean(document.querySelector('aside.drama-flow-pane button[aria-label="预览子卡「林深·雨衣」"]'))`, "variant button", 15000), "R5-ZOOM 子卡缩略图可点");
+        await cdp.click(`document.querySelector('aside.drama-flow-pane button[aria-label="预览子卡「林深·雨衣」"]')`, "点子卡图");
+        await zoomCase("子卡", 90 / 160);
+        await cdp.navigate(`/drama-flow/${P}/look?tab=environment&item=asset-market`);
+        check(await cdp.poll(`Boolean(document.querySelector('aside.drama-flow-pane button.drama-flow-pane-media-zoom'))`, "scene zoom button", 30000), "R5-ZOOM 场景图是可点的放大按钮");
+        await cdp.click(`document.querySelector('aside.drama-flow-pane button.drama-flow-pane-media-zoom')`, "点场景图");
+        await zoomCase("场景", 1);
+        check(!fixture.forbidden.length, "R5-ZOOM 全程没有写请求", JSON.stringify(fixture.forbidden));
+
+        // R5-DIRECTOR：导演分镜段（带 verbatim）只读——不出镜头编辑、拆合按钮，写明提交用单元卡原文，给「症状返修」入口；
+        // 打开返修框不提交；原流程的段（S02）照常能编辑，也不能并入导演段。
+        fixture = useFixture({ workflowId: "pipeline-2", directorSegments: true });
+        await cdp.navigate(`/drama-flow/${P}/shots?item=${FIXTURE_SHOT_ID}`);
+        check(
+            await cdp.poll(`Boolean(document.querySelector("aside.drama-flow-pane")) && (document.querySelector("aside.drama-flow-pane")?.innerText || "").includes("导演分镜单元")`, "director pane", 30000),
+            "R5-DIRECTOR 导演段详情写明「导演分镜单元」、提交用单元卡原文",
+        );
+        const directorPane = await cdp.evaluate(
+            `(() => { const pane = document.querySelector("aside.drama-flow-pane"); const labels = [...pane.querySelectorAll("button")].map((el) => (el.getAttribute("aria-label") || el.textContent || "").trim()); return { labels, text: pane.innerText.slice(0, 600) }; })()`,
+        );
+        check(!directorPane.labels.some((label) => /编辑第 \d+ 个镜头|拆段或移到相邻段|^合并 |^并入 /.test(label)), "R5-DIRECTOR 导演段没有镜头编辑、拆段、合并入口", JSON.stringify(directorPane.labels));
+        check(directorPane.labels.includes("症状返修"), "R5-DIRECTOR 导演段有「症状返修」入口", JSON.stringify(directorPane.labels));
+        await cdp.click(buttonIn(`document.querySelector("aside.drama-flow-pane")`, "症状返修"), "打开症状返修");
+        check(await cdp.poll(`Boolean([...document.querySelectorAll(".ant-modal-container")].find((el) => (el.textContent || "").includes("写清翻车症状")))`, "repair modal", 10000), "R5-DIRECTOR 返修框打开（只替换这一段）");
+        await cdp.click(`[...document.querySelectorAll(".ant-modal-container")].find((el) => (el.textContent || "").includes("写清翻车症状"))?.querySelector(".ant-modal-footer button")`, "关掉返修框");
+        await cdp.navigate(`/drama-flow/${P}/shots?item=${FIXTURE_SHOT_ID_2}`);
+        check(await cdp.poll(`Boolean(document.querySelector('aside.drama-flow-pane button[aria-label="编辑第 1 个镜头的画面、台词和时长"]'))`, "plain pane", 30000), "R5-DIRECTOR 原流程的段照常能编辑镜头");
+        const plainLabels = await cdp.evaluate(`[...document.querySelector("aside.drama-flow-pane").querySelectorAll("button")].map((el) => (el.textContent || "").trim())`);
+        check(!plainLabels.some((label) => label.startsWith("并入 ")), "R5-DIRECTOR 原流程的段不能并入导演段", JSON.stringify(plainLabels));
+        check(!fixture.forbidden.length && fixture.state.saves === 0, "R5-DIRECTOR 全程没有写段、没有提交返修", JSON.stringify({ forbidden: fixture.forbidden, saves: fixture.state.saves }));
+
+        // R4-CONFIRM：停在「角色场景资产」时点「继续」先开确认面板（选模型、排除资产），不直接建任务；去掉阿婆后只给林深出图；同一拍连点两下只发一次。
+        fixture = useFixture({ workflowId: "pipeline-2", stopAtAssets: true, imageModel: "CHANNEL_000001::fixture-image" });
+        await cdp.navigate(`/drama-flow/${P}/look?tab=character`);
+        check(
+            await cdp.poll(`Boolean((${primaryButton})?.textContent?.includes("继续：角色场景资产"))`, "continue ready", 30000),
+            "R4-CONFIRM 停在角色场景资产时主按钮是「继续：角色场景资产」",
+            await cdp.evaluate(`document.querySelector(".drama-flow-bar")?.innerText || ""`),
+        );
+        check(await cdp.poll(exists(byText("button.drama-flow-asset", "阿婆")), "assets listed", 30000), "R4-CONFIRM 资产卡片已读到");
+        // 和底栏用例同一前提：柚智浮层挂好、底栏主操作没被它盖住再点（final 运行的失败证据：点击落在刚挂上的柚智上，打开了画布助手）。
+        check(await cdp.poll(`Boolean(${launcherBox})`, "launcher", 15000), "R4-CONFIRM 柚智浮层已挂载");
+        const continueClear = await pollOrDiagnose(cdp, `(${hitTest(primaryButton)}).ok`, "continue not covered", 15000, "R4-CONFIRM continue covered", hitTest(primaryButton));
+        check(continueClear.ok, "R4-CONFIRM 点之前「继续」没被柚智盖住", continueClear.evidence);
+        await cdp.click(primaryButton, "点继续：角色场景资产");
+        const confirmPanel = `[...document.querySelectorAll(".ant-modal-container")].find((el) => (el.textContent || "").includes("继续资产出图"))`;
+        const panelOpened = await pollOrDiagnose(
+            cdp,
+            `Boolean(${confirmPanel})`,
+            "confirm panel",
+            15000,
+            "R4-CONFIRM confirm panel",
+            `({ bar: document.querySelector(".drama-flow-bar")?.innerText || "", notices: [...document.querySelectorAll(".ant-message-notice")].map((el) => el.textContent), modals: [...document.querySelectorAll(".ant-modal-container")].map((el) => (el.textContent || "").slice(0, 60)), assetCards: document.querySelectorAll("button.drama-flow-asset").length, active: document.activeElement?.textContent?.slice(0, 40) || "" })`,
+        );
+        check(panelOpened.ok, "R4-CONFIRM 先打开确认面板", panelOpened.evidence);
+        await sleep(800);
+        check(!fixture.state.imageQueues.length && !fixture.forbidden.length, "R4-CONFIRM 没确认前没有建出图任务、没有续跑流水线", JSON.stringify({ queues: fixture.state.imageQueues, forbidden: fixture.forbidden }));
+        const panelText = await cdp.evaluate(`(${confirmPanel})?.innerText || ""`);
+        check(panelText.includes("林深") && panelText.includes("阿婆") && panelText.includes("为 2 个资产出图"), "R4-CONFIRM 面板列出两个待出图资产", panelText.slice(0, 400));
+        check(await cdp.poll(`Boolean((${confirmPanel})?.innerText.includes("验收图片模型"))`, "image model", 10000), "R4-CONFIRM 面板显示所选图片模型", panelText.slice(0, 400));
+        await cdp.click(`[...((${confirmPanel})?.querySelectorAll("label.ant-checkbox-wrapper") || [])].find((el) => (el.textContent || "").includes("阿婆"))`, "去掉阿婆");
+        check(await cdp.poll(`Boolean([...((${confirmPanel})?.querySelectorAll("button") || [])].find((el) => (el.textContent || "").includes("为 1 个资产出图")))`, "one selected", 5000), "R4-CONFIRM 去掉阿婆后只剩 1 个");
+        await cdp.evaluate(`(() => { const ok = [...((${confirmPanel})?.querySelectorAll("button") || [])].find((el) => (el.textContent || "").includes("为 1 个资产出图")); ok?.click(); ok?.click(); return Boolean(ok); })()`);
+        for (let waited = 0; waited < 15000 && !fixture.state.imageQueues.length; waited += 200) await sleep(200);
+        await sleep(1000);
+        const queues = fixture.state.imageQueues;
+        check(queues.length === 1 && JSON.stringify(queues[0].assetIds) === JSON.stringify([FIXTURE_ASSET_ID]) && Boolean(queues[0].imageTask?.model), "R4-CONFIRM 确认后只发一次，只含选中的林深，带所选图片模型", JSON.stringify(queues));
+        check(await cdp.poll(`document.body.innerText.includes("已排 1 个资产出图")`, "queued notice", 10000), "R4-CONFIRM 提示已排 1 个资产出图");
+        check(!fixture.forbidden.length, "R4-CONFIRM 全程没有续跑流水线或其他写请求", JSON.stringify(fixture.forbidden));
+
+        // R4-SSS-RUN：SSS 分镜运行中，分镜页按已保存的轮次显示当前轮、实际 / 预估总轮数、各阶段和累计等待，不说「写好一节出现一节」。
+        const runningSSS = {
+            id: "task-sss-running",
+            projectId: P,
+            type: "canvas_text",
+            status: "running",
+            stage: "已写完第 5/8 轮：编译 E1-U1",
+            prompt: "",
+            attempts: 1,
+            model: "CHANNEL_000001::fixture-text",
+            createdAt: new Date(Date.now() - 125000).toISOString(),
+            updatedAt: new Date().toISOString(),
+            startedAt: new Date(Date.now() - 120000).toISOString(),
+            dramaRun: true,
+            clientContext: { chapterId: FIXTURE_UNIT_ID, chapterOperation: "storyboard" },
+            dramaRounds: {
+                mode: "sss",
+                completed: 5,
+                total: 8,
+                turns: [
+                    { kind: "plan", heading: "本集设计与台词定稿" },
+                    { kind: "direct", heading: "讲戏本" },
+                    { kind: "cut", heading: "整场镜头表与单元总表" },
+                    { kind: "card", heading: "单元卡 E1-U1" },
+                    { kind: "compile", heading: "编译 E1-U1" },
+                ],
+            },
+        };
+        fixture = useFixture({ workflowId: "pipeline-2", tasks: [runningSSS] });
+        await cdp.navigate(`/drama-flow/${P}/shots`);
+        check(await cdp.poll(`document.body.innerText.includes("导演正在写第 6 轮")`, "sss run", 30000), "R4-SSS-RUN 显示正在写第 6 轮");
+        const sssText = await cdp.evaluate(`document.querySelector(".drama-flow-note")?.innerText || ""`);
+        check(sssText.includes("单元卡（第 2 个单元）") && sssText.includes("已保存 5/8 轮（实际总轮数）") && /已等 2 分/.test(sssText) && sssText.includes("全部校验后统一装段"), "R4-SSS-RUN 当前轮、实际总轮数、累计等待、统一装段", sssText);
+        const phases = await cdp.evaluate(`[...document.querySelectorAll(".drama-flow-director-phases li")].map((el) => el.textContent + "|" + el.dataset.state)`);
+        check(
+            JSON.stringify(phases) === JSON.stringify(["集设计 ✓|done", "讲戏 ✓|done", "切分 ✓|done", "单元卡 1/2（正在写）|current", "编译 1/2|pending", "复看|pending"]),
+            "R4-SSS-RUN 各阶段（集设计、讲戏、切分、单元卡、编译、复看）状态对",
+            JSON.stringify(phases),
+        );
+        check(!(await cdp.evaluate(`document.body.innerText.includes("写好一节出现一节")`)), "R4-SSS-RUN 不说「写好一节出现一节」");
+        // 切分前总轮数是估计：同一任务只保存到讲戏时写「预估总轮数」。
+        fixture = useFixture({ workflowId: "pipeline-2", tasks: [{ ...runningSSS, id: "task-sss-early", dramaRounds: { mode: "sss", completed: 2, total: 10, turns: runningSSS.dramaRounds.turns.slice(0, 2) } }] });
+        await cdp.navigate(`/drama-flow/${P}/look`);
+        await cdp.navigate(`/drama-flow/${P}/shots`);
+        check(await cdp.poll(`document.body.innerText.includes("导演正在写第 3 轮：整场镜头表与单元总表")`, "sss early", 30000), "R4-SSS-RUN 切分前显示第 3 轮切分");
+        check(await cdp.evaluate(`(document.querySelector(".drama-flow-note")?.innerText || "").includes("已保存 2/10 轮（预估总轮数")`), "R4-SSS-RUN 切分前写明是预估总轮数");
+
+        // UI-1024：侧栏展开、长中文项目名，1024×900 和 1280×900 下页面外壳都在可视区内；详情栏开关、五个阶段都看一遍。
+        fixture = useFixture({ name: "雨夜便民市场里阿婆递给林深一杯温热橙汁之后发生的那些事情（第一季）" });
+        for (const viewport of [
+            { width: 1024, height: 900 },
+            { width: 1280, height: 900 },
+        ]) {
+            const size = `${viewport.width}×${viewport.height}`;
+            for (const stage of ["script", "look", "shots", "video", "cut"]) {
+                await layoutCase(cdp, { viewport, path: `/drama-flow/${P}/${stage}`, label: `${size} ${stage}` });
+            }
+            await layoutCase(cdp, { viewport, path: `/drama-flow/${P}/shots?item=${FIXTURE_SHOT_ID}`, label: `${size} 分镜详情栏打开`, withPane: true });
+            await layoutCase(cdp, { viewport, path: `/drama-flow/${P}/look?tab=character&item=${FIXTURE_ASSET_ID}`, label: `${size} 资产详情栏打开`, withPane: true });
+        }
+        await cdp.evaluate(`localStorage.removeItem("yingce:workspace-sidebar-collapsed")`);
+
         // R6-D04 / R7-01：新工作流先读过出片链，再打开公共的连续生成面板，预览花费后取消。
         // 明确视口，柚智默认展开且媒体稳定后真鼠标点；S02 在 1280×900 下原来正好落在柚智的透明热区里。
         for (const viewport of [
@@ -626,7 +857,15 @@ async function main() {
 
         // D-02 / D-03：项目信息抽屉。
         await cdp.navigate(`/drama-flow/${P}?panel=info`);
-        check(await cdp.poll(`${info("最近 100 次运行")} === "0 积分 · 暂无消费"`, "info cost"), "D-02 读到空运行记录写「0 积分 · 暂无消费」");
+        const infoCost = await pollOrDiagnose(
+            cdp,
+            `${info("最近 100 次运行")} === "0 积分 · 暂无消费"`,
+            "info cost",
+            15000,
+            "D-02 info cost",
+            `({ cost: ${info("最近 100 次运行")} ?? null, model: ${info("视频模型")} ?? null, drawer: Boolean(document.querySelector(".drama-flow-info")), facts: [...document.querySelectorAll("dl.drama-flow-info-facts dt")].map((dt) => dt.textContent + "=" + (dt.nextElementSibling?.textContent || "")) })`,
+        );
+        check(infoCost.ok, "D-02 读到空运行记录写「0 积分 · 暂无消费」", infoCost.evidence);
         check(await cdp.poll(`${info("视频模型")} === ${JSON.stringify(FIXTURE_VIDEO_MODEL_NAME)}`, "info model"), "D-03 项目信息里视频模型显示名字");
         check(await cdp.evaluate(`!document.querySelector(".drama-flow-info")?.textContent.includes("CHANNEL_000001")`), "D-03 项目信息不显示内部渠道 ID");
         if (outDir) await cdp.shot(join(outDir, "info-panel.png"));
@@ -658,7 +897,15 @@ async function main() {
         // 入口开关关闭：直达路由被拦截。
         fixture = useFixture({ flowEnabled: false });
         await cdp.navigate(`/drama-flow/${P}/shots`);
-        check(await cdp.poll(`document.body.innerText.includes("短剧新工作流") && !document.querySelector(".drama-flow-shell")`, "feature off"), "开关关闭时直达路由被拦截、不进新工作流页面");
+        const featureOff = await pollOrDiagnose(
+            cdp,
+            `document.body.innerText.includes("短剧新工作流") && !document.querySelector(".drama-flow-shell")`,
+            "feature off",
+            15000,
+            "feature off",
+            `({ shell: Boolean(document.querySelector(".drama-flow-shell")), mentions: document.body.innerText.includes("短剧新工作流"), headings: [...document.querySelectorAll("h1, h2, .ant-result-title")].map((el) => el.textContent.trim()).slice(0, 5) })`,
+        );
+        check(featureOff.ok, "开关关闭时直达路由被拦截、不进新工作流页面", featureOff.evidence);
 
         const writes = fixtures.flatMap((item) => item.forbidden);
         check(writes.length === 0, `没有任何生成或改项目的写请求（${fixtures.length} 个夹具实例合计）`, writes.map((call) => `${call.method} ${call.path}`).join(" | "));

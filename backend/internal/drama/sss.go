@@ -291,13 +291,13 @@ func SSSTurnInstruction(kind string, unit string, codes []string) string {
 			"2. `## 第四部分　单元总表`：表头第一列写「单元」，每个单元一行，单元编号写成 E〔集〕-U〔单元〕（如 E2-U1），表后写合计、成本、装满检查、在场检查、节奏检查；\n" +
 			"3. `## 启发库选用`：一张表 `| 单元 | 库号 |`，每个单元一行，按启发库总索引给这个单元选 1 到 4 个库号（如 A05、F01、D01，只写库号，用顿号隔开），后面写单元卡时会把这几个库整份给你。"
 	case SSSTurnCard:
-		return fmt.Sprintf("【本轮任务】只写单元 %s 的单元卡（模板/04 的版式），这一轮写到「接缝」为止，不写「粘贴提示词」和「风险与备选」（下一轮编译时写）。先一行标题 `### %s｜〔长档／短档〕｜叙事〔T〕秒＋定格 1 秒＝〔总时长〕秒｜〔镜数〕镜＋定格｜〔场景〕（本场第〔n〕段／共〔N〕段）｜〔功能词〕`（不定格的单元写「〔总时长〕秒｜〔镜数〕镜」），再依次写难事与在场、导演阐述、视觉策略、声光设计、镜头表、表演时间轴、物理要点、接缝。镜头的顺序、时长、台词照【整场镜头表】里分给这个单元的那几镜，不改。这一单元查用的启发库：%s（已整份附上）。只写这一个单元。", unit, unit, strings.Join(codes, "、"))
+		return fmt.Sprintf("【本轮任务】只写单元 %s 的单元卡（模板/04 的版式），这一轮写到「接缝」为止，不写「粘贴提示词」和「风险与备选」（下一轮编译时写）。先一行标题 `### %s｜〔长档／短档〕｜叙事〔T〕秒＋定格 1 秒＝〔总时长〕秒｜〔镜数〕镜＋定格｜〔场景〕（本场第〔n〕段／共〔N〕段）｜〔功能词〕`（不定格的单元写「〔总时长〕秒｜〔镜数〕镜」），再依次写难事与在场、导演阐述、视觉策略、声光设计、镜头表、表演时间轴、物理要点、接缝。镜头的顺序、时长、台词照【整场镜头表】里分给这个单元的那几镜，不改。镜头表从 0 秒开始、各行首尾相接；标题写了「＋定格 1 秒」的，镜头表最后一行就是那一秒全景定格（职责栏填「全景定格」），最后一行的结束秒必须等于标题的总时长——定格和换场景留的技术尾巴都要写进镜头表，不能只写在标题里。这一单元查用的启发库：%s（已整份附上）。只写这一个单元。", unit, unit, strings.Join(codes, "、"))
 	case SSSTurnCompile:
 		return fmt.Sprintf("【本轮任务】按手册/10 和模板/05，把单元 %s 的单元卡（见【前序产物：本单元的单元卡】）编译成即梦十五段提示词。只输出两部分：先一行 `#### 粘贴提示词`，后面用一个代码块（```）装十五段完整提示词（段名单独一行，顺序不变，交给用户的版本不带〔出处〕标注）；再一行 `#### 风险与备选` 写风险与备选。编译不创作：每一段都从单元卡、全剧圣经搬，锁逐字复制。", unit)
 	case SSSTurnReview:
 		return "【本轮任务】按手册/11 和质检/02 做导演复看与质检交接，只输出三部分，标题一字不改：`## 第六部分　后期备忘`、`## 第七部分　集交接卡`（版式按模板/03）、`## 第八部分　复看记录与待确认`。复看发现必须改的单元，写进待确认并写明改法（单元卡已经交付，这一轮不重写单元卡）。"
 	case SSSTurnRepair:
-		return fmt.Sprintf("【本轮任务】这是返修回合，只返修单元 %s。按手册/12 和质检/03 诊断，回到责任环节重写。依次输出 `## 诊断`、`## 改法`、`## 重写后的单元卡`；重写后的单元卡版式与原单元卡相同，单元编号不变，写到「接缝」为止（粘贴提示词下一轮编译时重写）。", unit)
+		return fmt.Sprintf("【本轮任务】这是返修回合，只返修单元 %s。按手册/12 和质检/03 诊断，回到责任环节重写。依次输出 `## 诊断`、`## 改法`、`## 重写后的单元卡`；重写后的单元卡版式与原单元卡相同，单元编号不变，写到「接缝」为止（粘贴提示词下一轮编译时重写）。镜头表从 0 秒开始、各行首尾相接；标题写了「＋定格 1 秒」的，镜头表最后一行就是那一秒全景定格（职责栏填「全景定格」），最后一行的结束秒必须等于标题的总时长——定格和换场景留的技术尾巴都要写进镜头表，不能只写在标题里。", unit)
 	}
 	return ""
 }
@@ -640,9 +640,41 @@ func sssCheckShotTable(card SSSUnitCard) ([]SSSShotRow, error) {
 		}
 	}
 	if last := rows[len(rows)-1].End; math.Abs(last-card.TotalSeconds) > 0.51 {
-		return nil, fmt.Errorf("最后一镜在 %s 秒结束，标题行的总时长是 %s 秒", secText(last), secText(card.TotalSeconds))
+		// 时长对不上照样拒绝（不吞掉差的秒数）；标题写了定格、表里却没有定格那一行时，说清楚缺的是哪一行，重试时模型照着补。
+		if card.Freeze && !slices.ContainsFunc(rows, func(r SSSShotRow) bool { return strings.Contains(r.Duty, "定格") }) {
+			return nil, fmt.Errorf("最后一镜在 %s 秒结束，标题行的总时长是 %s 秒：标题写了「＋定格 1 秒」，镜头表却没有全景定格那一行——在表末补一行全景定格（职责栏填「全景定格」），让最后一行在 %s 秒结束", secText(last), secText(card.TotalSeconds), secText(card.TotalSeconds))
+		}
+		return nil, fmt.Errorf("最后一镜在 %s 秒结束，标题行的总时长是 %s 秒：镜头表最后一行的结束秒要等于标题总时长（技术尾巴也写进镜头表）", secText(last), secText(card.TotalSeconds))
 	}
 	return rows, nil
+}
+
+// SSSUnitTimingLine 是单元卡轮（返修轮）附在本轮任务后面的时长核算：单元总表（切分轮第四部分）里这一单元的原行，
+// 写卡时照它核对叙事时长、总时长和镜数。找不到这一行时为空（不影响本轮，单元卡仍按标题和镜头表校验）。
+func SSSUnitTimingLine(cut string, unit string) string {
+	table, ok := SSSSection(cut, "第四部分")
+	if !ok || unit == "" {
+		return ""
+	}
+	var header []string
+	for _, cells := range sssTableRows(table) {
+		if len(cells) == 0 {
+			continue
+		}
+		if header == nil && sssUnitID.FindString(cells[0]) == "" {
+			header = cells
+			continue
+		}
+		if sssUnitID.FindString(cells[0]) != unit {
+			continue
+		}
+		row := "| " + strings.Join(cells, " | ") + " |"
+		if header != nil {
+			row = "| " + strings.Join(header, " | ") + " |\n" + row
+		}
+		return "【单元总表核算】单元总表里本单元这一行（写镜头表时照它核对叙事时长、总时长、镜数）：\n" + row + "\n镜头表最后一行的结束秒＝总时长；带定格的单元，定格那一秒是镜头表的最后一行。"
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------- 粘贴提示词

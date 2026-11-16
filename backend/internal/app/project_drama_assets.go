@@ -562,7 +562,8 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	for _, sc := range drama.SplitScenes(chapterPlainText(unit.SourceText), unit.Title) {
 		locations = append(locations, sc.Location)
 	}
-	checked := drama.CheckAssetsExtract(rows, drama.AssetsExtractCheckContext{Known: index.known(), Scenes: am.Scenes, ColorScript: colors, Master: master, SceneLocations: locations})
+	speakers := drama.ScriptSpeakers(drama.ScriptFromText(chapterPlainText(unit.SourceText), unit.Title))
+	checked := drama.CheckAssetsExtract(rows, drama.AssetsExtractCheckContext{Known: index.known(), Scenes: am.Scenes, ColorScript: colors, Master: master, SceneLocations: locations, Speakers: speakers})
 	if len(checked.Rows) == 0 {
 		return DramaAssetsExtractOutcome{}, dramaSentenceError{fmt.Errorf("资产设计没有能用的资产行（读出 %d 行，%d 行读不出，%d 行不合格），没有写入", stats.Rows, stats.Invalid, checked.Skipped)}
 	}

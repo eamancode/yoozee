@@ -149,8 +149,19 @@ function editable(list: DramaSegmentView[], index: number) {
     const view = list[index];
     if (!view) throw new Error("没有相邻的段");
     if (view.derived) throw new Error(`${view.spec.id} 是旧镜头，还没有分段 JSON，不能拆合`);
+    if (isDirectorSegment(view.spec)) throw new Error(DIRECTOR_SEGMENT_READONLY(view.spec.id));
     return view;
 }
+
+/**
+ * 导演分镜段（SSS、本体论）：视频提交用的是 verbatim（单元卡的粘贴提示词原文，@图k 与参考顺序一一对应），镜头只供显示。
+ * 这里改画面、台词、时长或拆合，看到的变了、提交的不变，所以一律不让改，要改走症状返修（只替换这一段）。后端同样拒绝。
+ */
+export function isDirectorSegment(spec: Pick<DramaSegment, "verbatim">) {
+    return Boolean(spec.verbatim?.trim());
+}
+
+export const DIRECTOR_SEGMENT_READONLY = (id: string) => `${id} 是导演分镜单元：视频提交用单元卡的粘贴提示词原文，不能在这里改镜头或拆合；要改请用「症状返修」（只替换这一段）`;
 
 function rebuild(base: DramaSegment, shots: DramaSubShot[], seconds: number[], rule: SegmentDurationRule): DramaSegment {
     let at = 0;

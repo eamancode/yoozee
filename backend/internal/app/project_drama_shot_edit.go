@@ -40,12 +40,23 @@ func (s *Service) WriteDramaSegmentsChecked(userID string, projectID string, req
 	// 和本体论整集替换、返修收尾串行（它们按这一集现有的段核对删段和每集时长）。
 	unlock := lockOntologyEpisode(strings.TrimSpace(req.UnitID))
 	defer unlock()
+	// 普通写段（接口、Agent）不能改导演分镜段；导演收尾和返修直接走 writeDramaSegments。
+	if err := s.guardDirectorSegmentWrites(userID, projectID, req); err != nil {
+		return DramaSegmentsWriteResult{}, err
+	}
 	if len(req.Shots) == 0 {
 		views, err := s.writeDramaSegments(userID, projectID, req)
 		return DramaSegmentsWriteResult{Segments: views}, err
 	}
 	edit, err := s.planDramaShotEdits(userID, projectID, req)
 	if err != nil {
+		return DramaSegmentsWriteResult{}, err
+	}
+	// 分镜卡编辑（Shots）会按镜头表补出实际要写的段：请求里没带的段、或原样带来但镜头被改的段都在其中。
+	// 导演只读必须按这份实际待写集合再查一次，查过才保存镜头表——被拒时镜头表、版本、各段和 verbatim 都不动。
+	planned := req
+	planned.Segments, planned.Shots = edit.segments, nil
+	if err := s.guardDirectorSegmentWrites(userID, projectID, planned); err != nil {
 		return DramaSegmentsWriteResult{}, err
 	}
 	if err := s.repo.SaveDramaShotlist(edit.record); err != nil {

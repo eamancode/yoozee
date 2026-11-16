@@ -637,6 +637,12 @@ func (s *Service) runSSSRun(ctx context.Context, input canvasGenerationInput, ru
 			turnInput.Prompt = sssTurnPrompt(skillCtx, meta, spec.kind, spec.unit, codes, sssReviewPriorsSlim(out))
 		}
 		used := sssUsedSeconds(spec.kind, meta, out)
+		if spec.kind == drama.SSSTurnCard || spec.kind == drama.SSSTurnRepair {
+			// 单元卡、返修重写单元卡：带上单元总表里这一单元的原行，镜头表照它核算时长（定格、技术尾巴都写进镜头表）。
+			if line := drama.SSSUnitTimingLine(out.Cut, spec.unit); line != "" {
+				turnInput.Prompt += "\n\n" + line
+			}
+		}
 		if spec.kind == drama.SSSTurnCard || spec.kind == drama.SSSTurnCompile || spec.kind == drama.SSSTurnRepair {
 			if line := drama.SSSBudgetLine(sssLimits(meta, used)); line != "" {
 				turnInput.Prompt += "\n\n" + line

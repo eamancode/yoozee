@@ -32,21 +32,25 @@ type TaskSummary struct {
 	ProviderCancelRequestedAt *time.Time                 `json:"providerCancelRequestedAt,omitempty"`
 	ProviderCancelledAt       *time.Time                 `json:"providerCancelledAt,omitempty"`
 	ErrorCode                 string                     `json:"errorCode,omitempty"`
-	PreviewURL                string                     `json:"previewUrl,omitempty"`
-	PreviewKind               string                     `json:"previewKind,omitempty"`
-	PreviewPosterURL          string                     `json:"previewPosterUrl,omitempty"`
-	Attempts                  int                        `json:"attempts"`
-	StartedAt                 *time.Time                 `json:"startedAt"`
-	CompletedAt               *time.Time                 `json:"completedAt"`
-	CreatedAt                 time.Time                  `json:"createdAt"`
-	UpdatedAt                 time.Time                  `json:"updatedAt"`
-	Billing                   *TaskBillingSummary        `json:"billing,omitempty"`
-	ClientContext             *TaskClientContext         `json:"clientContext,omitempty"`
+	// Error 是失败任务的原因摘要（taskListError：用户可读的分类原因，去掉凭据、URL，最多 300 字）；原始错误不进列表。
+	Error            string              `json:"error,omitempty"`
+	PreviewURL       string              `json:"previewUrl,omitempty"`
+	PreviewKind      string              `json:"previewKind,omitempty"`
+	PreviewPosterURL string              `json:"previewPosterUrl,omitempty"`
+	Attempts         int                 `json:"attempts"`
+	StartedAt        *time.Time          `json:"startedAt"`
+	CompletedAt      *time.Time          `json:"completedAt"`
+	CreatedAt        time.Time           `json:"createdAt"`
+	UpdatedAt        time.Time           `json:"updatedAt"`
+	Billing          *TaskBillingSummary `json:"billing,omitempty"`
+	ClientContext    *TaskClientContext  `json:"clientContext,omitempty"`
 	// DramaRun 是逐轮续写的文本任务（metadata.dramaRun）：运行中也能取消（只丢正在写的一轮），与出图等「提交上游后不可取消」不同。
 	DramaRun bool `json:"dramaRun,omitempty"`
 	// RefinalizeOnly 是「用已写好的 N 节重新写入」的任务（服务端建任务时算出的运行参数：各轮都在上一次任务里写完，只重新收尾，不调模型、不建计费单）。
 	// 任务中心不给它「重试」：重试会按普通任务建单冻结；要再写入回章节页点「重新写入」。
 	RefinalizeOnly bool `json:"refinalizeOnly,omitempty"`
+	// DramaRounds 是导演分镜（SSS、本体论）的轮次摘要：已保存几轮、总轮数和每轮的种类、标题，前端据此显示当前轮次和预估 / 实际总轮数。
+	DramaRounds *TaskDramaRounds `json:"dramaRounds,omitempty"`
 }
 
 type TaskClientContext struct {
@@ -147,6 +151,7 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 		ProviderCancelRequestedAt: task.ProviderCancelRequestedAt,
 		ProviderCancelledAt:       task.ProviderCancelledAt,
 		ErrorCode:                 errorCode,
+		Error:                     taskListError(task),
 		PreviewURL:                previewURL,
 		PreviewKind:               previewKind,
 		PreviewPosterURL:          previewPosterURL,
@@ -158,6 +163,7 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 		ClientContext:             taskClientContext(task.InputJSON),
 		DramaRun:                  task.MediaStage == "" && taskDramaRun(task.InputJSON) != nil,
 		RefinalizeOnly:            task.MediaStage == "" && dramaRunCallsNoUpstream(taskDramaRun(task.InputJSON)),
+		DramaRounds:               taskDramaRounds(task),
 	}
 }
 

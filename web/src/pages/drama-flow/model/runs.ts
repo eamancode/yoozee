@@ -1,6 +1,7 @@
 import type { GenerationTask, TaskStatus } from "@/services/api/task-center";
 
 import { taskCost } from "./costs";
+import { directorRoundsText, directorRunView } from "./director-run";
 
 /** 运行记录的一行：哪一步、做的哪一集或哪一段、用的模型、用时、花费、结果。 */
 export type RunRow = {
@@ -16,6 +17,10 @@ export type RunRow = {
     cost?: number;
     error?: string;
     active: boolean;
+    /** 进行中时从建任务到现在的累计等待（秒）。 */
+    waited?: number;
+    /** 导演分镜（SSS、本体论）的轮次：「已保存 5/12 轮（预估…）· 正在写：讲戏本」。 */
+    rounds?: string;
 };
 
 const OPERATION_LABELS: Record<string, string> = {
@@ -42,10 +47,22 @@ export function runStepLabel(task: Pick<GenerationTask, "type" | "clientContext"
     return task.type;
 }
 
-export function runRow(task: GenerationTask, scopeOf: (task: GenerationTask) => string = () => ""): RunRow {
+function directorRounds(task: GenerationTask, now: number) {
+    const view = directorRunView(task, { now });
+    if (!view) return undefined;
+    const rounds = directorRoundsText(view);
+    if (!rounds) return undefined;
+    const tail = view.current?.label ? `正在写：${view.current.label}` : view.lastSaved ? `最后保存：${view.lastSaved}` : "";
+    return { text: tail ? `${rounds} · ${tail}` : rounds, waited: view.active ? view.waitedSeconds : undefined };
+}
+
+export function runRow(task: GenerationTask, scopeOf: (task: GenerationTask) => string = () => "", now = Date.now()): RunRow {
     const started = Date.parse(task.startedAt || "");
     const ended = Date.parse(task.completedAt || "");
     const seconds = Number.isFinite(started) && Number.isFinite(ended) && ended >= started ? Math.round((ended - started) / 1000) : undefined;
+    const active = task.status === "queued" || task.status === "running";
+    const created = Date.parse(task.createdAt || "");
+    const director = directorRounds(task, now);
     return {
         id: task.id,
         step: runStepLabel(task),
@@ -57,7 +74,9 @@ export function runRow(task: GenerationTask, scopeOf: (task: GenerationTask) => 
         seconds,
         cost: taskCost(task),
         error: task.status === "failed" ? task.error || "没写原因" : undefined,
-        active: task.status === "queued" || task.status === "running",
+        active,
+        waited: active && Number.isFinite(created) && now >= created ? Math.round((now - created) / 1000) : undefined,
+        rounds: director?.text,
     };
 }
 

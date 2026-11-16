@@ -5,7 +5,7 @@ import type { DramaScriptAdaptOutcome } from "@/services/api/project-drama";
 
 import type { StoryboardRunStop } from "./chapter-shot-stream";
 import { DramaRunPanel } from "./drama-run-panel";
-import type { ScriptAdaptStreamState } from "./script-adapt-stream";
+import { SCRIPT_ADAPT_CONCEPT_TURN, scriptAdaptGroupTitle, scriptAdaptRunningText, type ScriptAdaptStreamState } from "./script-adapt-stream";
 
 type ScriptAdaptRunPanelProps = {
     open: boolean;
@@ -13,6 +13,8 @@ type ScriptAdaptRunPanelProps = {
     running: boolean;
     stage?: string;
     stream: ScriptAdaptStreamState;
+    /** 断点、进度的单位：普通流水线按集；SSS 流水线第 1 轮是立意与全集结构，按轮。 */
+    unit?: "集" | "轮";
     outcome?: DramaScriptAdaptOutcome;
     stop?: StoryboardRunStop;
     onResume: () => void;
@@ -21,12 +23,14 @@ type ScriptAdaptRunPanelProps = {
 };
 
 /** 剧本优化的进度侧栏：按集流式显示剧本正文；结束后给出写了几集、检查提醒。 */
-export function ScriptAdaptRunPanel({ open, onClose, running, stage, stream, outcome, stop, onResume, onRegenerate, onOpenEpisodes }: ScriptAdaptRunPanelProps) {
+export function ScriptAdaptRunPanel({ open, onClose, running, stage, stream, unit = "集", outcome, stop, onResume, onRegenerate, onOpenEpisodes }: ScriptAdaptRunPanelProps) {
     const failed = stop?.kind === "failed" ? stop : undefined;
     const rhythm = outcome?.mode === "rhythm";
+    const conceptDone = stream.episodes.some((episode) => episode.turn === SCRIPT_ADAPT_CONCEPT_TURN);
+    const episodeCount = stream.episodes.filter((episode) => episode.turn !== SCRIPT_ADAPT_CONCEPT_TURN).length;
     const status = running ? (
         <>
-            <span className="font-medium text-foreground/80">{stream.total ? `正在写第 ${Math.max(1, stream.current)}/${stream.total} 集` : "等待模型开始输出"}</span>
+            <span className="font-medium text-foreground/80">{scriptAdaptRunningText(stream)}</span>
             <span>·</span>
             <span>已出 {stream.sceneCount} 场</span>
             {stage ? (
@@ -41,8 +45,12 @@ export function ScriptAdaptRunPanel({ open, onClose, running, stage, stream, out
             {rhythm ? `已改写 ${outcome.episodes.length} 集` : `已写入 ${outcome.episodes.length} 集剧集`}
             {outcome.replaced?.length ? `，替换了原来的 ${outcome.replaced.length} 集` : ""}
         </span>
-    ) : stream.episodes.length ? (
-        <span>上一次输出 {stream.episodes.length} 集</span>
+    ) : episodeCount ? (
+        <span>
+            上一次输出 {episodeCount} 集{conceptDone ? "（另有立意与全集结构）" : ""}
+        </span>
+    ) : conceptDone ? (
+        <span>上一次只写完立意与全集结构</span>
     ) : failed ? (
         <span>{failed.status === "cancelled" ? "上一次剧本优化已取消" : "上一次剧本优化失败"}</span>
     ) : (
@@ -56,7 +64,7 @@ export function ScriptAdaptRunPanel({ open, onClose, running, stage, stream, out
             title="剧本优化"
             running={running}
             status={status}
-            unit="集"
+            unit={unit}
             stepLabel="剧本优化"
             stop={stop}
             onResume={onResume}
@@ -65,28 +73,32 @@ export function ScriptAdaptRunPanel({ open, onClose, running, stage, stream, out
             followKey={stream.episodes.reduce((sum, episode) => sum + episode.lines.length, 0)}
             emptyText="模型写出的剧本会按集出现在这里"
             listLabel="流式剧本"
-            groups={stream.episodes.map((episode) => ({
-                key: episode.index,
-                title: `第 ${episode.index} 集`,
-                heading: episode.title && episode.title !== `第 ${episode.index} 集` ? episode.title : undefined,
-                meta: `${episode.scenes.length} 场${episode.attempt > 1 ? ` · 第 ${episode.attempt} 次` : ""}`,
-                body: (
-                    <div className="space-y-0.5 rounded-md border border-border/60 px-2.5 py-1.5 text-xs leading-5">
-                        {episode.lines.map((line, index) =>
-                            line.startsWith("## ") ? (
-                                <div key={index} className="pt-1 font-medium text-foreground/80">
-                                    {line.slice(3)}
-                                </div>
-                            ) : (
-                                <div key={index} className={line.startsWith("（") ? "text-foreground/50" : "text-foreground/75"}>
-                                    {line}
-                                </div>
-                            ),
-                        )}
-                        {!episode.lines.length ? <div className="text-foreground/40">等待这一集的正文…</div> : null}
-                    </div>
-                ),
-            }))}
+            groups={stream.episodes.map((episode) => {
+                const title = scriptAdaptGroupTitle(episode, stream);
+                const concept = episode.turn === SCRIPT_ADAPT_CONCEPT_TURN;
+                return {
+                    key: episode.index,
+                    title,
+                    heading: episode.title && episode.title !== title && episode.title !== `第 ${episode.index} 集` ? episode.title : undefined,
+                    meta: `${concept ? "立意页 · 全集结构表" : `${episode.scenes.length} 场`}${episode.attempt > 1 ? ` · 第 ${episode.attempt} 次` : ""}`,
+                    body: (
+                        <div className="space-y-0.5 rounded-md border border-border/60 px-2.5 py-1.5 text-xs leading-5">
+                            {episode.lines.map((line, index) =>
+                                line.startsWith("## ") ? (
+                                    <div key={index} className="pt-1 font-medium text-foreground/80">
+                                        {line.slice(3)}
+                                    </div>
+                                ) : (
+                                    <div key={index} className={line.startsWith("（") ? "text-foreground/50" : "text-foreground/75"}>
+                                        {line}
+                                    </div>
+                                ),
+                            )}
+                            {!episode.lines.length ? <div className="text-foreground/40">{concept ? "等待立意页和全集结构表…" : "等待这一集的正文…"}</div> : null}
+                        </div>
+                    ),
+                };
+            })}
         >
             {outcome ? (
                 <Callout

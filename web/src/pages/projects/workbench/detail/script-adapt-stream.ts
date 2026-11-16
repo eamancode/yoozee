@@ -16,15 +16,22 @@ export type StreamEpisode = {
     scenes: string[];
     /** 正文各行（场次头、动作、台词）。 */
     lines: string[];
+    /** 回合标记里的轮次 ID：剧集轮是集号；SSS 流水线拆剧本的第一轮是 concept（立意与全集结构，不是剧集）。 */
+    turn?: string;
 };
+
+/** SSS 流水线拆剧本多出的第一轮（与服务端 drama.ScriptAdaptConceptTurn 同值）。 */
+export const SCRIPT_ADAPT_CONCEPT_TURN = "concept";
 
 export type ScriptAdaptStreamState = {
     /** 一共几集（来自回合标记；还没收到时为 0）。 */
     total: number;
     episodes: StreamEpisode[];
-    /** 正在写的集（最后一个标记的集序号）。 */
+    /** 正在写的集（最后一个标记的轮次序号；有立意轮时第 1 轮是立意与全集结构）。 */
     current: number;
     sceneCount: number;
+    /** 这次运行有没有「立意与全集结构」轮（SSS 流水线）。有时 total 含这一轮，剧集数是 total - 1。 */
+    concept?: boolean;
 };
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -56,6 +63,8 @@ export function parseScriptAdaptStream(text: string): ScriptAdaptStreamState {
             state.total = Number(marker.total) || state.total;
             state.current = index;
             const next: StreamEpisode = { index, title: typeof marker.heading === "string" ? marker.heading : "", attempt: Number(marker.attempt) || 1, scenes: [], lines: [] };
+            if (typeof marker.scene === "string" && marker.scene) next.turn = marker.scene;
+            if (next.turn === SCRIPT_ADAPT_CONCEPT_TURN) state.concept = true;
             const existing = state.episodes.findIndex((item) => item.index === index);
             if (existing >= 0) state.episodes[existing] = next;
             else state.episodes.push(next);
@@ -73,14 +82,15 @@ export function parseScriptAdaptStream(text: string): ScriptAdaptStreamState {
             continue;
         }
         if (!episode) continue;
-        if (SCENE_HEADING.test(line)) episode.scenes.push(line.replace(/^#+\s*/, ""));
+        // 立意轮的「## 立意页」「## 全集结构表」不是场次头。
+        if (episode.turn !== SCRIPT_ADAPT_CONCEPT_TURN && SCENE_HEADING.test(line)) episode.scenes.push(line.replace(/^#+\s*/, ""));
         episode.lines.push(line);
     }
     state.sceneCount = state.episodes.reduce((sum, item) => sum + item.scenes.length, 0);
     return state;
 }
 
-type ResultTurn = { index?: number; heading?: string; text?: string };
+type ResultTurn = { index?: number; scene?: string; heading?: string; text?: string };
 
 /** 已经结束的任务从结果还原剧集视图：没写完的任务结果里每集带着输出原文；成功的任务只留各集拼好的 text。 */
 export function scriptAdaptStreamFromResult(resultJson?: string): ScriptAdaptStreamState {
@@ -93,7 +103,7 @@ export function scriptAdaptStreamFromResult(resultJson?: string): ScriptAdaptStr
     const total = Number(result.dramaRun?.total) || 0;
     const turns = (result.dramaRun?.turns || []).filter((turn) => typeof turn.text === "string" && turn.text);
     if (turns.length) {
-        return parseScriptAdaptStream(turns.map((turn, i) => `${JSON.stringify({ [SHOT_TURN_MARKER]: { index: turn.index || i + 1, total, heading: turn.heading || "", attempt: 1 } })}\n${String(turn.text).trim()}\n`).join(""));
+        return parseScriptAdaptStream(turns.map((turn, i) => `${JSON.stringify({ [SHOT_TURN_MARKER]: { index: turn.index || i + 1, total, scene: turn.scene || "", heading: turn.heading || "", attempt: 1 } })}\n${String(turn.text).trim()}\n`).join(""));
     }
     const state = parseScriptAdaptStream(typeof result.text === "string" ? result.text : "");
     return { ...state, total: total || state.episodes.length };
@@ -110,5 +120,30 @@ export function resumedScriptAdaptStream(live: ScriptAdaptStreamState, resume?: 
     if (!resume) return live;
     const first = live.episodes[0]?.index ?? resume.from;
     const episodes = [...resume.episodes.filter((episode) => episode.index < first), ...live.episodes];
-    return { total: live.total || resume.total, current: live.current || resume.from, episodes, sceneCount: episodes.reduce((sum, item) => sum + item.scenes.length, 0) };
+    const concept = Boolean(live.concept || episodes.some((episode) => episode.turn === SCRIPT_ADAPT_CONCEPT_TURN));
+    return { total: live.total || resume.total, current: live.current || resume.from, episodes, sceneCount: episodes.reduce((sum, item) => sum + item.scenes.length, 0), ...(concept ? { concept } : {}) };
+}
+
+/** 一轮的集号：剧集轮的轮次 ID 就是集号；读不出时按轮次序号推（有立意轮时减一）。立意轮返回 0。 */
+export function scriptAdaptEpisodeNo(episode: StreamEpisode, stream: Pick<ScriptAdaptStreamState, "concept">) {
+    if (episode.turn === SCRIPT_ADAPT_CONCEPT_TURN) return 0;
+    const no = Number(episode.turn);
+    if (Number.isInteger(no) && no > 0) return no;
+    return Math.max(1, episode.index - (stream.concept ? 1 : 0));
+}
+
+/** 侧栏里一轮的标题：立意轮是「立意与全集结构」，剧集轮是「第 N 集」（N 是真实集号，不是轮次序号）。 */
+export function scriptAdaptGroupTitle(episode: StreamEpisode, stream: Pick<ScriptAdaptStreamState, "concept">) {
+    return episode.turn === SCRIPT_ADAPT_CONCEPT_TURN ? "立意与全集结构" : `第 ${scriptAdaptEpisodeNo(episode, stream)} 集`;
+}
+
+/** 进行中的进度：「正在写立意与全集结构（第 1/4 轮）」或「正在写第 2/3 集」。剧集数不含立意轮。 */
+export function scriptAdaptRunningText(stream: ScriptAdaptStreamState) {
+    if (!stream.total) return "等待模型开始输出";
+    const current = Math.max(1, stream.current);
+    const live = stream.episodes.find((episode) => episode.index === current);
+    if (!stream.concept) return `正在写第 ${current}/${stream.total} 集`;
+    if (current === 1 || live?.turn === SCRIPT_ADAPT_CONCEPT_TURN) return `正在写立意与全集结构（第 1/${stream.total} 轮）`;
+    const episodes = Math.max(1, stream.total - 1);
+    return `正在写第 ${live ? scriptAdaptEpisodeNo(live, stream) : current - 1}/${episodes} 集`;
 }

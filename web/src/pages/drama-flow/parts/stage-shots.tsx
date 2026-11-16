@@ -12,6 +12,8 @@ import type { ProjectAsset, ProjectUnitWorkspace } from "@/services/api/projects
 
 import type { FlowData } from "../hooks/use-flow-data";
 import { useStoryboardRun, type StoryboardRun } from "../hooks/use-storyboard-run";
+import { directorPhaseText, directorRoundsText, directorRunView } from "../model/director-run";
+import { durationText } from "../model/runs";
 import type { FlowStageView } from "../model/stages";
 import { DetailPane, ReadError, StageLayout, SummaryRow } from "./layout";
 
@@ -53,6 +55,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
     const segmentsUnread = (pending: boolean) => (pending ? "…" : "没读到");
     const projectId = project?.id || "";
     const run = useStoryboardRun(data);
+    const director = project ? projectWorkflow(project.workflowId).storyboardMode !== "" : false;
     const invalidateDrama = useInvalidateDrama(projectId);
     const segmentsQuery = useQuery({ queryKey: dramaSegmentsKey(projectId, unitId), queryFn: async ({ signal }) => (await listDramaSegments(projectId, unitId, signal)).segments, enabled: Boolean(projectId && unitId) });
     const [density, setDensity] = useState<"full" | "compact">(() => (localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "full"));
@@ -128,7 +131,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                     />
                 </div>
             </div>
-            <ShotlistBar run={run} segmentCount={segments.length} director={project ? projectWorkflow(project.workflowId).storyboardMode !== "" : false} />
+            <ShotlistBar run={run} segmentCount={segments.length} director={director} />
             <SummaryRow
                 items={[
                     { label: "段", value: segmentsQuery.data && !segmentsQuery.isError ? segments.length : segmentsUnread(segmentsQuery.isLoading) },
@@ -168,7 +171,9 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
             ) : (
                 <div className="drama-flow-empty">
                     <strong>{stage?.state === "running" || run.running ? "正在写分镜" : "这一集还没有分镜"}</strong>
-                    <span>{stage?.state === "running" || run.running ? "写好一节出现一节，不用守着。" : "定妆做完后会自动开始；也可以点上面的「生成这一集分镜」。"}</span>
+                    <span>
+                        {stage?.state === "running" || run.running ? (director ? "导演分轮写，各轮已保存，全部校验后统一装段，装好之前这里是空的，不用守着。" : "写好一节出现一节，不用守着。") : "定妆做完后会自动开始；也可以点上面的「生成这一集分镜」。"}
+                    </span>
                 </div>
             )}
         </StageLayout>
@@ -183,13 +188,21 @@ function ShotlistBar({ run, segmentCount, director }: { run: StoryboardRun; segm
     const { shotlist, running, stream, latest, problemSections, repack, generate, code } = run;
     const errors = shotlist?.check.errors ?? 0;
     const warnings = shotlist?.check.warnings ?? 0;
+    // 导演分镜的轮次进度只读最新的分镜任务：刚点了生成、任务列表还没刷到新任务时（latest 不是进行中），不拿上一次的任务冒充。
+    const latestActive = Boolean(latest && (latest.status === "queued" || latest.status === "running"));
+    const now = useNow(director && running && latestActive);
+    const streamTurn = stream.scenes.at(-1);
+    const view = latest && (!running || latestActive) ? directorRunView(latest, { now, streamTurn: streamTurn ? { index: streamTurn.index, heading: streamTurn.heading } : undefined }) : undefined;
+    const rounds = view ? directorRoundsText(view) : "";
     const status = running
         ? director
-            ? "导演正在分轮写分镜（立项、集设计、讲戏、切分、逐个单元写卡和编译、复看），写完直接装段"
+            ? view?.current
+                ? `导演正在写第 ${view.current.index} 轮：${view.current.label}${rounds ? ` · ${rounds}` : ""}${view.waitedSeconds !== undefined ? ` · 已等 ${durationText(view.waitedSeconds)}` : ""}。各轮写完就保存，全部校验后统一装段`
+                : "导演正在分轮写分镜（立项、集设计、讲戏、切分、逐个单元写卡和编译、复看）。各轮写完就保存，全部校验后统一装段"
             : `正在写分镜${stream.shotCount ? ` · 已出 ${stream.shotCount} 镜` : ""}`
         : director
           ? latest?.status === "failed"
-              ? `上一次生成失败：${latest.error || "没写原因"}${segmentCount ? `；现有 ${segmentCount} 段没动` : ""}`
+              ? `上一次生成失败${rounds ? `（${rounds}）` : ""}：${latest.error || "没写原因"}${segmentCount ? `；现有 ${segmentCount} 段没动` : ""}`
               : segmentCount
                 ? `导演分镜已装成 ${segmentCount} 段；单元卡、粘贴提示词和返修在右上角「导演文档」`
                 : "还没有分镜"
@@ -228,6 +241,15 @@ function ShotlistBar({ run, segmentCount, director }: { run: StoryboardRun; segm
                     </Button>
                 </div>
             </div>
+            {view?.phases.length && (running || latest?.status === "failed") ? (
+                <ol className="drama-flow-director-phases" aria-label="导演分镜各轮">
+                    {view.phases.map((phase) => (
+                        <li key={phase.kind} className="drama-flow-chip" data-state={phase.state} data-tone={phase.state === "done" ? "ok" : phase.state === "current" ? "run" : undefined}>
+                            {directorPhaseText(phase)}
+                        </li>
+                    ))}
+                </ol>
+            ) : null}
             {shotlist?.draft && shotlist.issues?.length ? (
                 <ul className="drama-flow-issues">
                     {shotlist.issues.slice(0, 12).map((issue, index) => (
@@ -247,6 +269,18 @@ function ShotlistBar({ run, segmentCount, director }: { run: StoryboardRun; segm
             ) : null}
         </div>
     );
+}
+
+/** 进行中时每秒刷新一次「已等」；不在跑时不开定时器。 */
+function useNow(active: boolean) {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        if (!active) return;
+        setNow(Date.now());
+        const timer = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [active]);
+    return now;
 }
 
 function SegmentBlock({

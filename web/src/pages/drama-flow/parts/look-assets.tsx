@@ -4,6 +4,7 @@ import { App, Button } from "antd";
 import { ImageUp, RotateCw } from "lucide-react";
 
 import { AssetImageLibraryPicker } from "@/components/assets/asset-image-library-picker";
+import { ImageZoomPreview } from "@/components/image-zoom-preview";
 import { ASSET_CATEGORY_LABELS } from "@/lib/asset-category";
 import { projectWorkflow } from "@/lib/project-workflow";
 import { dramaImageStatusOf } from "@/pages/projects/workbench/detail/drama-image-summary";
@@ -11,6 +12,7 @@ import { ProjectCharacterVariants } from "@/pages/projects/workbench/detail/proj
 import { assetPreviewUrl } from "@/pages/projects/workbench/detail/workflow-shot-references";
 import { bindProjectAssetImage, replaceProjectCharacterRepresentations, type DramaImageStatus, type Project, type ProjectAsset } from "@/services/api/projects";
 
+import { assetFields } from "../model/asset-fields";
 import { DetailPane, PaneSection, StageLayout, SummaryRow } from "./layout";
 
 export const IMAGE_STATUS: Record<DramaImageStatus, { text: string; tone?: "ok" | "run" | "bad" | "warn" }> = {
@@ -25,28 +27,6 @@ export const IMAGE_STATUS: Record<DramaImageStatus, { text: string; tone?: "ok" 
 
 export const lookAssetError = (asset: ProjectAsset) => asset.image?.error || "";
 const isBad = (status?: DramaImageStatus) => status === "failed" || status === "stale";
-const text = (value: unknown) => (typeof value === "string" ? value.trim() : Array.isArray(value) ? value.filter((item) => typeof item === "string").join("、") : "");
-
-/** 资产的设定字段：角色看 character.definition，场景道具看 visual.definition；两边字段名不同，统一成几行。 */
-export function assetFields(asset: ProjectAsset): Array<{ label: string; value: string }> {
-    const def = (asset.character?.definition || asset.visual?.definition || {}) as Record<string, unknown>;
-    const rows: Array<[string, unknown]> = asset.character
-        ? [
-              ["剧情定位", def.role],
-              ["外观设定", def.appearance || def.consistencyPrompt],
-              ["性格", def.personality],
-              ["别名与称呼", def.aliases],
-              ["原文依据", def.evidence || def.sourceQuote],
-              ["出图提示词", def.prompt || def.promptEn],
-          ]
-        : [
-              ["描述", def.description],
-              ["原文依据", def.evidence || def.sourceQuote],
-              ["出图提示词", def.prompt],
-          ];
-    return rows.map(([label, value]) => ({ label, value: text(value) }));
-}
-
 /** 角色、场景、道具一个小节：汇总行 + 卡片；卡片上就有状态、失败原因、版本、引用；点开看全部设定。 */
 export function LookAssets({
     project,
@@ -173,6 +153,7 @@ function AssetPane({ project, asset, fourPanel, retrying, onRetry, onClose }: { 
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const [picking, setPicking] = useState(false);
+    const [zooming, setZooming] = useState(false);
     const status = dramaImageStatusOf(asset);
     const view = status ? IMAGE_STATUS[status] : undefined;
     const preview = assetPreviewUrl(asset);
@@ -212,7 +193,17 @@ function AssetPane({ project, asset, fourPanel, retrying, onRetry, onClose }: { 
                 </>
             }
         >
-            <div className="drama-flow-pane-media">{preview ? <img src={preview} alt={asset.title} /> : <span>{view?.text || "没有图"}</span>}</div>
+            <div className="drama-flow-pane-media">
+                {preview ? (
+                    // 点图放大（缩放、拖动、Esc 退出，按原图比例）；角色主卡、场景、道具都是这一张，子卡在下面的子卡列表里点开。
+                    <button type="button" className="drama-flow-pane-media-zoom" aria-label={`放大查看「${asset.title}」的图片`} title="点击放大" onClick={() => setZooming(true)}>
+                        <img src={preview} alt={asset.title} />
+                    </button>
+                ) : (
+                    <span>{view?.text || "没有图"}</span>
+                )}
+            </div>
+            {zooming && preview ? <ImageZoomPreview src={preview} alt={`${asset.title}完整图片`} onClose={() => setZooming(false)} /> : null}
             {isBad(status) ? (
                 <PaneSection label="失败原因">
                     <p data-tone="bad">{lookAssetError(asset) || "没写原因"}</p>

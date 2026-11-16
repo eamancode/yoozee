@@ -5,6 +5,7 @@ import { ScrollText } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { Callout } from "@/components/ui/product/callout";
+import { projectWorkflow } from "@/lib/project-workflow";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import {
     dramaEpisodesKey,
@@ -30,7 +31,7 @@ import { followDramaRunTask, isScriptAdaptTask, runScriptAdapt } from "./project
 import { turnaroundImageModel } from "./project-character-media";
 import { scriptAdaptDefaultMode } from "./script-adapt-mode";
 import { ScriptAdaptRunPanel } from "./script-adapt-run-panel";
-import { parseScriptAdaptStream, resumedScriptAdaptStream, scriptAdaptStreamFromResult, type ScriptAdaptResume } from "./script-adapt-stream";
+import { parseScriptAdaptStream, resumedScriptAdaptStream, SCRIPT_ADAPT_CONCEPT_TURN, scriptAdaptStreamFromResult, type ScriptAdaptResume } from "./script-adapt-stream";
 
 type ScriptAdaptControlProps = {
     detail: ProjectDetail;
@@ -109,6 +110,10 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
         if (running || (stream.text && (stream.taskId === taskDetail?.id || !taskDetail))) return resumedScriptAdaptStream(parseScriptAdaptStream(stream.text), resumeView);
         return taskDetail ? scriptAdaptStreamFromResult(taskDetail.resultJson) : parseScriptAdaptStream("");
     }, [resumeView, running, stream, taskDetail]);
+    // SSS 流水线第 1 轮是「立意与全集结构」：断点、进度按轮数说（第 N 轮），不把轮次序号说成集号。
+    const concept = Boolean(streamState.concept || dramaRunProgressOfConcept(taskDetail));
+    const runUnit = concept ? "轮" : "集";
+    const integratedAssets = projectWorkflow(detail.project.workflowId).integratedAssets;
     const adapted = useMemo(() => new Set(episodesQuery.data?.adaptedChapterIds || []), [episodesQuery.data]);
     const candidates = settings.mode === "rhythm" ? episodes : chapters;
 
@@ -294,7 +299,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             </Button>
             {running || latestTask ? (
                 <Button size="small" onClick={() => setPanelOpen(true)} aria-label="查看剧本优化进度">
-                    {resume && !running ? `剧本停在第 ${resume.from} 集` : "剧本进度"}
+                    {resume && !running ? `剧本停在第 ${resume.from} ${runUnit}` : "剧本进度"}
                 </Button>
             ) : null}
             <Modal
@@ -404,7 +409,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                             />
                         </label>
                         <p className="text-[var(--fs-tiny)] leading-[18px] text-foreground/45">
-                            写完剧集后要不要接着做下一步（导演定画风、场次色卡、按集提取资产）看项目的生成模式；开着时每集提取完直接给新资产出图（角色三视图，场景、道具概念图），不用再到资产页点「继续出图」。
+                            写完剧集后要不要接着做下一步（导演定画风、场次色卡、按集提取资产）看项目的生成模式；开着时每集提取完直接给新资产出图（{integratedAssets ? "角色四宫格、微缩场景图、独立道具图" : "角色三视图，场景、道具概念图"}），不用再到资产页点「继续出图」。
                         </p>
                         {settings.images ? (
                             <ModelPicker preferenceScope="short-drama"
@@ -455,6 +460,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                 running={running}
                 stage={latestTask && (latestTask.status === "running" || latestTask.status === "queued") ? latestTask.stage : undefined}
                 stream={streamState}
+                unit={runUnit}
                 outcome={running ? undefined : outcome}
                 stop={running ? undefined : stop}
                 onResume={() => {
@@ -471,4 +477,11 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             />
         </>
     );
+}
+
+/** 上一次任务的轮次里第一轮是不是立意与全集结构（SSS 流水线）。 */
+function dramaRunProgressOfConcept(task?: GenerationTask) {
+    if (!task) return false;
+    const progress = dramaRunProgressOf(task);
+    return progress?.turns?.[0]?.scene === SCRIPT_ADAPT_CONCEPT_TURN || progress?.scenes?.[0]?.scene === SCRIPT_ADAPT_CONCEPT_TURN;
 }
