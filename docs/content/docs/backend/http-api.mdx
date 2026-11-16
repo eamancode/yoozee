@@ -25,6 +25,8 @@ description: 信封、错误码与 OpenAPI
 
 九宫格或重绘使用普通 `canvas_image` 任务，metadata.operation 为 `project_spatial_reference`，并传 `domainProjectId`、`projectAssetId`、`projectAssetVersionId`、`spatialKind=grid|redraw`；重绘另传 `gridResourceId` 与 `cell=1..9`（不含 5）。服务端验证来源并填入实际参考图片、提示词配方及版本。九宫格必须有母版，重绘必须有同一母版的九宫格；缺失、越权、过期版本或错误选格均在调用上游前拒绝。活动来源去重，成功收尾幂等，不自动重试历史失败任务。
 
+场景资产出图按参考图额度编排关联道具：`productionPriority=high` 的关键道具、人物身份参考和用户补充参考不可降级；中优先级及未标优先级的道具可在额度不足或图片不可用时转为文字。先让出色卡，再让出普通道具；转为文字的道具名称与本体描述保留在提示词，名称同时记录到任务 `metadata.assetImageTextOnlyProps`。关联资产、主版本图片及分镜绑定保持不变。必需参考仍超过额度时拒绝提交，错误包含必需数量、名称和支持额度；不增加重试入口或自动重试历史任务。
+
 ## 白模分镜开关
 
 项目创建、更新与读取使用布尔字段 `whiteModelStoryboardEnabled`。创建省略时为 false；更新省略时保留原值，显式 false 关闭。历史项目迁移后为 true。项目更新仍校验资源归属，保存时增加项目修订。

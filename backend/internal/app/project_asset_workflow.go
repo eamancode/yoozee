@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf16"
 
@@ -299,14 +300,40 @@ func (s *Service) spatialPropRefs(userID string, project *model.Project, definit
 			if id == "" {
 				return nil, assetWorkflowDependencyError(name)
 			}
-			refs = append(refs, dramaImageRef{ResourceID: id, Label: "关联道具「" + name + "」：只复用其几何结构与材质，位置以当前场景布局为准"})
+			// 高优先级道具（需要图片锁定形制的关键道具）必须带图；中优先级和没标优先级的在参考图名额不够时改成文字描述。
+			priority, text := propPriorityAndText(&item)
+			refs = append(refs, dramaImageRef{ResourceID: id, Label: "关联道具「" + name + "」：只复用其几何结构与材质，位置以当前场景布局为准", Name: name, Text: text, Degradable: priority != "high"})
 			break
 		}
 		if !found {
 			return nil, BadAuthRequest("场景引用的道具尚未建档：" + name)
 		}
 	}
+	// 高优先级排前面：名额不够时从后往前让出，先让中、未标优先级的。
+	slices.SortStableFunc(refs, func(a, b dramaImageRef) int {
+		return boolRank(a.Degradable) - boolRank(b.Degradable)
+	})
 	return refs, nil
+}
+
+func boolRank(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+// propPriorityAndText 读道具定义里的制作优先级和本体描述（让成文字时写进提示词，最多 120 字）。
+func propPriorityAndText(asset *model.Asset) (string, string) {
+	data, _ := assetPayload(asset)["data"].(map[string]any)
+	definition, _ := data["definition"].(map[string]any)
+	priority, _ := definition["productionPriority"].(string)
+	for _, key := range []string{"appearance", "description", "prompt"} {
+		if text, _ := definition[key].(string); strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(priority), truncateRunes(strings.TrimSpace(text), 120)
+		}
+	}
+	return strings.TrimSpace(priority), ""
 }
 
 func assetWorkflowLayoutMetadata(layout string) map[string]any {
