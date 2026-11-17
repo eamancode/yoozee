@@ -63,7 +63,7 @@ func TestProjectVideoManualOverrideFencesOldChildAdmissionAndPreservesReceipt(t 
 			t.Fatalf("old paid admission did not detect the manual selection: %v", err)
 		}
 		var children, orders int64
-		if err := f.db.Model(&model.Task{}).Where("parent_controller_id = ?", chain.ID).Count(&children).Error; err != nil || children != 0 {
+		if err := f.db.Model(&model.Task{}).Where("project_id = ? AND type = ?", f.projectID, "canvas_video").Count(&children).Error; err != nil || children != 0 {
 			t.Fatalf("created %d old children: %v", children, err)
 		}
 		if err := f.db.Model(&model.BillingOrder{}).Count(&orders).Error; err != nil || orders != 0 {
@@ -85,9 +85,9 @@ func TestProjectVideoManualOverrideFencesOldChildAdmissionAndPreservesReceipt(t 
 	})
 }
 
-func newProjectRoutingFixture(t *testing.T) *videoChainFixture {
+func newProjectRoutingFixture(t *testing.T, followingScenes ...string) *videoChainFixture {
 	t.Helper()
-	f := newVideoChainFixture(t, "A")
+	f := newVideoChainFixture(t, append([]string{"A"}, followingScenes...)...)
 	seedOnlySlotSystemVideo(t, f)
 	setShotSeconds(t, f, 21)
 	if err := f.db.Model(&model.Project{}).Where("id = ?", f.projectID).Update("type", "short-drama").Error; err != nil {
@@ -158,9 +158,20 @@ func requireRoutingStreak(t *testing.T, f *videoChainFixture, project, channel s
 }
 
 func TestProjectVideoRoutingWorkerSwitchInvalidatesQuote(t *testing.T) {
-	f := newProjectRoutingFixture(t)
+	f := newProjectRoutingFixture(t, "B")
 	addRoutingAlternative(t, f, "best", 9_000_000, model.TaskStatusSucceeded)
 	addRoutingAlternative(t, f, "lower", 1_000_000, model.TaskStatusSucceeded, model.TaskStatusFailed)
+	// The independent second shot is 10s and buys a 15s slot on either route.
+	var shorter model.ChannelModelPriceTier
+	if err := f.db.First(&shorter, "id = ?", "best-30s").Error; err != nil {
+		t.Fatal(err)
+	}
+	shorter.ID, shorter.VideoSeconds = "best-15s", 15
+	shorter.SelectorKey = `{"videoSeconds":"15"}`
+	shorter.SelectorJSON = shorter.SelectorKey
+	if err := f.db.Create(&shorter).Error; err != nil {
+		t.Fatal(err)
+	}
 	var calls atomic.Int32
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/videos" {
@@ -178,6 +189,12 @@ func TestProjectVideoRoutingWorkerSwitchInvalidatesQuote(t *testing.T) {
 	preview, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req)
 	if err != nil || preview.TotalMicrocredits != 3_000_000 {
 		t.Fatalf("old quote %v, %v", preview, err)
+	}
+	next := f.req
+	next.ShotID, next.RequestID = "s1", newID()
+	upcoming, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, next)
+	if err != nil || upcoming.TotalMicrocredits != 1_500_000 {
+		t.Fatalf("original independent shot quote: %+v, %v", upcoming, err)
 	}
 	for count := 1; count <= 2; count++ {
 		receipt := routingReceipt(t, f, f.projectID, "system-video", 0, model.TaskStatusFailed)
@@ -202,7 +219,11 @@ func TestProjectVideoRoutingWorkerSwitchInvalidatesQuote(t *testing.T) {
 		t.Fatalf("worker failed to select highest eligible rate: %+v %v", route, err)
 	}
 	requireRoutingStreak(t, f, f.projectID, "system-video", 3)
-	f.tick(t, chain.ID)
+	paused := f.tick(t, chain.ID)
+	failed := paused.Steps[0].Diagnostic
+	if failed == nil || failed.Category != "route_unavailable" || failed.SubmissionOutcome != "unknown" || failed.SafeToResubmit {
+		t.Fatalf("503 without an upstream job ID must preserve uncertain dispatch: %+v", failed)
+	}
 	replayed, err := f.s.ProjectVideoRouting("user-1", f.projectID)
 	if err != nil || replayed == nil || replayed.Revision != route.Revision || !replayed.ChangedAt.Equal(route.ChangedAt) {
 		t.Fatalf("controller replay changed route %+v %v", replayed, err)
@@ -215,13 +236,18 @@ func TestProjectVideoRoutingWorkerSwitchInvalidatesQuote(t *testing.T) {
 	}
 	f.req.Model.Model = route.Model
 	f.req.Model.Input["config"].(map[string]any)["channelId"] = "best"
-	fresh, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req)
-	if err != nil || fresh.PreviewHash == preview.PreviewHash || fresh.TotalMicrocredits != 9_000_000 || len(fresh.Steps) != 1 || fresh.Steps[0].Model != route.Model {
+	readonly := f.blockedResumeQuote(t, f.req, 0, child.ID)
+	if readonly.PreviewHash == preview.PreviewHash || readonly.TotalMicrocredits != 9_000_000 || len(readonly.Steps) != 1 ||
+		readonly.Steps[0].Model != route.Model || readonly.Steps[0].Diagnostic.ChannelID != "system-video" || readonly.Steps[0].Diagnostic.SubmissionOutcome != "unknown" {
+		t.Fatalf("read-only estimate did not quote the replacement and retain the original 503 receipt: %+v", readonly)
+	}
+	next.Model = f.req.Model
+	fresh, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, next)
+	if err != nil || fresh.ConfirmationBlockedReason != "" || fresh.PreviewHash == upcoming.PreviewHash || fresh.TotalMicrocredits != 9_000_000 || len(fresh.Steps) != 1 || fresh.Steps[0].Model != route.Model {
 		t.Fatalf("new route quote %+v %v", fresh, err)
 	}
-	stale = f.req
-	stale.RequestID, stale.PreviewHash = newID(), preview.PreviewHash
-	if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID, stale); err == nil {
+	next.PreviewHash = upcoming.PreviewHash
+	if _, err := f.s.CreateProjectVideoChain("user-1", f.projectID, next); err == nil {
 		t.Fatal("old quote bought the new route")
 	}
 	for _, check := range []struct {

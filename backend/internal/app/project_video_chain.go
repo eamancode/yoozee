@@ -82,6 +82,7 @@ type ProjectVideoChainView struct {
 	Stage                       string                  `json:"stage"`
 	Error                       string                  `json:"error,omitempty"`
 	PreviewHash                 string                  `json:"previewHash"`
+	ConfirmationBlockedReason   string                  `json:"confirmationBlockedReason,omitempty"`
 	TotalMicrocredits           int64                   `json:"totalMicrocredits"`
 	Steps                       []ProjectVideoChainStep `json:"steps"`
 }
@@ -97,6 +98,7 @@ type videoChainStepState struct {
 }
 
 type videoChainState struct {
+	confirmationBlockedReason   string                   // computed only for the read-only resume preview
 	RouteRevision               int64                    `json:"routeRevision,omitempty"`
 	WhiteModelStoryboardEnabled *bool                    `json:"whiteModelStoryboardEnabled,omitempty"`
 	UnitID                      string                   `json:"unitId"`
@@ -152,6 +154,7 @@ func videoChainView(projectID string, task *model.Task, state videoChainState) P
 	view := ProjectVideoChainView{Scope: state.Request.Scope, PrepareOnly: state.Request.PrepareOnly, ProjectID: projectID, UnitID: state.UnitID, Status: "preview", PreviewHash: state.PreviewHash, Steps: []ProjectVideoChainStep{}}
 	view.WhiteModelStoryboardEnabled = state.WhiteModelStoryboardEnabled == nil || *state.WhiteModelStoryboardEnabled
 	view.AnchorShotID = state.AnchorShotID
+	view.ConfirmationBlockedReason = state.confirmationBlockedReason
 	if task != nil {
 		view.ID = task.ID
 		view.Status = string(task.Status)
@@ -173,7 +176,7 @@ func (s *Service) PreviewProjectVideoChain(userID, projectID string, req Project
 		if err != nil {
 			return ProjectVideoChainView{}, err
 		}
-		next, err := s.prepareVideoChainResume(task, old, req)
+		next, err := s.prepareVideoChainResume(task, old, req, true)
 		if err != nil {
 			return ProjectVideoChainView{}, err
 		}

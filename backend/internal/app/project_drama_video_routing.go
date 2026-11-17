@@ -129,7 +129,11 @@ func (s *Service) recordProjectVideoTerminal(child *model.Task) error {
 	var reason string
 	ranked := false
 	now := time.Now().UTC()
-	event := model.ProjectVideoRouteEvent{TaskID: child.ID, RouteRun: child.RouteRun, ProjectID: project.ID, ChannelID: d.ChannelID, ProviderModelKey: d.UpstreamModel, Decision: d.CountDecision, CreatedAt: now}
+	event := model.ProjectVideoRouteEvent{
+		TaskID: child.ID, RouteRun: child.RouteRun, ProjectID: project.ID,
+		ChannelID: d.ChannelID, ProviderModelKey: d.UpstreamModel, Decision: d.CountDecision,
+		RouteRevision: int64(numberValue(meta["projectVideoRouteRevision"], 0)), CreatedAt: now,
+	}
 	apply := func(tx *repository.Repository) error {
 		if _, err := tx.LockActiveStoryboardProject(child.UserID, project.ID); err != nil {
 			return err

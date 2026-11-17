@@ -267,8 +267,14 @@ func TestProjectEpisodeDeleteAgainstDirectorAdmissionHTTP(t *testing.T) {
 				}); err != nil {
 					t.Fatal(err)
 				}
-				go func() { admitted <- repo.CreateTaskWithActiveLimit(&task, 0) }()
-				waitEpisodeGuardBarrier(t, ready)
+				go func() { admitted <- repo.CreateTaskWithActiveLimit(&task, 1) }()
+				select {
+				case <-ready:
+				case err := <-admitted:
+					t.Fatalf("director admission completed before insertion barrier: %v", err)
+				case <-time.After(10 * time.Second):
+					t.Fatal("director admission did not reach insertion barrier")
+				}
 				rec := make(chan *httptest.ResponseRecorder, 1)
 				go func() { rec <- request("DELETE", "/units/middle", "") }()
 				waitEpisodeGuardBarrier(t, deleting)
@@ -290,7 +296,7 @@ func TestProjectEpisodeDeleteAgainstDirectorAdmissionHTTP(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			go func() { admitted <- repo.CreateTaskWithActiveLimit(&task, 0) }()
+			go func() { admitted <- repo.CreateTaskWithActiveLimit(&task, 1) }()
 			waitEpisodeGuardBarrier(t, ready)
 			removed := request("DELETE", "/units/middle", "")
 			resume()

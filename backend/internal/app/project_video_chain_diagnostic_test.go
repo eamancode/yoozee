@@ -60,11 +60,9 @@ func TestVideoChainOriginal503Receipts(t *testing.T) {
 			}
 			resume := f.req
 			resume.ResumeChainID = chain.ID
-			if _, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, resume); err == nil {
-				t.Fatal("unknown 503 submission allowed a new quote")
-			}
-			if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID, resume); err == nil || calls.Load() != 1 {
-				t.Fatal("unknown 503 submission allowed another generation")
+			readonly := f.blockedResumeQuote(t, resume, 0, child.ID)
+			if readonly.Steps[0].Diagnostic.Category != tc.category || readonly.Steps[0].Diagnostic.SubmissionOutcome != "unknown" || calls.Load() != 1 {
+				t.Fatal("503 quote lost the original failure or dispatched another video")
 			}
 		})
 	}

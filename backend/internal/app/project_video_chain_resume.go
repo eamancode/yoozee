@@ -90,7 +90,7 @@ func (s *Service) videoChainRecoveryChild(parent *model.Task, step *videoChainSt
 	return child, nil
 }
 
-func unresolvedVideoChainAttempt(chainID string, step videoChainStepState) error {
+func unresolvedVideoChainAttempt(chainID string, step videoChainStepState) *AppError {
 	msg := "原请求受理状态或费用尚未核实，请根据原任务与渠道回执核对后继续"
 	if d := step.Diagnostic; d != nil {
 		switch {
@@ -107,7 +107,19 @@ func unresolvedVideoChainAttempt(chainID string, step videoChainStepState) error
 	return err
 }
 
-func (s *Service) prepareVideoChainResume(task *model.Task, old videoChainState, req ProjectVideoChainRequest) (videoChainState, error) {
+func videoChainConfirmationBlock(chainID string, step videoChainStepState, child *model.Task) *AppError {
+	if strings.HasPrefix(child.LeaseOwner, "manual-recovery:") && child.LeaseExpiresAt != nil && child.LeaseExpiresAt.After(time.Now()) {
+		err := unresolvedVideoChainAttempt(chainID, step)
+		err.Message = "原视频任务正在回查，请等待回查结束后重新报价"
+		return err
+	}
+	if !step.Diagnostic.SafeToResubmit {
+		return unresolvedVideoChainAttempt(chainID, step)
+	}
+	return nil
+}
+
+func (s *Service) prepareVideoChainResume(task *model.Task, old videoChainState, req ProjectVideoChainRequest, previewOnly bool) (videoChainState, error) {
 	if task.Status != model.TaskStatusFailed {
 		return old, failedPrecondition("只有已暂停失败的生成链可以重新报价")
 	}
@@ -119,6 +131,7 @@ func (s *Service) prepareVideoChainResume(task *model.Task, old videoChainState,
 		return old, BadAuthRequest("恢复请求与原链的章节、起始段或生成范围不一致")
 	}
 	completed := 0
+	var originFingerprint, blockedReason string
 	for i := range old.Steps {
 		step := &old.Steps[i]
 		if step.Status == "succeeded" {
@@ -141,9 +154,13 @@ func (s *Service) prepareVideoChainResume(task *model.Task, old videoChainState,
 			completed++
 			continue
 		}
-		if !step.Diagnostic.SafeToResubmit {
-			return old, unresolvedVideoChainAttempt(task.ID, *step)
+		if block := videoChainConfirmationBlock(task.ID, *step, child); block != nil {
+			if !previewOnly {
+				return old, block
+			}
+			blockedReason = block.Message
 		}
+		originFingerprint = videoChainHash([]any{step.Signature, child.ID, child.RouteRun, child.BillingOrderID, step.Diagnostic, step.Diagnostic.originalRequestID, blockedReason})
 		break
 	}
 	if completed == len(old.Steps) {
@@ -168,6 +185,9 @@ func (s *Service) prepareVideoChainResume(task *model.Task, old videoChainState,
 		step.PreviousTaskIDs = previous.PreviousTaskIDs
 		if previous.Diagnostic != nil {
 			step.PreviousTaskIDs = append(step.PreviousTaskIDs, previous.TaskID)
+			if previewOnly {
+				step.TaskID, step.Diagnostic = previous.TaskID, previous.Diagnostic
+			}
 		}
 		if previous.FrameResourceID != "" && step.SourceShotID != "" && step.SourceShotID == previous.SourceShotID && step.SourceRevisionID == previous.SourceRevisionID && !step.ReferenceSkipped {
 			if _, err := s.videoChainReadyResource(task.UserID, previous.FrameResourceID, "image/"); err == nil {
@@ -181,7 +201,8 @@ func (s *Service) prepareVideoChainResume(task *model.Task, old videoChainState,
 			step.Uploads, step.UploadScope = previous.Uploads, previous.UploadScope
 		}
 	}
-	next.PreviewHash = videoChainHash([]any{task.ID, old.PreviewHash, completed, next.PreviewHash})
+	next.confirmationBlockedReason = blockedReason
+	next.PreviewHash = videoChainHash([]any{task.ID, old.PreviewHash, completed, next.PreviewHash, originFingerprint})
 	next.ResumeConfirmations = old.ResumeConfirmations
 	return next, s.checkOriginalVideoChain(s.repo, task.UserID, task.ProjectID, next)
 }
@@ -204,7 +225,7 @@ func (s *Service) RetryProjectVideoChain(userID, projectID, id string, req Proje
 		}
 		return videoChainView(projectID, task, old), nil
 	}
-	next, err := s.prepareVideoChainResume(task, old, req)
+	next, err := s.prepareVideoChainResume(task, old, req, false)
 	if err != nil {
 		return ProjectVideoChainView{}, err
 	}
@@ -238,10 +259,10 @@ func (s *Service) RetryProjectVideoChain(userID, projectID, id string, req Proje
 			if err != nil {
 				return err
 			}
-			if !d.SafeToResubmit || strings.HasPrefix(child.LeaseOwner, "manual-recovery:") && child.LeaseExpiresAt != nil && child.LeaseExpiresAt.After(time.Now()) {
-				original := old.Steps[i]
-				original.Diagnostic = &d
-				return unresolvedVideoChainAttempt(id, original)
+			original := old.Steps[i]
+			original.Diagnostic = &d
+			if block := videoChainConfirmationBlock(id, original, child); block != nil {
+				return block
 			}
 		}
 		if req.PrepareOnly || next.Steps[len(next.Steps)-1].Status == "succeeded" {

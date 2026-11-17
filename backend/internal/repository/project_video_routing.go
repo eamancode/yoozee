@@ -25,8 +25,8 @@ func (r *Repository) ApplyProjectVideoRouteEvent(event *model.ProjectVideoRouteE
 	// must not erase failures belonging to subsequent tasks on the same route.
 	if write.Error == nil && write.RowsAffected == 0 && event.Decision == "reset" {
 		write = r.db.Model(&model.ProjectVideoRouteEvent{}).
-			Where("task_id = ? AND route_run = ? AND project_id = ? AND channel_id = ? AND provider_model_key = ? AND decision = ?",
-				event.TaskID, event.RouteRun, event.ProjectID, event.ChannelID, event.ProviderModelKey, "increment").
+			Where("task_id = ? AND route_run = ? AND project_id = ? AND channel_id = ? AND provider_model_key = ? AND route_revision = ? AND decision = ?",
+				event.TaskID, event.RouteRun, event.ProjectID, event.ChannelID, event.ProviderModelKey, event.RouteRevision, "increment").
 			Update("decision", "reset")
 	}
 	if write.Error != nil || write.RowsAffected == 0 {
@@ -39,6 +39,14 @@ func (r *Repository) ApplyProjectVideoRouteEvent(event *model.ProjectVideoRouteE
 		streak = key
 	} else if err != nil {
 		return 0, false, err
+	}
+	// Returning to a previously failed route starts a fresh streak. Receipts for
+	// its earlier selection remain auditable without changing that new streak.
+	if event.RouteRevision < streak.RouteRevision {
+		return 0, false, nil
+	}
+	if event.RouteRevision > streak.RouteRevision {
+		streak.Failures, streak.RouteRevision = 0, event.RouteRevision
 	}
 	if event.Decision == "reset" {
 		streak.Failures = 0

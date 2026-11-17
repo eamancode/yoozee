@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,11 +18,30 @@ func (f *videoChainFixture) resumeQuote(t *testing.T, id string) ProjectVideoCha
 	req := f.req
 	req.ResumeChainID, req.PreviewHash, req.RequestID = id, "", "resume-confirmation"
 	preview, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, req)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || preview.ConfirmationBlockedReason != "" {
+		t.Fatalf("expected confirmable recovery quote, got %q, %v", preview.ConfirmationBlockedReason, err)
 	}
 	req.PreviewHash = preview.PreviewHash
 	return req
+}
+
+func (f *videoChainFixture) blockedResumeQuote(t *testing.T, req ProjectVideoChainRequest, segment int, originalTaskID string) ProjectVideoChainView {
+	t.Helper()
+	preview, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, req)
+	if err != nil || preview.ConfirmationBlockedReason == "" || preview.PreviewHash == "" || len(preview.Steps) <= segment {
+		t.Fatalf("expected read-only recovery quote, got %+v, %v", preview, err)
+	}
+	step := preview.Steps[segment]
+	if step.TaskID != originalTaskID || step.Diagnostic == nil || step.Diagnostic.SafeToResubmit {
+		t.Fatalf("quote lost original receipt: %+v", step)
+	}
+	req.PreviewHash = preview.PreviewHash
+	_, err = f.s.RetryProjectVideoChain("user-1", f.projectID, req.ResumeChainID, req)
+	var blocked *AppError
+	if !errors.As(err, &blocked) || blocked.Reason != ReasonFailedPrecondition || blocked.Message != preview.ConfirmationBlockedReason || blocked.Details["taskId"] != originalTaskID {
+		t.Fatalf("confirmation did not independently reject original %s: %v", originalTaskID, err)
+	}
+	return preview
 }
 
 func TestVideoChainUncertainOriginalRecoversWithoutAnotherGeneration(t *testing.T) {
@@ -152,8 +172,10 @@ func TestVideoChainTimeoutQueriesOriginalAndConfirmsNewRouteOnce(t *testing.T) {
 	f.tick(t, chain.ID)
 	req := f.req
 	req.RequestID, req.ResumeChainID = "resume-confirmation", chain.ID
-	if _, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, req); err == nil {
-		t.Fatal("accepted timeout allowed a quote for a second generation")
+	readOnly := f.blockedResumeQuote(t, req, 1, second.TaskID)
+	if readOnly.Steps[0].TaskID != first.TaskID || readOnly.Steps[0].VideoResourceID != firstVideo ||
+		readOnly.Steps[1].FrameResourceID != second.FrameResourceID || readOnly.Steps[1].Diagnostic.SubmissionOutcome != "accepted" || queries.Load() != 0 || creates.Load() != 0 {
+		t.Fatal("read-only quote lost the original frame/result or issued a request")
 	}
 	fresh := req
 	fresh.ResumeChainID, fresh.RequestID = "", "bypass-original"
@@ -163,20 +185,23 @@ func TestVideoChainTimeoutQueriesOriginalAndConfirmsNewRouteOnce(t *testing.T) {
 	if _, err := f.s.QueryFailedVideoTask(context.Background(), "user-1", second.TaskID); err == nil {
 		t.Fatal("HTTP polling failure reported success")
 	}
-	if _, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, req); err == nil {
-		t.Fatal("poll error treated as final provider rejection")
-	}
+	f.blockedResumeQuote(t, req, 1, second.TaskID)
 	query, err := f.s.QueryFailedVideoTask(context.Background(), "user-1", second.TaskID)
 	if err != nil || query.Recovered || query.ProviderStatus != "processing" {
 		t.Fatal(query, err)
 	}
-	if _, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, req); err == nil {
-		t.Fatal("processing result enabled duplicate generation")
-	}
+	f.blockedResumeQuote(t, req, 1, second.TaskID)
 	if _, err := f.s.QueryFailedVideoTask(context.Background(), "user-1", second.TaskID); err == nil {
 		t.Fatal("terminal upstream failure was reported as processing")
 	}
 	oldQuote := f.resumeQuote(t, chain.ID)
+	if readOnly.PreviewHash == oldQuote.PreviewHash {
+		t.Fatal("read-only quote became confirmable after reconciliation")
+	}
+	req.PreviewHash = readOnly.PreviewHash
+	if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID, req); err == nil {
+		t.Fatal("stale read-only quote was accepted after reconciliation")
+	}
 	f.req.Model.Input = cloneVideoChainInput(f.req.Model.Input)
 	f.req.Model.Input["config"].(map[string]any)["model"] = "seedance-2.5-replacement"
 	f.req.Model.Model = "seedance-2.5-replacement"

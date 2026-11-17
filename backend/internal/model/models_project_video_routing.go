@@ -19,6 +19,7 @@ type ProjectVideoRouteStreak struct {
 	ProjectID        string `gorm:"primaryKey;size:36"`
 	ChannelID        string `gorm:"primaryKey;size:36"`
 	ProviderModelKey string `gorm:"primaryKey;size:240"`
+	RouteRevision    int64
 	Failures         int
 }
 
@@ -30,5 +31,6 @@ type ProjectVideoRouteEvent struct {
 	ChannelID        string `gorm:"size:36"`
 	ProviderModelKey string `gorm:"size:240"`
 	Decision         string `gorm:"size:24"`
+	RouteRevision    int64
 	CreatedAt        time.Time
 }

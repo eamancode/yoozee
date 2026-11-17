@@ -204,8 +204,10 @@ func TestVideoChainCancelledOriginalRequiresReconciliation(t *testing.T) {
 			if err != nil || d.Category != "cancelled" || d.SubmissionOutcome != tc.outcome || d.CountDecision != "ignore" || d.SafeToResubmit {
 				t.Fatalf("unexpected cancellation receipt %+v: %v", d, err)
 			}
-			if _, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, confirmed); err == nil {
-				t.Fatal("original chain allowed unresolved cancellation")
+			readonly := f.blockedResumeQuote(t, confirmed, 0, child.ID)
+			if readonly.TotalMicrocredits <= 0 || readonly.Steps[0].Diagnostic.BillingStatus != d.BillingStatus ||
+				readonly.Steps[0].Diagnostic.SubmissionOutcome != tc.outcome || readonly.PreviewHash == confirmed.PreviewHash {
+				t.Fatal("read-only cancellation estimate lost its price or original state")
 			}
 			if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID, confirmed); err == nil {
 				t.Fatal("previously valid quote admitted another generation")

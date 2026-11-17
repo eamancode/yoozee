@@ -76,6 +76,7 @@ export interface VideoChain {
     stage: string;
     error?: string;
     previewHash: string;
+    confirmationBlockedReason?: string;
     totalMicrocredits: number;
     steps: VideoChainStep[];
 }

@@ -29,6 +29,10 @@ const phaseLabels: Record<string, string> = {
 const submissionLabels: Record<string, string> = { unknown: "未知", not_submitted: "未受理", accepted: "已受理" };
 const billingLabels: Record<string, string> = { none: "无记录", refunded: "已退款", settled: "已结算", reserved: "已预授权", running: "结算中", uncertain: "待核对" };
 
+function canReuseOriginal(step: VideoChainStep) {
+    return step.status === "succeeded" || (step.diagnostic?.terminalStatus === "succeeded" && ["none", "settled"].includes(step.diagnostic.billingStatus || ""));
+}
+
 export function VideoChainPanel({
     open,
     projectId,
@@ -64,6 +68,7 @@ export function VideoChainPanel({
     const [problem, setProblem] = useState<ReturnType<typeof videoChainOperationProblem>>();
     const [queryResult, setQueryResult] = useState("");
     const request = useRef<VideoChainRequest | undefined>(undefined);
+    const quotedReceipt = useRef("");
     const prepareRequest = useRef<VideoChainRequest | undefined>(undefined);
     const gate = useRef(false);
     const session = useRef(0);
@@ -77,9 +82,14 @@ export function VideoChainPanel({
     const failed = existing?.status === "failed" && existing.steps.some((step) => step.shotId === shotId) ? existing : undefined;
     const originalStep = failed?.steps.find((step) => step.status !== "succeeded");
     const originalDiagnostic = originalStep?.diagnostic;
-    const originalPending = Boolean(originalStep?.taskId && originalDiagnostic?.terminalStatus !== "succeeded" &&
-        (originalDiagnostic?.submissionOutcome === "unknown" || originalDiagnostic?.safeToResubmit === false));
-    const reuseOnly = Boolean(failed?.steps.length && failed.steps.every((step) => step.status === "succeeded" || step.diagnostic?.terminalStatus === "succeeded"));
+    const originalPending = Boolean(originalStep?.taskId && !canReuseOriginal(originalStep) &&
+        (originalDiagnostic?.submissionOutcome === "unknown" || originalDiagnostic?.safeToResubmit !== true));
+    const reuseOnly = Boolean(failed?.steps.length && failed.steps.every(canReuseOriginal));
+    const receiptVersion = JSON.stringify([failed?.id, originalStep?.taskId, originalDiagnostic?.attemptId, originalDiagnostic?.terminalStatus,
+        originalDiagnostic?.submissionOutcome, originalDiagnostic?.billingStatus, originalDiagnostic?.safeToResubmit]);
+    const blockedReason = preview?.confirmationBlockedReason || (originalPending ? "原请求的受理或结算尚未核实。请先查询原请求，再重新报价并确认。" :
+        request.current?.resumeChainId && receiptVersion !== quotedReceipt.current ? "原请求的状态已变化，请重新报价后确认。" :
+        preview && !preview.previewHash ? "缺少有效报价标识，请重新报价后确认。" : "");
     const active = chain?.status === "queued" || chain?.status === "running";
     const referenceAttachments = chain?.steps.map((step) => step.frameAssetId || "").join(",") || "";
     const originalVideos = new Map<string, VideoChainStep>();
@@ -97,6 +107,7 @@ export function VideoChainPanel({
         setQueryResult("");
         request.current = undefined;
         prepareRequest.current = undefined;
+        return () => { session.current++; };
     }, [open, projectId, unitId, shotId]);
 	useEffect(() => {
 		session.current++;
@@ -148,6 +159,7 @@ export function VideoChainPanel({
             const model = reuseOnly && failed
                 ? { model: (originalStep || failed.steps[0]).model, input: {} }
                 : await buildModel(originalStep?.shotId || shotId);
+            if (version !== session.current) return;
             const input: VideoChainRequest = { unitId, shotId, model, requestId: crypto.randomUUID() };
             if (failed?.id) {
                 input.resumeChainId = failed.id;
@@ -158,12 +170,14 @@ export function VideoChainPanel({
             const { chain } = await previewVideoChain(projectId, input);
             if (version !== session.current) return;
             request.current = { ...input, previewHash: chain.previewHash };
+            quotedReceipt.current = receiptVersion;
             setSelectedId(undefined);
             setPreview(chain);
         });
     const start = () =>
         run("确认提交", async () => {
-            if (!request.current) throw new Error("请先预览镜头组与费用");
+            if (blockedReason || !preview?.previewHash || request.current?.previewHash !== preview.previewHash || chains.isError) return;
+            const version = session.current;
             const scope = getActiveUserScope();
             // Keep this idempotency key after timeouts so a repeated click finds the
             // original controller rather than scheduling another paid chain.
@@ -171,6 +185,7 @@ export function VideoChainPanel({
             const { chain } = confirmed.resumeChainId
                 ? await retryVideoChain(projectId, { ...confirmed, resumeChainId: confirmed.resumeChainId })
                 : await createVideoChain(projectId, confirmed);
+            if (version !== session.current) return;
             if (rememberModel && !reuseOnly) useDramaModelPreferencesStore.getState().remember("video", confirmed.model.model, scope);
             request.current = undefined;
             setSelectedId(chain.id);
@@ -196,24 +211,63 @@ export function VideoChainPanel({
 
     const queryOriginal = (step: VideoChainStep) => run("查询原请求", async () => {
         if (!step.taskId) return;
+        const version = session.current;
         request.current = undefined;
         setPreview(undefined);
         setQueryResult("");
         try {
             const original = await refreshGenerationTaskStatus(step.taskId);
+            if (version !== session.current) return;
             const billing = original.billing?.status || step.diagnostic?.billingStatus || "none";
             const billingStatus = billingLabels[billing] || billing;
             if (original.status === "failed" && (step.diagnostic?.canQueryProvider ?? Boolean(original.providerRequestId)) && !original.canRecoverMedia) {
                 const result = await queryFailedVideoProviderTask(step.taskId);
+                if (version !== session.current) return;
                 setQueryResult(result.recovered ? `已取回原视频。结算${result.billingSettled ? "已完成" : "待核对"}。` : `上游状态 ${result.providerStatus || "待确认"} · 结算 ${billingStatus}`);
             } else {
                 setQueryResult(`原任务 ${original.id} · 状态 ${original.status} · 结算 ${billingStatus}${!original.providerRequestId && original.status === "failed" ? " · 尚无上游受理号" : ""}`);
             }
         } finally {
-            await chains.refetch();
-            await onRefresh();
+            if (version === session.current) {
+                await chains.refetch();
+                await onRefresh();
+            }
         }
     });
+    const recoverOriginal = (taskId: string) => run("恢复原视频保存", async () => {
+        const version = session.current;
+        request.current = undefined;
+        setPreview(undefined);
+        await recoverGenerationTaskMedia(taskId);
+        if (version !== session.current) return;
+        await chains.refetch();
+        await onRefresh();
+        if (version === session.current) setQueryResult("原视频已开始恢复保存，可查询原请求查看进度。");
+    });
+
+    const renderOriginalReceipt = (step: VideoChainStep) => {
+        const receipt = step.status === "failed" ? step :
+            chain?.status === "preview" && originalStep?.shotId === step.shotId
+                ? { ...originalStep, diagnostic: step.diagnostic || originalDiagnostic, taskId: step.taskId || originalStep.taskId }
+                : undefined;
+        if (!receipt) return null;
+        return (
+            <div className="mt-2 space-y-1 text-sm">
+                {receipt.diagnostic ? (
+                    <p>
+                        {[videoChainFailureLabel(receipt.diagnostic), receipt.diagnostic.upstreamModel, receipt.diagnostic.channelId, receipt.diagnostic.submissionOutcome && `受理状态 ${submissionLabels[receipt.diagnostic.submissionOutcome] || receipt.diagnostic.submissionOutcome}`, receipt.diagnostic.billingStatus && `结算 ${billingLabels[receipt.diagnostic.billingStatus] || receipt.diagnostic.billingStatus}`].filter(Boolean).join(" · ")}
+                    </p>
+                ) : null}
+                {receipt.taskId ? <p className="text-xs text-foreground/65">原任务 {receipt.taskId}</p> : null}
+                {receipt.diagnostic?.quoteId ? <p className="break-all text-xs text-foreground/65">原报价 {receipt.diagnostic.quoteId}</p> : null}
+                {receipt.diagnostic && (receipt.diagnostic.safeToResubmit === false || receipt.diagnostic.submissionOutcome === "unknown") && receipt.diagnostic.terminalStatus !== "succeeded" ? (
+                    <p>{receipt.diagnostic.canRecoverMedia ? "可恢复已有视频的保存。" : receipt.diagnostic.canQueryProvider ? "确认继续生成前，请先查询原请求的上游终态与结算。" : "原请求尚未确认可重发。请按原任务标识核对渠道回执及结算。"}</p>
+                ) : null}
+                {receipt.taskId ? <Button size="small" loading={busy} onClick={() => void queryOriginal(receipt)}>查询原请求与结算</Button> : null}
+                {receipt.taskId && receipt.diagnostic?.canRecoverMedia ? <Button size="small" loading={busy} onClick={() => void recoverOriginal(receipt.taskId!)}>恢复原视频保存</Button> : null}
+            </div>
+        );
+    };
 
     return (
         <AppModal open={open} centered title="同场景连续生成" width={820} onCancel={onClose} footer={null} styles={{ body: { maxHeight: "calc(100dvh - 160px)", overflowY: "auto" } }}>
@@ -247,7 +301,8 @@ export function VideoChainPanel({
                             共 {chain.steps.length} 组 · {chain.prepareOnly ? "仅准备参考，不生成视频" : request.current?.resumeChainId && chain.status === "preview" ? `剩余步骤预估 ${chain.totalMicrocredits / 1000000} 平台积分` : chain.steps.some((step) => step.quote) ? `${chain.totalMicrocredits / 1000000} 平台积分（整链预估，按实际子任务结算）` : "个人渠道按上游计费"}
                         </span>
                     </div>
-                    {chain.status === "preview" ? <p className="mb-2 break-all text-xs text-foreground/60">报价标识 {chain.previewHash}</p> : null}
+                    {chain.status === "preview" && chain.previewHash ? <p className="mb-2 break-all text-xs text-foreground/60">报价标识 {chain.previewHash}</p> : null}
+                    {chain.status === "preview" && blockedReason ? <div role="status" className="mb-3"><Callout tone="warning">本次仅供估价。{blockedReason}</Callout></div> : null}
                     <ol className="max-h-[50vh] space-y-3 overflow-y-auto pr-2 thin-scrollbar">
                         {chain.steps.map((step, index) => (
                             <li key={step.shotId} className="rounded-lg border border-border p-3">
@@ -283,27 +338,7 @@ export function VideoChainPanel({
                                         {step.error}
                                     </p>
                                 ) : null}
-                                {step.status === "failed" ? (
-                                    <div className="mt-2 space-y-1 text-sm">
-                                        {step.diagnostic ? (
-                                            <p>
-                                                {[videoChainFailureLabel(step.diagnostic), step.diagnostic.upstreamModel, step.diagnostic.channelId, step.diagnostic.submissionOutcome && `受理状态 ${submissionLabels[step.diagnostic.submissionOutcome] || step.diagnostic.submissionOutcome}`, step.diagnostic.billingStatus && `结算 ${billingLabels[step.diagnostic.billingStatus] || step.diagnostic.billingStatus}`].filter(Boolean).join(" · ")}
-                                            </p>
-                                        ) : null}
-                                        {step.taskId ? <p className="text-xs text-foreground/65">原任务 {step.taskId}</p> : null}
-                                        {step.diagnostic?.quoteId ? <p className="break-all text-xs text-foreground/65">原报价 {step.diagnostic.quoteId}</p> : null}
-                                        {step.diagnostic && (step.diagnostic.safeToResubmit === false || step.diagnostic.submissionOutcome === "unknown") && step.diagnostic.terminalStatus !== "succeeded" ? (
-                                            <p>{step.diagnostic.canRecoverMedia ? "可恢复已有视频的保存。" : step.diagnostic.canQueryProvider ? "先查询原请求的上游终态与结算，再为剩余步骤报价。" : "原请求尚未确认可重发。请按原任务标识核对渠道回执及结算。"}</p>
-                                        ) : null}
-                                        {step.taskId ? <Button size="small" loading={busy} onClick={() => void queryOriginal(step)}>查询原请求与结算</Button> : null}
-                                        {step.taskId && step.diagnostic?.canRecoverMedia ? <Button size="small" loading={busy} onClick={() => void run("恢复原视频保存", async () => {
-                                            await recoverGenerationTaskMedia(step.taskId!);
-                                            await chains.refetch();
-                                            await onRefresh();
-                                            setQueryResult("原视频已开始恢复保存，可查询原请求查看进度。");
-                                        })}>恢复原视频保存</Button> : null}
-                                    </div>
-                                ) : null}
+                                {renderOriginalReceipt(step)}
                                 {step.frameResourceId ? (
                                     <div className="mt-2">
                                         <Image width={120} src={resourceFileUrl(step.frameResourceId)} alt={`来自上一组的站位参考 ${step.referenceTag}`} />
@@ -349,12 +384,12 @@ export function VideoChainPanel({
                     </Button>
                 ) : null}
                 {!active && chains.isSuccess && !chains.isRefetchError ? (
-                    <Button loading={busy} disabled={originalPending} onClick={() => void refreshPreview()}>
+                    <Button loading={busy} onClick={() => void refreshPreview()}>
                         {reuseOnly ? "预览可复用的原视频" : failed ? "从失败步骤重新报价" : "预览当前场景与费用"}
                     </Button>
                 ) : null}
-                {chain?.status === "preview" && request.current && !chains.isError && !originalPending ? (
-                    <Button type="primary" disabled={busy} loading={busy} onClick={() => void start()}>
+                {chain?.status === "preview" && request.current && !chains.isError ? (
+                    <Button type="primary" disabled={busy || Boolean(blockedReason)} loading={busy} onClick={() => void start()}>
                         {reuseOnly ? "确认复用原视频" : request.current.resumeChainId ? "确认报价并从失败段继续" : "开始连续生成"}
                     </Button>
                 ) : null}

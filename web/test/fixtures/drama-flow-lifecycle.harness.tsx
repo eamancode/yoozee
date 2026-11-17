@@ -1019,7 +1019,7 @@ test("项目自动切线清除旧报价，手选覆盖只在本项目生效", as
 });
 const submitted = () => fixture.calls.filter((call) => call.method !== "GET" && /\/video-chains(\/[^/]+\/(retry|cancel))?$/.test(call.path));
 
-test("出片恢复：21 秒与 7 张参考，查询原请求、换模型报价后只确认一次", async () => {
+test("出片恢复：503 受理未知时换线只读估价，核实后重新报价只确认一次", async () => {
     const before = useConfigStore.getState().config;
     const { useDramaModelPreferencesStore: prefs } = await import("@/stores/use-drama-model-preferences-store");
     const oldPreferences = prefs.getState().models;
@@ -1038,13 +1038,22 @@ test("出片恢复：21 秒与 7 张参考，查询原请求、换模型报价�
         videoResourceId: "",
         taskId: "original-child",
         error: "HTTP 503",
-        diagnostic: { category: "route_unavailable", submissionOutcome: "unknown", safeToResubmit: true, canQueryProvider: false, upstreamCode: "HTTP 503" },
+        diagnostic: { category: "route_unavailable", submissionOutcome: "unknown", billingStatus: "uncertain", terminalStatus: "failed", safeToResubmit: false, canQueryProvider: false, upstreamCode: "HTTP 503" },
     };
     const chain = { id: "chain-failed", scope: "scene", anchorShotId: first.shotId, projectId: P, unitId: U, status: "failed", previewHash: "old", totalMicrocredits: 0, steps: [first, failed] };
     type Quote = { shotId: string; model: { model: string; input: { config: { videoSeconds: string } } }; resumeChainId: string; requestId: string; previewHash?: string };
     const quotes: Quote[] = [];
     const confirmations: Quote[] = [];
     let lookups = 0;
+    let releaseOldQuote: (() => void) | undefined;
+    let delayOldQuote = false;
+    const interceptor = apiClient.interceptors.response.use(async (reply) => {
+        if (delayOldQuote && reply.config.url === chainPath + "/preview") {
+            delayOldQuote = false;
+            await new Promise<void>((resolve) => { releaseOldQuote = resolve; });
+        }
+        return reply;
+    });
     let route: { status: string; model: string; fromModel: string; revision: number } | null = null;
     const page = await mount(`/drama-flow/${P}/video`, {
         prepare(f) {
@@ -1064,8 +1073,8 @@ test("出片恢复：21 秒与 7 张参考，查询原请求、换模型报价�
                 if (path === "/tasks/original-child" && method.toLowerCase() === "get") {
                     lookups++;
                     // A later reconciliation records a protocol rejection for this attempt.
-                    if (lookups === 2) failed.diagnostic.submissionOutcome = "not_submitted";
-                    return ok({ id: "original-child", status: "failed", billing: { status: "refunded" } });
+                    if (lookups === 2) Object.assign(failed.diagnostic, { submissionOutcome: "not_submitted", billingStatus: "refunded", safeToResubmit: true });
+                    return ok({ id: "original-child", status: "failed", billing: { status: failed.diagnostic.billingStatus } });
                 }
                 if (path === chainPath + "/preview") {
                     const input = body as Quote;
@@ -1076,8 +1085,9 @@ test("出片恢复：21 秒与 7 张参考，查询原请求、换模型报价�
                             id: "",
                             status: "preview",
                             previewHash: `quote-${quotes.length}`,
+                            confirmationBlockedReason: failed.diagnostic.safeToResubmit ? "" : "请核对原任务是否已产生费用。",
                             totalMicrocredits: 2000000,
-                            steps: [first, { ...failed, model: input.model.model, status: "waiting", taskId: "", error: "", quote: { billingMode: "fixed_request", amountMicrocredits: 2000000 } }],
+                            steps: [first, { ...failed, model: input.model.model, status: "waiting", error: "", quote: { billingMode: "fixed_request", amountMicrocredits: 2000000 } }],
                         },
                     });
                 }
@@ -1099,16 +1109,18 @@ test("出片恢复：21 秒与 7 张参考，查询原请求、换模型报价�
         expect(modal()?.textContent).toContain("线路不可用");
         await page.click(buttonByText(modal()!, "查询原请求与结算"));
         expect(lookups).toBe(1);
-        expect(modal()?.textContent).toContain("已退款");
-        expect((buttonByText(modal()!, "从失败步骤重新报价") as HTMLButtonElement).disabled).toBe(true);
+        expect(modal()?.textContent).toContain("待核对");
+        expect((buttonByText(modal()!, "从失败步骤重新报价") as HTMLButtonElement).disabled).toBe(false);
         expect(quotes).toHaveLength(0);
         expect(confirmations).toHaveLength(0);
-        await page.click(buttonByText(modal()!, "查询原请求与结算"));
-        expect(lookups).toBe(2);
         await page.click(buttonByText(modal()!, "从失败步骤重新报价"));
         expect(modal()?.textContent).toContain("复用已完成视频");
         expect(modal()?.textContent).toContain("内容 21 秒 → 生成 30 秒");
         expect(modal()?.textContent).toContain("7 张参考图");
+        expect((buttonByText(modal()!, "确认报价并从失败段继续") as HTMLButtonElement).disabled).toBe(true);
+        delayOldQuote = true;
+        await page.click(buttonByText(modal()!, "从失败步骤重新报价"));
+        expect(releaseOldQuote).toBeDefined();
         await page.click(modal()!.querySelector('[aria-label="更换本次报价的视频模型"]'));
         let option = byText('[role="option"]', backup);
         if (!option) {
@@ -1121,19 +1133,44 @@ test("出片恢复：21 秒与 7 张参考，查询原请求、换模型报价�
         await page.click(option);
         expect(buttonByText(modal()!, "确认报价并从失败段继续")).toBeUndefined();
         await page.click(buttonByText(modal()!, "从失败步骤重新报价"));
-        expect(quotes[1]).toMatchObject({ resumeChainId: chain.id, shotId: first.shotId, model: { model: `CHANNEL_000001::${backup}`, input: { config: { videoSeconds: "30" } } } });
-        expect(quotes[1].requestId).not.toBe(quotes[0].requestId);
+        expect(quotes[2]).toMatchObject({ resumeChainId: chain.id, shotId: first.shotId, model: { model: `CHANNEL_000001::${backup}`, input: { config: { videoSeconds: "30" } } } });
+        expect(quotes[2].requestId).not.toBe(quotes[1].requestId);
+        await act(async () => releaseOldQuote?.());
+        await flush();
+        expect(modal()?.textContent).toContain("报价标识 quote-3");
+        expect(modal()?.textContent).not.toContain("报价标识 quote-2");
+        expect(modal()?.textContent).toContain("本次仅供估价。请核对原任务是否已产生费用。");
+        expect(modal()?.textContent).toContain("原任务 original-child");
+        expect(modal()?.textContent).toContain("受理状态 未知");
+        expect(modal()?.textContent).toContain("结算 待核对");
+        expect(modal()?.textContent).toContain("剩余步骤预估 2 平台积分");
+        expect(modal()?.querySelector('a[href*="completed-video"]')).toBeTruthy();
+        const held = buttonByText(modal()!, "确认报价并从失败段继续") as HTMLButtonElement;
+        expect(held.disabled).toBe(true);
+        await act(async () => held.click());
+        expect(confirmations).toEqual([]);
+        expect(submitted()).toEqual([]);
+        await page.click(buttonByText(modal()!, "查询原请求与结算"));
+        expect(lookups).toBe(2);
+        expect(modal()?.textContent).toContain("已退款");
+        expect(buttonByText(modal()!, "确认报价并从失败段继续")).toBeUndefined();
+        await page.click(buttonByText(modal()!, "从失败步骤重新报价"));
+        expect(quotes[3].model).toEqual(quotes[2].model);
+        expect(quotes[3].requestId).not.toBe(quotes[2].requestId);
         const confirm = buttonByText(modal()!, "确认报价并从失败段继续") as HTMLButtonElement;
+        expect(confirm.disabled).toBe(false);
         await act(async () => {
             confirm.click();
             confirm.click();
         });
         await flush();
-        expect(confirmations).toEqual([{ ...quotes[1], previewHash: "quote-2" }]);
+        expect(confirmations).toEqual([{ ...quotes[3], previewHash: "quote-4" }]);
         expect(prefs.getState().models.video).toBe(oldPreferences.video);
         expect(fixture.forbidden).toEqual([]);
         expect(page.errors).toEqual([]);
     } finally {
+        releaseOldQuote?.();
+        apiClient.interceptors.response.eject(interceptor);
         await page.dispose();
         useConfigStore.setState({ config: before });
         prefs.setState({ models: oldPreferences });
@@ -1199,7 +1236,7 @@ test("出片恢复：已受理的超时先查原上游任务，取回视频后�
     try {
         await page.click(buttonByText(cardOf("S01")!, "重新出"));
         expect(modal()?.textContent).toContain("原报价 initial-quote");
-        expect((buttonByText(modal()!, "从失败步骤重新报价") as HTMLButtonElement).disabled).toBe(true);
+        expect((buttonByText(modal()!, "从失败步骤重新报价") as HTMLButtonElement).disabled).toBe(false);
         await page.click(buttonByText(modal()!, "查询原请求与结算"));
         expect(modal()?.textContent).toContain("已取回原视频");
         fixture.overrides.set("/dramas/models", "error");
