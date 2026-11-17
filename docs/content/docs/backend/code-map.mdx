@@ -9,6 +9,7 @@ description: 从产品功能快速定位主要代码入口
 
 - 工作区入口为 `web/src/pages/canvas/project.tsx`，交互组件、纯函数和持久状态分别在 `components/canvas/`、`lib/canvas/` 和 `stores/canvas/`。`use-canvas-storyboard.ts` 负责柚子分镜设置，`use-canvas-timeline-asset-insert.ts` 同时承接画布和整集时间线素材选择。
 - 保存与恢复由 `web/src/services/user-data-sync.ts`、`agent-canvas-sync.ts` 及 `backend/internal/canvas/` 承接，旧积压操作保留原 mutationId；`canvas-sync-recovery.test.ts`、`canvas-sync-progress.test.ts` 覆盖恢复与回执。
+- `canvas/user_data.go` 的 operations 写入在原回执事务中调用 `SaveDocumentWithHistory`；`repository/canvas_history.go` 负责节流、素材引用和保留策略。`handler/canvas_operations_history_test.go` 经真实 HTTP 入口覆盖首次快照、间隔、重放、外层失败回滚及素材保护。
 - 官方素材与姿势的前端接口为 `web/src/services/api/official-assets.ts`、`pose-library.ts`；后端入口为 `app/official_assets.go`、`official_asset_recommendations.go`、`pose_library_bridge.go`。接口归属和权限合同见 HTTP API 文档。
 - Agent 面板通过 `web/src/services/api/agent.ts` 的能力响应决定可用操作；统一文本节点迁移为 103，姿势库迁移为 104，官方素材另有独立迁移账本，编号与恢复边界见数据库文档。
 
