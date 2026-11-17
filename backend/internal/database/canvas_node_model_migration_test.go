@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,7 +18,7 @@ import (
 
 func canvasNodeMigrationDB(t *testing.T, driver string) *gorm.DB {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "canvas-nodes.db")
+	dsn := "file:" + url.PathEscape(t.Name()) + "?mode=memory&cache=shared"
 	if driver == "postgres" {
 		dsn = strings.TrimSpace(os.Getenv("CANVAS_TEST_POSTGRES_DSN"))
 		if dsn == "" {

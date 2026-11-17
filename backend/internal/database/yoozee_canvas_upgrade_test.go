@@ -1,7 +1,6 @@
 package database
 
 import (
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -9,10 +8,15 @@ import (
 )
 
 func TestYoozeeCanvasUpgradePreservesExistingLedger(t *testing.T) {
-	db, err := Open(Config{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "upgrade.db")})
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:yoozee-canvas-upgrade?mode=memory&cache=shared"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	pool, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pool.Close() })
 	if err := MigrateSchema(db); err != nil {
 		t.Fatal(err)
 	}
