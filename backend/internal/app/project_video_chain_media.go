@@ -115,6 +115,11 @@ func (s *Service) uploadVideoChainReferences(ctx context.Context, task *model.Ta
 	if err = json.Unmarshal(raw, &generation); err != nil {
 		return err
 	}
+	// Nothing is sent during this phase for a segment without references.
+	// The worker resolves the channel and enforces outbound policy at dispatch.
+	if len(generation.ReferenceImages)+len(generation.ReferenceVideos)+len(generation.ReferenceAudios) == 0 && generation.Mask == nil {
+		return nil
+	}
 	config, err := s.resolveProviderConfig(generation.Config)
 	if err != nil {
 		return err

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -598,36 +597,58 @@ func TestResolveProviderConfigMapsSKUToProviderModel(t *testing.T) {
 }
 
 func TestValidateTaskCapabilityFixesSingleResolutionSKU(t *testing.T) {
-	svc, db := newChannelModelTestService(t)
-	video := DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceVolcengineArkVideo), "doubao-seedance-2-5").Video
-	video.References.MaxVideos = 0
-	video.Resolutions = []string{"480p"}
-	video.DefaultResolution = "480p"
-	encoded, err := json.Marshal(&ModelCapabilityConfig{Version: 1, Video: video})
-	if err != nil {
-		t.Fatal(err)
+	const upstream = "doubao-seedance-2-5"
+	profile := DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceVolcengineArkVideo), upstream)
+	profile.Video.References.MaxVideos = 0
+	profile.Video.Resolutions = []string{"480p"}
+	profile.Video.DefaultResolution = "480p"
+	tier := newSelectionPriceTier("tier-480p", `{"vquality":"480p"}`, upstream, "fixed_request")
+	svc, _, channel, channelModel := createSystemChannelSelectionFixture(t, "video", model.ChannelInterfaceVolcengineArkVideo, profile, []model.ChannelModelPriceTier{tier})
+	newInput := func() map[string]any {
+		return map[string]any{
+			"mode": "video",
+			"config": map[string]any{
+				"channelId": channel.ID, "model": channelModel.ModelKey, "vquality": "auto", "videoSeconds": "6", "size": "16:9",
+				"videoGenerateAudio": "true", "videoWatermark": "false",
+			},
+		}
 	}
-	channelModel := model.ChannelModel{
-		ID: "model-480p", ChannelID: "channel-1", ModelKey: "doubao-seedance-2-5-480p", ProviderModelKey: "doubao-seedance-2-5",
-		Capability: "video", Protocol: model.ChannelInterfaceVolcengineArkVideo, Enabled: true, CapabilityConfigJSON: string(encoded),
-	}
-	if err := db.Create(&channelModel).Error; err != nil {
-		t.Fatal(err)
-	}
-	input := map[string]any{
-		"mode": "video",
-		"config": map[string]any{
-			"channelId": "channel-1", "model": channelModel.ModelKey, "vquality": "auto", "videoSeconds": "6", "size": "16:9",
-			"videoGenerateAudio": "true", "videoWatermark": "false",
-		},
-	}
-	if err := svc.ValidateTaskCapability(input); err != nil {
-		t.Fatal(err)
-	}
-	config := input["config"].(map[string]any)
-	if got := config["vquality"]; got != "480p" {
-		t.Fatalf("vquality = %#v, want 480p", got)
-	}
+	t.Run("task validation", func(t *testing.T) {
+		input := newInput()
+		config := input["config"].(map[string]any)
+		config["channelModelKey"], config["model"] = channelModel.ModelKey, upstream
+		input["capabilityOptions"] = map[string]any{"resolution": "auto", "videoSeconds": 6}
+		if err := svc.ValidateTaskCapability(input); err != nil {
+			t.Fatal(err)
+		}
+		selector := skuSelectorForIntent(ModelRequestIntentFromTaskInput(input, "canvas_video", "text_to_video"))
+		if config["vquality"] != "480p" || selector["vquality"] != "480p" || selector["videoSeconds"] != "6" {
+			t.Fatalf("execution resolution = %v, selector = %v", config["vquality"], selector)
+		}
+	})
+	t.Run("system channel selection", func(t *testing.T) {
+		input := newInput()
+		input["capabilityOptions"] = map[string]any{"vquality": "auto"}
+		resolved, err := svc.resolveSystemChannelModelSelection(testGroupAccess(svc), input, "canvas_video", "text_to_video")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.ValidateTaskCapability(resolved); err != nil {
+			t.Fatal(err)
+		}
+		config := resolved["config"].(map[string]any)
+		selector := skuSelectorForIntent(ModelRequestIntentFromTaskInput(resolved, "canvas_video", "text_to_video"))
+		if config["vquality"] != "480p" || selector["vquality"] != "480p" || config["priceTierId"] != tier.ID || config["providerModelKey"] != upstream {
+			t.Fatalf("execution resolution = %v, selector = %v, tier = %v, upstream = %v", config["vquality"], selector, config["priceTierId"], config["providerModelKey"])
+		}
+	})
+	t.Run("unsupported explicit resolution", func(t *testing.T) {
+		input := newInput()
+		input["capabilityOptions"] = map[string]any{"vquality": "720p"}
+		if _, err := svc.resolveSystemChannelModelSelection(testGroupAccess(svc), input, "canvas_video", "text_to_video"); err == nil {
+			t.Fatal("selected 480p for an explicit 720p request")
+		}
+	})
 }
 
 func newChannelModelTestService(t *testing.T) (*Service, *gorm.DB) {
