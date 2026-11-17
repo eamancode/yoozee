@@ -323,6 +323,14 @@ func dramaLookupError(err error) error {
 	return err
 }
 
+// 在写入制作意图前检查灰度，避免关闭期间积压的显式请求在重新开放后派发。
+func (s *Service) dramaForGeneration(userID, projectID string) (*model.Project, *model.DramaProduction, error) {
+	if err := s.requireDramaFlow2(userID); err != nil {
+		return nil, nil, err
+	}
+	return s.dramaForUser(userID, projectID)
+}
+
 func (s *Service) dramaForUser(userID string, projectID string) (*model.Project, *model.DramaProduction, error) {
 	project, err := s.repo.ProjectForUser(userID, strings.TrimSpace(projectID))
 	if err != nil {
@@ -1089,7 +1097,7 @@ func buildDramaSegmentViews(settings DramaSettings, meta dramaBibleMeta, shots [
 
 // RequestDramaSegmentPrompts 让文本模型（重新）撰写指定剧情段的完整视频提示词；不影响已有的手动改写。
 func (s *Service) RequestDramaSegmentPrompts(userID string, projectID string, episodeID string, req GenerateDramaSegmentsRequest) (map[string]any, error) {
-	project, productionRow, err := s.dramaForUser(userID, projectID)
+	project, productionRow, err := s.dramaForGeneration(userID, projectID)
 	if err != nil {
 		return nil, err
 	}

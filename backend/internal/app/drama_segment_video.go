@@ -600,7 +600,7 @@ func dramaVideoJobReplayable(job model.DramaJob) bool {
 
 // ReprocessDramaSegmentVideo 重新处理一段已生成、但后处理失败的视频：只重放原任务结果，不重新生成、不重复扣费。
 func (s *Service) ReprocessDramaSegmentVideo(userID, projectID, episodeID string, index int) (map[string]any, error) {
-	project, p, err := s.dramaForUser(userID, projectID)
+	project, p, err := s.dramaForGeneration(userID, projectID)
 	if err != nil {
 		return nil, err
 	}

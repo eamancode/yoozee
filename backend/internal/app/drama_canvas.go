@@ -538,6 +538,11 @@ func (s *Service) prepareDramaSegmentTakeRestore(userID, projectID, episodeID st
 // applyDramaSegmentAdoption 写入采用结果。resume=false 用于 Agent 检查点事务：不恢复暂停的制作（恢复会解析模型目录），
 // 只唤醒调度；暂停中的作品在用户继续制作后补抽尾帧并重新合成。
 func (s *Service) applyDramaSegmentAdoption(plan *dramaSegmentAdoption, resume bool) (map[string]any, error) {
+	if resume && plan.cascade && !plan.unchanged {
+		if err := s.requireDramaFlow2(plan.project.UserID); err != nil {
+			return nil, err
+		}
+	}
 	result := map[string]any{"adopted": false, "requeued": 0, "paused": plan.production.Status == model.DramaStatusPaused}
 	if plan.unchanged {
 		result["unchanged"] = true

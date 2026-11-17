@@ -239,6 +239,12 @@ func TestDramaFlow2GateStopsNewWork(t *testing.T) {
 	if _, err := svc.SetDramaRunning("usr-drama", id, true); err == nil {
 		t.Fatal("disabled feature accepted start")
 	}
+	if _, err := svc.ReleaseDramaMedia("usr-drama", id, ReleaseDramaMediaRequest{Target: "assets"}); err == nil {
+		t.Fatal("disabled feature accepted an asset generation request")
+	}
+	if row, err := svc.repo.DramaProduction(id); err != nil || row.AssetsReleased {
+		t.Fatalf("disabled release was saved for future dispatch: %v", err)
+	}
 	runDramaTicks(t, svc, id, 2)
 	if len(fake.requests) != 0 {
 		t.Fatalf("disabled feature submitted %d jobs", len(fake.requests))

@@ -213,7 +213,7 @@ func (e *episodeRewind) commit() error {
 }
 
 func (s *Service) ApproveDramaEpisode(userID, projectID, episodeID string) (DramaEpisodeDetail, error) {
-	project, p, err := s.dramaForUser(userID, projectID)
+	project, p, err := s.dramaForGeneration(userID, projectID)
 	if err != nil {
 		return DramaEpisodeDetail{}, err
 	}
@@ -254,7 +254,7 @@ func (s *Service) ApproveDramaEpisode(userID, projectID, episodeID string) (Dram
 
 // RescriptDramaEpisode 重新改编一集；旧镜头的产物版本保留在版本库中。
 func (s *Service) RescriptDramaEpisode(userID string, projectID string, episodeID string) (DramaEpisodeDetail, error) {
-	project, productionRow, err := s.dramaForUser(userID, projectID)
+	project, productionRow, err := s.dramaForGeneration(userID, projectID)
 	if err != nil {
 		return DramaEpisodeDetail{}, err
 	}
@@ -281,7 +281,7 @@ func (s *Service) RescriptDramaEpisode(userID string, projectID string, episodeI
 // ComposeDramaEpisode 手动重新合成本集成片：各段视频就绪后按实测时长拼接。
 // 已在合成中（stage=render 且无错误）则只唤醒调度，幂等不重复改版本；已有成片会标过期，新成片就绪前仍可预览旧片。
 func (s *Service) ComposeDramaEpisode(userID, projectID, episodeID string) (DramaEpisodeDetail, error) {
-	project, productionRow, err := s.dramaForUser(userID, projectID)
+	project, productionRow, err := s.dramaForGeneration(userID, projectID)
 	if err != nil {
 		return DramaEpisodeDetail{}, err
 	}
@@ -648,7 +648,7 @@ func (s *Service) SetDramaCastVoice(userID, projectID, castID string, req SetDra
 // RegenerateDramaCast 重做参考图；restyleSegments=true 时让引用该设定的剧情段视频过期，需重新生成。
 // 段提示词只引用“参考图N”编号，不随图片内容变化，保持不变。
 func (s *Service) RegenerateDramaCast(userID string, projectID string, castID string, restyleSegments bool) (map[string]any, error) {
-	project, productionRow, err := s.dramaForUser(userID, projectID)
+	project, productionRow, err := s.dramaForGeneration(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -794,7 +794,7 @@ func (s *Service) DramaCastImpact(userID string, projectID string, castID string
 
 // RetryFailedDrama 把失败槽位重置为待生成，由调度循环重新派发。
 func (s *Service) RetryFailedDrama(userID, projectID string) (map[string]any, error) {
-	project, p, err := s.dramaForUser(userID, projectID)
+	project, p, err := s.dramaForGeneration(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -868,7 +868,7 @@ type GenerateDramaSegmentsRequest struct {
 
 // GenerateDramaSegments 显式请求剧情段视频重生成，所有段先校验再统一写入。
 func (s *Service) GenerateDramaSegments(userID, projectID, episodeID string, req GenerateDramaSegmentsRequest) (map[string]any, error) {
-	project, p, err := s.dramaForUser(userID, projectID)
+	project, p, err := s.dramaForGeneration(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1085,7 +1085,7 @@ func (s *Service) recoverFailedDramaCastImage(projectID, castID string) (bool, e
 
 // ReleaseDramaMedia 是手动生图模式的“开始生图”：先确认剧情、分镜和资产，再按需放行。
 func (s *Service) ReleaseDramaMedia(userID string, projectID string, req ReleaseDramaMediaRequest) (DramaSummary, error) {
-	project, productionRow, err := s.dramaForUser(userID, projectID)
+	project, productionRow, err := s.dramaForGeneration(userID, projectID)
 	if err != nil {
 		return DramaSummary{}, err
 	}
