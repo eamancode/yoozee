@@ -97,6 +97,15 @@ func (r *Repository) ResourcesForUserIDs(userID string, resourceIDs []string) ([
 	return resources, err
 }
 
+func (r *Repository) ResourcesByIDs(resourceIDs []string) ([]model.Resource, error) {
+	if len(resourceIDs) == 0 {
+		return []model.Resource{}, nil
+	}
+	var resources []model.Resource
+	err := r.db.Where("id IN ?", resourceIDs).Find(&resources).Error
+	return resources, err
+}
+
 // ResourceStorageReferenceCount 返回未包含在 excludedResourceIDs 中、但指向同一物理对象的资源记录数。
 // 这用于兼容历史数据中多个 Resource 行复用一个对象路径的情况。
 func (r *Repository) ResourceStorageReferenceCount(resource *model.Resource, excludedResourceIDs []string) (int64, error) {
@@ -468,6 +477,25 @@ func (r *Repository) DeleteAssetsAndResources(userID string, assetIDs []string, 
 		}
 		if len(assetIDs) == 0 || len(ownedAssets) != len(assetIDs) {
 			return gorm.ErrRecordNotFound
+		}
+		var pending int64
+		if err := tx.Model(&model.OfficialAssetRecommendation{}).
+			Where("asset_id IN ? AND submitter_id = ? AND status IN ?", assetIDs, userID,
+				[]model.OfficialAssetRecommendationStatus{model.OfficialAssetRecommendationPending, model.OfficialAssetRecommendationChangesRequested}).
+			Count(&pending).Error; err != nil {
+			return err
+		}
+		if pending != 0 {
+			return ErrOfficialResourceReferenced
+		}
+		retained, err := New(tx).OfficialRecommendationResourceIDs()
+		if err != nil {
+			return err
+		}
+		for _, resourceID := range resourceIDs {
+			if _, exists := retained[resourceID]; exists {
+				return ErrOfficialResourceReferenced
+			}
 		}
 		if deleteReferencedResources {
 			// 彻底删除：移除被删资源的画布历史索引，让删除 worker 可以释放物理对象；

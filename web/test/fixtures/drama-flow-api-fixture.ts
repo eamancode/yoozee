@@ -8,6 +8,7 @@
 
 import { defaultModelCapabilityConfig } from "../../src/lib/model-capabilities";
 import type { ProjectVideoOverride, ProjectVideoRoute } from "../../src/services/api/project-video-routing";
+import type { VideoChainRequest } from "../../src/services/api/project-video-chains";
 
 export const FIXTURE_PROJECT_ID = "p-flow-qa";
 export const FIXTURE_UNIT_ID = "u-flow-e1";
@@ -111,7 +112,7 @@ export function createDramaFlowFixture(
         revision: 2,
         saves: 0,
         previews: 0,
-        previewRequests: [] as Array<{ shotId?: string; resumeChainId?: string }>,
+        previewRequests: [] as Array<Pick<VideoChainRequest, "shotId" | "resumeChainId" | "requestId">>,
         videoRoute: null as ProjectVideoRoute | null,
         /** 每次预览请求里真实发出的视频配置（含被拒的）。 */
         previewConfigs: [] as Array<Record<string, unknown>>,
@@ -385,8 +386,8 @@ export function createDramaFlowFixture(
         const call = { method: method.toUpperCase(), path: `${path}${url.search}` };
         calls.push(call);
         if (call.method === "POST" && path === `${base}/video-chains/preview`) {
-            const input = body as { shotId?: string; resumeChainId?: string };
-            state.previewRequests.push({ shotId: input?.shotId, resumeChainId: input?.resumeChainId });
+            const input = body as VideoChainRequest;
+            state.previewRequests.push({ shotId: input?.shotId, resumeChainId: input?.resumeChainId, requestId: input?.requestId });
         }
         const override = overrides.get(path);
         if (options.handoffGate && method.toUpperCase() === "POST" && path === `${base}/units/${FIXTURE_UNIT_ID}/drama/steps/chapter.shots/run`) {
@@ -491,7 +492,7 @@ export function createDramaFlowFixture(
         // 出片花费预览只读：返回整链预估，不建任务、不扣费。真正提交（POST /video-chains）、重试、取消都落到下面的拦截。
         if (call.method === "POST" && path === `${base}/video-chains/preview`) {
             // 按权威能力校验真实发出的配置（记下来供测试断言）：同步音频必须是 false，时长必须是 15 或 30 秒档。
-            const input = body as { shotId?: string; resumeChainId?: string; model?: { model?: string; input?: { config?: Record<string, unknown> } } };
+            const input = body as VideoChainRequest;
             const config = input?.model?.input?.config || {};
             state.previewConfigs.push({ ...config });
             const issues = [

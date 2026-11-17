@@ -11,9 +11,12 @@ import type { PublicUserGroup } from "@/services/api/user-groups";
 
 let authSessionRequest: Promise<AuthSessionPayload> | null = null;
 let authSessionCache: { payload: AuthSessionPayload; expiresAt: number } | null = null;
+let authSessionGeneration = 0;
 
 export function invalidateAuthSessionCache() {
+    authSessionGeneration += 1;
     authSessionCache = null;
+    authSessionRequest = null;
 }
 
 export type LocalUser = {
@@ -435,15 +438,18 @@ export function getAuthSession() {
     const now = Date.now();
     if (authSessionCache && authSessionCache.expiresAt > now) return Promise.resolve(authSessionCache.payload);
     if (authSessionRequest) return authSessionRequest;
-    authSessionRequest = http
+    const generation = authSessionGeneration;
+    const pending = http
         .get<AuthSessionPayload>("/auth/session")
         .then((payload) => {
+            if (generation !== authSessionGeneration) throw new DOMException("认证会话已变化", "AbortError");
             authSessionCache = { payload, expiresAt: Date.now() + 5_000 };
             return payload;
         })
         .finally(() => {
-            authSessionRequest = null;
+            if (authSessionRequest === pending) authSessionRequest = null;
         });
+    authSessionRequest = pending;
     return authSessionRequest;
 }
 

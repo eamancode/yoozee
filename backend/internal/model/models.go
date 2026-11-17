@@ -150,6 +150,7 @@ const (
 	AssetCategoryProp        AssetCategory = "prop"
 	AssetCategoryMaterial    AssetCategory = "material"
 	AssetCategoryOther       AssetCategory = "other"
+	AssetCategoryArk         AssetCategory = "ark"
 	// AssetCategoryPalette 是色卡：导演风格按色彩脚本每场建一张，直接是已确认，不走候选确认。
 	AssetCategoryPalette             AssetCategory = "palette"
 	AssetCategoryStoryboardReference AssetCategory = "storyboard_reference"

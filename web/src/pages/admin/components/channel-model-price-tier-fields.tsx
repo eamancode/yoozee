@@ -48,6 +48,7 @@ export function PriceTierFields({
     const resolutionOptions = Array.from(new Set([...(video?.resolutions || []), ...(protocol === "autodl-comfyui" ? video?.fixedScreenSpec?.resolutions || [] : [])]));
     const tokenEnabled = modelProtocolSupportsTokenBilling(capability, protocol);
     const isVideo = capability === "video";
+    const isDepth = isVideo && video?.defaultOperation === "depth";
     const isAudio = capability === "audio";
     const isDurationPriced = isVideo || isAudio;
     const isImage = capability === "image";
@@ -64,7 +65,7 @@ export function PriceTierFields({
                     <span className="admin-price-tier-card-index">{String(ordinal).padStart(2, "0")}</span>
                     <div className="admin-price-tier-card-heading-copy">
                         <div className="admin-price-tier-card-title">{matchMode === "default" ? "默认价格" : `规格价格 ${ordinal}`}</div>
-                        <div className="admin-price-tier-card-summary">{matchMode === "default" ? "所有请求使用同一价格" : isVideo ? "按生成方式与分辨率匹配" : "按生成方式、画质、分辨率或尺寸匹配"}</div>
+                        <div className="admin-price-tier-card-summary">{matchMode === "default" ? "所有请求使用同一价格" : isDepth ? "按深度估计方式匹配" : isVideo ? "按生成方式与分辨率匹配" : "按生成方式、画质、分辨率或尺寸匹配"}</div>
                     </div>
                 </div>
                 <div className="admin-price-tier-card-actions">
@@ -115,14 +116,23 @@ export function PriceTierFields({
                             </div>
                             <div className="admin-price-tier-match-grid">
                                 <Form.Item className="mb-0" name={[index, "operation"]} label="生成方式" rules={[{ required: true, message: "请选择生成方式" }]}>
-                                    <Select options={operationOptions(capability)} />
+                                    <Select
+                                        options={
+                                            isDepth
+                                                ? [
+                                                      { label: "任意生成方式", value: "*" },
+                                                      { label: "相对深度", value: "depth" },
+                                                  ]
+                                                : operationOptions(capability)
+                                        }
+                                    />
                                 </Form.Item>
-                                {isVideo ? (
+                                {isVideo && !isDepth ? (
                                     <Form.Item className="mb-0" name={[index, "resolution"]} label="分辨率" rules={[{ required: true, message: "请选择分辨率" }]}>
                                         <Select options={[{ label: "任意分辨率", value: "*" }, ...resolutionOptions.map((value) => ({ label: value.toUpperCase(), value: normalizeTierResolution(value) }))]} />
                                     </Form.Item>
                                 ) : null}
-                                {isVideo && video?.processing ? (
+                                {isVideo && !isDepth && video?.processing ? (
                                     <Form.Item className="mb-0" name={[index, "fpsBand"]} label="输出帧率档" tooltip="视频处理按输出帧率分档计价；保持原帧率时按 ≤30fps 档预扣">
                                         <Select options={fpsBandOptions} />
                                     </Form.Item>

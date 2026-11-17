@@ -501,7 +501,13 @@ async function quoteCase(cdp, fixture, { label, segmentId, shotId, resumeChainId
     const quoteText = resumeChainId ? "剩余步骤预估 1.5 平台积分" : "1.5 平台积分（整链预估";
     check(await cdp.poll(`(${chainModal})?.textContent.includes(${JSON.stringify(quoteText)})`, "quote", 10000), `${label}：看到${resumeChainId ? "剩余步骤" : "整链"}预估花费`);
     const requests = fixture.state.previewRequests;
-    check(fixture.state.previews === 1 && requests.length === 1 && requests[0].shotId === shotId && requests[0].resumeChainId === resumeChainId, `${label}：只发了 1 次只读预览，分段和原链正确`, JSON.stringify(requests));
+    check(
+        fixture.state.previews === 1 && requests.length === 1 && requests[0].shotId === shotId && requests[0].resumeChainId === resumeChainId && Boolean(requests[0].requestId),
+        `${label}：只发了 1 次只读预览，分段、原链和请求标识正确`,
+        JSON.stringify(requests),
+    );
+    check(await cdp.poll(`(${chainModal})?.textContent.includes("报价标识 preview-1")`, "quote receipt", 5000), `${label}：显示本次有效报价标识`);
+    if (resumeChainId) check(await cdp.poll(exists(confirm), "resume confirmation", 5000), `${label}：展示原链确认入口`);
     if (unresolved) {
         check(
             await cdp.evaluate(`(${chainModal})?.innerText.includes("原任务 original-video-s01") && (${chainModal})?.innerText.includes("受理状态 未知") && (${chainModal})?.querySelector('[role="status"]')?.textContent.includes("本次仅供估价")`),

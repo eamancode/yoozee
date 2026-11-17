@@ -3,10 +3,12 @@ package canvas
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
+	canvasdoc "yingce/backend/internal/canvas/document"
 	"yingce/backend/internal/kernel"
 
 	"yingce/backend/internal/model"
@@ -99,6 +101,10 @@ func (s *Service) UpsertUserAsset(userID string, raw json.RawMessage) (UserDataS
 		existing, existingErr := s.repo.AssetForUser(userID, asset.ID)
 		if existingErr != nil && !errors.Is(existingErr, gorm.ErrRecordNotFound) {
 			return existingErr
+		}
+		// 方舟认证分类只由服务端写入认证结果时设置；客户端只能保留已在该分类的素材。
+		if asset.Category == model.AssetCategoryArk && (existing == nil || existing.Category != model.AssetCategoryArk) {
+			return kernel.BadAuthRequest("方舟认证分类由认证结果自动设置，不能手动选择")
 		}
 		if existing != nil && existing.PayloadJSON != asset.PayloadJSON {
 			if err := s.ValidateAssetCanvasReferences(userID, asset); err != nil {
@@ -332,7 +338,7 @@ func (s *Service) ApplyUserCanvasOperations(userID, canvasID string, req CanvasO
 				}
 				for field, value := range create.Patch {
 					if !allowedCanvasOperationField(field) {
-						return kernel.BadAuthRequest("不支持的新画布字段")
+						return kernel.BadAuthRequest(fmt.Sprintf("不支持的新画布字段: 字段 %q", field))
 					}
 					payload[field] = append(json.RawMessage(nil), value...)
 				}
@@ -364,6 +370,12 @@ func (s *Service) ApplyUserCanvasOperations(userID, canvasID string, req CanvasO
 				return err
 			}
 			if !req.TrustedServerMutation {
+				if existing != nil {
+					raw, err = New(tx, nil).repairPurgedCanvasMediaReferences(userID, json.RawMessage(existing.PayloadJSON), raw)
+					if err != nil {
+						return err
+					}
+				}
 				if err := New(tx, nil).ValidateCanvasMediaAssets(userID, raw); err != nil {
 					return err
 				}
@@ -384,7 +396,7 @@ func (s *Service) ApplyUserCanvasOperations(userID, canvasID string, req CanvasO
 			if existing != nil {
 				existingPayload = existing.PayloadJSON
 			}
-			if err := quota(tx, existing == nil, int64(len(raw)-len(existingPayload))); err != nil {
+			if err := quota(tx, existing == nil, int64(len(project.PayloadJSON)-len(existingPayload))); err != nil {
 				return err
 			}
 			if err := tx.UpsertCanvasProject(&project); err != nil {
@@ -440,6 +452,7 @@ func (s *Service) upsertUserCanvasProjectWithHistory(userID string, raw json.Raw
 	if err != nil {
 		return UserDataSummary{}, err
 	}
+	raw = json.RawMessage(project.PayloadJSON)
 	var audit CanvasSaveAudit
 	err = s.host.WithStorageLock(func() error {
 		if err := s.ValidateCanvasMediaAssets(userID, raw); err != nil {
@@ -512,6 +525,11 @@ func (s *Service) upsertUserCanvasProjectWithHistory(userID string, raw json.Raw
 
 func (s *Service) DeleteUserCanvasProject(userID string, id string) error {
 	err := s.repo.DeleteCanvasProject(userID, id)
+	var busy *repository.CanvasAgentBusyError
+	if errors.As(err, &busy) {
+		return &kernel.AppError{Status: 409, Code: 409, Reason: "canvas_agent_busy", Message: "画布 Agent 仍在执行或收尾，请先停止并等待任务完成后再删除",
+			Details: map[string]any{"canvasId": id, "agent": busy.Activity}}
+	}
 	if errors.Is(err, repository.ErrCanvasEditLease) {
 		return canvasMutationError("canvas_edit_lease_conflict", err.Error())
 	}
@@ -578,6 +596,11 @@ func canvasProjectFromJSON(userID string, raw json.RawMessage) (model.CanvasProj
 }
 
 func canvasProjectFromJSONWithValidation(userID string, raw json.RawMessage, validate bool) (model.CanvasProject, error) {
+	canonical, _, err := canvasdoc.Canonicalize(raw)
+	if err != nil {
+		return model.CanvasProject{}, kernel.BadAuthRequest(err.Error())
+	}
+	raw = canonical
 	if validate {
 		if err := ValidateSyncedPayload(raw, "画布"); err != nil {
 			return model.CanvasProject{}, err
@@ -591,7 +614,7 @@ func canvasProjectFromJSONWithValidation(userID string, raw json.RawMessage, val
 		UpdatedAt string `json:"updatedAt"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return model.CanvasProject{}, kernel.BadAuthRequest("画布数据格式错误")
+		return model.CanvasProject{}, kernel.WrapAppError(http.StatusBadRequest, "画布数据格式错误", err)
 	}
 	now := time.Now()
 	createdAt := parseClientTime(payload.CreatedAt, now)

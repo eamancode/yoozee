@@ -21,15 +21,16 @@ import (
 )
 
 type videoChainFixture struct {
-	s          *Service
-	db         *gorm.DB
-	req        ProjectVideoChainRequest
-	projectID  string
-	uploads    atomic.Int32
-	failUpload atomic.Bool
-	frames     atomic.Int32
-	failFrame  atomic.Bool
-	frameID    string
+	s           *Service
+	db          *gorm.DB
+	req         ProjectVideoChainRequest
+	projectID   string
+	upstreamURL string
+	uploads     atomic.Int32
+	failUpload  atomic.Bool
+	frames      atomic.Int32
+	failFrame   atomic.Bool
+	frameID     string
 }
 
 func newVideoChainFixture(t *testing.T, scenes ...string) *videoChainFixture {
@@ -51,6 +52,7 @@ func newVideoChainFixture(t *testing.T, scenes ...string) *videoChainFixture {
 		_, _ = fmt.Fprintf(w, `{"url":"https://uploaded.example/ref-%d.png"}`, count)
 	}))
 	t.Cleanup(server.Close)
+	f.upstreamURL = server.URL
 	p := model.Project{ID: newID(), UserID: "user-1", Name: "连续生成测试", Status: model.ProjectStatusActive, GenerationModel: "seedance-2.5", WhiteModelStoryboardEnabled: true, BriefJSON: `{"previz_gate":"off"}`}
 	u := model.ProjectUnit{ID: newID(), ProjectID: p.ID, Kind: model.ProjectUnitKindChapter, Title: "第一场"}
 	for _, value := range []any{&p, &u, &model.User{ID: "user-1", Role: model.UserRoleUser}} {

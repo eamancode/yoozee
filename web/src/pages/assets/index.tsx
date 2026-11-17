@@ -22,7 +22,7 @@ import { App, Form, Popconfirm, Button, Dropdown, Input, Modal, Space, Tag, Typo
 import { useNavigate } from "react-router";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { ASSET_CATEGORY_OPTIONS } from "@/lib/asset-category";
+import { ASSET_ASSIGNABLE_CATEGORY_OPTIONS, ASSET_FILTER_CATEGORY_OPTIONS } from "@/lib/asset-category";
 import { downloadBrowserMedia } from "@/services/browser-download";
 import { flushAssetStorePersistence, useAssetStore, type AssetCategory, type AssetKind, type ImageAsset } from "@/stores/use-asset-store";
 import { loadAssetLibraryPage, loadAssetsForUse, saveRemoteUserDataNow, localSavedRemotePendingMessage, deleteAssetsWithRemoteSync, deleteAssetWithRemoteSync } from "@/services/user-data-sync";
@@ -60,7 +60,7 @@ const kindOptions = [
     { label: "资产设定", value: "entity" },
 ];
 
-const categoryOptions = [{ label: "全部分类", value: "all" }, ...ASSET_CATEGORY_OPTIONS];
+const categoryOptions = [{ label: "全部分类", value: "all" }, ...ASSET_FILTER_CATEGORY_OPTIONS];
 const ASSET_LIBRARY_QUERY_KEY = ["asset-library"] as const;
 const ASSET_FOLDER_QUERY_KEY = ["asset-folders"] as const;
 type AssetFolderFilter = "all" | "uncategorized" | string;
@@ -824,7 +824,7 @@ export default function AssetsPage() {
                             />
                         </Form.Item>
                         <Form.Item name="category" label="业务分类">
-                            <Select options={categoryOptions.slice(1)} />
+                            <Select options={ASSET_ASSIGNABLE_CATEGORY_OPTIONS} />
                         </Form.Item>
                         <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入标题" }]}>
                             <Input placeholder="给素材起一个容易检索的名字" />

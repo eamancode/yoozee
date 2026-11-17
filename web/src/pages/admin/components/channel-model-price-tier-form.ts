@@ -131,6 +131,10 @@ export function skuSelectorFromForm(capability: ModelCapabilityChoice, tier: Pri
     const selector: Record<string, string> = {};
     if (tier.operation && tier.operation !== "*") selector.operation = tier.operation;
     if (capability === "video") {
+        if (capabilityConfig?.video?.defaultOperation === "depth") {
+            if (selector.operation && selector.operation !== "depth") throw new Error("相对深度渠道的生成方式应为相对深度或任意生成方式");
+            return selector;
+        }
         if (tier.resolution && tier.resolution !== "*") selector.vquality = tier.resolution;
         if (capabilityConfig?.video?.processing && tier.fpsBand && tier.fpsBand !== "*") selector.fpsBand = tier.fpsBand;
     }
@@ -170,7 +174,7 @@ export function priceTierPayloadFromForm(capability: ModelCapabilityChoice, tier
     const videoTokens = capability === "video" && tier.billingMode === "token";
     return {
         selector: skuSelectorFromForm(capability, tier, capabilityConfig),
-        resolution: priceTierResolutionFromForm(capability, tier),
+        resolution: capability === "video" && capabilityConfig?.video?.defaultOperation === "depth" ? "*" : priceTierResolutionFromForm(capability, tier),
         videoSeconds: priceTierVideoSecondsFromForm(capability, tier),
         providerModelKey: tier.providerModelKey?.trim() || upstreamModel,
         upstreamRequestCostMicroCny: capability === "video" && tier.billingMode === "fixed_request" && tier.upstreamRequestCostCny != null ? Math.round(tier.upstreamRequestCostCny * 1_000_000) : undefined,

@@ -1673,6 +1673,10 @@
 
 /* 详情栏在窄屏改成从右侧滑出的浮层，不挤压产物 */
 @media (max-width: 1180px) {
+    .drama-flow-bar:has(.drama-flow-bar-actions > :nth-child(2)) .drama-flow-bar-status {
+        flex-basis: 100%;
+    }
+
     .drama-flow-stage[data-pane="on"] {
         grid-template-columns: minmax(0, 1fr);
     }

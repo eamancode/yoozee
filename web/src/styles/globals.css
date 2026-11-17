@@ -347,6 +347,9 @@
     --focus-ring-width: 2px;
     --icon-size: 16px;
     --theme-hover-lift: 1px;
+    --canvas-mention-hover-preview-size: 160px;
+    --canvas-mention-gallery-card-min: 80px;
+    --canvas-mention-gallery-detail-width: 232px;
 }
 
 /* prefers-reduced-motion 降级（对应 #99 三级降级策略 L1）*/
@@ -2220,7 +2223,9 @@
         border-radius: var(--r-2xl);
         background: color-mix(in srgb, var(--dock-surface) 72%, transparent) !important;
         padding: var(--space-half) var(--space-2);
-        box-shadow: 0 1px 2px color-mix(in srgb, color-mix(in srgb, black 16%, transparent) 50%, transparent), 0 10px 28px color-mix(in srgb, black 16%, transparent);
+        box-shadow:
+            0 1px 2px color-mix(in srgb, color-mix(in srgb, black 16%, transparent) 50%, transparent),
+            0 10px 28px color-mix(in srgb, black 16%, transparent);
         -webkit-backdrop-filter: blur(22px) saturate(140%);
         backdrop-filter: blur(22px) saturate(140%);
     }
@@ -2246,6 +2251,48 @@
     .canvas-topbar-project-cluster {
         width: max-content;
         max-width: min(360px, calc(50vw - 88px));
+    }
+    .canvas-topbar-cluster.canvas-topbar-view-switch {
+        gap: var(--space-1);
+        padding: var(--space-1);
+        border-radius: var(--r-full);
+    }
+
+    .canvas-topbar-view-option {
+        display: grid;
+        place-items: center;
+        width: var(--space-8);
+        height: var(--space-8);
+        border: 0;
+        border-radius: var(--r-full);
+        background: transparent;
+        --view-switch-color: var(--view-switch-idle);
+        cursor: pointer;
+        transition:
+            background-color var(--motion-instant) ease-out,
+            color var(--motion-instant) ease-out;
+    }
+
+    .canvas-topbar-view-option svg {
+        width: var(--space-4);
+        height: var(--space-4);
+        stroke-width: 1.75;
+    }
+
+    .canvas-topbar-view-option:hover:not([aria-pressed="true"]) {
+        --view-switch-color: var(--view-switch-hover);
+        background: var(--dock-command-hover);
+    }
+
+    .canvas-topbar-view-option[aria-pressed="true"] {
+        background: var(--view-switch-active-bg);
+        --view-switch-color: var(--view-switch-active-fg);
+        box-shadow: 0 1px 2px color-mix(in srgb, black 24%, transparent);
+    }
+
+    .canvas-topbar-view-option:focus-visible {
+        outline: 2px solid var(--view-switch-hover);
+        outline-offset: 2px;
     }
 
     /* 右侧命令组在窄屏保持可达，不挤压项目标题，也不制造横向溢出。 */
@@ -2421,6 +2468,9 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
+        .canvas-topbar-view-option {
+            transition: none;
+        }
         .canvas-project-sidebar-header a,
         .canvas-project-sidebar-header button,
         .canvas-project-sidebar-back-link,
@@ -4539,7 +4589,10 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
         background: color-mix(in srgb, var(--foreground) 5%, transparent);
         padding: 0 16px;
         color: color-mix(in srgb, var(--foreground) 48%, transparent);
-        transition: background-color 220ms ease-out, color 220ms ease-out, box-shadow 220ms ease-out;
+        transition:
+            background-color 220ms ease-out,
+            color 220ms ease-out,
+            box-shadow 220ms ease-out;
     }
 
     .canvas-library-search:focus-within {
@@ -4556,24 +4609,67 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
     .canvas-library-search > button svg { width: 14px; height: 14px; }
 
     .canvas-library-filters { display: flex; align-items: center; gap: 4px; }
-    .canvas-library-filter { display: inline-flex; min-height: 34px; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; padding: 0 8px; color: color-mix(in srgb, var(--foreground) 58%, transparent); font-size: var(--fs-label); white-space: nowrap; transition: background-color var(--motion-instant) ease-out, color var(--motion-instant) ease-out; }
+    .canvas-library-filter {
+        display: inline-flex;
+        min-height: 34px;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid transparent;
+        border-radius: var(--r-sm);
+        background: transparent;
+        padding: 0 8px;
+        color: color-mix(in srgb, var(--foreground) 58%, transparent);
+        font-size: var(--fs-label);
+        white-space: nowrap;
+        transition:
+            background-color var(--motion-instant) ease-out,
+            color var(--motion-instant) ease-out;
+    }
     .canvas-library-filter > svg { width: 15px; height: 15px; color: color-mix(in srgb, var(--foreground) 44%, transparent); }
     .canvas-library-filter:hover, .canvas-library-filter.is-active { background: color-mix(in srgb, var(--foreground) 7%, transparent); color: var(--foreground); }
     .canvas-library-filter.is-active > svg { color: var(--workspace-accent); }
     .canvas-library-reset { min-height: 30px; border: 0; background: transparent; padding: 0 8px; color: color-mix(in srgb, var(--foreground) 42%, transparent); font-size: var(--fs-micro); }
     .canvas-library-reset:hover { color: var(--foreground); }
     .canvas-library-count { display: flex; align-items: baseline; gap: 8px; justify-self: end; color: color-mix(in srgb, var(--foreground) 38%, transparent); font-size: var(--fs-micro); white-space: nowrap; }
-    .canvas-library-count strong { color: var(--foreground); font-size: var(--fs-heading-lg); font-variant-numeric: tabular-nums; font-weight: 500; letter-spacing: .02em; }
+    .canvas-library-count strong {
+        color: var(--foreground);
+        font-size: var(--fs-heading-lg);
+        font-variant-numeric: tabular-nums;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+    }
 
     /* 画布库使用稳定的最小列宽；卡片不靠负边距或溢出制造层叠。 */
     .canvas-library-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: stretch; gap: var(--space-6) var(--space-5); }
     .canvas-library-page .app-pagination-bar { margin-top: var(--space-6); }
 
     /* === 画布卡片重构（对应 docs/ui-design-system.md）=== */
-    .app-canvas-project-card { min-width: 0; cursor: pointer; color: var(--foreground); transition: transform var(--motion-state) var(--motion-ease-out), background-color var(--motion-state) ease-out; }
+    .app-canvas-project-card {
+        min-width: 0;
+        cursor: pointer;
+        color: var(--foreground);
+        transition:
+            transform var(--motion-state) var(--motion-ease-out),
+            background-color var(--motion-state) ease-out;
+    }
 
     /* 创建卡与内容卡使用相同表面和克制位移。 */
-    .app-canvas-create-card { display: flex; min-width: 0; cursor: pointer; flex-direction: column; align-items: stretch; border: 0; border-radius: var(--r-lg); background: var(--card-surface); padding: 0; color: var(--foreground); text-align: left; transition: transform var(--motion-state) var(--motion-ease-out), background-color var(--motion-state) ease-out; }
+    .app-canvas-create-card {
+        display: flex;
+        min-width: 0;
+        cursor: pointer;
+        flex-direction: column;
+        align-items: stretch;
+        border: 0;
+        border-radius: var(--r-lg);
+        background: var(--card-surface);
+        padding: 0;
+        color: var(--foreground);
+        text-align: left;
+        transition:
+            transform var(--motion-state) var(--motion-ease-out),
+            background-color var(--motion-state) ease-out;
+    }
     .app-canvas-create-card:hover:not(:disabled), .app-canvas-create-card:focus-visible { background: var(--card-surface-hover);}
     .app-canvas-create-card:active:not(:disabled) { transition-duration: var(--motion-instant); }
     .app-canvas-create-card:focus-visible { outline: 0; }
@@ -4583,7 +4679,10 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
     .app-canvas-create-card:hover:not(:disabled) .app-canvas-create-icon { color: var(--foreground); }
     .app-canvas-create-title { margin: 16px 16px 0; font-size: var(--fs-heading-lg); font-weight: 600; line-height: 1.25; }
     .app-canvas-create-meta { margin: 8px 16px 16px; color: color-mix(in srgb, var(--foreground) 38%, transparent); font-size: var(--fs-caption); }
-    .app-canvas-create-card:disabled { cursor: not-allowed; opacity: .5; }
+    .app-canvas-create-card:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
 
     /* 画布卡片依靠表面明度表达 hover，选中态才显示描边。 */
     .app-canvas-project-card.is-library { overflow: hidden; border: 0; border-radius: var(--r-lg); background: var(--card-surface); box-shadow: none; content-visibility: auto; contain-intrinsic-size: 0 320px; }
@@ -4591,25 +4690,77 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
     .app-canvas-project-card.is-library:hover, .app-canvas-project-card.is-library:focus-within { background: var(--card-surface-hover); box-shadow: none;}
     .app-canvas-project-card.is-library:active { transition-duration: var(--motion-instant); }
     .app-canvas-project-card.is-library.is-selected { box-shadow: 0 0 0 1px color-mix(in srgb, var(--workspace-accent) 52%, transparent); border-radius: var(--r-lg); }
-    .app-canvas-project-card.is-recent .app-canvas-project-preview { overflow: hidden; border-radius: var(--r-2xl) var(--r-2xl) 0 0; background: var(--workspace-surface-strong); transition: box-shadow 250ms var(--motion-ease-out), transform 250ms var(--motion-ease-out); }
+    .app-canvas-project-card.is-recent .app-canvas-project-preview {
+        overflow: hidden;
+        border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+        background: var(--workspace-surface-strong);
+        transition:
+            box-shadow 250ms var(--motion-ease-out),
+            transform 250ms var(--motion-ease-out);
+    }
     .app-canvas-project-card.is-recent:hover .app-canvas-project-preview, .app-canvas-project-card.is-recent:focus-within .app-canvas-project-preview { box-shadow: 0 18px 36px color-mix(in srgb, var(--foreground) 13%, transparent);}
 
     .canvas-project-preview-button { position: relative; aspect-ratio: 16 / 9; }
     .app-canvas-project-card.is-recent .canvas-project-preview-button { aspect-ratio: 16 / 10; }
-    .canvas-project-media img { filter: saturate(.88) contrast(1.02); transition: transform 250ms var(--motion-ease-out), filter 250ms ease-out; }
+    .canvas-project-media img {
+        filter: saturate(0.88) contrast(1.02);
+        transition:
+            transform 250ms var(--motion-ease-out),
+            filter 250ms ease-out;
+    }
     .app-canvas-project-card:hover .canvas-project-media img { filter: saturate(1) contrast(1.04);}
     .canvas-project-preview-canvas { transition: transform 250ms var(--motion-ease-out); }
     .app-canvas-project-card:hover .canvas-project-preview-canvas {}
-    .canvas-project-preview-button::after { display: none; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 54%, rgba(5, 6, 8, .6)); content: ""; pointer-events: none; }
+    .canvas-project-preview-button::after {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, transparent 54%, rgba(5, 6, 8, 0.6));
+        content: "";
+        pointer-events: none;
+    }
     .canvas-project-preview-button:has(.canvas-project-media)::after { display: block; }
     .canvas-project-video { display: grid; place-items: center; background: color-mix(in srgb, var(--workspace-surface-strong) 74%, var(--workspace-accent) 26%); color: color-mix(in srgb, var(--workspace-accent) 72%, var(--foreground)); }
     .canvas-project-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: color-mix(in srgb, var(--workspace-surface-strong) 76%, var(--background)); color: color-mix(in srgb, var(--foreground) 58%, transparent); }
     .canvas-project-empty-icon { width: 32px; height: 32px; margin-bottom: 4px; color: color-mix(in srgb, var(--foreground) 38%, transparent); stroke-width: 1.4; }
     .canvas-project-empty span { font-size: var(--fs-label); }
     .canvas-project-empty small { color: color-mix(in srgb, var(--foreground) 34%, transparent); font-size: var(--fs-micro); }
-    .canvas-project-cover-meta { position: absolute; z-index: 1; right: 14px; bottom: 13px; left: 14px; display: flex; align-items: end; justify-content: flex-end; color: rgba(255, 255, 255, .82); pointer-events: none; }
-    .canvas-project-node-count { border-radius: var(--r-full); background: rgba(5, 6, 8, .52); padding: 4px 8px; font-size: var(--fs-micro); backdrop-filter: blur(8px); }
-    .canvas-project-select { position: absolute; z-index: 2; top: 12px; left: 12px; display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid rgba(255, 255, 255, .42); border-radius: 4px; background: rgba(5, 6, 8, .42); opacity: 0; transition: opacity var(--motion-instant) ease-out, background-color var(--motion-instant) ease-out; }
+    .canvas-project-cover-meta {
+        position: absolute;
+        z-index: 1;
+        right: 14px;
+        bottom: 13px;
+        left: 14px;
+        display: flex;
+        align-items: end;
+        justify-content: flex-end;
+        color: rgba(255, 255, 255, 0.82);
+        pointer-events: none;
+    }
+    .canvas-project-node-count {
+        border-radius: var(--r-full);
+        background: rgba(5, 6, 8, 0.52);
+        padding: 4px 8px;
+        font-size: var(--fs-micro);
+        backdrop-filter: blur(8px);
+    }
+    .canvas-project-select {
+        position: absolute;
+        z-index: 2;
+        top: 12px;
+        left: 12px;
+        display: grid;
+        width: 24px;
+        height: 24px;
+        place-items: center;
+        border: 1px solid rgba(255, 255, 255, 0.42);
+        border-radius: 4px;
+        background: rgba(5, 6, 8, 0.42);
+        opacity: 0;
+        transition:
+            opacity var(--motion-instant) ease-out,
+            background-color var(--motion-instant) ease-out;
+    }
     .canvas-project-select.is-visible, .app-canvas-project-card:hover .canvas-project-select, .app-canvas-project-card:focus-within .canvas-project-select { opacity: 1; }
     .canvas-project-checkbox { width: 14px; height: 14px; margin: 0; accent-color: var(--workspace-accent); }
 
@@ -4625,7 +4776,17 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
     .canvas-project-title-button { min-width: 0; flex: 1; cursor: pointer; border: 0; background: transparent; padding: 0; text-align: left; }
     .canvas-project-title-button h2 { overflow: hidden; color: var(--foreground); font-size: var(--fs-heading); font-weight: 600; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
     .canvas-project-title-input { min-width: 0; flex: 1; }
-    .canvas-project-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; opacity: 0; transform: translateY(4px); transition: opacity 220ms ease-out, transform 250ms var(--motion-ease-out); }
+    .canvas-project-actions {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 2px;
+        opacity: 0;
+        transform: translateY(4px);
+        transition:
+            opacity 220ms ease-out,
+            transform 250ms var(--motion-ease-out);
+    }
     .app-canvas-project-card:hover .canvas-project-actions, .app-canvas-project-card:focus-within .canvas-project-actions, .canvas-project-actions:has(:focus-visible) { opacity: 1; transform: translateY(0); }
     .canvas-project-actions button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 4px; background: transparent; color: color-mix(in srgb, var(--foreground) 42%, transparent); }
     .canvas-project-actions button:hover { background: color-mix(in srgb, var(--foreground) 8%, transparent); color: var(--foreground); }
@@ -4653,7 +4814,10 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
         content-visibility: auto;
         contain-intrinsic-size: 0 320px;
         box-shadow: none;
-        transition: transform var(--motion-state) var(--motion-ease-out), background-color var(--motion-state) ease-out, box-shadow var(--motion-state) ease-out;
+        transition:
+            transform var(--motion-state) var(--motion-ease-out),
+            background-color var(--motion-state) ease-out,
+            box-shadow var(--motion-state) ease-out;
     }
 
     .canvas-folder-card:hover, .canvas-folder-card:focus-within {
@@ -4705,7 +4869,12 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
     }
     .canvas-folder-preview .cached-resource-image-shell { width: 100%; height: 100%; }
     .canvas-folder-preview .canvas-project-media img, .canvas-folder-preview .cached-resource-image-shell > img { display: block; width: 100%; height: 100%; object-fit: cover; }
-    .canvas-folder-preview .canvas-project-media img { filter: saturate(.94) contrast(1.02); transition: transform 250ms var(--motion-ease-out), filter 240ms ease-out; }
+    .canvas-folder-preview .canvas-project-media img {
+        filter: saturate(0.94) contrast(1.02);
+        transition:
+            transform 250ms var(--motion-ease-out),
+            filter 240ms ease-out;
+    }
     .canvas-folder-card:hover .canvas-folder-preview .canvas-project-media img { filter: saturate(1) contrast(1.04); transform: scale(1.025); }
     .canvas-folder-preview .canvas-project-preview-canvas { background: var(--canvas-cover-surface); }
     .canvas-folder-opening { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--space-2); background: color-mix(in srgb, var(--background) 78%, transparent); color: var(--foreground); font-size: var(--fs-caption); font-weight: 600; backdrop-filter: blur(3px); }
@@ -4755,7 +4924,10 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         transform: translateY(-2px);
-        transition: opacity var(--motion-instant) ease-out, transform var(--motion-instant) ease-out, background-color var(--motion-instant) ease-out;
+        transition:
+            opacity var(--motion-instant) ease-out,
+            transform var(--motion-instant) ease-out,
+            background-color var(--motion-instant) ease-out;
     }
 
     .canvas-folder-select.is-visible, .canvas-folder-card:hover .canvas-folder-select, .canvas-folder-card:focus-within .canvas-folder-select { opacity: 1; transform: translateY(0); }
@@ -4777,12 +4949,16 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         transform: translateY(-2px);
-        transition: opacity var(--motion-instant) ease-out, transform var(--motion-instant) ease-out, background-color var(--motion-instant) ease-out;
+        transition:
+            opacity var(--motion-instant) ease-out,
+            transform var(--motion-instant) ease-out,
+            background-color var(--motion-instant) ease-out;
     }
 
     .canvas-folder-card:hover .canvas-folder-actions, .canvas-folder-card:focus-within .canvas-folder-actions { opacity: 1; transform: translateY(0); }
 
-    .canvas-folder-rename, .canvas-folder-more {
+    .canvas-folder-rename,
+    .canvas-folder-more {
         display: grid;
         width: 28px;
         height: 28px;
@@ -4792,7 +4968,9 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
         border-radius: var(--r-full);
         background: transparent;
         color: color-mix(in srgb, var(--foreground) 42%, transparent);
-        transition: background-color var(--motion-instant) ease-out, color var(--motion-instant) ease-out;
+        transition:
+            background-color var(--motion-instant) ease-out,
+            color var(--motion-instant) ease-out;
     }
 
     :where(.canvas-folder-rename, .canvas-folder-more):hover { background: color-mix(in srgb, var(--foreground) 8%, transparent); color: var(--foreground); }
@@ -6511,10 +6689,24 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
     .project-asset-folder-open { position: absolute; z-index: 2; inset: 0; border: 0; border-radius: inherit; background: transparent; }
     .project-asset-folder-open:focus-visible { outline: 2px solid var(--ring); outline-offset: var(--space-half); }
     .project-asset-folder-visual { position: relative; height: 204px; overflow: visible; pointer-events: none; }
-    .project-asset-folder-visual > .canvas-folder-preview { position: absolute; top: 0; left: 50%; width: 360px; height: 280px; transform: translateX(-50%) scale(.68); transform-origin: top center; }
-    .project-asset-folder-card:hover .project-asset-folder-visual > .canvas-folder-preview { transform: translateX(-50%) translateY(-2px) scale(.68); }
+    .project-asset-folder-visual > .canvas-folder-preview {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        width: 360px;
+        height: 280px;
+        transform: translateX(-50%) scale(0.68);
+        transform-origin: top center;
+    }
+    .project-asset-folder-card:hover .project-asset-folder-visual > .canvas-folder-preview {
+        transform: translateX(-50%) translateY(-2px) scale(0.68);
+    }
     .project-asset-folder-card:hover .canvas-folder-preview:not(.canvas-folder-preview-compact) .canvas-folder-front { transform: translateY(var(--space-1)); }
-    .project-asset-folder-card:hover .canvas-folder-front-media > img, .project-asset-folder-card:hover .canvas-folder-front-media > video { filter: blur(16px) saturate(.86); transform: scale(1.14); }
+    .project-asset-folder-card:hover .canvas-folder-front-media > img,
+    .project-asset-folder-card:hover .canvas-folder-front-media > video {
+        filter: blur(16px) saturate(0.86);
+        transform: scale(1.14);
+    }
     .project-asset-folder-card:hover .canvas-folder-preview:is(.canvas-folder-preview-stacked, .canvas-folder-preview-paper, .canvas-folder-preview-compact) .canvas-folder-preview-card-1 { transform: translate(-8px, -10px) rotate(-8deg); }
     .project-asset-folder-card:hover .canvas-folder-preview:is(.canvas-folder-preview-stacked, .canvas-folder-preview-paper, .canvas-folder-preview-compact) .canvas-folder-preview-card-2 { transform: translate(10px, -12px) rotate(8deg); }
     .project-asset-folder-card:hover .canvas-folder-preview:is(.canvas-folder-preview-stacked, .canvas-folder-preview-paper, .canvas-folder-preview-compact) .canvas-folder-preview-card-3 { transform: translateY(-20px); }
@@ -7007,9 +7199,7 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
     }
 
     .canvas-style-picker-modal .canvas-style-center-shell {
-        background:
-            radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--workspace-accent) 6%, transparent), transparent 30%),
-            var(--cn-spatial-elevated, var(--background));
+        background: radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--workspace-accent) 6%, transparent), transparent 30%), var(--cn-spatial-elevated, var(--background));
     }
 
     .canvas-style-picker-modal .style-center-workspace {
@@ -7109,7 +7299,9 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
 
     .canvas-toolbar-settings-card {
         background: var(--cn-spatial-surface);
-        transition: background-color var(--motion-dur-fast) var(--motion-ease-out), opacity var(--motion-dur-fast) var(--motion-ease-out);
+        transition:
+            background-color var(--motion-dur-fast) var(--motion-ease-out),
+            opacity var(--motion-dur-fast) var(--motion-ease-out);
     }
 
     .canvas-toolbar-settings-card:hover {
@@ -7468,7 +7660,9 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
 
     .canvas-node-toolbar-chevron {
         opacity: 0.5;
-        transition: transform var(--motion-instant) ease-out, opacity var(--motion-instant) ease-out;
+        transition:
+            transform var(--motion-instant) ease-out,
+            opacity var(--motion-instant) ease-out;
     }
 
     .aceternity-dock-command:hover .canvas-node-toolbar-chevron {
@@ -7483,6 +7677,13 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
     @media (prefers-reduced-motion: reduce) {
         .canvas-node-toolbar-chevron {
             transition: none;
+        }
+        .canvas-connection-create-option,
+        .canvas-connection-create-icon {
+            transition: none;
+        }
+        .canvas-connection-create-detail-text {
+            animation: none;
         }
     }
 
@@ -7767,7 +7968,9 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
         border: 0 !important;
         border-radius: 8px !important;
         background: var(--workspace-surface-strong) !important;
-        box-shadow: 0 1px 2px color-mix(in srgb, rgba(0, 0, 0, 0.22) 50%, transparent), 0 14px 38px rgba(0, 0, 0, 0.22) !important;
+        box-shadow:
+            0 1px 2px color-mix(in srgb, rgba(0, 0, 0, 0.22) 50%, transparent),
+            0 14px 38px rgba(0, 0, 0, 0.22) !important;
         overflow: hidden;
         padding: 0 !important;
         backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
@@ -7775,7 +7978,9 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
     }
 
     .dark .canvas-composer-popover-surface {
-        box-shadow: 0 1px 2px color-mix(in srgb, rgba(0, 0, 0, 0.34) 50%, transparent), 0 16px 40px rgba(0, 0, 0, 0.34) !important;
+        box-shadow:
+            0 1px 2px color-mix(in srgb, rgba(0, 0, 0, 0.34) 50%, transparent),
+            0 16px 40px rgba(0, 0, 0, 0.34) !important;
     }
 
     .canvas-composer-popover-content {
@@ -7790,7 +7995,10 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
 
     .canvas-preset-picker-trigger {
         cursor: pointer;
-        transition: background-color var(--motion-instant) ease-out, color var(--motion-instant) ease-out, transform 150ms ease-out;
+        transition:
+            background-color var(--motion-instant) ease-out,
+            color var(--motion-instant) ease-out,
+            transform 150ms ease-out;
     }
 
 
@@ -7799,7 +8007,10 @@ html:not(.dark) .creation-studio-control[aria-expanded="true"] { background: #e7
         border: 0 !important;
         color: var(--foreground) !important;
         cursor: pointer;
-        transition: background-color var(--motion-instant) ease-out, color var(--motion-instant) ease-out, transform 150ms ease-out;
+        transition:
+            background-color var(--motion-instant) ease-out,
+            color var(--motion-instant) ease-out,
+            transform 150ms ease-out;
     }
 
     .canvas-generation-settings-trigger.ant-btn:hover,
@@ -7884,11 +8095,15 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
 
     html:not(.dark) body.app-spatial-overlays .canvas-composer-popover-surface {
         background: #ffffff !important;
-        box-shadow: 0 1px 2px color-mix(in srgb, rgba(15, 23, 42, 0.13) 50%, transparent), 0 14px 34px rgba(15, 23, 42, 0.13) !important;
+        box-shadow:
+            0 1px 2px color-mix(in srgb, rgba(15, 23, 42, 0.13) 50%, transparent),
+            0 14px 34px rgba(15, 23, 42, 0.13) !important;
     }
 
     .dark body.app-spatial-overlays .canvas-composer-popover-surface {
-        box-shadow: 0 1px 2px color-mix(in srgb, rgba(0, 0, 0, 0.3) 50%, transparent), 0 16px 40px rgba(0, 0, 0, 0.3) !important;
+        box-shadow:
+            0 1px 2px color-mix(in srgb, rgba(0, 0, 0, 0.3) 50%, transparent),
+            0 16px 40px rgba(0, 0, 0, 0.3) !important;
     }
 
     .agent-text-model-select .ant-select-content {
@@ -7940,7 +8155,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
 
     .canvas-image-settings-popover .ant-popover-inner {
         border-radius: 16px;
-        box-shadow: 0 1px 2px color-mix(in srgb, rgba(28, 25, 23, 0.16) 50%, transparent), 0 18px 54px rgba(28, 25, 23, 0.16);
+        box-shadow:
+            0 1px 2px color-mix(in srgb, rgba(28, 25, 23, 0.16) 50%, transparent),
+            0 18px 54px rgba(28, 25, 23, 0.16);
         padding: 16px;
     }
 
@@ -7959,7 +8176,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     }
 
     .dark .canvas-image-settings-popover .ant-popover-inner {
-        box-shadow: 0 1px 2px color-mix(in srgb, rgba(0, 0, 0, 0.45) 50%, transparent), 0 18px 54px rgba(0, 0, 0, 0.45);
+        box-shadow:
+            0 1px 2px color-mix(in srgb, rgba(0, 0, 0, 0.45) 50%, transparent),
+            0 18px 54px rgba(0, 0, 0, 0.45);
     }
 
     .canvas-floating-dock,
@@ -7978,9 +8197,7 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         /* Keep the hover bridge from covering the node's external title. */
         pointer-events: none;
     }
-
-    /* 底部 dock：细描边 + 柔和双层阴影，与顶部 cluster 同一表面语言。 */
-    .canvas-floating-dock {
+    .canvas-floating-dock:not(.canvas-bottom-dock) {
         border: 1px solid color-mix(in srgb, currentColor 8%, transparent) !important;
         border-radius: var(--r-xl) !important;
         background: color-mix(in srgb, var(--dock-surface) 82%, transparent) !important;
@@ -7992,6 +8209,8 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         -webkit-backdrop-filter: blur(20px) saturate(140%);
         backdrop-filter: blur(20px) saturate(140%);
     }
+
+    /* 底部 dock：细描边 + 柔和双层阴影，与顶部 cluster 同一表面语言。 */
 
     .canvas-floating-dock .aceternity-dock-command:not(.is-labeled) {
         border: 0 !important;
@@ -8084,7 +8303,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         isolation: isolate;
         color: var(--canvas-folder-ink);
         filter: drop-shadow(0 22px 22px color-mix(in srgb, var(--cn-spatial-shadow) 52%, transparent));
-        transition: filter var(--motion-state) var(--motion-ease-out), transform var(--motion-state) var(--motion-ease-out);
+        transition:
+            filter var(--motion-state) var(--motion-ease-out),
+            transform var(--motion-state) var(--motion-ease-out);
     }
 
     .canvas-folder-preview:hover,
@@ -8160,7 +8381,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         height: 185px;
         border-radius: var(--r-4xl);
         background: var(--canvas-folder-surface-strong);
-        box-shadow: inset 0 0 0 2px var(--canvas-folder-edge), 0 12px 28px color-mix(in srgb, var(--cn-spatial-shadow) 32%, transparent);
+        box-shadow:
+            inset 0 0 0 2px var(--canvas-folder-edge),
+            0 12px 28px color-mix(in srgb, var(--cn-spatial-shadow) 32%, transparent);
         transition: transform var(--motion-state) var(--motion-ease-out);
     }
 
@@ -8197,14 +8420,16 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     }
 
     .canvas-folder-front-media {
-        opacity: .58;
+        opacity: 0.58;
     }
 
     .canvas-folder-front-media > img,
     .canvas-folder-front-media > video {
-        filter: blur(22px) saturate(.72);
+        filter: blur(22px) saturate(0.72);
         transform: scale(1.18);
-        transition: filter var(--motion-state) var(--motion-ease-out), transform var(--motion-state) var(--motion-ease-out);
+        transition:
+            filter var(--motion-state) var(--motion-ease-out),
+            transform var(--motion-state) var(--motion-ease-out);
     }
 
     .canvas-folder-preview:not(.canvas-folder-preview-compact):hover .canvas-folder-front {
@@ -8213,7 +8438,7 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
 
     .canvas-folder-preview:hover .canvas-folder-front-media > img,
     .canvas-folder-preview:hover .canvas-folder-front-media > video {
-        filter: blur(16px) saturate(.86);
+        filter: blur(16px) saturate(0.86);
         transform: scale(1.14);
     }
 
@@ -8253,7 +8478,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     .canvas-folder-title > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .canvas-folder-title > svg { width: var(--space-3); height: var(--space-3); flex: 0 0 auto; opacity: 0; transition: opacity var(--motion-instant) ease; }
     .canvas-folder-preview:hover .canvas-folder-title > svg,
-    .canvas-folder-title:focus-visible > svg { opacity: .64; }
+    .canvas-folder-title:focus-visible > svg {
+        opacity: 0.64;
+    }
 
     .canvas-folder-title-input {
         border-radius: var(--r-sm);
@@ -8276,7 +8503,10 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         place-items: center;
         border: 0;
         color: var(--canvas-folder-action-fg);
-        transition: opacity var(--motion-instant) ease-out, transform var(--motion-state) var(--motion-ease-out), background-color var(--motion-instant) ease-out;
+        transition:
+            opacity var(--motion-instant) ease-out,
+            transform var(--motion-state) var(--motion-ease-out),
+            background-color var(--motion-instant) ease-out;
     }
 
     .canvas-folder-action {
@@ -8289,7 +8519,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         height: 68px;
         border-radius: var(--r-4xl);
         background: var(--canvas-folder-action-bg);
-        box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--canvas-folder-action-fg) 22%, transparent), 0 12px 26px color-mix(in srgb, var(--cn-spatial-shadow) 52%, transparent);
+        box-shadow:
+            inset 0 0 0 2px color-mix(in srgb, var(--canvas-folder-action-fg) 22%, transparent),
+            0 12px 26px color-mix(in srgb, var(--cn-spatial-shadow) 52%, transparent);
     }
 
     .canvas-folder-add > svg { width: 34px; height: 34px; color: var(--canvas-folder-action-fg); stroke: currentColor; stroke-width: 1.5; }
@@ -8349,42 +8581,61 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         -webkit-line-clamp: 5;
     }
 
-    .canvas-folder-file-icon { position: absolute; inset: 0; width: 36px; height: 36px; margin: auto; opacity: .42; }
+    .canvas-folder-file-icon {
+        position: absolute;
+        inset: 0;
+        width: 36px;
+        height: 36px;
+        margin: auto;
+        opacity: 0.42;
+    }
     .canvas-folder-file-sheet { display: block; width: 100%; height: 100%; background: var(--canvas-folder-surface-strong); }
 
     /* 三个参考态严格保留各自材质：玻璃磨砂、白纸层叠、红黑夜间封面。 */
     .canvas-folder-preview-glass {
         --canvas-folder-front-shape: path("M 28 70 H 112 C 126 70 136 74 146 82 L 174 104 C 183 112 192 116 205 116 H 332 C 348 116 360 128 360 144 V 252 C 360 268 348 280 332 280 H 28 C 12 280 0 268 0 252 V 98 C 0 82 12 70 28 70 Z");
-        --canvas-folder-surface: rgba(248, 249, 251, .62);
-        --canvas-folder-surface-strong: rgba(251, 252, 253, .9);
-        --canvas-folder-edge: rgba(255, 255, 255, .78);
+        --canvas-folder-surface: rgba(248, 249, 251, 0.62);
+        --canvas-folder-surface-strong: rgba(251, 252, 253, 0.9);
+        --canvas-folder-edge: rgba(255, 255, 255, 0.78);
         --canvas-folder-ink: #17181b;
-        --canvas-folder-muted: rgba(23, 24, 27, .54);
-        --canvas-folder-action-bg: rgba(8, 9, 11, .94);
+        --canvas-folder-muted: rgba(23, 24, 27, 0.54);
+        --canvas-folder-action-bg: rgba(8, 9, 11, 0.94);
         --canvas-folder-action-fg: #fff;
     }
 
-    .canvas-folder-preview-glass .canvas-folder-front-media { opacity: .66; }
-    .canvas-folder-preview-glass .canvas-folder-front-tint { background: rgba(249, 250, 252, .56); }
+    .canvas-folder-preview-glass .canvas-folder-front-media {
+        opacity: 0.66;
+    }
+    .canvas-folder-preview-glass .canvas-folder-front-tint {
+        background: rgba(249, 250, 252, 0.56);
+    }
     .canvas-folder-preview-glass .canvas-folder-front {
-        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .74), 0 18px 34px rgba(12, 18, 28, .12);
+        box-shadow:
+            inset 0 0 0 2px rgba(255, 255, 255, 0.74),
+            0 18px 34px rgba(12, 18, 28, 0.12);
         backdrop-filter: blur(28px) saturate(124%);
     }
 
     .dark .canvas-folder-preview-glass {
-        --canvas-folder-surface: rgba(10, 12, 16, .54);
-        --canvas-folder-surface-strong: rgba(13, 15, 20, .82);
-        --canvas-folder-edge: rgba(255, 255, 255, .2);
-        --canvas-folder-ink: rgba(255, 255, 255, .96);
-        --canvas-folder-muted: rgba(255, 255, 255, .58);
-        --canvas-folder-action-bg: rgba(246, 247, 249, .94);
+        --canvas-folder-surface: rgba(10, 12, 16, 0.54);
+        --canvas-folder-surface-strong: rgba(13, 15, 20, 0.82);
+        --canvas-folder-edge: rgba(255, 255, 255, 0.2);
+        --canvas-folder-ink: rgba(255, 255, 255, 0.96);
+        --canvas-folder-muted: rgba(255, 255, 255, 0.58);
+        --canvas-folder-action-bg: rgba(246, 247, 249, 0.94);
         --canvas-folder-action-fg: #111318;
     }
 
-    .dark .canvas-folder-preview-glass .canvas-folder-front-media { opacity: .78; }
-    .dark .canvas-folder-preview-glass .canvas-folder-front-tint { background: rgba(7, 9, 13, .5); }
+    .dark .canvas-folder-preview-glass .canvas-folder-front-media {
+        opacity: 0.78;
+    }
+    .dark .canvas-folder-preview-glass .canvas-folder-front-tint {
+        background: rgba(7, 9, 13, 0.5);
+    }
     .dark .canvas-folder-preview-glass .canvas-folder-front {
-        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .18), 0 22px 42px rgba(0, 0, 0, .42);
+        box-shadow:
+            inset 0 0 0 2px rgba(255, 255, 255, 0.18),
+            0 22px 42px rgba(0, 0, 0, 0.42);
     }
 
     .canvas-folder-preview-glass .canvas-folder-preview-stack,
@@ -8393,12 +8644,12 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
 
     .canvas-folder-preview-stacked {
         --canvas-folder-front-shape: path("M 28 116 H 100 C 116 116 126 120 138 130 L 164 150 C 173 158 183 162 196 162 H 332 C 348 162 360 174 360 190 V 252 C 360 268 348 280 332 280 H 28 C 12 280 0 268 0 252 V 144 C 0 128 12 116 28 116 Z");
-        --canvas-folder-surface: rgba(248, 249, 250, .72);
-        --canvas-folder-surface-strong: rgba(255, 255, 255, .94);
-        --canvas-folder-edge: rgba(255, 255, 255, .84);
+        --canvas-folder-surface: rgba(248, 249, 250, 0.72);
+        --canvas-folder-surface-strong: rgba(255, 255, 255, 0.94);
+        --canvas-folder-edge: rgba(255, 255, 255, 0.84);
         --canvas-folder-ink: #17181b;
-        --canvas-folder-muted: rgba(23, 24, 27, .5);
-        --canvas-folder-action-bg: rgba(235, 237, 240, .78);
+        --canvas-folder-muted: rgba(23, 24, 27, 0.5);
+        --canvas-folder-action-bg: rgba(235, 237, 240, 0.78);
         --canvas-folder-action-fg: #16181b;
     }
 
@@ -8411,8 +8662,10 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         width: 238px;
         height: 214px;
         border-radius: var(--r-4xl);
-        background: rgba(255, 255, 255, .96);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .82), 0 18px 34px rgba(21, 24, 30, .12);
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.82),
+            0 18px 34px rgba(21, 24, 30, 0.12);
     }
 
     .canvas-folder-preview-stacked .canvas-folder-preview-card-1 {
@@ -8432,51 +8685,65 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     }
 
     .canvas-folder-preview-stacked .canvas-folder-preview-card-3 { opacity: 0; }
-    .canvas-folder-preview-stacked .canvas-folder-front-media { opacity: .18; }
-    .canvas-folder-preview-stacked .canvas-folder-front-tint { background: rgba(232, 234, 238, .72); }
+    .canvas-folder-preview-stacked .canvas-folder-front-media {
+        opacity: 0.18;
+    }
+    .canvas-folder-preview-stacked .canvas-folder-front-tint {
+        background: rgba(232, 234, 238, 0.72);
+    }
     .canvas-folder-preview-stacked .canvas-folder-front {
-        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .82), 0 20px 38px rgba(21, 24, 30, .14);
+        box-shadow:
+            inset 0 0 0 2px rgba(255, 255, 255, 0.82),
+            0 20px 38px rgba(21, 24, 30, 0.14);
         backdrop-filter: blur(30px) saturate(112%);
     }
 
     .dark .canvas-folder-preview-stacked {
-        --canvas-folder-surface: rgba(19, 21, 26, .7);
-        --canvas-folder-surface-strong: rgba(29, 32, 38, .94);
-        --canvas-folder-edge: rgba(255, 255, 255, .18);
-        --canvas-folder-ink: rgba(255, 255, 255, .96);
-        --canvas-folder-muted: rgba(255, 255, 255, .56);
-        --canvas-folder-action-bg: rgba(45, 48, 55, .82);
-        --canvas-folder-action-fg: rgba(255, 255, 255, .94);
+        --canvas-folder-surface: rgba(19, 21, 26, 0.7);
+        --canvas-folder-surface-strong: rgba(29, 32, 38, 0.94);
+        --canvas-folder-edge: rgba(255, 255, 255, 0.18);
+        --canvas-folder-ink: rgba(255, 255, 255, 0.96);
+        --canvas-folder-muted: rgba(255, 255, 255, 0.56);
+        --canvas-folder-action-bg: rgba(45, 48, 55, 0.82);
+        --canvas-folder-action-fg: rgba(255, 255, 255, 0.94);
     }
 
     .dark .canvas-folder-preview-stacked .canvas-folder-paper-sheet {
-        background: rgba(38, 41, 48, .98);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), 0 20px 42px rgba(0, 0, 0, .42);
+        background: rgba(38, 41, 48, 0.98);
+        box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+            0 20px 42px rgba(0, 0, 0, 0.42);
     }
 
-    .dark .canvas-folder-preview-stacked .canvas-folder-front-tint { background: rgba(17, 19, 24, .72); }
+    .dark .canvas-folder-preview-stacked .canvas-folder-front-tint {
+        background: rgba(17, 19, 24, 0.72);
+    }
     .dark .canvas-folder-preview-stacked .canvas-folder-front {
-        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .14), 0 22px 42px rgba(0, 0, 0, .46);
+        box-shadow:
+            inset 0 0 0 2px rgba(255, 255, 255, 0.14),
+            0 22px 42px rgba(0, 0, 0, 0.46);
     }
 
     .canvas-folder-preview-paper .canvas-folder-back,
     .canvas-folder-preview-compact .canvas-folder-back { background: var(--canvas-folder-surface-strong); }
 
     .canvas-folder-preview-paper .canvas-folder-front-media,
-    .canvas-folder-preview-compact .canvas-folder-front-media { opacity: .24; }
+    .canvas-folder-preview-compact .canvas-folder-front-media {
+        opacity: 0.24;
+    }
 
     .canvas-folder-preview-stacked .canvas-folder-copy { top: 142px; bottom: auto; }
     .canvas-folder-preview-paper .canvas-folder-copy { top: 132px; bottom: auto; }
 
     .canvas-folder-preview-midnight,
     .canvas-folder-preview-cinema {
-        --canvas-folder-ink: rgba(255, 255, 255, .96);
-        --canvas-folder-muted: rgba(255, 255, 255, .58);
-        --canvas-folder-edge: rgba(255, 255, 255, .19);
-        --canvas-folder-surface: rgba(4, 5, 8, .7);
-        --canvas-folder-surface-strong: rgba(7, 8, 12, .9);
-        --canvas-folder-action-bg: rgba(5, 6, 9, .88);
-        --canvas-folder-action-fg: rgba(255, 255, 255, .96);
+        --canvas-folder-ink: rgba(255, 255, 255, 0.96);
+        --canvas-folder-muted: rgba(255, 255, 255, 0.58);
+        --canvas-folder-edge: rgba(255, 255, 255, 0.19);
+        --canvas-folder-surface: rgba(4, 5, 8, 0.7);
+        --canvas-folder-surface-strong: rgba(7, 8, 12, 0.9);
+        --canvas-folder-action-bg: rgba(5, 6, 9, 0.88);
+        --canvas-folder-action-fg: rgba(255, 255, 255, 0.96);
     }
     .canvas-folder-preview-midnight {
         --canvas-folder-front-shape: path("M 28 116 H 118 C 134 116 145 121 157 132 L 180 151 C 189 159 198 162 211 162 H 332 C 348 162 360 174 360 190 V 252 C 360 268 348 280 332 280 H 28 C 12 280 0 268 0 252 V 144 C 0 128 12 116 28 116 Z");
@@ -8490,17 +8757,27 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     .canvas-folder-preview-midnight .canvas-folder-copy,
     .canvas-folder-preview-cinema .canvas-folder-copy { top: 142px; right: 34px; bottom: auto; left: auto; max-width: 170px; }
     .canvas-folder-preview-midnight .canvas-folder-front-media,
-    .canvas-folder-preview-cinema .canvas-folder-front-media { opacity: .72; }
+    .canvas-folder-preview-cinema .canvas-folder-front-media {
+        opacity: 0.72;
+    }
     .canvas-folder-preview-midnight .canvas-folder-front-tint,
-    .canvas-folder-preview-cinema .canvas-folder-front-tint { background: rgba(4, 5, 8, .7); }
+    .canvas-folder-preview-cinema .canvas-folder-front-tint {
+        background: rgba(4, 5, 8, 0.7);
+    }
     .canvas-folder-preview-midnight .canvas-folder-front,
     .canvas-folder-preview-cinema .canvas-folder-front {
-        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .15), 0 24px 48px rgba(0, 0, 0, .44);
+        box-shadow:
+            inset 0 0 0 2px rgba(255, 255, 255, 0.15),
+            0 24px 48px rgba(0, 0, 0, 0.44);
         backdrop-filter: blur(30px) saturate(118%);
     }
 
-    .dark .canvas-folder-preview-midnight .canvas-folder-front-tint { background: rgba(2, 3, 6, .78); }
-    .dark .canvas-folder-preview-midnight .canvas-folder-front-media { opacity: .82; }
+    .dark .canvas-folder-preview-midnight .canvas-folder-front-tint {
+        background: rgba(2, 3, 6, 0.78);
+    }
+    .dark .canvas-folder-preview-midnight .canvas-folder-front-media {
+        opacity: 0.82;
+    }
 
     .canvas-folder-preview-glass .canvas-folder-meta,
     .canvas-folder-preview-stacked .canvas-folder-meta { display: none; }
@@ -8514,27 +8791,45 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     .canvas-folder-expanded {
         background-image: linear-gradient(to bottom, color-mix(in srgb, var(--cn-frame-fill) 90%, transparent), var(--cn-frame-fill));
     }
+    .canvas-connection-create-option {
+        transition: background-color var(--motion-dur-fast-calc) var(--motion-ease-out);
+    }
 
-.canvas-connection-create-description {
-    display: grid;
-    grid-template-rows: 0fr;
-    opacity: 0;
-    pointer-events: none;
-    transition: grid-template-rows var(--motion-dur-base-calc) var(--motion-ease-out), opacity var(--motion-dur-base-calc) var(--motion-ease-out);
-}
+    .canvas-connection-create-icon {
+        opacity: 0.65;
+        transition: opacity var(--motion-dur-fast-calc) var(--motion-ease-out);
+    }
 
-.canvas-connection-create-option[data-expanded="true"] .canvas-connection-create-description {
-    grid-template-rows: 1fr;
-    opacity: 1;
-}
+    .canvas-connection-create-option[data-active="true"] .canvas-connection-create-icon {
+        opacity: 1;
+    }
 
-.canvas-connection-create-option[data-motion="reduced"] .canvas-connection-create-description,
-.no-motion .canvas-connection-create-description {
-    transition: none;
-}
+    .canvas-connection-create-detail {
+        flex-shrink: 0;
+        height: calc(var(--space-12) + var(--space-1));
+        padding: var(--space-2) var(--space-4);
+        border-top: 1px solid;
+        display: flex;
+        align-items: center;
+    }
+
+    .canvas-connection-create-detail-text {
+        margin: 0;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        font-size: var(--fs-label);
+        line-height: 1.5;
+        animation: canvas-connection-create-detail-in var(--motion-dur-fast-calc) var(--motion-ease-out);
+    }
+
+    .canvas-connection-create-detail[data-motion="reduced"] .canvas-connection-create-detail-text,
+    .no-motion .canvas-connection-create-detail-text {
+        animation: none;
+    }
 
 @media (prefers-reduced-motion: reduce) {
-    .canvas-connection-create-description { transition: none; }
 }
 
 /* 拖动跨过沙箱 iframe 时仍由父画布接收事件；结束后恢复正文滚动与交互。 */
@@ -8592,6 +8887,10 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         .canvas-node-shell::after {
             display: none;
         }
+        .canvas-prompt-modal-resize-width,
+        .canvas-prompt-modal-resize-height {
+            transition: none;
+        }
     }
 
     .canvas-node-inline-action {
@@ -8636,7 +8935,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         border: 0 !important;
         border-radius: var(--r-xl) !important;
         background: var(--popover) !important;
-        box-shadow: var(--elevation-panel), 0 20px 64px color-mix(in srgb, var(--foreground) 16%, transparent) !important;
+        box-shadow:
+            var(--elevation-panel),
+            0 20px 64px color-mix(in srgb, var(--foreground) 16%, transparent) !important;
         transition: none !important;
         animation: none !important;
     }
@@ -8895,7 +9196,10 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         color: color-mix(in srgb, var(--foreground) 56%, transparent);
         font-size: var(--fs-micro);
         text-align: left;
-        transition: border-color var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out), color var(--motion-dur-fast) var(--motion-ease-out);
+        transition:
+            border-color var(--motion-dur-fast) var(--motion-ease-out),
+            background-color var(--motion-dur-fast) var(--motion-ease-out),
+            color var(--motion-dur-fast) var(--motion-ease-out);
     }
 
     .canvas-prompt-optimizer-reference-chip:hover,
@@ -8988,7 +9292,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         border-radius: var(--r-lg);
         background: var(--popover);
         box-shadow: none;
-        transition: border-color var(--motion-dur-fast) var(--motion-ease-out), box-shadow var(--motion-dur-fast) var(--motion-ease-out);
+        transition:
+            border-color var(--motion-dur-fast) var(--motion-ease-out),
+            box-shadow var(--motion-dur-fast) var(--motion-ease-out);
     }
 
     .canvas-prompt-optimizer-sender.ant-sender:hover {
@@ -9027,7 +9333,7 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     }
 
     .canvas-prompt-optimizer-sender.ant-sender-disabled {
-        opacity: .72;
+        opacity: 0.72;
     }
 
     .canvas-prompt-optimizer-composer-input.ant-input {
@@ -9086,7 +9392,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         color: color-mix(in srgb, var(--foreground) 62%, transparent);
         font-size: var(--fs-micro);
         font-weight: 500;
-        transition: background-color var(--motion-dur-fast) var(--motion-ease-out), color var(--motion-dur-fast) var(--motion-ease-out);
+        transition:
+            background-color var(--motion-dur-fast) var(--motion-ease-out),
+            color var(--motion-dur-fast) var(--motion-ease-out);
     }
 
     .canvas-prompt-optimizer-mode-trigger:hover,
@@ -9153,7 +9461,11 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         border-radius: var(--r-full);
         background: transparent;
         color: var(--foreground) !important;
-        transition: opacity var(--motion-dur-fast) var(--motion-ease-out), transform var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out), border-color var(--motion-dur-fast) var(--motion-ease-out);
+        transition:
+            opacity var(--motion-dur-fast) var(--motion-ease-out),
+            transform var(--motion-dur-fast) var(--motion-ease-out),
+            background-color var(--motion-dur-fast) var(--motion-ease-out),
+            border-color var(--motion-dur-fast) var(--motion-ease-out);
     }
 
     .canvas-prompt-optimizer-send > svg {
@@ -9166,7 +9478,7 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
 
     .canvas-prompt-optimizer-send:disabled {
         cursor: not-allowed;
-        opacity: .38;
+        opacity: 0.38;
     }
 
     .canvas-prompt-optimizer-header {
@@ -9278,7 +9590,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         border-radius: var(--r-md);
         background: transparent;
         color: color-mix(in srgb, var(--foreground) 42%, transparent);
-        transition: color var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out);
+        transition:
+            color var(--motion-dur-fast) var(--motion-ease-out),
+            background-color var(--motion-dur-fast) var(--motion-ease-out);
         cursor: pointer;
         touch-action: manipulation;
         user-select: auto;
@@ -9520,7 +9834,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         background: color-mix(in srgb, var(--foreground) 3%, transparent);
         padding: 8px 8px;
         text-align: left;
-        transition: border-color var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out);
+        transition:
+            border-color var(--motion-dur-fast) var(--motion-ease-out),
+            background-color var(--motion-dur-fast) var(--motion-ease-out);
     }
 
     .canvas-prompt-optimizer-variant:hover,
@@ -9693,7 +10009,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         color: color-mix(in srgb, var(--cn-text) 72%, var(--canvas-composer-surface));
         cursor: pointer;
         white-space: nowrap;
-        transition: background-color var(--motion-instant) ease-out, color var(--motion-instant) ease-out;
+        transition:
+            background-color var(--motion-instant) ease-out,
+            color var(--motion-instant) ease-out;
     }
 
     /* 头部命令统一 28px 高、14px 图标、11px 文字；风格/预设/润色/放大/关闭共用同一尺寸。 */
@@ -9875,8 +10193,12 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         position: relative;
         outline: 2px solid #3b82f6 !important;
         outline-offset: 1px !important;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25), 0 4px 16px rgba(0, 0, 0, 0.4) !important;
-        transition: box-shadow 0.15s ease, outline-color 0.15s ease !important;
+        box-shadow:
+            0 0 0 3px rgba(59, 130, 246, 0.25),
+            0 4px 16px rgba(0, 0, 0, 0.4) !important;
+        transition:
+            box-shadow 0.15s ease,
+            outline-color 0.15s ease !important;
         z-index: 50 !important;
     }
 
@@ -10024,7 +10346,10 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         padding: 0;
         opacity: 0;
         box-shadow: var(--shadow-sm);
-        transition: opacity var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out), color var(--motion-dur-fast) var(--motion-ease-out);
+        transition:
+            opacity var(--motion-dur-fast) var(--motion-ease-out),
+            background-color var(--motion-dur-fast) var(--motion-ease-out),
+            color var(--motion-dur-fast) var(--motion-ease-out);
     }
 
     .canvas-node-reference-chip:hover .canvas-node-reference-remove,
@@ -10172,6 +10497,66 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         font-size: var(--fs-caption);
     }
 
+    .canvas-prompt-modal-resize-width,
+    .canvas-prompt-modal-resize-height {
+        position: absolute;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: var(--r-full);
+        background: transparent;
+        padding: 0;
+        touch-action: none;
+        opacity: 0.38;
+        transition:
+            opacity var(--motion-fast) ease-out,
+            background-color var(--motion-fast) ease-out;
+    }
+
+    .canvas-prompt-modal-resize-width {
+        top: 50%;
+        right: 0;
+        width: 22px;
+        height: 88px;
+        cursor: ew-resize;
+        transform: translateY(-50%);
+    }
+
+    .canvas-prompt-modal-resize-height {
+        bottom: 0;
+        left: 50%;
+        width: 88px;
+        height: 22px;
+        cursor: ns-resize;
+        transform: translateX(-50%);
+    }
+
+    .canvas-prompt-modal-resize-width > span {
+        width: 3px;
+        height: var(--space-8);
+        border-radius: var(--r-full);
+        background: var(--prompt-resize-accent, var(--foreground));
+    }
+
+    .canvas-prompt-modal-resize-height > span {
+        width: var(--space-8);
+        height: 3px;
+        border-radius: var(--r-full);
+        background: var(--prompt-resize-accent, var(--foreground));
+    }
+
+    .canvas-prompt-modal-resize-width:hover,
+    .canvas-prompt-modal-resize-width:active,
+    .canvas-prompt-modal-resize-height:hover,
+    .canvas-prompt-modal-resize-height:active,
+    .canvas-prompt-modal-resize-width:focus-visible,
+    .canvas-prompt-modal-resize-height:focus-visible {
+        opacity: 0.9;
+        outline: 2px solid var(--prompt-resize-accent, var(--ring));
+        outline-offset: -2px;
+    }
+
     .canvas-node-composer-resize-handle {
         display: grid;
         width: 100%;
@@ -10190,7 +10575,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         height: var(--stroke-3);
         border-radius: var(--r-full);
         background: color-mix(in srgb, var(--foreground) 12%, transparent);
-        transition: background-color var(--motion-instant) ease-out, width var(--motion-instant) ease-out;
+        transition:
+            background-color var(--motion-instant) ease-out,
+            width var(--motion-instant) ease-out;
     }
 
     .canvas-node-composer-resize-handle:hover > span,
@@ -10308,6 +10695,76 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         place-items: center;
         background: color-mix(in srgb, currentColor 10%, transparent);
     }
+    .canvas-mention-hover-preview {
+        position: fixed;
+        z-index: var(--z-tooltip);
+        display: flex;
+        width: max-content;
+        min-width: 132px;
+        max-width: calc(var(--canvas-mention-hover-preview-size) + var(--space-1) * 2 + 2px);
+        flex-direction: column;
+        gap: var(--space-1);
+        border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+        border-radius: var(--r-lg);
+        background: var(--canvas-composer-surface);
+        padding: var(--space-1);
+        color: var(--cn-text);
+        box-shadow: var(--elevation-overlay);
+        pointer-events: none;
+    }
+
+    .canvas-mention-hover-preview-media {
+        display: grid;
+        min-height: 72px;
+        place-items: center;
+        overflow: hidden;
+        border-radius: var(--r-md);
+        background: color-mix(in srgb, var(--foreground) 5%, transparent);
+    }
+
+    .canvas-mention-hover-preview-media > img,
+    .canvas-mention-hover-preview-media > video {
+        display: block;
+        max-width: var(--canvas-mention-hover-preview-size);
+        max-height: var(--canvas-mention-hover-preview-size);
+        object-fit: contain;
+    }
+
+    .canvas-mention-hover-preview-fallback {
+        width: var(--space-6);
+        height: var(--space-6);
+        color: var(--cn-faint);
+    }
+
+    .canvas-mention-hover-preview-caption {
+        display: flex;
+        min-width: 0;
+        align-items: baseline;
+        gap: var(--space-1);
+        padding: 0 var(--space-1) var(--space-half);
+        font-size: var(--fs-tiny);
+        line-height: 1.4;
+    }
+
+    .canvas-mention-hover-preview-caption > strong {
+        flex: none;
+        font-weight: 500;
+    }
+
+    .canvas-mention-hover-preview-caption > span {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--cn-muted);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .canvas-mention-hover-preview-caption > small {
+        flex: none;
+        margin-left: auto;
+        color: var(--cn-faint);
+        font-size: var(--fs-micro);
+    }
 
     .canvas-resource-mention-menu {
         display: flex;
@@ -10415,7 +10872,8 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         min-height: 56px;
     }
 
-    .canvas-resource-mention-item.is-active {
+    .canvas-resource-mention-item.is-active,
+    .canvas-resource-mention-folder.is-active {
         background: var(--control-selected-bg);
         color: var(--control-selected-fg);
     }
@@ -10563,6 +11021,182 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         font-size: var(--fs-tiny);
         text-align: center;
     }
+    .canvas-resource-mention-body {
+        display: flex;
+        min-height: 0;
+        flex: 1 1 auto;
+    }
+
+    .canvas-resource-mention-body > .canvas-resource-mention-scroll {
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    .canvas-resource-mention-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(var(--canvas-mention-gallery-card-min), 1fr));
+        gap: var(--space-1);
+    }
+
+    .canvas-resource-mention-card {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: var(--space-1);
+        border: 0;
+        border-radius: var(--r-md);
+        background: transparent;
+        padding: var(--space-1);
+        color: inherit;
+        text-align: left;
+        transition: background-color var(--motion-instant) ease-out;
+    }
+
+    .canvas-resource-mention-card:hover {
+        background: var(--canvas-composer-control-hover);
+    }
+
+    .canvas-resource-mention-card.is-active {
+        background: var(--control-selected-bg);
+        color: var(--control-selected-fg);
+    }
+
+    .canvas-resource-mention-card:focus-visible {
+        outline: var(--stroke-2) solid var(--control-focus-ring);
+        outline-offset: -2px;
+    }
+
+    .canvas-resource-mention-card-media {
+        display: grid;
+        width: 100%;
+        aspect-ratio: 1;
+        place-items: center;
+        overflow: hidden;
+        border-radius: var(--r-xs);
+        background: var(--canvas-composer-control-surface);
+    }
+
+    .canvas-resource-mention-card-media > .canvas-resource-mention-preview {
+        width: 100%;
+        height: 100%;
+        flex: none;
+        border-radius: 0;
+        background: transparent;
+    }
+
+    .canvas-resource-mention-card-media > .canvas-resource-mention-preview > svg {
+        width: var(--space-6);
+        height: var(--space-6);
+        color: color-mix(in srgb, currentColor 56%, transparent);
+    }
+
+    .canvas-resource-mention-card-label {
+        min-width: 0;
+        overflow: hidden;
+        padding-inline: var(--space-half);
+        font-size: var(--fs-caption);
+        font-weight: 500;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .canvas-resource-mention-detail {
+        display: flex;
+        width: var(--canvas-mention-gallery-detail-width);
+        min-width: 0;
+        min-height: 0;
+        flex: 0 0 var(--canvas-mention-gallery-detail-width);
+        flex-direction: column;
+        gap: var(--space-2);
+        overflow: hidden;
+        border-left: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+        padding: var(--space-1) var(--space-3) var(--space-3);
+    }
+    .canvas-resource-mention-detail-media {
+        position: relative;
+        display: grid;
+        width: 100%;
+        min-height: 96px;
+        aspect-ratio: 1;
+        flex: 0 1 auto;
+        place-items: center;
+        overflow: hidden;
+        border-radius: var(--r-md);
+        background: var(--canvas-composer-control-surface);
+        color: var(--cn-faint);
+    }
+
+    .canvas-resource-mention-detail-media > img,
+    .canvas-resource-mention-detail-media > video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+
+    .canvas-resource-mention-detail-media > svg {
+        width: var(--space-8);
+        height: var(--space-8);
+    }
+
+    .canvas-resource-mention-detail-media.is-text {
+        place-items: start;
+        padding: var(--space-2) var(--space-3);
+        color: var(--cn-muted);
+    }
+
+    .canvas-resource-mention-detail-media.is-text > p {
+        display: -webkit-box;
+        margin: 0;
+        overflow: hidden;
+        font-size: var(--fs-caption);
+        line-height: 1.55;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 9;
+    }
+
+    .canvas-resource-mention-detail-caption {
+        display: grid;
+        min-width: 0;
+        gap: var(--space-half);
+    }
+
+    .canvas-resource-mention-detail-caption > strong,
+    .canvas-resource-mention-detail-caption > span {
+        display: -webkit-box;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+        -webkit-box-orient: vertical;
+    }
+
+    .canvas-resource-mention-detail-caption > strong {
+        font-size: var(--fs-ui);
+        font-weight: 600;
+        line-height: 1.4;
+        -webkit-line-clamp: 2;
+    }
+
+    .canvas-resource-mention-detail-caption > span {
+        color: var(--cn-muted);
+        font-size: var(--fs-caption);
+        line-height: 1.45;
+        -webkit-line-clamp: 3;
+    }
+
+    .canvas-resource-mention-detail-caption > small,
+    .canvas-resource-mention-detail-keys {
+        color: var(--cn-faint);
+        font-size: var(--fs-micro);
+        line-height: 1.4;
+    }
+
+    .canvas-resource-mention-detail-keys {
+        margin-top: auto;
+    }
 
     [data-canvas-viewport-interacting="true"] .canvas-node-shell,
     [data-canvas-viewport-interacting="true"] .canvas-frame-shell,
@@ -10579,7 +11213,10 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
 
     /* LibTV 式默认选择光标：短促圆润的黑色箭头配细白描边，不使用发光或阴影。 */
     .canvas-cursor-select {
-        cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='22' viewBox='0 0 20 22'%3E%3Cpath d='M4.05 2.75c-.78-.38-1.64.34-1.38 1.17l4.05 13.1c.26.84 1.38 1.01 1.88.28l2.35-3.38 4.14-.63c.88-.14 1.17-1.25.46-1.78L4.05 2.75Z' fill='%23070707' stroke='%23fff' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 3 3, default;
+        cursor:
+            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='22' viewBox='0 0 20 22'%3E%3Cpath d='M4.05 2.75c-.78-.38-1.64.34-1.38 1.17l4.05 13.1c.26.84 1.38 1.01 1.88.28l2.35-3.38 4.14-.63c.88-.14 1.17-1.25.46-1.78L4.05 2.75Z' fill='%23070707' stroke='%23fff' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+                3 3,
+            default;
     }
 
     /* 框选移动期只标记发生变化的 DOM 节点，避免每帧提交 React 选择状态。 */
@@ -10679,11 +11316,14 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
        多节点同时生成时平移缩放掉帧；动感由进度环和三段进度条承担。 */
     .canvas-gen-state::before {
         background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--canvas-gen-tone) 14%, transparent), transparent 58%);
-        opacity: .8;
+        opacity: 0.8;
     }
     .canvas-gen-state::after { display: none; }
     .canvas-gen-state.is-failure::before,
-    .canvas-gen-state[data-phase="uncertain"]::before { opacity: .7; animation: none; }
+    .canvas-gen-state[data-phase="uncertain"]::before {
+        opacity: 0.7;
+        animation: none;
+    }
     .canvas-gen-state.is-failure::after,
     .canvas-gen-state[data-phase="uncertain"]::after { display: none; }
 
@@ -10783,7 +11423,10 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         font-family: inherit;
         white-space: nowrap;
         cursor: pointer;
-        transition: background-color var(--motion-dur-fast-calc) var(--motion-ease-out), color var(--motion-dur-fast-calc) var(--motion-ease-out), opacity var(--motion-dur-fast-calc) var(--motion-ease-out);
+        transition:
+            background-color var(--motion-dur-fast-calc) var(--motion-ease-out),
+            color var(--motion-dur-fast-calc) var(--motion-ease-out),
+            opacity var(--motion-dur-fast-calc) var(--motion-ease-out);
     }
     .canvas-gen-action {
         height: 30px;
@@ -10803,7 +11446,9 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         color: var(--canvas-gen-on-primary) !important;
         box-shadow: var(--button-primary-shadow);
     }
-    .canvas-gen-action.is-primary:hover { opacity: .86; }
+    .canvas-gen-action.is-primary:hover {
+        opacity: 0.86;
+    }
     .canvas-gen-action.is-primary:active { box-shadow: var(--button-primary-active-shadow); }
     .canvas-gen-action svg { width: 14px; height: 14px; }
     .canvas-gen-detail {
@@ -10949,13 +11594,28 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         animation: canvas-node-status-pulse 1.4s ease-in-out infinite;
     }
     @keyframes canvas-node-done-chip {
-        0% { opacity: 0; transform: translateY(-4px) scale(.92); }
-        10%, 78% { opacity: 1; transform: none; }
-        100% { opacity: 0; transform: translateY(-2px); }
+        0% {
+            opacity: 0;
+            transform: translateY(-4px) scale(0.92);
+        }
+        10%,
+        78% {
+            opacity: 1;
+            transform: none;
+        }
+        100% {
+            opacity: 0;
+            transform: translateY(-2px);
+        }
     }
     @keyframes canvas-node-status-pulse {
-        0%, 100% { opacity: .35; }
-        50% { opacity: 1; }
+        0%,
+        100% {
+            opacity: 0.35;
+        }
+        50% {
+            opacity: 1;
+        }
     }
 
     /* 新作品出现：只在本次会话里亲眼看到“生成中 → 完成”的节点上播放一次（canvas-node.tsx useGenerationReveal）。
@@ -10984,15 +11644,21 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         animation: canvas-media-reveal-cover 520ms var(--motion-ease-out) both;
     }
     .canvas-node-shell[data-generation-reveal="true"] .canvas-image-reveal-sweep::after {
-        background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .34) 48%, rgba(255, 255, 255, .08) 56%, transparent 70%);
+        background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.34) 48%, rgba(255, 255, 255, 0.08) 56%, transparent 70%);
         mix-blend-mode: soft-light;
         opacity: 0;
         transform: translateX(-100%);
         animation: canvas-media-reveal-sweep 1100ms var(--motion-ease-out) 260ms both;
     }
     @keyframes canvas-media-reveal {
-        from { filter: blur(14px) saturate(.6); transform: scale(1.04); }
-        to { filter: blur(0) saturate(1); transform: scale(1); }
+        from {
+            filter: blur(14px) saturate(0.6);
+            transform: scale(1.04);
+        }
+        to {
+            filter: blur(0) saturate(1);
+            transform: scale(1);
+        }
     }
     @keyframes canvas-media-reveal-cover {
         from { opacity: 1; }
@@ -11090,8 +11756,14 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     }
 
     @keyframes canvas-node-panel-placement-blur {
-        from { opacity: .78; filter: blur(4px); }
-        to { opacity: 1; filter: blur(0); }
+        from {
+            opacity: 0.78;
+            filter: blur(4px);
+        }
+        to {
+            opacity: 1;
+            filter: blur(0);
+        }
     }
 
     .canvas-node-panel-placement-change {
@@ -11142,7 +11814,19 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     .canvas-node-inspector-fact > div { margin-bottom: 4px; color: color-mix(in srgb, currentColor 42%, transparent); font-size: var(--fs-micro); }
     .canvas-node-inspector-fact strong { display: block; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-body); font-weight: 600; line-height: 1.45; }
     .canvas-node-inspector-options { display: flex; flex-wrap: wrap; gap: 8px; }
-    .canvas-node-inspector-options button { height: 30px; border: 0; border-radius: var(--r-sm); background: color-mix(in srgb, currentColor 6%, transparent); padding: 0 8px; color: color-mix(in srgb, currentColor 56%, transparent); font-size: var(--fs-label); font-weight: 500; transition: background-color var(--motion-state) ease, color var(--motion-state) ease; }
+    .canvas-node-inspector-options button {
+        height: 30px;
+        border: 0;
+        border-radius: var(--r-sm);
+        background: color-mix(in srgb, currentColor 6%, transparent);
+        padding: 0 8px;
+        color: color-mix(in srgb, currentColor 56%, transparent);
+        font-size: var(--fs-label);
+        font-weight: 500;
+        transition:
+            background-color var(--motion-state) ease,
+            color var(--motion-state) ease;
+    }
     .canvas-node-inspector-options button:hover:not(:disabled) { background: color-mix(in srgb, currentColor 10%, transparent); color: currentColor; }
     .canvas-node-inspector-options button.is-active { background: var(--control-selected-bg); color: var(--control-selected-fg); }
     .canvas-node-inspector-options button:disabled:not(.is-active) { cursor: not-allowed; background: var(--control-disabled-bg); color: var(--control-disabled-fg); opacity: 1; }
@@ -11713,7 +12397,10 @@ html:not(.dark) .creation-duration-menu strong { color: #20242a; }
     flex: 0 0 var(--previs-dock-button-size);
     place-items: center;
     border-radius: var(--r-md);
-    transition: background var(--motion-dur-fast) var(--motion-ease-out), color var(--motion-dur-fast) var(--motion-ease-out), transform var(--motion-dur-fast) var(--motion-ease-out);
+    transition:
+        background var(--motion-dur-fast) var(--motion-ease-out),
+        color var(--motion-dur-fast) var(--motion-ease-out),
+        transform var(--motion-dur-fast) var(--motion-ease-out);
 }
 
 .previs-viewport-dock-button > svg {
@@ -11759,7 +12446,9 @@ html:not(.dark) .creation-duration-menu strong { color: #20242a; }
     color: var(--foreground);
     font-size: var(--fs-tiny);
     opacity: 0.62;
-    transition: background var(--motion-dur-fast-calc) var(--motion-ease-out), opacity var(--motion-dur-fast-calc) var(--motion-ease-out);
+    transition:
+        background var(--motion-dur-fast-calc) var(--motion-ease-out),
+        opacity var(--motion-dur-fast-calc) var(--motion-ease-out);
 }
 
 .previs-mode-switch-button:hover {
@@ -11883,7 +12572,10 @@ html:not(.dark) .creation-duration-menu strong { color: #20242a; }
     font-size: var(--fs-tiny);
     text-overflow: ellipsis;
     white-space: nowrap;
-    transition: border-color var(--motion-dur-fast) var(--motion-ease-out), background var(--motion-dur-fast) var(--motion-ease-out), color var(--motion-dur-fast) var(--motion-ease-out);
+    transition:
+        border-color var(--motion-dur-fast) var(--motion-ease-out),
+        background var(--motion-dur-fast) var(--motion-ease-out),
+        color var(--motion-dur-fast) var(--motion-ease-out);
 }
 
 .previs-pose-button:hover {
@@ -11983,7 +12675,9 @@ html:not(.dark) .creation-duration-menu strong { color: #20242a; }
     color: rgba(255, 255, 255, 0.64);
     text-align: left;
     white-space: nowrap;
-    transition: background var(--motion-dur-fast) var(--motion-ease-out), color var(--motion-dur-fast) var(--motion-ease-out);
+    transition:
+        background var(--motion-dur-fast) var(--motion-ease-out),
+        color var(--motion-dur-fast) var(--motion-ease-out);
 }
 
 .previs-sequencer-label:hover,
@@ -12109,7 +12803,9 @@ html:not(.dark) .creation-duration-menu strong { color: #20242a; }
     height: var(--space-8);
     border-radius: var(--r-sm);
     color: rgba(255, 255, 255, 0.62);
-    transition: background var(--motion-dur-fast) var(--motion-ease-out), color var(--motion-dur-fast) var(--motion-ease-out);
+    transition:
+        background var(--motion-dur-fast) var(--motion-ease-out),
+        color var(--motion-dur-fast) var(--motion-ease-out);
 }
 
 .previs-sequencer-transport,
@@ -13369,7 +14065,10 @@ html:not(.dark) .creation-history-drawer-root {
     border-radius: var(--r-sm);
     background: color-mix(in srgb, var(--foreground) 5%, transparent);
     padding: 0 8px;
-    transition: border-color var(--motion-state) ease, background-color var(--motion-state) ease, box-shadow var(--motion-state) ease;
+    transition:
+        border-color var(--motion-state) ease,
+        background-color var(--motion-state) ease,
+        box-shadow var(--motion-state) ease;
 }
 .canvas-shortcuts-search:focus-within {
     border-color: color-mix(in srgb, var(--ring) 48%, transparent);
@@ -13459,7 +14158,9 @@ html:not(.dark) .creation-history-drawer-root {
     font-size: var(--fs-label);
     text-align: left;
     cursor: pointer;
-    transition: background-color var(--motion-state) ease, color var(--motion-state) ease;
+    transition:
+        background-color var(--motion-state) ease,
+        color var(--motion-state) ease;
 }
 .canvas-shortcuts-categories button:hover {
     background: var(--surface-hover);
@@ -13715,6 +14416,20 @@ html:not(.dark) .creation-history-drawer-root {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
+}
+.canvas-version-image > .cached-resource-image-shell {
+    min-width: 0;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+}
+.canvas-version-image > img,
+.canvas-version-image > .cached-resource-image-shell > img {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    object-fit: contain;
 }
 .asset-picker-card-media > img, .asset-picker-card-media > video, .asset-picker-card-media > .cached-resource-image-shell > img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .asset-picker-card-media > img.is-contain, .asset-picker-card-media > .cached-resource-image-shell > img.is-contain { object-fit: contain; padding: 4px; }
@@ -18800,13 +19515,20 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 
 .app-user-workspace .library-card-surface,
 .app-user-workspace .app-table-surface,
-.app-user-workspace .canvas-library-frame,
 .app-user-workspace .project-library-card,
 .app-user-workspace .asset-library-card,
 .app-user-workspace .task-library-frame {
     border-color: var(--user-border);
     background: var(--user-surface);
     box-shadow: 0 1px 2px color-mix(in srgb, rgba(25, 25, 30, .035) 50%, transparent), 0 7px 22px rgba(25, 25, 30, .035);
+}
+
+.app-user-workspace .canvas-library-frame {
+    border-color: var(--user-border);
+    background: var(--user-surface);
+    box-shadow:
+        0 1px 2px color-mix(in srgb, rgba(25, 25, 30, 0.035) 50%, transparent),
+        0 7px 22px rgba(25, 25, 30, 0.035);
 }
 
 .app-user-workspace .admin-list-toolbar-main,
@@ -19598,6 +20320,49 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     color: var(--user-ink) !important;
     box-shadow: var(--user-shadow-card) !important;
 }
+.canvas-image-preview-modal {
+    width: fit-content !important;
+    max-width: calc(100vw - 24px);
+}
+
+.canvas-image-preview-modal .ant-modal-container,
+.canvas-image-preview-modal .ant-modal-content {
+    overflow: visible !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+}
+
+.canvas-image-preview-modal .ant-modal-container,
+.canvas-image-preview-modal .ant-modal-body {
+    padding: 0 !important;
+}
+
+.canvas-image-preview-modal .ant-modal-header {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.canvas-image-preview-modal .ant-modal-close {
+    top: -40px !important;
+    inset-inline-end: 0 !important;
+    border-radius: 9999px;
+    background: color-mix(in srgb, black 58%, transparent);
+    color: white;
+}
+
+.canvas-image-preview-modal .ant-modal-close:hover {
+    background: color-mix(in srgb, black 78%, transparent) !important;
+    color: white !important;
+}
 .app-user-workspace .task-record-row:hover,
 .app-user-workspace .task-record-row:focus-within,
 .app-user-workspace .task-grid-card:hover,
@@ -19823,3 +20588,12 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     background: color-mix(in srgb, var(--popover-foreground) 10%, var(--popover)) !important;
     color: var(--popover-foreground) !important;
 }
+
+    @keyframes canvas-connection-create-detail-in {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
