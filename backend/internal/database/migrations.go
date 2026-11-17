@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 102
+const CurrentSchemaVersion int64 = 106
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -354,6 +354,36 @@ var schemaMigrations = []migration{
 	{version: 102, name: "pose_library", checksum: "sha256:pose-library-v85-20261105", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.PoseLibrarySource{}, &model.PoseLibraryItem{})
 	}},
+	{version: 103, name: "drama_cast_voice_looks", checksum: "sha256:drama-cast-voice-looks-v78-20261101", apply: migrateDramaCastVoiceLooks},
+	{version: 104, name: "drama_draft_form", checksum: "sha256:drama-draft-form-v90-20261106", apply: func(tx *gorm.DB) error {
+		// 草稿的创建页表单；旧作品为空串，草稿只能在制作台开工，不能回到创建页。
+		if !tx.Migrator().HasTable(&model.DramaProduction{}) || tx.Migrator().HasColumn(&model.DramaProduction{}, "DraftJSON") {
+			return nil
+		}
+		return tx.Migrator().AddColumn(&model.DramaProduction{}, "DraftJSON")
+	}},
+	{version: 105, name: "drama_reference_controls", checksum: "sha256:drama-reference-controls-v92", apply: func(tx *gorm.DB) error {
+		for _, change := range []struct {
+			entity any
+			fields []string
+		}{
+			{&model.DramaCast{}, []string{"ImagePrompt"}},
+			{&model.DramaSegment{}, []string{"ReferenceImagesJSON", "AudioCastIDsJSON"}},
+		} {
+			if !tx.Migrator().HasTable(change.entity) {
+				continue
+			}
+			for _, field := range change.fields {
+				if !tx.Migrator().HasColumn(change.entity, field) {
+					if err := tx.Migrator().AddColumn(change.entity, field); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return nil
+	}},
+	{version: 106, name: "drama_cast_styles_import", checksum: "sha256:drama-cast-styles-import-v94", apply: migrateDramaCastStylesImport},
 }
 
 var yingceSchemaMigrations = []migration{
