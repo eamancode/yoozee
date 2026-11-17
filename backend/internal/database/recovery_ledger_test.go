@@ -108,6 +108,10 @@ func TestRecoveredMigrationLedgerPreservesHistory(t *testing.T) {
 		{100, "sss_workflow_renumber", "sha256:sss-workflow-renumber-v100"},
 		{101, "canvas_unified_text_nodes", "sha256:canvas-unified-text-nodes-v96"},
 		{102, "pose_library", "sha256:pose-library-v85-20261105"},
+		{103, "drama_cast_voice_looks", "sha256:drama-cast-voice-looks-v78-20261101"},
+		{104, "drama_draft_form", "sha256:drama-draft-form-v90-20261106"},
+		{105, "drama_reference_controls", "sha256:drama-reference-controls-v92"},
+		{106, "drama_cast_styles_import", "sha256:drama-cast-styles-import-v94"},
 	}
 	if len(expected) != len(schemaMigrations) {
 		t.Fatalf("migration count %d, want %d", len(schemaMigrations), len(expected))
