@@ -442,7 +442,7 @@ func TestResourceAccessChecksOwnershipAndSignsOSSResource(t *testing.T) {
 		t.Fatalf("ResourceAccessBatch() = %#v, %v", results, err)
 	}
 	other, err := svc.ResourceAccessBatch("other-user", []ResourceAccessRequest{{ResourceID: resource.ID, AccessOptions: ResourceAccessOptions{Purpose: assets.PurposeCopy}}})
-	if err != nil || len(other) != 1 || other[0].Access != nil {
+	if err != nil || len(other) != 1 || other[0].Access != nil || other[0].Error == nil || other[0].Error.Code != NotFound("").Code {
 		t.Fatalf("ResourceAccessBatch() allowed another user's resource: %#v, %v", other, err)
 	}
 }
@@ -968,7 +968,14 @@ func newResourceTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.SystemSetting{}, &model.UserOSSSetting{}, &model.StorageLocation{}, &model.UserDailyUploadUsage{}, &model.Resource{}, &model.ResourceOffloadJob{}, &model.UploadReservation{}, &model.UserStorageGrant{}, &model.UserStorageState{}); err != nil {
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := db.AutoMigrate(&model.SystemSetting{}, &model.UserOSSSetting{}, &model.StorageLocation{}, &model.UserDailyUploadUsage{}, &model.UserDailyActivity{}, &model.Resource{}, &model.ResourceOffloadJob{}, &model.UploadReservation{}, &model.UserStorageGrant{}, &model.UserStorageState{},
+		&model.OfficialAsset{}, &model.OfficialAssetImport{}, &model.Project{}, &model.CanvasProject{}, &model.Asset{}, &model.AssetVersion{}, &model.AssetRepresentation{}, &model.VoiceProfile{}, &model.CharacterVoiceBinding{}); err != nil {
 		t.Fatal(err)
 	}
 	return &Service{repo: repository.New(db), dataDir: t.TempDir()}

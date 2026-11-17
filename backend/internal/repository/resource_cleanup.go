@@ -36,6 +36,15 @@ func (r *Repository) DeleteDetachedResources(resources []model.Resource, deletio
 		if len(current) != len(resources) {
 			return ErrResourceCleanupSetChanged
 		}
+		retained, err := New(tx).OfficialRecommendationResourceIDs()
+		if err != nil {
+			return err
+		}
+		for _, id := range resourceIDs {
+			if _, ok := retained[id]; ok {
+				return ErrResourceCleanupStillReferenced
+			}
+		}
 		// The service performs exact JSON parsing before entering this transaction.
 		// This conservative second check closes the common race where an Asset or
 		// canvas is attached after that snapshot but before Resource deletion.

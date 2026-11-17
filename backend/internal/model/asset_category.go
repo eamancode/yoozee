@@ -2,8 +2,7 @@ package model
 
 import "strings"
 
-// NormalizeAssetCategory keeps persisted and synced assets inside the current
-// five-category contract while preserving the intended meaning of legacy data.
+// NormalizeAssetCategory preserves recognized workflow categories on canvas sync.
 func NormalizeAssetCategory(value AssetCategory, kind string) AssetCategory {
 	switch strings.ToLower(strings.TrimSpace(string(value))) {
 	case string(AssetCategoryCharacter):
@@ -16,6 +15,12 @@ func NormalizeAssetCategory(value AssetCategory, kind string) AssetCategory {
 		return AssetCategoryMaterial
 	case string(AssetCategoryOther):
 		return AssetCategoryOther
+	case string(AssetCategoryArk):
+		return AssetCategoryArk
+	case string(AssetCategoryPalette):
+		return AssetCategoryPalette
+	case string(AssetCategoryStoryboardReference):
+		return AssetCategoryStoryboardReference
 	}
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "entity":

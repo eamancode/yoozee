@@ -61,6 +61,7 @@ func TestVideoDepthAdmissionUsesOwnedSourceAndServerMeasurements(t *testing.T) {
 	if err := db.AutoMigrate(&model.Resource{}); err != nil {
 		t.Fatal(err)
 	}
+	s.dataDir = t.TempDir()
 	center, err := newPluginRuntime(s.dataDir)
 	if err != nil {
 		t.Fatal(err)
