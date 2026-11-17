@@ -460,8 +460,8 @@ export function listProjectCanvases(projectId: string, page = 1, pageSize = 40) 
     return http.get<ProjectCanvasPage>(`/projects/${encodeURIComponent(projectId)}/canvases`, { params: { page, pageSize } });
 }
 
-export function listProjectAssetsPage(projectId: string, options: { page?: number; pageSize?: number; category?: string; mediaType?: string; status?: string; folderId?: string; query?: string } = {}) {
-    return http.get<ProjectAssetPage>(`/projects/${encodeURIComponent(projectId)}/assets`, { params: {
+export function listProjectAssetsPage(projectId: string, options: { page?: number; pageSize?: number; category?: string; mediaType?: string; status?: string; folderId?: string; query?: string } = {}, signal?: AbortSignal) {
+    return http.get<ProjectAssetPage>(`/projects/${encodeURIComponent(projectId)}/assets`, { signal, params: {
         page: options.page || 1,
         pageSize: options.pageSize || 40,
         category: options.category || undefined,

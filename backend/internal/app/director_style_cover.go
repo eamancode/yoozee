@@ -120,7 +120,7 @@ func (s *Service) GenerateStyleProfileCover(userID, id string, req DirectorStyle
 	}
 	taskProjectID := ""
 	if row.SourceProjectID != "" {
-		if project, err := s.repo.ProjectForUser(userID, row.SourceProjectID); err == nil && project.Status == model.ProjectStatusActive {
+		if project, err := s.repo.WorkbenchProjectForUser(userID, row.SourceProjectID); err == nil && project.Status == model.ProjectStatusActive {
 			taskProjectID = project.ID
 		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return model.StyleProfile{}, err

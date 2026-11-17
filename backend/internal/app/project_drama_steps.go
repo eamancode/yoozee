@@ -160,7 +160,7 @@ func (s *Service) DramaStepUsage(userID string, projectID string, stepID string,
 	if err != nil {
 		return DramaStepUsage{}, err
 	}
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return DramaStepUsage{}, err
 	}
@@ -299,7 +299,7 @@ func dramaProfileRef(id string) DramaProfileRef {
 
 // ProjectDramaStepPrompt 组装一章这一步的提示词，不建任务。
 func (s *Service) DramaStepPrompt(userID string, projectID string, unitID string, stepID string) (ProjectDramaStepPrompt, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return ProjectDramaStepPrompt{}, err
 	}

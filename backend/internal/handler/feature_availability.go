@@ -20,11 +20,12 @@ func RegisterFeatureAvailabilityRoutes(r *gin.RouterGroup, svc *service.Service)
 	})
 
 	r.GET("/features", func(c *gin.Context) {
-		if _, err := currentUser(c, svc); err != nil {
+		user, err := currentUser(c, svc)
+		if err != nil {
 			failService(c, err)
 			return
 		}
-		setting, err := svc.FeatureAvailability()
+		setting, err := svc.FeatureAvailabilityForUser(user.ID)
 		if err != nil {
 			failService(c, err)
 			return

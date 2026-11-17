@@ -2606,7 +2606,7 @@ function CanvasViewportPage() {
         ) : emptyStateKind === "linked" && drama.summary ? (
             <CanvasDramaEmptyState
                 dramaName={drama.summary.project.name}
-                studioPath={`/projects/${encodeURIComponent(drama.summary.project.id)}`}
+                studioPath={`/drama-flow-2/${encodeURIComponent(drama.summary.project.id)}`}
                 episodeLabel={dramaFirstEpisode ? `第 ${dramaFirstEpisode.number} 集` : undefined}
                 onProjectEpisode={dramaFirstEpisode ? () => void drama.projectEpisode(dramaFirstEpisode.id) : undefined}
                 onAddText={() => createNode(CanvasNodeType.Text)}

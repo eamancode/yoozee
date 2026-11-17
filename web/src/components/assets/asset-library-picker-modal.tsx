@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useUserStore } from "@/stores/use-user-store";
 
+import { listProjectAssetsPage, type ProjectAsset } from "@/services/api/projects";
 import { AssetMediaPreview } from "@/components/asset-media-preview";
 import { AudioPlayButton, AudioWaveArt, CharacterAssetCover } from "@/components/assets/asset-rich-cover";
 import { AssetLibraryCard } from "@/components/assets/asset-library-card";
@@ -40,6 +41,7 @@ export type AssetLibraryPickerItem = {
     /** 媒体类型筛选依据；缺省时按本地素材或插件素材的 kind 推断。 */
     mediaKind?: AssetPickerMediaKind;
     asset?: Asset;
+    remoteAssetId?: string;
     imageUrl?: string;
     imageStorageKey?: string;
     imageFit?: "cover" | "contain";
@@ -58,6 +60,7 @@ export type AssetLibraryPickerFolder = {
 
 type Props = {
     remoteLibrary?: boolean;
+    projectId?: string;
     remoteKind?: string;
     remoteImageReferences?: boolean;
     /** 远端素材库里的角色卡是否展示并可选（插入画布时会作为角色卡节点）。 */
@@ -106,6 +109,7 @@ type Props = {
 
 export function AssetLibraryPickerModal({
     remoteLibrary = false,
+    projectId,
     remoteKind,
     remoteImageReferences = false,
     allowCharacters = false,
@@ -155,18 +159,22 @@ export function AssetLibraryPickerModal({
     const [remotePage, setRemotePage] = useState(1);
     const [remotePageSize, setRemotePageSize] = useState(40);
     const [remoteKeyword, setRemoteKeyword] = useState("");
-    const remoteEnabled = remoteLibrary && Boolean(userId) && source === "local";
+    const remoteEnabled = (remoteLibrary || Boolean(projectId)) && Boolean(userId) && source === "local";
     useEffect(() => {
         const timer = window.setTimeout(() => setRemoteKeyword(keyword.trim()), 250);
         return () => window.clearTimeout(timer);
     }, [keyword]);
-    useEffect(() => setRemotePage(1), [category, mediaKind, remoteKeyword, open]);
+    useEffect(() => setRemotePage(1), [category, mediaKind, remoteKeyword, open, projectId]);
     // remoteKind 是调用方写死的能力约束；媒体类型筛选只在没有该约束时参与服务端查询。
     const remoteQueryKind = remoteKind || (mediaKind === "all" ? undefined : mediaKind);
     const remoteQuery = useQuery({
-        queryKey: ["asset-picker", userId, remotePage, remotePageSize, category, remoteKeyword, remoteQueryKind, remoteImageReferences],
-        queryFn: ({ signal }) =>
-            loadAssetLibraryPage({
+        queryKey: projectId ? ["project-asset-picker", projectId, userId, remotePage, remotePageSize, category, remoteKeyword] : ["asset-picker", userId, remotePage, remotePageSize, category, remoteKeyword, remoteQueryKind, remoteImageReferences],
+        queryFn: async ({ signal }) => {
+            if (projectId) {
+                const page = await listProjectAssetsPage(projectId, { page: remotePage, pageSize: remotePageSize, mediaType: "image", category: category === "all" || category === "archived" ? undefined : category, query: remoteKeyword }, signal);
+                return { source: "project" as const, ...page, matchingCategoryCounts: page.categoryCounts };
+            }
+            const page = await loadAssetLibraryPage({
                 page: remotePage,
                 pageSize: remotePageSize,
                 kind: remoteQueryKind,
@@ -175,15 +183,20 @@ export function AssetLibraryPickerModal({
                 status: category === "archived" ? "archived" : "active",
                 query: remoteKeyword,
                 signal,
-            }),
+            });
+            return { source: "library" as const, ...page };
+        },
         enabled: remoteEnabled && open && sessionHydrated,
         // 切分类/翻页时保留上一页，避免加载间隙退回本地数据源、左侧分类被重置（点"角色"闪一下又跳回全部）。
-        placeholderData: keepPreviousData,
+        placeholderData: (previous, query) => {
+            if (projectId && (query?.queryKey[0] !== "project-asset-picker" || query.queryKey[1] !== projectId || query.queryKey[2] !== userId)) return undefined;
+            return keepPreviousData(previous);
+        },
     });
     // 调用方的 items 只是本地缓存，不代表可插入集合（分页结果大多不在缓存里）。能接收 pickedItems 的
     // 调用方（acceptRemoteItems）允许直接选远端条目；其余调用方保持"不在 items 里就不可选"的旧约束。
     const remoteItems = useMemo<AssetLibraryPickerItem[]>(
-        () =>
+        () => remoteQuery.data?.source === "project" ? remoteQuery.data.assets.map(projectImageToPickerItem) :
             (remoteQuery.data?.assets || [])
                 .filter((asset) => asset.kind !== "model" && (asset.kind !== "entity" || allowAssetCards || remoteImageReferences || (allowCharacters && asset.category === "character")))
                 .map((asset) =>
@@ -315,7 +328,7 @@ export function AssetLibraryPickerModal({
     const toggle = (item: AssetLibraryPickerItem) => {
         if (item.disabledReason || working) return;
         // 远端分页条目翻页后就不在列表里了；选中时记下来，确认时仍能转成插入内容。
-        if (item.asset) pickedRemoteRef.current.set(item.id, item);
+        if (item.remoteAssetId || item.asset) pickedRemoteRef.current.set(item.id, item);
         setError("");
         setSelected((current) => {
             if (!multiple) return current.has(item.id) ? new Set() : new Set([item.id]);
@@ -541,7 +554,7 @@ export function AssetLibraryPickerModal({
                             <>
                                 <span className="asset-picker-nav-label">分类</span>
                                 {normalCategories.map((value) => (
-                                    <button key={value} type="button" className={cn("assets-filter-item", category === value && "is-active")} aria-pressed={category === value} onClick={() => setCategory(value)}>
+                                    <button key={value} type="button" className={cn("assets-filter-item", category === value && "is-active")} aria-label={categoryLabels[value] || (value === "all" ? "全部素材" : "其他")} aria-pressed={category === value} onClick={() => setCategory(value)}>
                                         <span className="assets-filter-item-label">{categoryLabels[value] || (value === "all" ? "全部素材" : "其他")}</span>
                                         <span className="assets-filter-count">{countFor(value)}</span>
                                     </button>
@@ -666,9 +679,14 @@ export function AssetLibraryPickerModal({
     );
 }
 
+function projectImageToPickerItem(asset: ProjectAsset): AssetLibraryPickerItem {
+    return { id: asset.id, remoteAssetId: asset.id, title: asset.title, category: asset.category, kindLabel: "图片", mediaKind: "image", imageStorageKey: asset.storageKey, disabledReason: asset.status === "archived" ? "此素材已归档" : asset.mediaType !== "image" || !asset.storageKey ? "此素材没有可引用的图片" : undefined };
+}
+
 export function remoteAssetToPickerItem(asset: Asset, known: AssetLibraryPickerItem | undefined, acceptRemoteItems: boolean, disabledReason?: string): AssetLibraryPickerItem {
     return {
         id: asset.id,
+        remoteAssetId: asset.id,
         title: asset.title,
         category: asset.category || "other",
         archived: asset.status === "archived",

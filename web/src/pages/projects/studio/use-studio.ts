@@ -5,7 +5,7 @@ import { useNavigate } from "react-router";
 
 import { dramaKeys } from "@/lib/drama/drama-query-keys";
 import { getDrama, getDramaEpisode, listDramaCast, type DramaCast, type DramaEpisodeDetail, type DramaSummary } from "@/services/api/drama";
-import { encodeDramaCanvasFocus, openDramaCanvasPath, type DramaCanvasFocus } from "@/services/drama-canvas";
+import { encodeDramaCanvasFocus, openDramaCanvasPath, type DramaCanvasEditor, type DramaCanvasFocus } from "@/services/drama-canvas";
 
 export { dramaKeys };
 
@@ -50,14 +50,21 @@ export function useDramaCast(projectId: string, active: boolean) {
     return { ...query, cast: query.data?.cast || [], byId };
 }
 
+/**
+ * renumbered=true 用于插入或删除集：后续各集集号都变了，全部单集详情一起失效。
+ * removedEpisodeId 是刚删除的集，先移出缓存，避免仍挂着的旧查询被重新请求成 404。
+ */
 export function useDramaInvalidate(projectId: string) {
     const queryClient = useQueryClient();
-    return (episodeId?: string) => {
+    return (episodeId?: string, options: { renumbered?: boolean; removedEpisodeId?: string; assetsChanged?: boolean } = {}) => {
+        if (options.removedEpisodeId) queryClient.removeQueries({ queryKey: dramaKeys.episode(projectId, options.removedEpisodeId), exact: true });
         void queryClient.invalidateQueries({ queryKey: dramaKeys.summary(projectId), exact: true });
         void queryClient.invalidateQueries({ queryKey: dramaKeys.cast(projectId) });
         void queryClient.invalidateQueries({ queryKey: dramaKeys.jobs(projectId) });
         void queryClient.invalidateQueries({ queryKey: ["drama", projectId, "takes"] });
-        if (episodeId) void queryClient.invalidateQueries({ queryKey: dramaKeys.episode(projectId, episodeId) });
+        void queryClient.invalidateQueries({ queryKey: dramaKeys.chapters(projectId) });
+        if (options.renumbered || options.assetsChanged) return queryClient.invalidateQueries({ queryKey: dramaKeys.episodes(projectId) });
+        if (episodeId) return queryClient.invalidateQueries({ queryKey: dramaKeys.episode(projectId, episodeId) });
     };
 }
 
@@ -73,12 +80,12 @@ export function useOpenDramaCanvas(summary: DramaSummary | undefined) {
     const id = summary?.project.id || "";
     const name = summary?.project.name || "";
     const open = useCallback(
-        async (focus?: DramaCanvasFocus) => {
+        async (focus?: DramaCanvasFocus, editor: DramaCanvasEditor = "canvas") => {
             if (!id || openingRef.current) return;
             openingRef.current = true;
             setOpening(focus ? encodeDramaCanvasFocus(focus) : "canvas");
             try {
-                navigate(await openDramaCanvasPath({ id, name }, focus));
+                navigate(await openDramaCanvasPath({ id, name }, focus, editor));
             } catch (error) {
                 message.error(error instanceof Error && error.message ? error.message : "打开精修画布失败");
             } finally {

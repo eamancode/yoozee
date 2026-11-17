@@ -30,7 +30,7 @@ export const CanvasDramaSidebar = memo(function CanvasDramaSidebar({ summary, ca
     const [collapsed, setCollapsed] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const dramaId = summary.project.id;
-    const studioPath = `/projects/${encodeURIComponent(dramaId)}`;
+    const studioPath = `/drama-flow-2/${encodeURIComponent(dramaId)}`;
     const orderedCast = useMemo(() => [...(cast || [])].sort((left, right) => CAST_ORDER[left.kind] - CAST_ORDER[right.kind] || left.position - right.position), [cast]);
     const { production } = summary;
 

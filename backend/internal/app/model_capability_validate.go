@@ -1016,6 +1016,57 @@ func videoDurationAllowed(value VideoDurationConfig, seconds int) bool {
 	return seconds >= value.Min && seconds <= value.Max && value.Step > 0 && (seconds-value.Min)%value.Step == 0
 }
 
+// videoDurationSpan 把可选时长归成等差区间：范围声明直接取上下限与步长；多于 3 档的等差枚举也按区间描述，
+// 避免在提示里列出几十个档位。归不成区间时 ok 为 false，list 是从小到大的档位文本。
+func videoDurationSpan(value VideoDurationConfig) (low, high, step int, list string, ok bool) {
+	if value.Selection != "enum" {
+		return value.Min, value.Max, value.Step, "", true
+	}
+	values := append([]int(nil), value.Values...)
+	sort.Ints(values)
+	labels := make([]string, 0, len(values))
+	for _, item := range values {
+		labels = append(labels, strconv.Itoa(item))
+	}
+	list = strings.Join(labels, "、")
+	if len(values) <= 3 {
+		return 0, 0, 0, list, false
+	}
+	step = values[1] - values[0]
+	for index := 2; index < len(values); index++ {
+		if values[index]-values[index-1] != step {
+			return 0, 0, 0, list, false
+		}
+	}
+	return values[0], values[len(values)-1], step, list, step > 0
+}
+
+// videoDurationAllowedLabel 用与 videoDurationAllowed 相同的口径描述可选时长，例如“5–30 秒，步长 1”“可选 5、10 秒”。
+func videoDurationAllowedLabel(value VideoDurationConfig) string {
+	low, high, step, list, ok := videoDurationSpan(value)
+	switch {
+	case !ok:
+		return "可选 " + list + " 秒"
+	case value.Selection != "enum":
+		return fmt.Sprintf("%d–%d 秒，步长 %d", low, high, step)
+	case step == 1:
+		return fmt.Sprintf("可选 %d–%d 秒", low, high)
+	}
+	return fmt.Sprintf("可选 %d–%d 秒，步长 %d", low, high, step)
+}
+
+// videoDurationSupportLabel 是写进业务提示的简短版本，例如“5–30 秒”“5、10 秒”。
+func videoDurationSupportLabel(value VideoDurationConfig) string {
+	low, high, step, list, ok := videoDurationSpan(value)
+	switch {
+	case !ok:
+		return list + " 秒"
+	case step > 1:
+		return fmt.Sprintf("%d–%d 秒（步长 %d）", low, high, step)
+	}
+	return fmt.Sprintf("%d–%d 秒", low, high)
+}
+
 func videoRatioAllowed(options []string, value string) bool {
 	value = strings.TrimSpace(strings.ToLower(strings.ReplaceAll(value, "×", "x")))
 	if containsCapabilityString(options, value) {

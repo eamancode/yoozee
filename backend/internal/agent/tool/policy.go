@@ -57,8 +57,9 @@ type Policy struct {
 	// RequiresMemory 只在用户没有关闭长期记忆时暴露。
 	RequiresMemory bool
 	// RequiresDrama 只在画布关联了当前用户的短剧作品时暴露。
-	RequiresDrama        bool
-	RequiresProjectDrama bool
+	RequiresDrama            bool
+	RequiresProjectDrama     bool
+	RequiresDramaPageContext bool
 	// AlwaysApprove 让写入在 auto 模式下也先审批：写入会改变画布以外的业务对象（如短剧版本）。
 	AlwaysApprove bool
 	// OutsideTransaction performs storage IO before the checkpoint transaction.
@@ -73,8 +74,9 @@ type Scope struct {
 	ReadOnly       bool
 	IncludeProfile bool
 	// Drama 表示本轮画布关联了当前用户的短剧作品，由服务端建 run 时推导。
-	Drama        bool
-	ProjectDrama bool
+	Drama            bool
+	ProjectDrama     bool
+	DramaPageContext bool
 	// Memory 表示本轮长期记忆处于开启状态（自动生效或需确认），由服务端建 run 时冻结。
 	Memory bool
 }
@@ -86,6 +88,7 @@ func (p Policy) Allowed(scope Scope) bool {
 		(!p.RequiresMemory || scope.Memory) &&
 		(!p.RequiresDrama || scope.Drama) &&
 		(!p.RequiresProjectDrama || scope.ProjectDrama) &&
+		(!p.RequiresDramaPageContext || scope.DramaPageContext) &&
 		(!p.Vision || scope.Vision) &&
 		(!p.Write() && !p.RequiresWriteMode || !scope.ReadOnly) &&
 		(p.Name != AgentProfileRead || scope.IncludeProfile)
@@ -137,6 +140,8 @@ const (
 	CanvasArrangeNodes     = "canvas_arrange_nodes"
 	GenerateMedia          = "generate_media"
 	DramaGetContext        = "drama_get_context"
+	DramaShotRead          = "drama_shot_read"
+	DramaShotUpdate        = "drama_shot_update"
 	DramaAdoptCanvasMedia  = "drama_adopt_canvas_media"
 )
 
@@ -196,6 +201,8 @@ func policies() []Policy {
 		{Name: CanvasArrangeNodes, Kind: KindWrite, RequiresCanvas: true},
 		{Name: GenerateMedia, Kind: KindMedia, RequiresCanvas: true},
 		{Name: DramaGetContext, Kind: KindRead, RequiresCanvas: true, RequiresDrama: true, OutsideTransaction: true},
+		{Name: DramaShotRead, Kind: KindRead, RequiresDramaPageContext: true},
+		{Name: DramaShotUpdate, Kind: KindWrite, AlwaysApprove: true, RequiresDramaPageContext: true},
 		{Name: DramaAdoptCanvasMedia, Kind: KindWrite, RequiresCanvas: true, RequiresDrama: true, AlwaysApprove: true},
 	}
 }

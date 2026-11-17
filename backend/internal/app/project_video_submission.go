@@ -123,7 +123,7 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 	if projectID == "" || shotID == "" {
 		return prompt, nil
 	}
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return "", err
 	}
@@ -262,7 +262,7 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 			if index < 0 {
 				return "", BadAuthRequest("站位参考提醒缺少实际发送的截帧图片")
 			}
-			project, err := s.repo.ProjectForUser(userID, projectID)
+			project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 			if err != nil {
 				return "", err
 			}

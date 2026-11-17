@@ -298,7 +298,7 @@ func decodeDramaDocument(raw json.RawMessage) (map[string]any, error) {
 
 // ProjectBrief 读取需求文档；生成模型和生成模式总以项目字段为准。
 func (s *Service) ProjectBrief(userID string, projectID string) (map[string]any, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +360,7 @@ func (s *Service) UpdateProjectBrief(userID string, projectID string, raw json.R
 }
 
 func (s *Service) ProjectBible(userID string, projectID string) (map[string]any, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +569,7 @@ func projectDramaNonEmpty(values ...string) []string {
 
 // DramaSegments 列出项目（或某章）的全部段。
 func (s *Service) DramaSegments(userID string, projectID string, unitID string) ([]ProjectDramaSegmentView, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return nil, err
 	}
 	shots, err := s.repo.ProjectShots(projectID)
@@ -827,7 +827,7 @@ func (s *Service) inheritSegmentReferences(projectID string, unitID string, inhe
 
 // CompileProjectShot 把一段编译成项目生成模型（或指定模型）的提示词。
 func (s *Service) CompileProjectShot(userID string, projectID string, shotID string, req CompileProjectShotRequest) (DramaCompileResult, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return DramaCompileResult{}, err
 	}
@@ -948,7 +948,7 @@ func evidenceStates(items []model.ShotEvidence) []drama.EvidenceState {
 }
 
 func (s *Service) ProjectEvidence(userID string, projectID string) ([]model.ShotEvidence, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return nil, err
 	}
 	return s.repo.ProjectShotEvidence(projectID)
@@ -1121,7 +1121,7 @@ func (s *Service) PickShotArtifact(userID string, projectID string, artifactID s
 
 // DramaProgress 由产物和证据推导进度表与十个终态。
 func (s *Service) DramaProgress(userID string, projectID string) (drama.Progress, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return drama.Progress{}, err
 	}
@@ -1451,7 +1451,7 @@ func (s *Service) enforceDramaModelFamily(userID string, input map[string]any, n
 	if !found {
 		return nil
 	}
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return nil
 	}
@@ -1472,7 +1472,7 @@ func (s *Service) enforceDramaPrevizGate(userID string, input map[string]any) er
 	if projectID == "" || shotID == "" {
 		return nil
 	}
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil || !projectPrevizGate(project) {
 		return nil
 	}
@@ -1501,7 +1501,7 @@ func (s *Service) enforceDramaSegmentTaskDuration(userID string, input map[strin
 	if seconds <= 0 {
 		return nil
 	}
-	project, err := s.repo.ProjectForUser(userID, strings.TrimSpace(projectID))
+	project, err := s.repo.WorkbenchProjectForUser(userID, strings.TrimSpace(projectID))
 	if err != nil {
 		return err
 	}

@@ -335,7 +335,7 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task) error {
 	}
 	projectID := strings.TrimSpace(input.DomainProjectID)
 	if projectID == "" {
-		if _, projectErr := s.repo.ProjectForUser(task.UserID, task.ProjectID); projectErr == nil {
+		if _, projectErr := s.repo.WorkbenchProjectForUser(task.UserID, task.ProjectID); projectErr == nil {
 			projectID = task.ProjectID
 		}
 	}

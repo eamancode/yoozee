@@ -126,7 +126,7 @@ func (s *Service) prepareSpatialImage(userID string, project *model.Project, ass
 }
 
 func (s *Service) ProjectSpatialReferences(userID, projectID, assetID string) ([]map[string]any, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return nil, err
 	}
 	asset, err := s.repo.AssetForUser(userID, assetID)

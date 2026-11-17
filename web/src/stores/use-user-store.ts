@@ -36,6 +36,7 @@ export type FeatureAvailability = {
     shortDramaEnabled: boolean;
     /** 短剧新工作流入口（/drama-flow）；依赖 shortDramaEnabled，默认关闭。 */
     dramaFlowEnabled: boolean;
+    dramaFlow2Enabled: boolean;
     taskCenterEnabled: boolean;
     creditsEnabled: boolean;
     customChannelsEnabled: boolean;
@@ -55,6 +56,7 @@ export const defaultFeatureAvailability: FeatureAvailability = {
     welcomeEnabled: true,
     shortDramaEnabled: true,
     dramaFlowEnabled: false,
+    dramaFlow2Enabled: false,
     taskCenterEnabled: true,
     creditsEnabled: true,
     customChannelsEnabled: true,

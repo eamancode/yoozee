@@ -24,6 +24,8 @@ const (
 )
 
 type cloudAgentToolHandler struct {
+	PageWrite    func(*repository.Repository, string, *CloudAgentPageContext, cloudAgentCall, *Service) (any, error)
+	PagePreview  func(*repository.Repository, string, *CloudAgentPageContext, cloudAgentCall, *Service) (cloudAgentApprovalPreview, error)
 	Read         cloudAgentReadHandler
 	Write        cloudAgentWriteHandler
 	Preview      cloudAgentPreviewHandler
@@ -94,8 +96,9 @@ func cloudAgentToolScope(req CloudAgentRequest, profile bool) agenttool.Scope {
 	return agenttool.Scope{
 		Canvas: len(req.ContextScope) > 0, Skills: req.SkillsEnabled,
 		Vision: req.VisionEnabled, ReadOnly: req.PermissionMode == "read_only", IncludeProfile: profile,
-		Drama:        req.DramaLinked && len(req.ContextScope) > 0,
-		ProjectDrama: req.DramaProjectID != "" && len(req.ContextScope) > 0,
-		Memory:       req.MemoryMode == model.AgentMemoryDocumentModeAuto || req.MemoryMode == model.AgentMemoryDocumentModeReview,
+		Drama:            req.DramaLinked && len(req.ContextScope) > 0,
+		DramaPageContext: req.PageContext != nil,
+		ProjectDrama:     req.DramaProjectID != "" && len(req.ContextScope) > 0,
+		Memory:           req.MemoryMode == model.AgentMemoryDocumentModeAuto || req.MemoryMode == model.AgentMemoryDocumentModeReview,
 	}
 }
