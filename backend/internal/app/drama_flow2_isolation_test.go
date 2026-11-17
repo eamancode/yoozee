@@ -201,6 +201,15 @@ func TestDramaFlow2ProjectIsolation(t *testing.T) {
 	if err != nil || count != 1 || len(projects) != 1 || projects[0].ID != official {
 		t.Fatalf("official projects=%v total=%d err=%v", projects, count, err)
 	}
+	if _, err := svc.ProjectDetail(owner, official); err == nil {
+		t.Fatal("workbench read official project")
+	}
+	if linked, err := svc.CanvasLinkedProject(owner, official); err != nil || linked.Project.ID != official || len(linked.Units) == 0 {
+		t.Fatalf("official canvas could not read linked chapters and assets: %v", err)
+	}
+	if _, err := svc.CanvasLinkedProject("another-user", official); err == nil {
+		t.Fatal("linked canvas exposed another account's project")
+	}
 	if _, err := svc.UpdateProject(owner, official, UpdateProjectRequest{Name: "错误修改"}); err == nil {
 		t.Fatal("workbench mutated an official project")
 	}

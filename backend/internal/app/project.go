@@ -193,6 +193,37 @@ func (s *Service) summarizeProjects(userID string, projects []model.Project) ([]
 	return result, nil
 }
 
+// CanvasLinkedProject 读取精修画布的关联项目。原工作台沿用已有的读取补偿，官方作品只读共用的章节和素材。
+func (s *Service) CanvasLinkedProject(userID string, id string) (ProjectDetail, error) {
+	production, err := s.repo.DramaProduction(id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return s.ProjectDetail(userID, id)
+	}
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	if production.UserID != userID {
+		return ProjectDetail{}, gorm.ErrRecordNotFound
+	}
+	project, err := s.repo.ProjectForUser(userID, id)
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	units, err := s.repo.ProjectUnitSummaries(project.ID)
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	assets, err := s.ProjectAssets(userID, project.ID)
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	folders, err := s.repo.ProjectAssetFolders(project.ID)
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	return ProjectDetail{Project: *project, Units: units, Assets: assets, AssetFolders: folders}, nil
+}
+
 func (s *Service) ProjectDetail(userID string, id string) (ProjectDetail, error) {
 	project, err := s.repo.WorkbenchProjectForUser(userID, id)
 	if err != nil {
