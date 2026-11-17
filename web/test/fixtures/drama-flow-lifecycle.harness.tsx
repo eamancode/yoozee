@@ -1179,6 +1179,62 @@ test("出片恢复：503 受理未知时换线只读估价，核实后重新报�
     }
 });
 
+test("出片恢复：原单轮询核清后仍需全新有效报价，缺少报价标识不能收费", async () => {
+    let reconciled = false;
+    let returnHash = true;
+    const chainPath = `/projects/${P}/video-chains`;
+    const page = await mount(`/drama-flow/${P}/video`, {
+        chains: "failed",
+        prepare(f) {
+            const fallback = f.handle;
+            f.handle = (method, path, body) => {
+                const reply = fallback(method, path, body);
+                const diagnostic = { submissionOutcome: reconciled ? "not_submitted" : "unknown", billingStatus: reconciled ? "refunded" : "uncertain", safeToResubmit: reconciled, terminalStatus: "failed" };
+                if (method.toLowerCase() === "get" && path.split("?")[0] === chainPath) {
+                    const data = reply?.body?.data as { chains: { steps: Record<string, unknown>[] }[] };
+                    Object.assign(data.chains[0].steps[0], { taskId: "original", diagnostic });
+                }
+                if (path === chainPath + "/preview") {
+                    const data = reply?.body?.data as { chain: { confirmationBlockedReason?: string; previewHash: string; steps: Record<string, unknown>[] } };
+                    if (!reconciled) data.chain.confirmationBlockedReason = "原单尚待核对。";
+                    if (!returnHash) data.chain.previewHash = "";
+                    Object.assign(data.chain.steps[0], { taskId: "original", diagnostic });
+                }
+                return reply;
+            };
+        },
+    });
+    try {
+        await page.click(buttonByText(cardOf("S01")!, "重新出"));
+        const estimate = () => page.click(buttonByText(modal()!, "从失败步骤重新报价"));
+        const confirm = () => buttonByText(modal()!, "确认报价并从失败段继续") as HTMLButtonElement;
+        await estimate();
+        expect(confirm().disabled).toBe(true);
+        reconciled = true;
+        await act(async () => void (await page.client.invalidateQueries({ queryKey: ["project-video-chains", P, U] })));
+        await flush();
+        expect(modal()?.textContent).toContain("结算 已退款");
+        expect(confirm().disabled).toBe(true);
+        returnHash = false;
+        await estimate();
+        expect(confirm().disabled).toBe(true);
+        expect(modal()?.textContent).toContain("缺少有效报价标识");
+        returnHash = true;
+        await estimate();
+        expect(confirm().disabled).toBe(false);
+        reconciled = false;
+        await act(async () => void (await page.client.invalidateQueries({ queryKey: ["project-video-chains", P, U] })));
+        await flush();
+        expect(confirm().disabled).toBe(true);
+        await act(async () => confirm().click());
+        expect(submitted()).toEqual([]);
+        expect(fixture.forbidden).toEqual([]);
+        expect(page.errors).toEqual([]);
+    } finally {
+        await page.dispose();
+    }
+});
+
 test("出片恢复：已受理的超时先查原上游任务，取回视频后可在没有可用模型时确认复用", async () => {
     const chainPath = `/projects/${P}/video-chains`;
     let recovered = false;

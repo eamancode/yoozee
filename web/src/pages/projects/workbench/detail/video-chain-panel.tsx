@@ -33,6 +33,15 @@ function canReuseOriginal(step: VideoChainStep) {
     return step.status === "succeeded" || (step.diagnostic?.terminalStatus === "succeeded" && ["none", "settled"].includes(step.diagnostic.billingStatus || ""));
 }
 
+function originalNeedsReconciliation(step?: VideoChainStep) {
+    if (!step || canReuseOriginal(step)) return false;
+    const diagnostic = step.diagnostic;
+    // The controller allocates a child ID before preflight. It may fail before creating a child.
+    if (!diagnostic) return Boolean(step.taskId && step.phase === "generating");
+    return diagnostic.submissionOutcome === "unknown" || diagnostic.safeToResubmit !== true ||
+        ["uncertain", "reserved", "running", "unknown"].includes(diagnostic.billingStatus || "");
+}
+
 export function VideoChainPanel({
     open,
     projectId,
@@ -82,14 +91,15 @@ export function VideoChainPanel({
     const failed = existing?.status === "failed" && existing.steps.some((step) => step.shotId === shotId) ? existing : undefined;
     const originalStep = failed?.steps.find((step) => step.status !== "succeeded");
     const originalDiagnostic = originalStep?.diagnostic;
-    const originalPending = Boolean(originalStep?.taskId && !canReuseOriginal(originalStep) &&
-        (originalDiagnostic?.submissionOutcome === "unknown" || originalDiagnostic?.safeToResubmit !== true));
     const reuseOnly = Boolean(failed?.steps.length && failed.steps.every(canReuseOriginal));
     const receiptVersion = JSON.stringify([failed?.id, originalStep?.taskId, originalDiagnostic?.attemptId, originalDiagnostic?.terminalStatus,
         originalDiagnostic?.submissionOutcome, originalDiagnostic?.billingStatus, originalDiagnostic?.safeToResubmit]);
-    const blockedReason = preview?.confirmationBlockedReason || (originalPending ? "原请求的受理或结算尚未核实。请先查询原请求，再重新报价并确认。" :
-        request.current?.resumeChainId && receiptVersion !== quotedReceipt.current ? "原请求的状态已变化，请重新报价后确认。" :
-        preview && !preview.previewHash ? "缺少有效报价标识，请重新报价后确认。" : "");
+    const receiptChanged = Boolean(request.current?.resumeChainId && receiptVersion !== quotedReceipt.current);
+    const originalPending = originalNeedsReconciliation(originalStep);
+    const quotePending = preview?.steps.some((step) => step.diagnostic && originalNeedsReconciliation(step));
+    const blockedReason = receiptChanged && !originalPending ? "原请求的状态已变化，请重新报价后确认。" : preview?.confirmationBlockedReason ||
+        (originalPending || quotePending ? "原请求的受理或结算尚未核实。请先查询原请求，再重新报价并确认。" :
+        preview && !preview.previewHash?.trim() ? "缺少有效报价标识，请重新报价后确认。" : "");
     const active = chain?.status === "queued" || chain?.status === "running";
     const referenceAttachments = chain?.steps.map((step) => step.frameAssetId || "").join(",") || "";
     const originalVideos = new Map<string, VideoChainStep>();
@@ -248,7 +258,7 @@ export function VideoChainPanel({
     const renderOriginalReceipt = (step: VideoChainStep) => {
         const receipt = step.status === "failed" ? step :
             chain?.status === "preview" && originalStep?.shotId === step.shotId
-                ? { ...originalStep, diagnostic: step.diagnostic || originalDiagnostic, taskId: step.taskId || originalStep.taskId }
+                ? { ...originalStep, taskId: originalStep.taskId || step.taskId, diagnostic: receiptChanged ? originalDiagnostic : step.diagnostic || originalDiagnostic }
                 : undefined;
         if (!receipt) return null;
         return (
