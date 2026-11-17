@@ -9,8 +9,9 @@ import { createProjectUnit, deleteProjectUnit } from "@/services/api/projects";
 
 type EpisodeFields = { title: string; sourceText?: string };
 export type EpisodeDialogTarget = { kind: "create" } | { kind: "delete"; id: string; title: string };
+export const archivedEpisodeNotice = "项目已归档，可在项目设置中恢复后添加、修改或删除剧集。";
 
-export function EpisodeDialog({ projectId, target, onClose, onSaved }: { projectId: string; target: EpisodeDialogTarget; onClose: () => void; onSaved: (createdId?: string) => void }) {
+export function EpisodeDialog({ projectId, target, archived, onClose, onSaved }: { projectId: string; target: EpisodeDialogTarget; archived: boolean; onClose: () => void; onSaved: (createdId?: string) => void }) {
     const client = useQueryClient();
     const { message } = App.useApp();
     const submitting = useRef(false);
@@ -41,12 +42,15 @@ export function EpisodeDialog({ projectId, target, onClose, onSaved }: { project
             void client.invalidateQueries({ queryKey: ["drama-flow", "summary", projectId] });
             void client.invalidateQueries({ queryKey: ["projects"] });
         },
+        onError: () => {
+            void client.invalidateQueries({ queryKey: ["project", projectId, "core"], exact: true });
+        },
         onSettled: () => {
             submitting.current = false;
         },
     });
     const submit = (fields?: EpisodeFields) => {
-        if (submitting.current) return;
+        if (archived || submitting.current) return;
         submitting.current = true;
         change.mutate(fields, {
             onSuccess: (created) => {
@@ -66,6 +70,11 @@ export function EpisodeDialog({ projectId, target, onClose, onSaved }: { project
     ) : null;
     return (
         <AppModal open width={480} title={creating ? "添加剧集" : "删除此剧集"} onCancel={close} closable={!change.isPending} footer={null}>
+            {archived ? (
+                <p role="status" className="drama-flow-note">
+                    {archivedEpisodeNotice}
+                </p>
+            ) : null}
             {creating ? (
                 <Form layout="vertical" onFinish={submit}>
                     <Form.Item name="title" label="剧集标题" rules={[{ required: true, whitespace: true, message: "请输入剧集标题" }]}>
@@ -79,7 +88,7 @@ export function EpisodeDialog({ projectId, target, onClose, onSaved }: { project
                         <Button onClick={close} disabled={change.isPending}>
                             取消
                         </Button>
-                        <Button type="primary" htmlType="submit" loading={change.isPending}>
+                        <Button type="primary" htmlType="submit" disabled={archived} loading={change.isPending}>
                             创建剧集
                         </Button>
                     </div>
@@ -92,7 +101,7 @@ export function EpisodeDialog({ projectId, target, onClose, onSaved }: { project
                         <Button onClick={close} disabled={change.isPending}>
                             取消
                         </Button>
-                        <Button danger type="primary" onClick={() => submit()} loading={change.isPending}>
+                        <Button danger type="primary" disabled={archived} onClick={() => submit()} loading={change.isPending}>
                             删除剧集
                         </Button>
                     </div>

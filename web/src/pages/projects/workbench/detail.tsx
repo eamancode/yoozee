@@ -143,7 +143,7 @@ export default function ProjectDetailPage() {
                     workflowHref={workflowHref}
                     onCreateCanvas={createCanvas}
                 />
-                {detail.project.status === "archived" ? <Alert type="warning" showIcon banner message="项目已归档，恢复后才能创建画布和生成任务" className="!border-x-0 !border-t-0" /> : null}
+                {detail.project.status === "archived" ? <Alert type="warning" showIcon banner message="项目已归档，可在项目设置中恢复后编辑章节和剧集、创建画布或生成任务。" className="!border-x-0 !border-t-0" /> : null}
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                     <div className={activeView === "chapters" || activeView === "workflow" || activeView === "editor" ? "min-h-0 flex-1" : "thin-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-8 lg:py-7"}>
                         <Suspense fallback={<WorkspaceLoadingState label="正在准备当前项目视图" detail="只加载当前使用的工作区模块" />}>

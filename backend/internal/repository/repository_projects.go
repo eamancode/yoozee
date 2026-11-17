@@ -16,6 +16,8 @@ import (
 // ErrProjectNameConflict 表示同一用户下的项目名称已被占用。
 var ErrProjectNameConflict = errors.New("project name conflict")
 
+var ErrProjectNotActive = errors.New("项目已归档，不能修改短剧生产数据")
+
 func (r *Repository) Projects(userID string) ([]model.Project, error) {
 	var projects []model.Project
 	err := r.db.Where("user_id = ?", userID).Order("updated_at desc").Find(&projects).Error
@@ -224,10 +226,23 @@ func (r *Repository) ProjectAssetCount(projectID string) (int64, error) {
 	return count, err
 }
 
-func (r *Repository) CreateProjectUnit(unit *model.ProjectUnit, position *int) error {
+// Unit writes must recheck the owner's project status after acquiring its row lock:
+// the project can be archived after the service reads it and before the write starts.
+func (r *Repository) lockEditableUnitProject(userID, projectID string) error {
+	project, err := r.LockActiveStoryboardProject(userID, projectID)
+	if err != nil {
+		return err
+	}
+	if project.Status != model.ProjectStatusActive {
+		return ErrProjectNotActive
+	}
+	return nil
+}
+
+func (r *Repository) CreateProjectUnit(userID string, unit *model.ProjectUnit, position *int) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		// 先更新项目行，串行化该项目的增删；失败时与单元写入一起回滚。
-		if err := (&Repository{db: tx}).BumpProjectRevision(unit.ProjectID); err != nil {
+		within := New(tx)
+		if err := within.lockEditableUnitProject(userID, unit.ProjectID); err != nil {
 			return err
 		}
 		if position != nil {
@@ -238,12 +253,18 @@ func (r *Repository) CreateProjectUnit(unit *model.ProjectUnit, position *int) e
 				return err
 			}
 		}
-		return tx.Create(unit).Error
+		if err := tx.Create(unit).Error; err != nil {
+			return err
+		}
+		return within.BumpProjectRevision(unit.ProjectID)
 	})
 }
 
-func (r *Repository) ImportProjectUnits(projectID string, units []model.ProjectUnit) error {
+func (r *Repository) ImportProjectUnits(userID, projectID string, units []model.ProjectUnit) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := New(tx).lockEditableUnitProject(userID, projectID); err != nil {
+			return err
+		}
 		// 分批写入仍处于同一事务，避免两千章导入超过 SQLite/PostgreSQL 单语句参数上限。
 		if err := tx.CreateInBatches(&units, 100).Error; err != nil {
 			return err
@@ -252,10 +273,11 @@ func (r *Repository) ImportProjectUnits(projectID string, units []model.ProjectU
 	})
 }
 
-func (r *Repository) ReorderProjectUnits(projectID string, unitIDs []string) error {
+func (r *Repository) ReorderProjectUnits(userID, projectID string, unitIDs []string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
-		if err := New(tx).BumpProjectRevision(projectID); err != nil {
+		within := New(tx)
+		if err := within.lockEditableUnitProject(userID, projectID); err != nil {
 			return err
 		}
 		for position, unitID := range unitIDs {
@@ -267,7 +289,7 @@ func (r *Repository) ReorderProjectUnits(projectID string, unitIDs []string) err
 				return gorm.ErrRecordNotFound
 			}
 		}
-		return nil
+		return within.BumpProjectRevision(projectID)
 	})
 }
 
@@ -279,13 +301,14 @@ func (r *Repository) ProjectUnit(projectID string, id string) (*model.ProjectUni
 	return &unit, nil
 }
 
-func (r *Repository) UpdateProjectUnit(unit *model.ProjectUnit, invalidateWorkflow bool) error {
+func (r *Repository) UpdateProjectUnit(userID string, unit *model.ProjectUnit, invalidateWorkflow bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := New(tx).BumpProjectRevision(unit.ProjectID); err != nil {
+		within := New(tx)
+		if err := within.lockEditableUnitProject(userID, unit.ProjectID); err != nil {
 			return err
 		}
-		result := tx.Model(&model.ProjectUnit{}).Where("id = ? AND project_id = ?", unit.ID, unit.ProjectID).Updates(map[string]any{
-			"parent_id": unit.ParentID, "title": unit.Title, "source_text": unit.SourceText, "word_count": unit.WordCount, "status": unit.Status, "position": unit.Position, "updated_at": unit.UpdatedAt,
+		result := tx.Model(unit).Clauses(clause.Returning{}).Where("id = ? AND project_id = ?", unit.ID, unit.ProjectID).Updates(map[string]any{
+			"title": unit.Title, "source_text": unit.SourceText, "word_count": unit.WordCount, "status": unit.Status, "updated_at": unit.UpdatedAt,
 		})
 		if result.Error != nil {
 			return result.Error
@@ -298,14 +321,14 @@ func (r *Repository) UpdateProjectUnit(unit *model.ProjectUnit, invalidateWorkfl
 				return err
 			}
 		}
-		return nil
+		return within.BumpProjectRevision(unit.ProjectID)
 	})
 }
 
 func (r *Repository) DeleteProjectUnit(userID, projectID, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		within := New(tx)
-		if _, err := within.LockActiveStoryboardProject(userID, projectID); err != nil {
+		if err := within.lockEditableUnitProject(userID, projectID); err != nil {
 			return err
 		}
 		if err := deleteProjectUnitTx(tx, userID, projectID, id, ""); err != nil {
@@ -329,7 +352,7 @@ func (r *Repository) DeleteProjectUnit(userID, projectID, id string) error {
 func (r *Repository) ApplyDramaEpisodes(userID, projectID, taskID string, deleteIDs []string, create []model.ProjectUnit, update []model.ProjectUnit, order []string, documents []model.ProjectOntologyDocument) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repository{db: tx}
-		if _, err := txRepo.LockActiveStoryboardProject(userID, projectID); err != nil {
+		if err := txRepo.lockEditableUnitProject(userID, projectID); err != nil {
 			return err
 		}
 		writtenCount := 0
@@ -400,7 +423,7 @@ func (r *Repository) DramaShotlistUnitIDs(projectID string) ([]string, error) {
 // Release all DB locks before waiting for that mutex, then recheck during deletion.
 func (r *Repository) CheckProjectUnitDeletion(userID, projectID, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if _, err := New(tx).LockActiveStoryboardProject(userID, projectID); err != nil {
+		if err := New(tx).lockEditableUnitProject(userID, projectID); err != nil {
 			return err
 		}
 		return guardProjectUnitDeletion(tx, userID, projectID, id, "")

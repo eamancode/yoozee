@@ -137,10 +137,9 @@ func resumedProviderRequestID(ctx context.Context) string {
 }
 
 func withProviderRequestKind(ctx context.Context, requestKind string) context.Context {
-	metadata, ok := ctx.Value(providerAnalyticsKey{}).(providerAnalyticsContext)
-	if !ok {
-		return ctx
-	}
+	// Result downloads use their request kind to enforce redirect isolation even
+	// when the caller has no task analytics context.
+	metadata, _ := ctx.Value(providerAnalyticsKey{}).(providerAnalyticsContext)
 	metadata.RequestKind = requestKind
 	return context.WithValue(ctx, providerAnalyticsKey{}, metadata)
 }

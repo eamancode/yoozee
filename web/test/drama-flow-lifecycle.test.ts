@@ -11,5 +11,7 @@ test("短剧新工作流：分镜、定妆、出片详情的 effect 清理，画
     expect(output).toContain("EP-02");
     expect(output).toContain("EP-03");
     expect(output).toContain("EP-04");
+    expect(output).toContain("EP-05");
+    expect(output).toContain("EP-06");
     expect(output).toContain("0 fail");
 }, 130000);

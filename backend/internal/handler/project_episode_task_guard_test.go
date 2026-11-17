@@ -23,6 +23,8 @@ const episodeDirectorInput = `{"metadata":{"domainProjectId":"guard-project","so
 
 func episodeGuardFixture(t *testing.T) (*gorm.DB, func(string, string, string) *httptest.ResponseRecorder) {
 	t.Helper()
+	// 剧集写操作与模型插件无关；在隔离的空目录初始化插件，仍使用真实 service 和数据库。
+	t.Setenv("CANVAS_OFFICIAL_PLUGIN_DIR", t.TempDir())
 	router, db, cookie := profileHandlerFixture(t)
 	RegisterProjectRoutes(router.Group("/api"), runtimeService)
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
@@ -135,31 +137,9 @@ func TestProjectEpisodeDeleteActiveTasksHTTP(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// 项目 revision、排序、正文、版本、运行记录、定版产物与画布都逐字段比对。
-	snapshot := func() string {
-		t.Helper()
-		var all [][]map[string]any
-		for _, table := range []any{
-			&model.Project{}, &model.ProjectUnit{}, &model.Shot{}, &model.ShotRevision{}, &model.ShotAssetReference{},
-			&model.ShotArtifact{}, &model.ShotEvidence{}, &model.ProjectOntologyDocument{}, &model.DramaShotlist{},
-			&model.CanvasProject{}, &model.CanvasUnitLink{}, &model.WorkflowInstance{}, &model.WorkflowStepInstance{},
-			&model.WorkflowStepTask{}, &model.Task{}, &model.ProductionTaskLink{},
-		} {
-			var rows []map[string]any
-			if err := db.Model(table).Order("id").Find(&rows).Error; err != nil {
-				t.Fatal(err)
-			}
-			all = append(all, rows)
-		}
-		raw, err := json.Marshal(all)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(raw)
-	}
-	before := snapshot()
+	before := episodeStateSnapshot(t, db)
 	assertEpisodeConflict(t, request("DELETE", "/units/middle", ""), want)
-	if before != snapshot() {
+	if before != episodeStateSnapshot(t, db) {
 		t.Fatal("rejected DELETE changed project contents or task state")
 	}
 	if err := db.Model(&model.Task{}).Where("id IN ?", slices.Collect(maps.Keys(want))).Update("status", model.TaskStatusSucceeded).Error; err != nil {
@@ -177,6 +157,33 @@ func TestProjectEpisodeDeleteActiveTasksHTTP(t *testing.T) {
 			t.Fatalf("unrelated task %s changed: status=%s err=%v", id, active.Status, err)
 		}
 	}
+}
+
+// 项目 revision、排序、正文、版本、运行记录、定版产物与画布都逐字段比对。
+func episodeStateSnapshot(t *testing.T, db *gorm.DB) string {
+	t.Helper()
+	var all [][]map[string]any
+	for _, table := range []any{
+		&model.Project{}, &model.ProjectUnit{}, &model.Shot{}, &model.ShotRevision{}, &model.ShotAssetReference{},
+		&model.ShotArtifact{}, &model.ShotEvidence{}, &model.ProjectOntologyDocument{}, &model.DramaShotlist{},
+		&model.CanvasProject{}, &model.CanvasUnitLink{}, &model.WorkflowInstance{}, &model.WorkflowStepInstance{},
+		&model.WorkflowStepTask{}, &model.Task{}, &model.ProductionTaskLink{},
+	} {
+		stmt := &gorm.Statement{DB: db}
+		if err := stmt.Parse(table); err != nil {
+			t.Fatal(err)
+		}
+		var rows []map[string]any
+		if err := db.Table(stmt.Schema.Table).Order("id").Find(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, rows)
+	}
+	raw, err := json.Marshal(all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }
 
 func waitEpisodeGuardBarrier(t *testing.T, ch <-chan struct{}) {

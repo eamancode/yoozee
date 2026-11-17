@@ -76,15 +76,19 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 			}
 			step.VideoResourceID, step.Status, step.Phase, step.Error = id, "succeeded", "completed", ""
 			return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" 已完成", "")
-		case model.TaskStatusFailed:
+		case model.TaskStatusFailed, model.TaskStatusCancelled:
 			d, err := s.videoChainAttemptDiagnostic(child)
 			if err != nil {
 				return fail(err)
 			}
 			step.Diagnostic = &d
+			if child.Status == model.TaskStatusCancelled {
+				if d.SafeToResubmit {
+					return fail(BadAuthRequest("本段在派发前已取消，可从本段重新报价并确认继续"))
+				}
+				return fail(unresolvedVideoChainAttempt(task.ID, *step))
+			}
 			return fail(fmt.Errorf("视频生成失败：%s", child.Error))
-		case model.TaskStatusCancelled:
-			return fail(BadAuthRequest("当前镜头生成已取消，请停止本链后重新预览"))
 		default:
 			step.Status, step.Phase = "running", "generating"
 			return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" · "+child.Stage, "")

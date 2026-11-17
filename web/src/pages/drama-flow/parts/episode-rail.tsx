@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Button, Input } from "antd";
 import { LayoutGrid, List, Plus, Trash2 } from "lucide-react";
 
-import { EpisodeDialog, type EpisodeDialogTarget } from "./episode-dialog";
+import { archivedEpisodeNotice, EpisodeDialog, type EpisodeDialogTarget } from "./episode-dialog";
 
 export type RailEpisode = { id: string; title: string; summary: string; warn: boolean; completion?: number };
 
@@ -13,6 +13,7 @@ export function EpisodeRail({
     projectId,
     episodes,
     activeId,
+    archived,
     onSelect,
     readState,
     onRetry,
@@ -20,6 +21,7 @@ export function EpisodeRail({
     projectId: string;
     episodes: RailEpisode[];
     activeId: string;
+    archived: boolean;
     onSelect: (id: string, replace?: boolean) => void;
     readState: "ready" | "loading" | "error";
     onRetry: () => void;
@@ -46,7 +48,15 @@ export function EpisodeRail({
         setDialog(undefined);
     };
     const deleteButton = (episode: RailEpisode) => (
-        <Button type="text" size="small" icon={<Trash2 className="size-3.5" />} title={`删除此剧集：${episode.title}`} aria-label={`删除此剧集：${episode.title}`} onClick={() => setDialog({ kind: "delete", id: episode.id, title: episode.title })} />
+        <Button
+            type="text"
+            size="small"
+            icon={<Trash2 className="size-3.5" />}
+            disabled={archived}
+            title={archived ? archivedEpisodeNotice : `删除此剧集：${episode.title}`}
+            aria-label={`删除此剧集：${episode.title}`}
+            onClick={() => setDialog({ kind: "delete", id: episode.id, title: episode.title })}
+        />
     );
     return (
         <aside className="drama-flow-rail" aria-label="剧集">
@@ -61,9 +71,10 @@ export function EpisodeRail({
                     </button>
                 </div>
             </div>
-            <Button size="small" icon={<Plus className="size-3.5" />} disabled={readState !== "ready"} onClick={() => setDialog({ kind: "create" })}>
+            <Button size="small" icon={<Plus className="size-3.5" />} disabled={archived || readState !== "ready"} onClick={() => setDialog({ kind: "create" })}>
                 {readState === "ready" && !episodes.length ? "添加首集" : "添加剧集"}
             </Button>
+            {archived ? <p className="drama-flow-rail-none">{archivedEpisodeNotice}</p> : null}
             {episodes.length > 8 ? <Input size="small" allowClear placeholder="搜索剧集" value={keyword} onChange={(event) => setKeyword(event.target.value)} /> : null}
             {view === "matrix" ? (
                 <div className="drama-flow-matrix">
@@ -106,7 +117,7 @@ export function EpisodeRail({
             ) : !shown.length ? (
                 <p className="drama-flow-rail-none">{episodes.length ? "没有符合的剧集" : "还没有剧集"}</p>
             ) : null}
-            {dialog ? <EpisodeDialog projectId={projectId} target={dialog} onClose={() => setDialog(undefined)} onSaved={saved} /> : null}
+            {dialog ? <EpisodeDialog projectId={projectId} target={dialog} archived={archived} onClose={() => setDialog(undefined)} onSaved={saved} /> : null}
         </aside>
     );
 }

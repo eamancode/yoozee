@@ -54,7 +54,6 @@ func (s *Service) checkOriginalVideoChain(repo *repository.Repository, userID, p
 				return err
 			}
 			if child.Status == model.TaskStatusSucceeded && (d.BillingStatus == "none" || d.BillingStatus == "settled") ||
-				child.Status == model.TaskStatusCancelled && d.SubmissionOutcome == "not_submitted" ||
 				(parent.Status == model.TaskStatusCancelled || next.Request.ResumeChainID != "") && d.SafeToResubmit {
 				continue
 			}

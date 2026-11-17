@@ -472,7 +472,7 @@ func requireActiveProject(project *model.Project, err error) (*model.Project, er
 		return nil, err
 	}
 	if project.Status == model.ProjectStatusArchived {
-		return nil, BadAuthRequest("项目已归档，不能修改短剧生产数据")
+		return nil, BadAuthRequest(repository.ErrProjectNotActive.Error())
 	}
 	return project, nil
 }
@@ -485,8 +485,8 @@ func (s *Service) CreateProjectUnit(userID string, projectID string, req CreateP
 	if err != nil {
 		return model.ProjectUnit{}, err
 	}
-	if err := s.repo.CreateProjectUnit(&unit, req.Position); err != nil {
-		return model.ProjectUnit{}, err
+	if err := s.repo.CreateProjectUnit(userID, &unit, req.Position); err != nil {
+		return model.ProjectUnit{}, episodeMutationError(err)
 	}
 	return unit, nil
 }
@@ -521,8 +521,8 @@ func (s *Service) ImportProjectUnits(userID string, projectID string, req Import
 		}
 		units = append(units, unit)
 	}
-	if err := s.repo.ImportProjectUnits(projectID, units); err != nil {
-		return nil, err
+	if err := s.repo.ImportProjectUnits(userID, projectID, units); err != nil {
+		return nil, episodeMutationError(err)
 	}
 	return units, nil
 }
@@ -555,7 +555,7 @@ func (s *Service) ReorderProjectUnits(userID string, projectID string, req Reord
 		seen[id] = struct{}{}
 		normalizedIDs = append(normalizedIDs, id)
 	}
-	return s.repo.ReorderProjectUnits(projectID, normalizedIDs)
+	return episodeMutationError(s.repo.ReorderProjectUnits(userID, projectID, normalizedIDs))
 }
 
 func (s *Service) DeleteProjectUnit(userID string, projectID string, unitID string) error {
@@ -575,6 +575,9 @@ func (s *Service) DeleteProjectUnit(userID string, projectID string, unitID stri
 }
 
 func episodeMutationError(err error) error {
+	if errors.Is(err, repository.ErrProjectNotActive) {
+		return BadAuthRequest(repository.ErrProjectNotActive.Error())
+	}
 	var active *repository.EpisodeActiveTasksError
 	if !errors.As(err, &active) {
 		return err
@@ -648,8 +651,8 @@ func (s *Service) UpdateProjectUnit(userID string, projectID string, unitID stri
 		unit.Status = status
 	}
 	unit.UpdatedAt = time.Now()
-	if err := s.repo.UpdateProjectUnit(unit, sourceChanged); err != nil {
-		return model.ProjectUnit{}, err
+	if err := s.repo.UpdateProjectUnit(userID, unit, sourceChanged); err != nil {
+		return model.ProjectUnit{}, episodeMutationError(err)
 	}
 	return *unit, nil
 }

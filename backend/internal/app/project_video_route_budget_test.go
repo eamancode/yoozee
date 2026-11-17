@@ -71,7 +71,7 @@ func TestProjectVideoAutoRouteRequotesSupplierCost(t *testing.T) {
 }
 
 func TestProjectVideoAutoRouteRejectsIneligibleTier(t *testing.T) {
-	for _, condition := range []string{"6.01 CNY", "unknown cost", "disabled tier", "group excludes channel"} {
+	for _, condition := range []string{"6.01 CNY", "unknown cost", "disabled tier", "per-second tier", "disabled channel", "shortened duration", "group excludes channel"} {
 		t.Run(condition, func(t *testing.T) {
 			f := newAutoRouteBudgetFixture(t)
 			quote := budgetRouteQuote(t, f, 4_000_000)
@@ -82,6 +82,19 @@ func TestProjectVideoAutoRouteRejectsIneligibleTier(t *testing.T) {
 				changeBudgetRouteTier(t, f, "upstream_request_cost_micro_cny", nil)
 			case "disabled tier":
 				changeBudgetRouteTier(t, f, "enabled", false)
+			case "per-second tier":
+				changeBudgetRouteTier(t, f, "billing_mode", "per_second")
+			case "disabled channel":
+				if err := f.db.Model(&model.ModelChannel{}).Where("id = ?", budgetRouteChannel).Update("enabled", false).Error; err != nil {
+					t.Fatal(err)
+				}
+			case "shortened duration":
+				profile := DefaultModelCapabilityConfigForModel("seedance-videos-compatible", "seedance-2.5-test")
+				profile.Video.Duration = VideoDurationConfig{Selection: "enum", Values: []int{15}, Default: 15}
+				raw := mustEncodeModelCapabilityConfig(t, profile)
+				if err := f.db.Model(&model.ChannelModel{}).Where("channel_id = ?", budgetRouteChannel).Update("capability_config_json", raw).Error; err != nil {
+					t.Fatal(err)
+				}
 			case "group excludes channel":
 				group := model.UserGroup{ID: "budget-restrict", Code: "original-only", ModelOverridesJSON: "[]"}
 				for _, row := range []any{&group, &model.UserGroupChannel{GroupID: group.ID, ChannelID: "system-video"}} {

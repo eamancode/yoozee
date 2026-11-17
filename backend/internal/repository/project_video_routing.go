@@ -20,6 +20,15 @@ func (r *Repository) ProjectVideoRoute(projectID string) (*model.ProjectVideoRou
 // Callers hold the project row lock across receipt deduplication, streak and route changes.
 func (r *Repository) ApplyProjectVideoRouteEvent(event *model.ProjectVideoRouteEvent) (int, bool, error) {
 	write := r.db.Clauses(clause.OnConflict{DoNothing: true}).Create(event)
+	// A late receipt can establish that a previously failed attempt actually
+	// produced a video. Correct this attempt once. Replaying its success later
+	// must not erase failures belonging to subsequent tasks on the same route.
+	if write.Error == nil && write.RowsAffected == 0 && event.Decision == "reset" {
+		write = r.db.Model(&model.ProjectVideoRouteEvent{}).
+			Where("task_id = ? AND route_run = ? AND project_id = ? AND channel_id = ? AND provider_model_key = ? AND decision = ?",
+				event.TaskID, event.RouteRun, event.ProjectID, event.ChannelID, event.ProviderModelKey, "increment").
+			Update("decision", "reset")
+	}
 	if write.Error != nil || write.RowsAffected == 0 {
 		return 0, false, write.Error
 	}

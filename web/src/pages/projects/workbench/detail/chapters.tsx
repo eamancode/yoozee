@@ -178,10 +178,12 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     // 章与集各自编号。
     const chapterNumberById = useMemo(() => new Map([...chapterUnits.map((unit, index) => [unit.id, index + 1] as const), ...episodeUnits.map((unit, index) => [unit.id, index + 1] as const)]), [chapterUnits, episodeUnits]);
     const unitNoun = unitView === "episode" ? "集" : "章";
+    const archived = detail.project.status === "archived";
     // 对话框里称呼当前单元：剧集叫「剧集」，原文叫「章节」。
     const selectedUnitNoun = selectedUnit && unitKind(selectedUnit) === "episode" ? "剧集" : "章节";
     // 改编出剧集后原文只读：改原文要重新优化，否则剧集和原文对不上。
     const originalLocked = Boolean(selectedUnit && unitKind(selectedUnit) === "chapter" && episodeUnits.length);
+    const readOnly = archived || originalLocked;
     const episodesQuery = useQuery({ queryKey: dramaEpisodesKey(detail.project.id), queryFn: ({ signal }) => getDramaEpisodes(detail.project.id, signal), enabled: episodeUnits.length > 0 });
     const unitTitleById = useMemo(() => new Map(orderedUnits.map((unit) => [unit.id, unit.title])), [orderedUnits]);
     // 由当前原文章节改编出的剧集（来源注释或主要来源指向它）。
@@ -461,8 +463,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     }, [editor, selectedUnit?.id]);
 
     useEffect(() => {
-        if (editor && editor.isEditable === originalLocked) editor.setEditable(!originalLocked, false);
-    }, [editor, originalLocked]);
+        if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly, false);
+    }, [editor, readOnly]);
 
     const wordCount = useMemo(() => editor?.storage.characterCount?.characters?.() || stripHtml(draftHtml).length || 0, [draftHtml, editor]);
     const chapterCanvasCount = (unitId: string) => canvasCountByUnitId.get(unitId) || 0;
@@ -715,7 +717,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         navigate(`/projects/${detail.project.id}/chapters/${unitId}`);
     };
     const moveChapter = (targetId: string) => {
-        if (!draggedId || draggedId === targetId || reorderMutation.isPending) return;
+        if (archived || !draggedId || draggedId === targetId || reorderMutation.isPending) return;
         const next = orderedIds.filter((id) => id !== draggedId);
         next.splice(next.indexOf(targetId), 0, draggedId);
         setOrderedIds(next);
@@ -723,7 +725,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         reorderMutation.mutate(next);
     };
     const moveChapterToPosition = () => {
-        if (!moveTargetId || !movePosition || reorderMutation.isPending) return;
+        if (archived || !moveTargetId || !movePosition || reorderMutation.isPending) return;
         // 序号是当前这一类（原文或剧集）里的位置：插到这一类第 N 个单元前面，排到最后时接在这一类最后一个后面。
         const viewIds = viewUnits.map((unit) => unit.id).filter((id) => id !== moveTargetId);
         const next = orderedIds.filter((id) => id !== moveTargetId);
@@ -769,8 +771,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     </div>
                     <div className="flex items-center gap-0.5">
                         {selectedId ? <Tooltip title={`回到当前${unitNoun}`}><Button type="text" size="small" icon={<Crosshair className="size-3.5" />} aria-label={`回到当前${unitNoun}`} onClick={revealSelectedChapter} /></Tooltip> : null}
-                        <Tooltip title={importKind === "episode" ? "导入剧本" : "导入小说"}><Button type="text" size="small" icon={<FileUp className="size-3.5" />} aria-label={importKind === "episode" ? "导入剧本" : "导入小说"} onClick={() => setImportOpen(true)} /></Tooltip>
-                        <Tooltip title={unitView === "episode" ? "添加剧集" : "添加章节"}><Button type="text" size="small" icon={<Plus className="size-4" />} aria-label={unitView === "episode" ? "添加剧集" : "添加章节"} onClick={() => setCreateOpen(true)} /></Tooltip>
+                        <Tooltip title={importKind === "episode" ? "导入剧本" : "导入小说"}><Button type="text" size="small" icon={<FileUp className="size-3.5" />} disabled={archived} aria-label={importKind === "episode" ? "导入剧本" : "导入小说"} onClick={() => setImportOpen(true)} /></Tooltip>
+                        <Tooltip title={unitView === "episode" ? "添加剧集" : "添加章节"}><Button type="text" size="small" icon={<Plus className="size-4" />} disabled={archived} aria-label={unitView === "episode" ? "添加剧集" : "添加章节"} onClick={() => setCreateOpen(true)} /></Tooltip>
                     </div>
                 </div>
                 <div className="shrink-0 border-b border-border/60 p-2">
@@ -792,17 +794,17 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                                 const chapterMeta = `${statusLabel(unit.status)} · ${formatCount(displayedWordCount)} 字 · ${chapterCanvasCount(unit.id)} 画布`;
                                 return (
                                     <div key={unit.id} className="absolute left-0 top-0 w-full" style={{ height: virtualItem.size, transform: `translateY(${virtualItem.start}px)` }}>
-                                        <div draggable={!dirty && !reorderMutation.isPending && !deferredSearchQuery} onDragStart={(event) => { setDraggedId(unit.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (deferredSearchQuery) return; event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDrop={() => moveChapter(unit.id)} onDragEnd={() => setDraggedId("")} className={`group relative flex h-[58px] items-start rounded-lg border px-0.5 transition-colors duration-100 ${unit.id === selectedUnit?.id ? "border-border/90 bg-surface-active" : "border-transparent hover:border-border/60 hover:bg-surface-hover"} ${draggedId === unit.id ? "opacity-45" : ""}`}>
+                                        <div draggable={!archived && !dirty && !reorderMutation.isPending && !deferredSearchQuery} onDragStart={(event) => { setDraggedId(unit.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (deferredSearchQuery) return; event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDrop={() => moveChapter(unit.id)} onDragEnd={() => setDraggedId("")} className={`group relative flex h-[58px] items-start rounded-lg border px-0.5 transition-colors duration-100 ${unit.id === selectedUnit?.id ? "border-border/90 bg-surface-active" : "border-transparent hover:border-border/60 hover:bg-surface-hover"} ${draggedId === unit.id ? "opacity-45" : ""}`}>
                                             <button type="button" disabled={Boolean(deferredSearchQuery)} className="mt-3.5 grid size-6 shrink-0 cursor-grab place-items-center text-foreground/22 active:cursor-grabbing disabled:cursor-default disabled:opacity-35" aria-label={`拖动第 ${chapterNumber} ${unitNoun}排序`}><GripVertical className="size-3.5" /></button>
                                             <button type="button" onClick={() => selectChapter(unit.id)} className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pr-14 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--workspace-accent)]">
                                                 <span className={`grid h-8 min-w-8 shrink-0 place-items-center rounded-md px-1 text-[var(--fs-tiny)] font-semibold tabular-nums ${unit.id === selectedUnit?.id ? "bg-[var(--workspace-accent-soft)] text-[var(--workspace-accent)]" : "bg-foreground/[.035] text-foreground/35"}`}>{String(chapterNumber).padStart(Math.max(2, String(viewUnits.length).length), "0")}</span>
                                                 <span className="min-w-0 flex-1 overflow-hidden"><span className={`block truncate text-[var(--fs-body)] ${unit.id === selectedUnit?.id ? "font-semibold text-foreground" : "font-medium text-foreground/68"}`}>{unit.title}</span><span title={chapterMeta} className="mt-1 block truncate whitespace-nowrap text-[var(--fs-tiny)] tabular-nums text-foreground/38">{statusLabel(unit.status)} · {formatChapterListCount(displayedWordCount)} 字 · {chapterCanvasCount(unit.id)} 画布</span></span>
                                             </button>
-                                            <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: [{ key: "move", icon: <MoveVertical className="size-3.5" />, label: "移动到…" }], onClick: () => { setMoveTargetId(unit.id); setMovePosition(chapterNumber); } }}>
-                                                <button type="button" className="absolute right-7 top-1/2 z-[1] grid size-6 -translate-y-1/2 place-items-center rounded text-foreground/28 opacity-0 hover:bg-surface-hover hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100" aria-label={`${unit.title}更多操作`}><MoreHorizontal className="size-3.5" /></button>
+                                            <Dropdown disabled={archived} trigger={["click"]} placement="bottomRight" menu={{ items: [{ key: "move", icon: <MoveVertical className="size-3.5" />, label: "移动到…" }], onClick: () => { setMoveTargetId(unit.id); setMovePosition(chapterNumber); } }}>
+                                                <button type="button" className="absolute right-7 top-1/2 z-[1] grid size-6 -translate-y-1/2 place-items-center rounded text-foreground/28 opacity-0 hover:bg-surface-hover hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100" disabled={archived} aria-label={`${unit.title}更多操作`}><MoreHorizontal className="size-3.5" /></button>
                                             </Dropdown>
-                                            <Popconfirm title={unit.kind === "episode" ? "删除此剧集？" : "删除此章节？"} description={unit.kind === "episode" ? "剧集正文、镜头表和段将被删除，已关联的画布不会删除。" : "章节内容及关联制作记录将被删除，已关联的画布不会删除。"} okText="删除" cancelText="取消" okButtonProps={{ danger: true, loading: deleteMutation.isPending }} onConfirm={() => deleteMutation.mutate(unit.id)}>
-                                                <button type="button" className="absolute right-1 top-1/2 z-[1] grid size-6 -translate-y-1/2 place-items-center rounded text-foreground/28 opacity-0 hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 focus-visible:opacity-100" aria-label={`删除${unit.title}`}><Trash2 className="size-3.5" /></button>
+                                            <Popconfirm disabled={archived} title={unit.kind === "episode" ? "删除此剧集？" : "删除此章节？"} description={unit.kind === "episode" ? "剧集正文、镜头表和段将被删除，已关联的画布不会删除。" : "章节内容及关联制作记录将被删除，已关联的画布不会删除。"} okText="删除" cancelText="取消" okButtonProps={{ danger: true, disabled: archived, loading: deleteMutation.isPending }} onConfirm={() => { if (!archived) deleteMutation.mutate(unit.id); }}>
+                                                <button type="button" className="absolute right-1 top-1/2 z-[1] grid size-6 -translate-y-1/2 place-items-center rounded text-foreground/28 opacity-0 hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 focus-visible:opacity-100" disabled={archived} aria-label={`删除${unit.title}`}><Trash2 className="size-3.5" /></button>
                                             </Popconfirm>
                                         </div>
                                     </div>
@@ -811,8 +813,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         </div> : <div className="px-3 py-8 text-center text-xs text-foreground/40">没有匹配的章节</div>}
                     </div>
                 ) : unitView === "episode" ? (
-                    <WorkspaceState icon="projects" compact className="flex-1 px-4" title="还没有剧集" description={chapterUnits.length ? "在右上角点「剧本优化」把原文章节改编成剧集，或导入剧本。" : "导入剧本，或先导入小说再做剧本优化。"} action={<Button size="small" type="primary" icon={<FileUp className="size-3.5" />} onClick={() => setImportOpen(true)}>{importKind === "episode" ? "导入剧本" : "导入小说"}</Button>} />
-                ) : <WorkspaceState icon="projects" compact className="flex-1 px-4" title="还没有章节" description="添加章节后可继续编写正文和关联画布。" action={<Button size="small" type="primary" icon={<Plus className="size-3.5" />} onClick={() => setCreateOpen(true)}>添加章节</Button>} />}
+                    <WorkspaceState icon="projects" compact className="flex-1 px-4" title="还没有剧集" description={archived ? "项目已归档，可在项目设置中恢复后添加剧集。" : chapterUnits.length ? "在右上角点「剧本优化」把原文章节改编成剧集，或导入剧本。" : "导入剧本，或先导入小说再做剧本优化。"} action={<Button size="small" type="primary" icon={<FileUp className="size-3.5" />} disabled={archived} onClick={() => setImportOpen(true)}>{importKind === "episode" ? "导入剧本" : "导入小说"}</Button>} />
+                ) : <WorkspaceState icon="projects" compact className="flex-1 px-4" title="还没有章节" description="添加章节后可继续编写正文和关联画布。" action={<Button size="small" type="primary" icon={<Plus className="size-3.5" />} disabled={archived} onClick={() => setCreateOpen(true)}>添加章节</Button>} />}
             </aside>
 
             <section className="min-h-0 min-w-0 w-full bg-background/18 p-2.5 sm:p-3.5">
@@ -821,7 +823,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         <header className="flex shrink-0 flex-wrap items-start gap-3 border-b border-border/70 px-4 py-3">
                             <div className="min-w-[12rem] flex-1">
                                 <div className="mb-1 text-[var(--fs-tiny)] font-medium tabular-nums text-foreground/38">{unitKind(selectedUnit) === "episode" ? "剧集" : "原文"} · 第 {String(chapterNumberById.get(selectedUnit.id) || 1).padStart(2, "0")} {unitKind(selectedUnit) === "episode" ? "集" : "章"}</div>
-                                <Input variant="borderless" value={draftTitle} disabled={!selectedUnit || originalLocked} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
+                                <Input variant="borderless" value={draftTitle} disabled={!selectedUnit || readOnly} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
                                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span>{unitShots.length ? <><span>·</span><span>{unitShots.length} 段</span></> : null}{dialogueCoverage.expected ? <><span>·</span><span className={dialogueCoverage.covered < dialogueCoverage.expected && unitShots.length ? "text-amber-600 dark:text-amber-400" : ""} title={dialogueCoverage.missing.length ? `没进分段的台词：${dialogueCoverage.missing.slice(0, 5).join(" / ")}` : undefined}>台词覆盖 {dialogueCoverage.covered}/{dialogueCoverage.expected}</span></> : null}{overLimitSegments.length ? <><span>·</span><span className="text-amber-600 dark:text-amber-400">{overLimitSegments.length} 段超过 {segmentMaxSeconds} 秒，需拆分</span></> : null}{shotlist?.draft && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>镜头表有 {shotlist.check.errors} 个问题，还没装段</button></> : null}{storyboardResume && !storyboardOperation ? <><span>·</span><button type="button" className="text-amber-600 underline-offset-2 hover:underline dark:text-amber-400" onClick={() => setRunPanelOpen(true)}>{storyboardResume.kind === "refinalize" ? `${storyboardResume.total} 节都写完了，写入没成功` : `分段停在第 ${storyboardResume.from} 场`}</button></> : null}{storyboardStop?.kind === "failed" && storyboardStop.status === "failed" && !storyboardOperation ? <><span>·</span><button type="button" className="text-red-600 underline-offset-2 hover:underline dark:text-red-400" onClick={() => setRunPanelOpen(true)}>上一次生成分段失败</button></> : null}</div>
                                 {unitLinks.length ? <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/45"><span>{unitKind(selectedUnit) === "episode" ? "改编自" : "已改编成"}</span>{unitLinks.map((link) => <button key={`${link.unitId}-${link.label}`} type="button" className="rounded bg-foreground/[.035] px-1.5 py-0.5 text-foreground/62 hover:text-[var(--workspace-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--workspace-accent)]" onClick={() => selectChapter(link.unitId)}>{link.label}</button>)}</div> : null}
                             </div>
@@ -832,11 +834,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                                 <AssetsExtractControl detail={detail} unit={selectedUnit} units={[...chapterUnits, ...episodeUnits]} paletteReady={scenesQuery.data?.unitId === selectedUnit.id ? scenesQuery.data.paletteReady : undefined} unitNoun={unitKind(selectedUnit) === "episode" ? "集" : "章"} tasks={chapterTasksQuery.data} disabled={dirty || adaptedOriginal} disabledReason={adaptedOriginal ? adaptedOriginalHint : undefined} />
                                 <Tooltip title={adaptedOriginal ? adaptedOriginalHint : undefined}><Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || adaptedOriginal || Boolean(storyboardOperation)} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || ""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成分段，${chapterOperationLabel(storyboardOperation, operationNow)}` : "生成分段"}>{storyboardOperation ? `生成分段（${chapterOperationLabel(storyboardOperation, operationNow)}）` : storyboardGenerated ? "生成分段（已生成）" : "生成分段"}</Button></Tooltip>
                                 {storyboardOperation || storyboardStreamState.shotCount || shotlist || storyboardStop ? <Button size="small" onClick={() => setRunPanelOpen(true)} aria-label="查看生成分段进度">进度</Button> : null}
-                                <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending || originalLocked} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
+                                <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending || readOnly} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
                         {originalLocked ? <div className="shrink-0 border-b border-border/70 px-4 py-2"><Callout tone="info" title={adaptedOriginal ? "这一章已改编成剧集，原文只读" : "已有剧集，原文只读"} action={<Button size="small" onClick={() => (adaptedEpisodeTarget ? selectChapter(adaptedEpisodeTarget.unitId) : switchUnitView("episode"))}>{adaptedEpisodeTarget ? `去${adaptedEpisodeLabel}` : "看剧集"}</Button>}>{adaptedOriginal ? "原文只作改编依据：改剧情、提取资产、生成分段都到剧集上操作；要按原文重来，点「剧本优化」勾选这一章重新改编，新剧本会替换由它改编的剧集。" : "原文只作改编依据。这一章还没改编：点「剧本优化」勾选它改编成剧集。"}</Callout></div> : null}
-                        <EditorToolbar editor={originalLocked ? null : editor} />
+                        <EditorToolbar editor={readOnly ? null : editor} />
                         <ChapterSceneList scenes={scenesQuery.data} editor={editor} dirty={dirty} />
                         <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">
                             <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>
@@ -850,8 +852,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     </div>
                 ) : <WorkspaceState icon="projects" compact className="h-full" title="请选择章节" description="从左侧章节列表选择一章开始编辑；项目风格可以先定。" action={<div className="flex flex-wrap justify-center gap-1.5"><StyleLockControl detail={detail} tasks={chapterTasksQuery.data} /></div>} />}
             </section>
-            <CreateChapterModal open={createOpen} kind={unitView} onClose={() => setCreateOpen(false)} loading={createMutation.isPending} onSubmit={(values) => createMutation.mutate(values)} />
-            <ImportNovelModal open={importOpen} kind={importKind} loading={importMutation.isPending} onClose={() => setImportOpen(false)} onImport={(chapters) => importMutation.mutate(chapters)} />
+            <CreateChapterModal open={createOpen && !archived} kind={unitView} onClose={() => setCreateOpen(false)} loading={createMutation.isPending} onSubmit={(values) => createMutation.mutate(values)} />
+            <ImportNovelModal open={importOpen && !archived} kind={importKind} loading={importMutation.isPending} onClose={() => setImportOpen(false)} onImport={(chapters) => importMutation.mutate(chapters)} />
             <ChapterStoryboardRunPanel
                 open={runPanelOpen}
                 onClose={() => setRunPanelOpen(false)}
@@ -916,7 +918,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     )}
                 </div>
             </Modal>
-            <Modal className="library-modal" title={unitView === "episode" ? "移动剧集" : "移动章节"} open={Boolean(moveTargetId)} width={400} okText="移动" cancelText="取消" okButtonProps={{ disabled: !movePosition || movePosition < 1 || movePosition > viewUnits.length, loading: reorderMutation.isPending }} onCancel={() => { setMoveTargetId(""); setMovePosition(null); }} onOk={moveChapterToPosition} styles={{ body: { paddingTop: 12 } }}>
+            <Modal className="library-modal" title={unitView === "episode" ? "移动剧集" : "移动章节"} open={Boolean(moveTargetId) && !archived} width={400} okText="移动" cancelText="取消" okButtonProps={{ disabled: !movePosition || movePosition < 1 || movePosition > viewUnits.length, loading: reorderMutation.isPending }} onCancel={() => { setMoveTargetId(""); setMovePosition(null); }} onOk={moveChapterToPosition} styles={{ body: { paddingTop: 12 } }}>
                 <div className="text-xs leading-5 text-foreground/50">输入目标章节位置。适合上千章项目的长距离调整，移动后其他章节会自动顺延。</div>
                 <label className="mt-3 flex items-center gap-2 text-sm"><span className="shrink-0">移动到第</span><InputNumber min={1} max={viewUnits.length} precision={0} value={movePosition} onChange={setMovePosition} className="min-w-0 flex-1" /><span className="shrink-0">{unitNoun}</span></label>
             </Modal>

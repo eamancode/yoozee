@@ -145,7 +145,7 @@ func (s *Service) resolveVideoReceiptConfig(ctx context.Context, c providerConfi
 	}
 	key := firstNonEmpty(frozen.ChannelModelKey, frozen.Model)
 	modelID, tierID := task.ChannelModelID, frozen.PriceTierID
-	var tierVersion int64
+	var billedTierVersion *int64
 	receipt := task.ProviderRequestID
 	if task.BillingOrderID != "" {
 		order, err := s.repo.BillingOrder(task.BillingOrderID)
@@ -160,7 +160,9 @@ func (s *Service) resolveVideoReceiptConfig(ctx context.Context, c providerConfi
 			return providerConfig{}, false, mismatch
 		}
 		modelID, tierID = firstNonEmpty(modelID, order.ChannelModelID), firstNonEmpty(tierID, order.PriceTierID)
-		tierVersion = order.PriceTierVersion
+		if order.PriceTierID != "" {
+			billedTierVersion = &order.PriceTierVersion
+		}
 		receipt = firstNonEmpty(receipt, order.ProviderRequestID)
 	}
 	attempts, err := s.repo.RouteAttempts(task.ID, task.RouteRun)
@@ -199,15 +201,33 @@ func (s *Service) resolveVideoReceiptConfig(ctx context.Context, c providerConfi
 	if err != nil {
 		return providerConfig{}, false, err
 	}
+	// Current inventory can fill an omitted legacy field only if the
+	// original attempt predates no changes to that row. A successful
+	// creation log, when present, reports the model actually sent upstream.
+	modelUnchanged := !since.IsZero() && !item.UpdatedAt.IsZero() && !item.UpdatedAt.After(since)
+	if frozen.InterfaceType == "" && !modelUnchanged {
+		return providerConfig{}, false, failedPrecondition("原视频模型配置已变化，无法核实原请求协议")
+	}
+	if frozen.ProviderModelKey == "" && !since.IsZero() {
+		frozen.ProviderModelKey, err = s.repo.VideoReceiptCreateModelKey(task.UserID, task.ID, task.BillingOrderID, frozen.ChannelID, jobID, since)
+		if err != nil {
+			return providerConfig{}, false, err
+		}
+	}
 	if frozen.ProviderModelKey == "" && tierID != "" {
 		tier, err := s.repo.VideoReceiptPriceTier(item.ID, tierID)
 		if err != nil {
 			return providerConfig{}, false, err
 		}
-		if tierVersion > 0 && tier.PriceVersion != tierVersion {
+		versionMatches := billedTierVersion != nil && tier.PriceVersion == *billedTierVersion
+		tierUnchanged := !since.IsZero() && !tier.UpdatedAt.IsZero() && !tier.UpdatedAt.After(since)
+		if !versionMatches && (billedTierVersion != nil || !tierUnchanged) {
 			return providerConfig{}, false, failedPrecondition("原视频规格档的版本已变化，无法核实原上游模型")
 		}
 		frozen.ProviderModelKey = tier.ProviderModelKey
+	}
+	if frozen.ProviderModelKey == "" && !modelUnchanged {
+		return providerConfig{}, false, failedPrecondition("原视频模型配置已变化，无法核实原上游模型")
 	}
 	frozen.ChannelModelKey, frozen.PriceTierID = key, tierID
 	frozen.ProviderModelKey = firstNonEmpty(frozen.ProviderModelKey, item.ProviderModelKey, key)

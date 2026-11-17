@@ -22,13 +22,18 @@ func (r *Repository) ProjectShots(projectID string) ([]model.Shot, error) {
 }
 
 func (r *Repository) SaveShot(shot *model.Shot, create bool) error {
-	if create {
-		return r.db.Create(shot).Error
-	}
-	return r.db.Model(&model.Shot{}).Where("id = ? AND project_id = ?", shot.ID, shot.ProjectID).Updates(map[string]any{
-		"unit_id": shot.UnitID, "title": shot.Title, "description": shot.Description, "position": shot.Position,
-		"duration_ms": shot.DurationMs, "status": shot.Status, "updated_at": shot.UpdatedAt,
-	}).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardUnit(tx, shot.ProjectID, shot.UnitID); err != nil {
+			return err
+		}
+		if create {
+			return tx.Create(shot).Error
+		}
+		return tx.Model(&model.Shot{}).Where("id = ? AND project_id = ?", shot.ID, shot.ProjectID).Updates(map[string]any{
+			"unit_id": shot.UnitID, "title": shot.Title, "description": shot.Description, "position": shot.Position,
+			"duration_ms": shot.DurationMs, "status": shot.Status, "updated_at": shot.UpdatedAt,
+		}).Error
+	})
 }
 
 // SaveShotWithRevision 原子保存镜头当前值、新版本和下游失效状态（已有产物全部过期）。
@@ -375,18 +380,28 @@ func (r *Repository) MarkShotArtifactsStale(shotID string, updatedAt time.Time) 
 }
 
 func (r *Repository) UpsertProductionTaskLink(link *model.ProductionTaskLink) error {
-	return r.db.Where("task_id = ? AND shot_id = ? AND artifact_type = ?", link.TaskID, link.ShotID, link.ArtifactType).Assign(map[string]any{
-		"project_id": link.ProjectID, "canvas_id": link.CanvasID, "unit_id": link.UnitID, "shot_id": link.ShotID,
-		"workflow_step_id": link.WorkflowStepID, "artifact_type": link.ArtifactType, "updated_at": link.UpdatedAt,
-	}).FirstOrCreate(link).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardContent(tx, link.ProjectID, link.UnitID, link.ShotID); err != nil {
+			return err
+		}
+		return tx.Where("task_id = ? AND shot_id = ? AND artifact_type = ?", link.TaskID, link.ShotID, link.ArtifactType).Assign(map[string]any{
+			"project_id": link.ProjectID, "canvas_id": link.CanvasID, "unit_id": link.UnitID, "shot_id": link.ShotID,
+			"workflow_step_id": link.WorkflowStepID, "artifact_type": link.ArtifactType, "updated_at": link.UpdatedAt,
+		}).FirstOrCreate(link).Error
+	})
 }
 
 func (r *Repository) UpsertShotAssetReference(reference *model.ShotAssetReference) error {
-	result := r.db.Model(&model.ShotAssetReference{}).Where("shot_id = ? AND asset_version_id = ? AND role = ?", reference.ShotID, reference.AssetVersionID, reference.Role).Updates(map[string]any{"status": reference.Status})
-	if result.Error != nil || result.RowsAffected > 0 {
-		return result.Error
-	}
-	return r.db.Create(reference).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockShotRow(tx, reference.ShotID); err != nil {
+			return err
+		}
+		result := tx.Model(&model.ShotAssetReference{}).Where("shot_id = ? AND asset_version_id = ? AND role = ?", reference.ShotID, reference.AssetVersionID, reference.Role).Updates(map[string]any{"status": reference.Status})
+		if result.Error != nil || result.RowsAffected > 0 {
+			return result.Error
+		}
+		return tx.Create(reference).Error
+	})
 }
 
 func (r *Repository) UpsertShotAssetReferenceAndInvalidate(projectID string, reference *model.ShotAssetReference, updatedAt time.Time) error {
@@ -461,19 +476,25 @@ func (r *Repository) CreateProjectAssetCandidates(candidates []model.ProjectAsse
 	if len(candidates) == 0 {
 		return nil
 	}
-	return r.db.Create(&candidates).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		targets := slices.Clone(candidates)
+		sort.Slice(targets, func(i, j int) bool {
+			return targets[i].ProjectID < targets[j].ProjectID
+		})
+		for _, target := range targets {
+			if err := lockStoryboardContent(tx, target.ProjectID, target.UnitID, target.ShotID); err != nil {
+				return err
+			}
+		}
+		return tx.Create(&candidates).Error
+	})
 }
 
 func (r *Repository) CreateProjectAssetCandidate(candidate *model.ProjectAssetCandidate) (bool, error) {
 	inserted := false
 	err := r.db.Transaction(func(tx *gorm.DB) error {
-		if err := lockStoryboardUnit(tx, candidate.ProjectID, candidate.UnitID); err != nil {
+		if err := lockStoryboardContent(tx, candidate.ProjectID, candidate.UnitID, candidate.ShotID); err != nil {
 			return err
-		}
-		if candidate.ShotID != "" {
-			if err := lockShotRow(tx.Where("project_id = ?", candidate.ProjectID), candidate.ShotID); err != nil {
-				return err
-			}
 		}
 		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(candidate)
 		inserted = result.RowsAffected == 1

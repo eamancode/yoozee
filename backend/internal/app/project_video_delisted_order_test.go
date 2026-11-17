@@ -74,6 +74,11 @@ func newDelistedVideoFixture(t *testing.T, kind string) *delistedVideoFixture {
 		if err := f.db.Model(&model.ModelChannel{}).Where("id = ?", f.channel).Update("base_url", f.server.URL).Error; err != nil {
 			t.Fatal(err)
 		}
+		if kind == "legacy" {
+			if err := f.db.Model(&model.ChannelModelPriceTier{}).Where("id = ?", "tier-30").Update("provider_model_key", "seedance-2.5-original-tier").Error; err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	req := CreateTaskRequest{
 		ProjectID: f.projectID, Type: "canvas_video", Model: f.key, Operation: "text_to_video", Prompt: "fixture",
@@ -116,14 +121,14 @@ func newDelistedVideoFixture(t *testing.T, kind string) *delistedVideoFixture {
 	if err := f.db.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{"status": model.TaskStatusRunning, "provider_request_id": delistedReceipt, "poll_stage": "polling"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	attempt := model.RouteAttempt{ID: newID(), TaskID: task.ID, RouteRun: task.RouteRun, AttemptNumber: 1, ChannelID: attemptChannelID, ChannelModelID: channelModelID,
-		RouteID: task.RouteID, LogicalModelID: task.LogicalModelID, LogicalModelRevisionID: task.LogicalModelRevisionID,
-		DispatchState: "accepted", ProviderRequestID: delistedReceipt, Status: "accepted"}
-	if err := f.db.Create(&attempt).Error; err != nil {
-		t.Fatal(err)
-	}
 	f.original, err = f.s.repo.TaskForUser("user-1", task.ID)
 	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := model.RouteAttempt{ID: newID(), TaskID: f.original.ID, RouteRun: f.original.RouteRun, AttemptNumber: 1, ChannelID: attemptChannelID, ChannelModelID: channelModelID,
+		RouteID: f.original.RouteID, LogicalModelID: f.original.LogicalModelID, LogicalModelRevisionID: f.original.LogicalModelRevisionID,
+		DispatchState: "accepted", ProviderRequestID: delistedReceipt, Status: "accepted"}
+	if err := f.db.Create(&attempt).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal([]byte(f.original.InputJSON), &f.input); err != nil {
@@ -137,8 +142,9 @@ func newDelistedVideoFixture(t *testing.T, kind string) *delistedVideoFixture {
 		t.Fatal(err)
 	}
 	if kind == "unified" {
-		if err := f.db.Model(&model.LogicalModelRoute{}).Where("id = ?", task.RouteID).Update("enabled", false).Error; err != nil {
-			t.Fatal(err)
+		withdraw := f.db.Model(&model.LogicalModelRoute{}).Where("id = ? AND enabled = ?", f.original.RouteID, true).Update("enabled", false)
+		if withdraw.Error != nil || withdraw.RowsAffected != 1 {
+			t.Fatalf("could not withdraw the original unified route: id=%q, rows=%d, err=%v", f.original.RouteID, withdraw.RowsAffected, withdraw.Error)
 		}
 		f.s.invalidateRouteCatalog()
 		if _, err := f.s.QuoteLogicalModel("user-1", req.LogicalModelID, ModelRequestIntentFromTaskInput(req.Input, req.Type, req.Operation)); err == nil {
@@ -290,12 +296,9 @@ func TestDelistedVideoReceiptHistoricalShapes(t *testing.T) {
 		}
 	})
 	t.Run("historic channel and model only", func(t *testing.T) {
-		f := newDelistedVideoFixture(t, "system")
+		f := newDelistedVideoFixture(t, "legacy")
 		f.failOriginal(t, map[string]any{"error": "执行超时", "input_json": fmt.Sprintf(`{"mode":"video","config":{"channelId":%q,"model":%q}}`, f.channel, f.key)})
 		if err := f.db.Where("id = ?", f.order.PriceTierID).Delete(&model.ChannelModelPriceTier{}).Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := f.db.Model(&model.ChannelModel{}).Where("id = ?", f.order.ChannelModelID).Update("provider_model_key", "replacement-model").Error; err != nil {
 			t.Fatal(err)
 		}
 		stored, err := f.s.repo.TaskForUser("user-1", f.original.ID)
@@ -304,7 +307,7 @@ func TestDelistedVideoReceiptHistoricalShapes(t *testing.T) {
 		}
 		ctx := withProviderAnalytics(t.Context(), f.s, *stored)
 		cfg, pollOnly, err := f.s.resolveVideoReceiptConfig(ctx, providerConfig{ChannelID: f.channel, Model: f.key}, delistedReceipt)
-		if err != nil || !pollOnly || cfg.Model != "seedance-2.5-mock" || cfg.InterfaceType != "seedance-videos-compatible" || cfg.PriceTierID != f.order.PriceTierID {
+		if err != nil || !pollOnly || cfg.Model != "seedance-2.5-original-tier" || cfg.InterfaceType != "seedance-videos-compatible" || cfg.PriceTierID != f.order.PriceTierID {
 			t.Fatalf("historical order did not resolve its original upstream model and protocol: %+v, %v", cfg, err)
 		}
 		result, err := f.s.QueryFailedVideoTask(t.Context(), "user-1", f.original.ID)

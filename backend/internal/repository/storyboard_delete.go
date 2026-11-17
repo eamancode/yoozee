@@ -41,6 +41,26 @@ func lockStoryboardUnit(tx *gorm.DB, projectID, unitID string) error {
 		Where("project_id = ? AND id = ?", projectID, unitID).Take(&unit).Error
 }
 
+// Content records can target an episode, a shot or both.
+func lockStoryboardContent(tx *gorm.DB, projectID, unitID, shotID string) error {
+	if err := lockStoryboardUnit(tx, projectID, unitID); err != nil {
+		return err
+	}
+	if shotID == "" {
+		return nil
+	}
+	if unitID == "" {
+		if err := lockStoryboardProject(tx, projectID); err != nil {
+			return err
+		}
+	}
+	shot := tx.Where("project_id = ?", projectID)
+	if unitID != "" {
+		shot = shot.Where("unit_id = ?", unitID)
+	}
+	return lockShotRow(shot, shotID)
+}
+
 func (r *Repository) ShotArtifactIDs(projectID, shotID string) ([]string, error) {
 	var ids []string
 	err := r.db.Model(&model.ShotArtifact{}).Where("project_id = ? AND shot_id = ?", projectID, shotID).

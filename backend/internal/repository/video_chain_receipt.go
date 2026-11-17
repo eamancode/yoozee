@@ -70,6 +70,22 @@ func (r *Repository) VideoReceiptCreateURLs(userID, taskID, billingOrderID, chan
 	return videoReceiptLogValues(query, "upstream_url", since)
 }
 
+func (r *Repository) VideoReceiptCreateModelKey(userID, taskID, billingOrderID, channelID, jobID string, since time.Time) (string, error) {
+	query := r.originalVideoReceiptLogs(userID, taskID, billingOrderID, channelID).
+		Where("source = ? AND request_kind = ? AND provider_request_id = ? AND video_provider_model_key <> '' AND status = ?",
+			"backend-task", "create", jobID, model.ApiCallStatusSucceeded)
+	keys, err := videoReceiptLogValues(query, "video_provider_model_key", since)
+	if err != nil || len(keys) == 0 {
+		return "", err
+	}
+	for _, key := range keys[1:] {
+		if keys[0] != key {
+			return "", errors.New("原视频受理号关联了不同的上游模型，请核对原回执")
+		}
+	}
+	return keys[0], nil
+}
+
 func (r *Repository) originalVideoReceiptLogs(userID, taskID, billingOrderID, channelID string) *gorm.DB {
 	return r.db.Model(&model.ApiCallLog{}).Where("user_id = ? AND task_id = ? AND capability = ? AND COALESCE(billing_order_id, '') = ? AND COALESCE(channel_id, '') = ?",
 		userID, taskID, "video", billingOrderID, channelID)

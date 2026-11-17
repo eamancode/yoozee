@@ -115,13 +115,14 @@ export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots
             {!unit && unitsQuery.isError ? null : !unit ? (
                 <div className="drama-flow-empty">
                     <strong>{unitsQuery.isLoading ? "正在读取剧集…" : stage?.state === "running" ? "正在把原文改写成剧本" : "还没有剧集"}</strong>
-                    {!unitsQuery.isLoading ? <span>{stage?.state === "running" ? "写好一集出现一集，不用守着；点右上角可以看流式输出。" : "点「添加首集」填写剧集标题和正文，也可以在「剧本优化」中改编原文。"}</span> : null}
+                    {!unitsQuery.isLoading && project.status !== "archived" ? <span>{stage?.state === "running" ? "写好一集出现一集，不用守着；点右上角可以看流式输出。" : "点「添加首集」填写剧集标题和正文，也可以在「剧本优化」中改编原文。"}</span> : null}
                 </div>
             ) : active === "episodes" ? (
                 <div className="min-w-0">
                     <EpisodeScript
                         key={unit.id}
                         projectId={project.id}
+                        archived={project.status === "archived"}
                         unit={unit}
                         full={fullUnit}
                         loadError={workspaceQuery.isError}
@@ -174,6 +175,7 @@ export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots
  */
 function EpisodeScript({
     projectId,
+    archived,
     unit,
     full,
     loadError,
@@ -184,6 +186,7 @@ function EpisodeScript({
     onRedoShots,
 }: {
     projectId: string;
+    archived: boolean;
     unit: ProjectUnit;
     full?: ProjectUnit;
     loadError: boolean;
@@ -228,12 +231,12 @@ function EpisodeScript({
                             <Button size="small" disabled={save.isPending} onClick={() => setDraft(undefined)}>
                                 放弃改动
                             </Button>
-                            <Button size="small" type="primary" loading={save.isPending} disabled={!draft.trim() || draft === text} onClick={() => save.mutate(draft)}>
+                            <Button size="small" type="primary" loading={save.isPending} disabled={archived || !draft.trim() || draft === text} onClick={() => save.mutate(draft)}>
                                 保存
                             </Button>
                         </>
                     ) : (
-                        <Button size="small" icon={<Pencil className="size-3.5" />} disabled={text === undefined} onClick={() => setDraft(text)}>
+                        <Button size="small" icon={<Pencil className="size-3.5" />} disabled={archived || text === undefined} onClick={() => setDraft(text)}>
                             改剧本
                         </Button>
                     )}
@@ -281,7 +284,7 @@ function EpisodeScript({
                 )}
             </div>
             {editing ? (
-                <Input.TextArea aria-label="剧本正文" autoSize={{ minRows: 16, maxRows: 48 }} value={draft} onChange={(event) => setDraft(event.target.value)} />
+                <Input.TextArea aria-label="剧本正文" readOnly={archived} autoSize={{ minRows: 16, maxRows: 48 }} value={draft} onChange={(event) => setDraft(event.target.value)} />
             ) : text === undefined ? (
                 loadError ? (
                     <ReadError what="这一集的正文" onRetry={onReload} />

@@ -101,7 +101,7 @@ func videoChainDiagnosticFromRepo(repo *repository.Repository, child *model.Task
 	// Earlier retries reused the same local child ID. A receipt from an earlier
 	// generation is not evidence about this attempt.
 	reconcileRunning := child.Status == model.TaskStatusRunning && (child.Attempts > 1 || child.PollStage == "poll" || child.MediaRecoveryJSON != "")
-	if providerID == "" && (child.Status == model.TaskStatusFailed || reconcileRunning) && (child.RouteRun <= 1 || !d.originalStart.IsZero()) {
+	if providerID == "" && (child.Status == model.TaskStatusFailed || child.Status == model.TaskStatusCancelled || reconcileRunning) && (child.RouteRun <= 1 || !d.originalStart.IsZero()) {
 		id, err := repo.VideoChainProviderRequestID(child.UserID, child.ID, child.BillingOrderID, d.originalStart, d.ChannelID)
 		if err != nil {
 			return d, err
@@ -157,12 +157,24 @@ func (d *videoChainAttemptDiagnostic) classify(child *model.Task, attempt model.
 		}
 		return false
 	}
-	terminalQuery := providerID != "" && (child.PollStage == "provider_failed" || child.PollStage == "provider_cancelled")
+	terminalQuery := providerID != "" && child.PollStage == "provider_failed"
 	switch {
 	case child.Status == model.TaskStatusSucceeded:
 		d.Category, d.CountDecision = "succeeded", "reset"
 	case child.Status == model.TaskStatusCancelled || child.PollStage == "provider_cancelled":
 		d.Category = "cancelled"
+		// Cancelling a queued task records not_submitted in the same status
+		// update. An attempt still marked not_sent at cancellation can have
+		// been selected by a running worker and cannot establish this alone.
+		beforeDispatch := facts != nil && facts.Phase == "cancellation" && facts.SubmissionOutcome == "not_submitted" &&
+			(attempt.DispatchState == "" || attempt.DispatchState == "not_sent") &&
+			child.PollStage == "" && child.ProviderCancelStatus == "" && child.MediaStage == ""
+		if d.SubmissionOutcome == "not_submitted" && !beforeDispatch {
+			d.SubmissionOutcome = "unknown"
+		}
+		d.SafeToResubmit = child.Status == model.TaskStatusCancelled && d.SubmissionOutcome == "not_submitted" &&
+			(d.BillingStatus == "none" || d.BillingStatus == "refunded")
+		return
 	case child.Status != model.TaskStatusFailed:
 		return
 	case child.MediaRecoveryJSON != "" || d.Phase == "result_persistence":

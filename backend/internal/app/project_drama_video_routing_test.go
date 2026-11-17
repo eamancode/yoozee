@@ -16,6 +16,75 @@ import (
 
 const routingOriginal = "system-video::seedance-2.5-test"
 
+func TestProjectVideoManualOverrideFencesOldChildAdmissionAndPreservesReceipt(t *testing.T) {
+	const replacement = "replacement::seedance-2.5-test"
+	t.Run("stale controller at paid admission", func(t *testing.T) {
+		f := newProjectRoutingFixture(t)
+		addRoutingAlternative(t, f, "replacement", 2_000_000)
+		original, err := f.s.OverrideProjectVideoRouting("user-1", f.projectID, routingOriginal, "", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chain := f.start(t)
+		state := f.tick(t, chain.ID)
+		step := state.Steps[0]
+		if step.Phase != "prepared" || state.RouteRevision != original.Revision || step.Quote == nil {
+			t.Fatalf("old controller did not reach prepared checkpoint: %+v", step)
+		}
+		lease := "prepared-controller"
+		if err := f.db.Model(&model.Task{}).Where("id = ?", chain.ID).Updates(map[string]any{
+			"status": model.TaskStatusRunning, "lease_owner": lease, "lease_expires_at": time.Now().Add(time.Minute),
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+		parent, err := f.s.repo.TaskForUser("user-1", chain.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, err := f.s.videoChainInput(parent, &step)
+		if err != nil {
+			t.Fatal(err)
+		}
+		marker := input[videoChainMetadataKey].(map[string]any)
+		marker["previewHash"], marker["shotId"] = state.PreviewHash, step.ShotID
+		marker["contentSeconds"], marker["generationSeconds"] = step.ContentSeconds, step.GenerationSeconds
+		stale := CreateTaskRequest{
+			ProjectID: f.projectID, Type: "canvas_video", Operation: "text_to_video",
+			Model: step.Model, Prompt: stringValue(input["prompt"]), Input: input,
+			admission: &taskAdmission{ID: step.TaskID, ParentControllerID: parent.ID, ParentControllerLease: lease, MaxCharge: &step.Quote.AmountMicrocredits},
+		}
+		// The worker already prepared the original payload. A second tab now
+		// commits the replacement before this worker may reserve credits.
+		selected, err := f.s.OverrideProjectVideoRouting("user-1", f.projectID, replacement, routingOriginal, original.Revision)
+		if err != nil || selected.Model != replacement || selected.Revision != original.Revision+1 {
+			t.Fatalf("manual replacement: %+v %v", selected, err)
+		}
+		if _, err := f.s.CreateTask("user-1", stale); err == nil || !strings.Contains(err.Error(), "线路已变化") {
+			t.Fatalf("old paid admission did not detect the manual selection: %v", err)
+		}
+		var children, orders int64
+		if err := f.db.Model(&model.Task{}).Where("parent_controller_id = ?", chain.ID).Count(&children).Error; err != nil || children != 0 {
+			t.Fatalf("created %d old children: %v", children, err)
+		}
+		if err := f.db.Model(&model.BillingOrder{}).Count(&orders).Error; err != nil || orders != 0 {
+			t.Fatalf("reserved %d old orders: %v", orders, err)
+		}
+	})
+	t.Run("original accepted receipt after manual change", func(t *testing.T) {
+		f := newDelistedVideoFixture(t, "system")
+		addRoutingAlternative(t, f.videoChainFixture, "replacement", 2_000_000)
+		if _, err := f.s.OverrideProjectVideoRouting("user-1", f.projectID, replacement, routingOriginal, 0); err != nil {
+			t.Fatal(err)
+		}
+		f.failOriginal(t, map[string]any{"error": "执行超时"})
+		result, err := f.s.QueryFailedVideoTask(t.Context(), "user-1", f.original.ID)
+		if err != nil || !result.Recovered || !result.BillingSettled {
+			t.Fatalf("query original provider receipt after selecting another channel: %+v %v", result, err)
+		}
+		f.checkCompletion(t, 1, 1)
+	})
+}
+
 func newProjectRoutingFixture(t *testing.T) *videoChainFixture {
 	t.Helper()
 	f := newVideoChainFixture(t, "A")

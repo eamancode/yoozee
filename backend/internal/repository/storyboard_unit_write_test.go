@@ -13,7 +13,7 @@ import (
 // DELETE commits, including when there were no shots to lock during deletion.
 func TestMissingStoryboardUnitRejectsPreparedWrites(t *testing.T) {
 	repo := storyboardTaskTestRepo(t)
-	if err := repo.db.AutoMigrate(&model.ProjectUnit{}, &model.ProjectOntologyDocument{}, &model.DramaShotlist{}, &model.ShotRevision{}, &model.ShotEvidence{}); err != nil {
+	if err := repo.db.AutoMigrate(&model.ProjectUnit{}, &model.ProjectOntologyDocument{}, &model.DramaShotlist{}, &model.ShotRevision{}, &model.ShotEvidence{}, &model.ProjectAssetCandidate{}); err != nil {
 		t.Fatal(err)
 	}
 	const missing = "removed"
@@ -26,6 +26,13 @@ func TestMissingStoryboardUnitRejectsPreparedWrites(t *testing.T) {
 	}{
 		{"shot", func() error {
 			return repo.SaveShotWithRevision(&shot, &model.ShotRevision{ID: "late-rev", ShotID: shot.ID}, true)
+		}},
+		{"legacy shot", func() error { return repo.SaveShot(&shot, true) }},
+		{"production link", func() error {
+			return repo.UpsertProductionTaskLink(&model.ProductionTaskLink{ID: "late-link", ProjectID: "project", UnitID: missing})
+		}},
+		{"batch candidates", func() error {
+			return repo.CreateProjectAssetCandidates([]model.ProjectAssetCandidate{{ID: "late-candidate", ProjectID: "project", UnitID: missing}})
 		}},
 		{"draft", func() error { return repo.SaveDramaShotlist(&shotlist) }},
 		{"repack", func() error {
@@ -45,7 +52,7 @@ func TestMissingStoryboardUnitRejectsPreparedWrites(t *testing.T) {
 			}
 		})
 	}
-	for _, table := range []any{&model.Shot{}, &model.DramaShotlist{}, &model.ProjectOntologyDocument{}, &model.ShotEvidence{}} {
+	for _, table := range []any{&model.Shot{}, &model.DramaShotlist{}, &model.ProjectOntologyDocument{}, &model.ShotEvidence{}, &model.ProductionTaskLink{}, &model.ProjectAssetCandidate{}} {
 		var count int64
 		if err := repo.db.Model(table).Where("unit_id = ?", missing).Count(&count).Error; err != nil || count != 0 {
 			t.Fatalf("%T after stale writes: count=%d err=%v", table, count, err)

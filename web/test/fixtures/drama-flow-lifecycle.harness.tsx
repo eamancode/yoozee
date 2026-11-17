@@ -2041,3 +2041,77 @@ test("EP-04 导演文档的实际交接页在删中间集后显示新的前序�
         await page.dispose();
     }
 }, 30000);
+
+for (const empty of [false, true]) {
+    test(`EP-05 归档项目${empty ? "空态" : "有三集时"}：列表和矩阵都说明只读原因，点击增删不发写请求`, async () => {
+        const server = createEpisodeProject({ archived: true, empty });
+        const page = await mount(`/drama-flow/${P}/script`, { prepare: server.attach });
+        try {
+            for (const view of ["列表", "矩阵"]) {
+                await page.click(episodeButton(view));
+                expect(episodeButton(view)?.getAttribute("aria-pressed")).toBe("true");
+                expect(episodeRail().textContent).toMatch(/项目已归档.*恢复/);
+                const add = episodeButton(empty ? "添加首集" : "添加剧集");
+                expect(add?.disabled).toBe(true);
+                await page.click(add);
+                const deletes = [...episodeRail().querySelectorAll<HTMLButtonElement>('button[aria-label^="删除此剧集"]')];
+                expect(deletes.map((button) => button.getAttribute("aria-label"))).toEqual(empty ? [] : ["删除此剧集：雨棚", "删除此剧集：渡口", "删除此剧集：归家"]);
+                for (const button of deletes) {
+                    expect(button.disabled).toBe(true);
+                    await page.click(button);
+                }
+                expect(episodeDialog()).toBeUndefined();
+            }
+            if (!empty) {
+                await page.click(selectEpisode("渡口"));
+                checkEpisodeSelection("渡口", "ep-b");
+                expect(document.querySelector(".drama-flow-script-text")?.textContent).toBe("渡口的独立正文");
+                expect(buttonByText(document.body, "改剧本")?.disabled).toBe(true);
+            }
+            expect(server.writes).toEqual([]);
+            expect(page.errors).toEqual([]);
+        } finally {
+            await page.dispose();
+            localStorage.removeItem("drama-flow:rail-view");
+        }
+    });
+}
+
+for (const creating of [true, false]) {
+    test(`EP-06 ${creating ? "创建" : "删除"}确认打开后项目归档，提交禁用，保留草稿且允许取消`, async () => {
+        const server = createEpisodeProject();
+        const page = await mount(`/drama-flow/${P}/script?ep=ep-a`, { prepare: server.attach });
+        try {
+            await page.click(buttonByText(document.body, "改剧本"));
+            const draft = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="剧本正文"]')!;
+            await fillEpisodeField(draft, "归档之前的草稿");
+            await page.click(episodeButton(creating ? "添加剧集" : "删除此剧集：雨棚"));
+            if (creating) await fillEpisodeField(episodeDialog().querySelector("input")!, "归档之前的标题");
+            const confirm = () => buttonByText(episodeDialog(), creating ? "创建剧集" : "删除剧集");
+            expect(confirm()?.disabled).toBe(false);
+            server.archived = true;
+            await act(async () => void (await page.client.invalidateQueries({ queryKey: ["project", P, "core"], exact: true })));
+            await flush();
+            expect(episodeDialog().querySelector('[role="status"]')?.textContent).toMatch(/项目已归档.*恢复/);
+            expect(confirm()?.disabled).toBe(true);
+            await page.click(confirm());
+            if (creating) {
+                expect(episodeDialog().querySelector("input")?.value).toBe("归档之前的标题");
+                const form = episodeDialog().querySelector("form")!;
+                await act(async () => void form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+                await flush();
+            }
+            await page.click(buttonByText(episodeDialog(), "取消"));
+            expect(episodeDialog()).toBeUndefined();
+            checkEpisodeSelection("雨棚", "ep-a");
+            expect(draft.readOnly).toBe(true);
+            expect(draft.value).toBe("归档之前的草稿");
+            expect(buttonByText(document.body, "保存")?.disabled).toBe(true);
+            await page.click(buttonByText(document.body, "保存"));
+            expect(server.writes).toEqual([]);
+            expect(page.errors).toEqual([]);
+        } finally {
+            await page.dispose();
+        }
+    });
+}

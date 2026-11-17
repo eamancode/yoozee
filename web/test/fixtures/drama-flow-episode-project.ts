@@ -2,7 +2,7 @@ import type { ProjectUnit } from "@/services/api/projects";
 import { FIXTURE_PROJECT_ID, type DramaFlowFixture, type FixtureResponse } from "./drama-flow-api-fixture";
 
 /** 同一份服务端夹具可跨 QueryClient 冷启动。列表只返回摘要，正文要按真实单元 ID 读工作区。 */
-export function createEpisodeProject() {
+export function createEpisodeProject({ archived = false, empty = false } = {}) {
     const base = `/projects/${FIXTURE_PROJECT_ID}`;
     const collection = `${base}/units`;
     const ok = (data: unknown): FixtureResponse => ({ status: 200, body: { code: 0, msg: "ok", data } });
@@ -20,7 +20,7 @@ export function createEpisodeProject() {
         updatedAt: "2026-11-12T08:00:00Z",
     });
     const source = makeUnit("source-only", "原文章节", 0, "chapter");
-    const units = [source, makeUnit("ep-a", "雨棚", 1), makeUnit("ep-b", "渡口", 2), makeUnit("ep-c", "归家", 3)];
+    const units = empty ? [source] : [source, makeUnit("ep-a", "雨棚", 1), makeUnit("ep-b", "渡口", 2), makeUnit("ep-c", "归家", 3)];
     const episodes = () => units.filter((unit) => unit.kind === "episode");
     const writes: Array<{ method: string; path: string; body: unknown }> = [];
     let segments: DramaFlowFixture["state"]["segments"] | undefined;
@@ -28,6 +28,7 @@ export function createEpisodeProject() {
     const fixture = {
         units,
         writes,
+        archived,
         rejectNext: "",
         attach(api: DramaFlowFixture) {
             const template = api.state.segments[0];
@@ -47,6 +48,7 @@ export function createEpisodeProject() {
                 const path = url.pathname;
                 const verb = method.toUpperCase();
                 if (verb !== "GET") writes.push({ method: verb, path, body });
+                if (verb === "GET" && path === `${base}/core` && fixture.archived) return ok({ project: { ...api.project, status: "archived" } });
                 if (verb === "GET" && path === collection) return ok({ units: units.map((unit) => ({ ...unit, sourceText: "" })), canvasCounts: { "ep-b": 1 } });
                 if (verb === "GET" && path === `${base}/drama/episodes`) {
                     return ok({

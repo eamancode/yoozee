@@ -53,3 +53,40 @@ func TestEpisodeReplacementExcludesOnlyItsOwnTask(t *testing.T) {
 		}
 	}
 }
+
+func TestArchivedProjectRejectsEveryEpisodeMutation(t *testing.T) {
+	r := storyboardTaskTestRepo(t)
+	if err := r.db.Model(&model.Project{}).Where("id = ?", "project").Update("status", model.ProjectStatusArchived).Error; err != nil {
+		t.Fatal(err)
+	}
+	existing, err := r.ProjectUnit("project", "episode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newUnit := model.ProjectUnit{ID: "new", ProjectID: "project", Kind: model.ProjectUnitKindEpisode}
+	edits := []struct {
+		name string
+		run  func() error
+	}{
+		{"create", func() error { return r.CreateProjectUnit("user", &newUnit, nil) }},
+		{"import", func() error { return r.ImportProjectUnits("user", "project", []model.ProjectUnit{newUnit}) }},
+		{"update", func() error { return r.UpdateProjectUnit("user", existing, true) }},
+		{"reorder", func() error { return r.ReorderProjectUnits("user", "project", []string{"episode"}) }},
+		{"delete", func() error { return r.DeleteProjectUnit("user", "project", "episode") }},
+		{"director busy", func() error { return r.CheckProjectUnitDeletion("user", "project", "episode") }},
+		{"replace", func() error {
+			return r.ApplyDramaEpisodes("user", "project", "adapt", []string{"episode"}, []model.ProjectUnit{newUnit}, nil, []string{"new"}, nil)
+		}},
+	}
+	for _, edit := range edits {
+		t.Run(edit.name, func(t *testing.T) {
+			if err := edit.run(); !errors.Is(err, ErrProjectNotActive) {
+				t.Fatalf("archived project write: %v", err)
+			}
+		})
+	}
+	units, err := r.ProjectUnits("project")
+	if err != nil || len(units) != 1 || units[0].ID != existing.ID {
+		t.Fatalf("units after rejected mutations: %+v, err=%v", units, err)
+	}
+}

@@ -433,6 +433,7 @@ export default function DramaFlowDetailPage() {
                         key={projectId}
                         projectId={projectId}
                         episodes={railEpisodes}
+                        archived={project.status === "archived"}
                         activeId={unitId}
                         readState={queryReadState(data.unitsQuery)}
                         onRetry={() => void data.unitsQuery.refetch()}
@@ -455,7 +456,7 @@ export default function DramaFlowDetailPage() {
                         ) : null}
                         {needsEpisode ? (
                             <div className="drama-flow-empty">
-                                <strong>{data.unitsQuery.isError ? "剧集列表没读到" : data.unitsQuery.isLoading ? "正在读取剧集…" : "添加首集后即可开始分镜"}</strong>
+                                <strong>{data.unitsQuery.isError ? "剧集列表没读到" : data.unitsQuery.isLoading ? "正在读取剧集…" : project.status === "archived" ? "还没有剧集" : "添加首集后即可开始分镜"}</strong>
                             </div>
                         ) : null}
                         {stage === "shots" && unit ? <StageShots key={unitId} data={data} stage={stageView} selectedId={focusId} onSelect={(shotId) => setParam("item", shotId)} /> : null}
