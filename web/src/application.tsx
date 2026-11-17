@@ -1,4 +1,5 @@
 import React from "react";
+import "@/i18n";
 import { createRoot } from "react-dom/client";
 import "antd/dist/reset.css";
 import "./styles/globals.css";

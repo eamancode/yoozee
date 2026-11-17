@@ -331,7 +331,7 @@ export type DramaSegment = {
 };
 
 /** 参考图编号与提交顺序一致；sent=false 表示未就绪或超过模型上限，不随请求发送。 */
-export type DramaSegmentReference = { castId: string; label: string; kind: DramaCastKind; name: string; resourceId?: string; sent: boolean };
+export type DramaSegmentReference = { castId: string; label: string; kind: DramaCastKind | "image"; name: string; resourceId?: string; sent: boolean };
 
 /**
  * 生成本段视频时实际发送的内容，与提交同一函数计算。
@@ -375,6 +375,9 @@ export type DramaCast = {
     role: string;
     description: string;
     appearance: string;
+    imagePrompt?: string;
+    parentId?: string;
+    lookName?: string;
     voiceInstructions: string;
     importance: number;
     imageResourceId?: string;

@@ -411,17 +411,18 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
     const requestConfig = resolveModelRequestConfig(config, config.model);
     const workflow = resolveGenerationWorkflowExecution(config, mode);
     if (workflow) return workflowProviderConfig(config, requestConfig, workflow);
+    const depthVideo = mode === "video" && modelCapabilityConfigFor(config, config.model).video?.defaultOperation === "depth";
     const generationOptions = {
         ...(mode === "image" ? { imageParameters: imageParameterRequest(modelCapabilityConfigFor(config, config.model).image!, config, true) } : {}),
-        size: config.size,
+        size: depthVideo ? undefined : config.size,
         imageResolution: omittedImageQuality(config.imageResolution),
         quality: omittedImageQuality(config.quality),
         transparentBackground: config.transparentBackground,
         count: config.count,
         videoSeconds: config.videoSeconds,
-        vquality: config.vquality,
-        videoGenerateAudio: config.videoGenerateAudio,
-        videoWatermark: config.videoWatermark,
+        vquality: depthVideo ? undefined : config.vquality,
+        videoGenerateAudio: depthVideo ? undefined : config.videoGenerateAudio,
+        videoWatermark: depthVideo ? undefined : config.videoWatermark,
         videoArkPrivateAssetUpload: config.videoArkPrivateAssetUpload,
         audioVoice: normalizeAudioVoiceForConfig(config, config.audioVoice),
         audioFormat: normalizeAudioFormatForConfig(config, config.audioFormat),

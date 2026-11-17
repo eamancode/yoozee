@@ -5,7 +5,7 @@ test("真实工作区面板跨设备发现、接续与账号隔离", () => {
     const result = Bun.spawnSync([process.execPath, "test", "./test/fixtures/cloud-agent-panel-sync.harness.tsx"], { cwd: resolve(import.meta.dir, ".."), timeout: 30000 });
     const output = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
     expect(result.exitCode, output).toBe(0);
-    expect(output).toContain("15 pass");
+    expect(output).toContain("29 pass");
     expect(output).toContain("0 fail");
     // 子进程的上限是 30 秒；外层默认 5 秒会提前杀掉仍在正常执行的断言。
 }, 35000);

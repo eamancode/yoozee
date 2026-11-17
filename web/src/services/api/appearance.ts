@@ -157,12 +157,17 @@ export async function uploadAgentAvatarBundle(file: File) {
     return result.bundle;
 }
 
-export function agentAvatarBundleFileURL(resourceId: string, file: string, preview = false, revision = "") {
-    const endpoint = preview ? "admin/settings" : "public";
-    const query = !preview && revision ? `?v=${encodeURIComponent(revision)}` : "";
-    return `${apiBaseURL.replace(/\/$/, "")}/${endpoint}/appearance/avatar/${encodeURIComponent(resourceId)}/${encodeURIComponent(file)}${query}`;
+type AppearanceAssetScope = boolean | "public" | "personal";
+
+function appearanceAssetEndpoint(scope: AppearanceAssetScope) {
+    return scope === "personal" ? "/appearance" : `/${scope === true ? "admin/settings" : "public"}/appearance`;
 }
 
-export function live2DModelURL(resourceId: string, entry: string, preview = false) {
-    return `${apiBaseURL.replace(/\/$/, "")}/${preview ? "admin/settings" : "public"}/appearance/live2d/${encodeURIComponent(resourceId)}/${entry.split("/").map(encodeURIComponent).join("/")}`;
+export function agentAvatarBundleFileURL(resourceId: string, file: string, scope: AppearanceAssetScope = false, revision = "") {
+    const query = (scope === false || scope === "public") && revision ? `?v=${encodeURIComponent(revision)}` : "";
+    return `${apiBaseURL.replace(/\/$/, "")}${appearanceAssetEndpoint(scope)}/avatar/${encodeURIComponent(resourceId)}/${encodeURIComponent(file)}${query}`;
+}
+
+export function live2DModelURL(resourceId: string, entry: string, scope: AppearanceAssetScope = false) {
+    return `${apiBaseURL.replace(/\/$/, "")}${appearanceAssetEndpoint(scope)}/live2d/${encodeURIComponent(resourceId)}/${entry.split("/").map(encodeURIComponent).join("/")}`;
 }
