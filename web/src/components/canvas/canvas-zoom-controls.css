@@ -1,0 +1,14 @@
+.canvas-workspace-zoom-controls {
+    flex-wrap: wrap;
+    align-items: center;
+    max-width: calc(100% - var(--canvas-inset-x) * 2);
+}
+
+.canvas-zoom-controls {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.canvas-workspace-zoom-controls > .canvas-zoom-controls {
+    flex: 0 1 auto;
+}

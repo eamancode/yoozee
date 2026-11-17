@@ -119,6 +119,15 @@ func (s *Service) deleteUserAssetsWithResources(userID string, ids []string, pur
 		}
 	}
 	if len(ownedIDs) > 0 {
+		retained, retainedErr := s.repo.OfficialRecommendationResourceIDs()
+		if retainedErr != nil {
+			return retainedErr
+		}
+		for _, resourceID := range ownedIDs {
+			if _, exists := retained[resourceID]; exists {
+				return BadAuthRequest("素材正在被官方素材库或待审核推荐引用，暂不能删除")
+			}
+		}
 		var snapshot repository.ResourceReferenceSnapshot
 		var snapshotErr error
 		if deleteReferencedResources {
@@ -207,6 +216,9 @@ func (s *Service) deleteUserAssetsWithResources(userID string, ids []string, pur
 	// 业务记录和 Outbox 必须在同一事务提交。事务失败时物理文件完全不动；
 	// 提交成功后由幂等 worker 清理，进程退出或对象存储暂时失败都可继续重试。
 	if err := s.repo.DeleteAssetsAndResources(userID, assetIDs, ownedIDs, deletionJobs, deleteReferencedResources); err != nil {
+		if errors.Is(err, repository.ErrOfficialResourceReferenced) {
+			return BadAuthRequest("素材正在被官方素材库或待审核推荐引用，暂不能删除")
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return NotFound("素材不存在或无权删除")
 		}

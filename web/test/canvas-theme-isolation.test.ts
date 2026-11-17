@@ -10,6 +10,15 @@ afterEach(() => {
 });
 
 describe("canvas theme ownership", () => {
+    test("独立画布继续沿用柚子工作区的明暗主题色", async () => {
+        const css = await Bun.file(new URL("../src/styles/globals.css", import.meta.url)).text();
+        expect(css).toContain("--background: oklch(0.993 0.002 286)");
+        expect(css).toContain("--user-page-bg: #f8f8fa");
+        expect(css).toContain("--workspace-canvas: var(--background)");
+        expect(css).toContain("--background: #0f0f11");
+        expect(css).toContain("--user-page-bg: #151517");
+    });
+
     test("defaults to black while allowing an explicit light theme", () => {
         expect(useCanvasThemeStore.getInitialState().theme).toBe("dark");
         useCanvasThemeStore.getState().setTheme("light");
@@ -36,6 +45,6 @@ describe("canvas theme ownership", () => {
     });
     test("persistence source contract excludes transient route state", async () => {
         const source = await Bun.file(new URL("../src/stores/canvas/use-canvas-theme-store.ts", import.meta.url)).text();
-        expect(source).toContain('partialize: ({ theme }) => ({ theme })');
+        expect(source).toContain("partialize: ({ theme }) => ({ theme })");
     });
 });

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { removeCreationAttachment } from "../src/pages/create/creation-assets";
+import { translate } from "../src/i18n";
 import { moduleGroupSource } from "./helpers/module-group-source";
 
 function compactSource(source: string) {
@@ -50,7 +51,8 @@ describe("creation library button", () => {
         expect(source).toContain("onUpload: uploadLibraryAssets");
         expect(source).not.toContain("onUpload={() => fileInputRef.current?.click()}");
         expect(source).toContain("上传后保存到素材库");
-        expect(pickerSource).toContain("保存完成后会自动选中");
+        expect(pickerSource).toContain('t("library.picker.uploadingHint")');
+        expect(translate("library.picker.uploadingHint")).toBe("保存完成后会自动选中");
         expect(source).toContain("个素材已上传到素材库并自动选中");
     });
 

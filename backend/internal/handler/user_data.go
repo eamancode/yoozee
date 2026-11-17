@@ -303,9 +303,13 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		options := resourceAccessOptions(c)
-		delivery, err := svc.PrepareResourceDelivery(user.ID, c.Param("id"), options, c.GetHeader("Range"))
+		rangeHeader := c.GetHeader("Range")
+		delivery, err := svc.PrepareResourceDelivery(user.ID, c.Param("id"), options, rangeHeader)
 		if err != nil {
 			failService(c, err)
+			return
+		}
+		if !options.DescribeOnly && rangeHeader == "" && tryServeTranscodedDelivery(c, svc, delivery) {
 			return
 		}
 		serveResourceDelivery(c, delivery, "private, no-cache", "")
@@ -607,11 +611,13 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 5<<20)
 		var req service.CanvasOperationsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
+			logCanvasOperationsFailure(c, "decode_request", nil, err)
 			fail(c, http.StatusBadRequest, service.BadAuthRequest("画布操作请求格式错误"))
 			return
 		}
 		project, err := svc.ApplyUserCanvasOperations(user.ID, c.Param("id"), req)
 		if err != nil {
+			logCanvasOperationsFailure(c, "apply_operations", &req, err)
 			failService(c, err)
 			return
 		}
