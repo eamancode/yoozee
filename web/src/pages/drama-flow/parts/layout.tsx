@@ -56,15 +56,15 @@ export function PaneSection({ label, children, empty = "没填" }: { label: stri
     );
 }
 
-export type SummaryItem = { label: string; value: ReactNode; tone?: "bad" | "warn" | "ok" | "run" };
+export type SummaryItem = { label: string; value: ReactNode; tone?: "bad" | "warn" | "ok" | "run"; /** 模型卡：值是可点开的模型下拉。 */ model?: boolean };
 
 /** 汇总行：一组「数字 + 标签」，有问题的标警示色。 */
 export function SummaryRow({ items }: { items: SummaryItem[] }) {
     return (
         <dl className="drama-flow-summary">
             {items.map((item) => (
-                <div key={item.label} data-tone={item.tone}>
-                    <dt>{item.label}</dt>
+                <div key={item.label} data-tone={item.tone} data-model={item.model || undefined}>
+                    <dt className={item.model ? "sr-only" : undefined}>{item.label}</dt>
                     <dd>{item.value}</dd>
                 </div>
             ))}

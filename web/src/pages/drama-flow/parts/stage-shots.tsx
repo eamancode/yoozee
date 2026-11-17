@@ -17,6 +17,7 @@ import { directorPhaseText, directorRoundsText, directorRunView } from "../model
 import { durationText } from "../model/runs";
 import type { FlowStageView } from "../model/stages";
 import { DetailPane, ReadError, StageLayout, SummaryRow } from "./layout";
+import { modelSummaryItem } from "./model-card";
 
 export { unitWorkspaceKey } from "../hooks/use-flow-data";
 
@@ -51,7 +52,7 @@ export function shotSeconds(shots: DramaSubShot[], index: number, segmentSeconds
 
 /** 分镜：一集的镜头表状态、汇总、每段的镜头和绑定资产都直接显示；点一段在右侧就地改（拆段、合段、改镜头都在那里）。 */
 export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowData; stage?: FlowStageView; selectedId?: string; onSelect: (shotId?: string) => void }) {
-    const { project, unit, unitId, workspace, workspaceQuery, pipelineQuery, unitSegments, allUnits, segmentRule } = data;
+    const { project, unit, unitId, workspace, workspaceQuery, pipelineQuery, unitSegments, allUnits, segmentRule, stepModels } = data;
     // 段本身来自分段接口；超时长、问题、参考这些标记来自进度接口：哪个没读到就写「没读到」，不按 0 算。
     const segmentsUnread = (pending: boolean) => (pending ? "…" : "没读到");
     const projectId = project?.id || "";
@@ -133,7 +134,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                 </div>
             </div>
             <ShotlistBar run={run} segmentCount={segments.length} director={director} />
-            {project && projectWorkflow(project.workflowId).storyboardMode === "sss" ? <DirectorSetup projectId={project.id} tasks={data.projectTasks} /> : null}
+            {project && projectWorkflow(project.workflowId).storyboardMode === "sss" ? <DirectorSetup projectId={project.id} tasks={data.projectTasks} textModel={stepModels.text} /> : null}
             <SummaryRow
                 items={[
                     { label: "段", value: segmentsQuery.data && !segmentsQuery.isError ? segments.length : segmentsUnread(segmentsQuery.isLoading) },
@@ -143,6 +144,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                     { label: "超时长", value: pipelineQuery.isError || !pipelineQuery.data ? segmentsUnread(pipelineQuery.isLoading) : overLimit, tone: overLimit ? "bad" : undefined },
                     { label: "有问题", value: pipelineQuery.isError || !pipelineQuery.data ? segmentsUnread(pipelineQuery.isLoading) : withIssues, tone: withIssues ? "bad" : undefined },
                     { label: "没参考", value: pipelineQuery.isError || !pipelineQuery.data ? segmentsUnread(pipelineQuery.isLoading) : noRefs, tone: noRefs ? "warn" : undefined },
+                    modelSummaryItem(stepModels.text),
                 ]}
             />
             {segmentsQuery.isError ? <ReadError what="分镜" onRetry={() => void segmentsQuery.refetch()} /> : null}

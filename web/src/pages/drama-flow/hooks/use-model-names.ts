@@ -57,6 +57,6 @@ export function useModelNames(enabled: boolean) {
         const channels = catalogQuery.data?.channels;
         return !malformed && Array.isArray(channels) ? systemChannelModelChannels(channels) : [];
     }, [catalogQuery.data, malformed]);
-    const nameOf = (id: string | undefined, unset: string) => modelNameOf({ id, catalogRead, catalogChannels, localChannels: config.channels, unset });
+    const nameOf = (id: string | undefined, unset: string, read: ReadState = catalogRead) => modelNameOf({ id, catalogRead: read, catalogChannels, localChannels: config.channels, unset });
     return { nameOf, catalogRead, refetch: () => catalogQuery.refetch() };
 }

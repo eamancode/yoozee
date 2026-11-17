@@ -6,6 +6,7 @@ import { UsersRound } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { ModelPicker } from "@/components/model-picker";
+import { dialogModelPicker, dialogTextSubmission, useDialogSubmissionModels, type StepDialogModels } from "./step-dialog-models";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { Callout } from "@/components/ui/product/callout";
 import { navigateToSettings } from "@/lib/settings-navigation";
@@ -29,6 +30,7 @@ import { chainedFromOf, chapterTaskIdentity, followDramaRunTask, runAssetsExtrac
 import { turnaroundImageModel } from "./project-character-media";
 
 type AssetsExtractControlProps = {
+    stepModels?: StepDialogModels;
     detail: ProjectDetail;
     unit?: ProjectUnit;
     /** 项目的全部单元：自动接着提取的任务可能在别的集上，侧栏按它显示标题。 */
@@ -148,7 +150,7 @@ function imagesText(outcome: DramaAssetsExtractOutcome, statuses?: DramaImageSta
  * 章节页的「提取资产」（单元级步骤 assets.extract）：对话框选文本模型、要不要给新资产出图和用哪个图片模型（默认项目默认图片模型）；
  * 技能由项目风格档案的绑定决定。进度侧栏按场流式显示资产行，写完显示新增 / 合并 / 跳过并可去资产页。资产直接是已确认的，不用再确认。
  */
-export function AssetsExtractControl({ detail, unit: selectedUnit, units, paletteReady, unitNoun, tasks, disabled, disabledReason }: AssetsExtractControlProps) {
+export function AssetsExtractControl({ detail, unit: selectedUnit, units, paletteReady, unitNoun, tasks, disabled, disabledReason, stepModels }: AssetsExtractControlProps) {
     const integrated = projectWorkflow(detail.project.workflowId).integratedAssets;
     const { message } = App.useApp();
     const navigate = useNavigate();
@@ -160,6 +162,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
     const unitId = unit?.id || "";
     const selectedUnitId = selectedUnit?.id || "";
     const effectiveConfig = useEffectiveConfig();
+    const submission = useDialogSubmissionModels(stepModels, effectiveConfig);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [open, setOpen] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
@@ -171,6 +174,11 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
     const [resumeView, setResumeView] = useState<{ from: number; total: number; previous: AssetsExtractStreamState }>();
     const followedRef = useRef(new Set<string>());
     const [settings, setSettings] = useState<Settings>({ textModel: "", images: true, imageModel: "" });
+    const textPicker = dialogModelPicker("text", stepModels, settings.textModel, (textModel) => setSettings((current) => ({ ...current, textModel })));
+    const imagePicker = dialogModelPicker("image", stepModels, settings.imageModel, (imageModel) => {
+        setPrecheckError("");
+        setSettings((current) => ({ ...current, imageModel }));
+    });
     const usageQuery = useQuery({
         queryKey: ["project", projectId, "drama-step", "assets.extract", detail.project.styleProfile || ""],
         queryFn: ({ signal }) => getDramaStepUsage(projectId, "assets.extract", signal).then((result) => result.usage),
@@ -233,14 +241,16 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
         if (!unit) return;
         if (paletteMissing && unit.id === selectedUnitId) return message.warning(PALETTE_REQUIRED_HINT);
         if (detail.project.status === "archived") return message.warning("项目已归档，请先在项目设置中恢复");
-        const textModel = settings.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
+        const resumeModel = options.resumeTaskId ? (checkpoint || taskDetail)?.model || "" : undefined;
+        const { model: textModel, issue } = dialogTextSubmission(stepModels?.text, effectiveConfig, settings.textModel, resumeModel);
+        if (issue) return message.warning(issue);
         const config = { ...effectiveConfig, model: textModel, textModel };
         if (!isAiConfigReady(config, textModel)) {
             navigateToSettings({ continueCreation: true });
             return;
         }
         const images = options.resumeTaskId ? previousImages(taskDetail) : settings.images;
-        const imageModel = settings.imageModel || defaultImageModel();
+        const imageModel = stepModels ? imagePicker.value : settings.imageModel || defaultImageModel();
         const imageConfig = { ...effectiveConfig, model: imageModel };
         // 出图模板在开跑前组好：组不出来时不建任务、不打开侧栏，原因留在对话框里。
         const precheckFailed = (reason: string) => {
@@ -252,7 +262,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
         };
         let imageTask: Awaited<ReturnType<typeof assetImageTaskTemplate>> | undefined;
         if (images) {
-            if (!isAiConfigReady(imageConfig, imageModel)) return precheckFailed("资产出图用的图片模型还没配好：到设置里配置，或关掉出图。");
+            if (!imageModel || stepModels?.image.disabledReason(imageModel) || !isAiConfigReady(imageConfig, imageModel)) return precheckFailed("资产出图用的图片模型还没配好：到设置里配置，或关掉出图。");
             setPrecheckError("");
             setPreparing(true);
             try {
@@ -271,7 +281,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
         setPanelOpen(true);
         try {
             const result = await runAssetsExtract(
-                { projectId, unitId: unit.id, config, imageTask, resumeTaskId: options.resumeTaskId },
+                { projectId, unitId: unit.id, config: submission.textConfig(config, resumeModel, imageTask), imageTask, resumeTaskId: options.resumeTaskId },
                 {
                     onTaskUpdate: (task) => {
                         if (images && imageTask) useDramaModelPreferencesStore.getState().remember("image", imageModel, task.userId);
@@ -425,7 +435,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 width={540}
                 okText="开始提取"
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !usage || (settings.images && !settings.imageModel), loading: preparing }}
+                okButtonProps={{ disabled: !textPicker.value || !usage || (settings.images && !imagePicker.value), loading: preparing }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -444,8 +454,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                             preferenceScope="short-drama"
                             config={effectiveConfig}
                             capability="text"
-                            value={settings.textModel}
-                            onChange={(textModel) => setSettings((current) => ({ ...current, textModel }))}
+                            {...textPicker}
                             variant="creation"
                             fullWidth
                             placeholder="选择用于提取资产的文本模型"
@@ -471,11 +480,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                                 preferenceScope="short-drama"
                                 config={effectiveConfig}
                                 capability="image"
-                                value={settings.imageModel}
-                                onChange={(imageModel) => {
-                                    setPrecheckError("");
-                                    setSettings((current) => ({ ...current, imageModel }));
-                                }}
+                                {...imagePicker}
                                 fullWidth
                                 placeholder="选择资产出图用的图片模型"
                                 showSelectedPrice
@@ -525,7 +530,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 stepLabel="提取资产"
                 stop={running ? undefined : stop}
                 resumeOptions={
-                    resume ? (
+                    resume && !stepModels ? (
                         <label className="block text-xs">
                             继续使用的文本模型
                             <ModelPicker

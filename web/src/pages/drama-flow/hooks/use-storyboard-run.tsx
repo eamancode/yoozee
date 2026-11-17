@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useDirectorPrecondition } from "@/pages/projects/workbench/detail/director-preconditions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,12 +31,20 @@ export function useStoryboardRun(data: FlowData) {
     const queryClient = useQueryClient();
     const effectiveConfig = useDramaModelConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
-    const { project, unit, unitId, detail, dramaRule, segmentRule, allUnits, projectTasks } = data;
+    const { project, unitId, dramaRule, allUnits, projectTasks } = data;
     const projectId = project?.id || "";
     const episode = unitEpisodeNumber(allUnits, unitId);
     const code = (text: string) => projectSceneCode(text, episode);
     const [streamText, setStreamText] = useState("");
     const [liveTaskId, setLiveTaskId] = useState("");
+    // 确认框可能跨过模型目录更新、换集或离开页面，只使用当前仍挂载的项目和章节。
+    const current = useRef<{ data: FlowData; config: typeof effectiveConfig } | null>(null);
+    useLayoutEffect(() => {
+        current.current = { data, config: effectiveConfig };
+        return () => {
+            current.current = null;
+        };
+    }, [data, effectiveConfig]);
 
     const shotlistQuery = useQuery({ queryKey: dramaShotlistKey(projectId, unitId), queryFn: async ({ signal }) => (await getDramaShotlist(projectId, unitId, signal)).shotlist, enabled: Boolean(projectId && unitId) });
     const shotlist = shotlistQuery.data;
@@ -93,26 +101,48 @@ export function useStoryboardRun(data: FlowData) {
         },
     });
 
-    const generate = async (onlySections?: string[], independent = false) => {
+    const sameTarget = () => current.current?.data.project?.id === projectId && current.current.data.unitId === unitId;
+    const generationInput = () => {
+        const snapshot = current.current;
+        if (!snapshot || !sameTarget()) return;
+        const { project, unit, detail, textModel, stepModels, segmentRule, dramaRule } = snapshot.data;
         if (!project || !unit || !detail) return;
         // 和旧工作台同一口径：没有锁定的风格锚、画风快照也没写风格提示词，才拦下。
-        if (projectStyleMissing(project)) return message.warning("项目还没锁定画风：先到「定妆 · 画风」让导演定画风，再生成分镜");
-        if (!segmentRule || segmentRule.problem) return message.warning(`${segmentRule?.problem || "生成模型没读到"}，先在项目信息里换模型`);
-        const textModel = effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
-        const config = { ...effectiveConfig, model: textModel, textModel };
-        if (!textModel || !isAiConfigReady(config, textModel)) {
+        if (projectStyleMissing(project)) {
+            void message.warning("项目还没锁定画风：先到「定妆 · 画风」让导演定画风，再生成分镜");
+            return;
+        }
+        if (!segmentRule || segmentRule.problem) {
+            void message.warning(`${segmentRule?.problem || "生成模型没读到"}，先在项目信息里换模型`);
+            return;
+        }
+        if (!textModel || stepModels.text.disabledReason(textModel)) {
+            void message.warning(stepModels.text.status("请先选择可用的文本模型").text);
+            return;
+        }
+        const config = { ...snapshot.config, model: textModel, textModel };
+        if (!isAiConfigReady(config, textModel)) {
             navigateToSettings({ continueCreation: true });
             return;
         }
+        return { detail, config, rule: dramaRule };
+    };
+    const generate = async (onlySections?: string[], independent = false) => {
+        let input = generationInput();
+        if (!input) return;
         const whole = !onlySections?.length;
         if (whole && !independent) {
-            const discards = chapterSegmentDiscards(detail.shots, detail.shotArtifacts, unit.id);
-            if (discards.length && !(await confirmDiscard(discards, "整集重新生成"))) return;
+            const discards = chapterSegmentDiscards(input.detail.shots, input.detail.shotArtifacts, unitId);
+            if (discards.length) {
+                if (!(await confirmDiscard(discards, "整集重新生成"))) return;
+                input = generationInput();
+                if (!input) return;
+            }
         }
         setStreamText("");
         try {
             const result = await generateChapterStoryboard(
-                { projectId, chapterId: unit.id, config, rule: dramaRule, onlySections, discard: whole, allowMissingHandoff: independent },
+                { projectId, chapterId: unitId, config: input.config, rule: input.rule, onlySections, discard: whole, allowMissingHandoff: independent },
                 {
                     onTaskUpdate: (task) => setLiveTaskId(task.id),
                     onStreamText: (text) => setStreamText(text),
@@ -122,11 +152,16 @@ export function useStoryboardRun(data: FlowData) {
             if (outcome?.status === "draft") message.warning(`镜头表检查有 ${outcome.errors} 个问题，存成了草稿还没装段；在上面的条里处理`, 8);
             else message.success(outcome ? `已生成 ${outcome.segments} 段（${outcome.scenes} 场）` : "分镜已写入");
         } catch (error) {
+            if (!sameTarget()) return;
             if (
                 handlePrecondition(error, {
-                    previous: (id) => navigate(`/drama-flow/${projectId}/shots?ep=${encodeURIComponent(id)}`),
+                    previous: (id) => {
+                        if (sameTarget()) navigate(`/drama-flow/${projectId}/shots?ep=${encodeURIComponent(id)}`);
+                    },
                     independent: () => void generate(onlySections, true),
-                    design: () => navigate(`/drama-flow/${projectId}/script?ep=${encodeURIComponent(unit.id)}`),
+                    design: () => {
+                        if (sameTarget()) navigate(`/drama-flow/${projectId}/script?ep=${encodeURIComponent(unitId)}`);
+                    },
                 })
             )
                 return;

@@ -422,6 +422,23 @@ export function createDramaFlowFixture(
             if (path === `${base}/video-chains`) return ok({ chains: chainList() });
             if (path === "/drama/shot-vocab") return ok({ vocab: { sizes: ["远景", "全景", "中景", "近景", "特写"], cameras: ["固定机位", "推", "拉", "摇"], transitions: [] } });
             if (path === "/model-catalog") return ok(catalog);
+            // 短剧可用模型目录（服务端无人值守能用的平台模型）：按同一份系统目录列出，步骤模型卡据此判断能不能选。
+            if (path === "/dramas/models") {
+                const options: Record<string, unknown[]> = { text: [], image: [], video: [] };
+                for (const channel of catalog.channels) {
+                    for (const model of channel.models) {
+                        const video = "capabilityConfig" in model ? model.capabilityConfig?.video : undefined;
+                        options[model.capability]?.push({
+                            choice: { channelId: channel.id, modelKey: model.modelKey },
+                            capability: model.capability,
+                            label: model.displayName,
+                            priceLabel: "",
+                            videoRatios: video?.ratios,
+                        });
+                    }
+                }
+                return ok({ defaults: {}, options, unavailable: {} });
+            }
             if (path === "/wallet") return ok({ account: { availableMicrocredits: 9_000_000_000, frozenMicrocredits: 0 }, transactions: [], total: 0, page: 1, pageSize: 1 });
             if (path === "/tasks") return ok(options.tasks ?? []);
         }

@@ -11,7 +11,7 @@ import { getWallet } from "@/services/api/wallet";
 import type { DramaRunMode } from "@/services/api/project-drama";
 
 import { projectTasksKey, type FlowData } from "../hooks/use-flow-data";
-import { useModelNames, type ModelName } from "../hooks/use-model-names";
+import type { ModelName } from "../hooks/use-model-names";
 import { costSummary, costSummaryText, creditsText } from "../model/costs";
 import { PaneSection } from "./layout";
 
@@ -23,9 +23,8 @@ export function InfoPanel({ open, data, onClose }: { open: boolean; data: FlowDa
     const queryClient = useQueryClient();
     const [briefOpen, setBriefOpen] = useState(false);
     const [savingMode, setSavingMode] = useState(false);
-    const { project, brief, briefQuery, pipeline, dramaModel, videoModel, projectTasks } = data;
+    const { project, brief, briefQuery, pipeline, dramaModel, stepModels, projectTasks } = data;
     const walletQuery = useQuery({ queryKey: ["wallet", "summary"], queryFn: () => getWallet(1, 1), enabled: open });
-    const models = useModelNames(open);
     if (!project) return null;
     const runMode = (project.runMode || pipeline?.runMode || "until_video") as DramaRunMode;
     const facts = brief ? briefFactsFromDocument(brief) : undefined;
@@ -76,11 +75,11 @@ export function InfoPanel({ open, data, onClose }: { open: boolean; data: FlowDa
                         <dd>{dramaModel?.label || project.generationModel || "没选"}</dd>
                         <dt>视频模型</dt>
                         <dd>
-                            <ModelNameText name={models.nameOf(videoModel, "还没配好")} onRetry={models.catalogRead === "error" ? () => void models.refetch() : undefined} />
+                            <ModelNameText name={stepModels.video.status("还没配好")} onRetry={stepModels.video.retryCatalog} />
                         </dd>
                         <dt>图片模型</dt>
                         <dd>
-                            <ModelNameText name={models.nameOf(project.defaultImageModel, "用全局默认")} onRetry={models.catalogRead === "error" ? () => void models.refetch() : undefined} />
+                            <ModelNameText name={stepModels.image.status("用全局默认")} onRetry={stepModels.image.retryCatalog} />
                         </dd>
                     </dl>
                 </PaneSection>

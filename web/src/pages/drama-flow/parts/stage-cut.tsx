@@ -7,6 +7,7 @@ import { DramaDeliveryPanel, DramaFeedbackForm } from "@/pages/projects/workbenc
 import type { FlowData } from "../hooks/use-flow-data";
 import type { FlowStageKey, FlowStageView } from "../model/stages";
 import { ReadError, StageLayout, SummaryRow } from "./layout";
+import { modelSummaryItem } from "./model-card";
 import { secondsText } from "./stage-shots";
 
 /**
@@ -14,7 +15,7 @@ import { secondsText } from "./stage-shots";
  * 精剪仍在旧版剪辑页做，这里给入口。
  */
 export function StageCut({ data, stage, onGo }: { data: FlowData; stage?: FlowStageView; onGo: (stage: FlowStageKey, target?: { ep?: string; item?: string }) => void }) {
-    const { project, progress, segments, allUnits, pipelineQuery } = data;
+    const { project, progress, segments, allUnits, pipelineQuery, stepModels, videoOffFamily } = data;
     // 进度没读到（或刷新失败）时不显示任何计数，避免把「没读到」看成「0 段缺片」。
     const counts = pipelineQuery.isError ? undefined : progress?.counts;
     const unread = pipelineQuery.isError ? "没读到" : "…";
@@ -49,6 +50,8 @@ export function StageCut({ data, stage, onGo }: { data: FlowData; stage?: FlowSt
                     { label: "缺片", value: missing ?? unread, tone: missing ? "warn" : undefined },
                     { label: "已验收", value: counts?.accepted ?? unread },
                     { label: "入片时长", value: counts ? `${secondsText(inCutMs)} / ${secondsText(totalMs)}` : unread },
+                    // 成片这一步只在补缺的段时出片，用的就是出片页同一个视频模型。
+                    modelSummaryItem(stepModels.video, videoOffFamily !== undefined ? "warn" : undefined),
                 ]}
             />
             {pipelineQuery.isError ? (

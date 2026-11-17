@@ -6,6 +6,7 @@ import { useNavigate } from "react-router";
 
 import { MasterPaletteGroups, StyleAnchorSummary } from "@/components/drama/master-palette";
 import { ModelPicker } from "@/components/model-picker";
+import { dialogModelPicker, dialogTextSubmission, useDialogSubmissionModels, type StepDialogModels } from "./step-dialog-models";
 import { Callout } from "@/components/ui/product/callout";
 import { parseStyleProfile } from "@/lib/canvas/style-profile";
 import { projectVisualTypeLabel } from "@/lib/project-visual-type";
@@ -80,12 +81,13 @@ type Settings = { text: string; images: File[]; textModel: string };
  * 章节页的「分析项目风格」（项目级步骤 style.lock）：对话框写风格文字、传参考图（随任务发给能读图的文本模型）、选文本模型；侧栏流式显示
  * 风格锚和主基调色卡，跑完给「锁定此风格」，锁定后可「存进风格库」。建项目时起的分析也在这里接上。
  */
-export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectDetail; tasks?: GenerationTask[]; disabled?: boolean }) {
+export function StyleLockControl({ detail, tasks, disabled, stepModels }: { detail: ProjectDetail; tasks?: GenerationTask[]; disabled?: boolean; stepModels?: StepDialogModels }) {
     const { message } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const projectId = detail.project.id;
     const effectiveConfig = useEffectiveConfig();
+    const submission = useDialogSubmissionModels(stepModels, effectiveConfig);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const current = useMemo(() => projectLockedStyle(detail.project.bibleJson), [detail.project.bibleJson]);
     const [open, setOpen] = useState(false);
@@ -98,6 +100,9 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
     const [stream, setStream] = useState<{ taskId: string; text: string }>({ taskId: "", text: "" });
     const followedRef = useRef(new Set<string>());
     const [settings, setSettings] = useState<Settings>({ text: "", images: [], textModel: "" });
+    const textPicker = dialogModelPicker("text", stepModels, settings.textModel, (textModel) => setSettings((current) => ({ ...current, textModel })));
+    const coverModel = stepModels?.image.effective ?? detail.project.defaultImageModel;
+    const coverConfig = stepModels ? { ...effectiveConfig, imageModel: stepModels.image.effective } : effectiveConfig;
     const usageQuery = useQuery({
         queryKey: ["project", projectId, "drama-step", "style.lock", detail.project.styleProfile || ""],
         queryFn: ({ signal }) => getDramaStepUsage(projectId, "style.lock", signal).then((result) => result.usage),
@@ -138,8 +143,9 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
 
     const start = async () => {
         if (detail.project.status === "archived") return message.warning("项目已归档，请先在项目设置中恢复");
-        const textModel = settings.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
-        const config = { ...effectiveConfig, model: textModel, textModel };
+        const { model: textModel, issue } = dialogTextSubmission(stepModels?.text, effectiveConfig, settings.textModel);
+        if (issue) return message.warning(issue);
+        const config = { ...coverConfig, model: textModel, textModel };
         if (!isAiConfigReady(config, textModel)) {
             navigateToSettings({ continueCreation: true });
             return;
@@ -150,9 +156,11 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         setPanelOpen(true);
         try {
             const referenceImages = await uploadStyleReferenceImages(settings.images);
+            const currentConfig = submission.textConfig(config);
             const result = await runStyleLock(
-                { projectId, config, defaultImageModel: detail.project.defaultImageModel, styleText: settings.text, referenceImages },
+                { projectId, config: currentConfig, defaultImageModel: stepModels ? currentConfig.imageModel : coverModel, styleText: settings.text, referenceImages },
                 {
+                    configBeforeSubmit: (image) => submission.textConfig(currentConfig, undefined, image),
                     onTaskUpdate: (task) => {
                         followedRef.current.add(task.id);
                         setStream((value) => ({ taskId: task.id, text: value.taskId && value.taskId !== task.id ? "" : value.text }));
@@ -188,7 +196,8 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         if (!taskDetail) return;
         setLocking(true);
         try {
-            const imageTask = await directorCoverTaskTemplate(effectiveConfig, detail.project.defaultImageModel);
+            const imageTask = await directorCoverTaskTemplate(coverConfig, coverModel);
+            submission.validateImage(imageTask);
             const result = await lockDramaStyle(projectId, { taskId: taskDetail.id, imageTask });
             await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ["project", projectId, "assets"] })]);
             message.success(`已锁定：风格锚和 ${masterPaletteColors(result.masterPalette).length} 色主基调色卡写进项目，主色卡在资产页`);
@@ -205,7 +214,9 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
     const save = async () => {
         setSaving(true);
         try {
-            const { profile: item } = await saveProjectDirectorStyle(projectId, await directorCoverTaskTemplate(effectiveConfig, detail.project.defaultImageModel));
+            const imageTask = await directorCoverTaskTemplate(coverConfig, coverModel);
+            submission.validateImage(imageTask);
+            const { profile: item } = await saveProjectDirectorStyle(projectId, imageTask);
             await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ["style-profiles"] })]);
             message.success(`已保存到风格中心「我的风格」：${item.name}，仅你可见`);
         } catch (error) {
@@ -219,8 +230,9 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
         if (!personalStyle) return save();
         setSaving(true);
         try {
-            const imageTask = await directorCoverTaskTemplate(effectiveConfig, detail.project.defaultImageModel);
+            const imageTask = await directorCoverTaskTemplate(coverConfig, coverModel);
             if (!imageTask) throw new Error("请先在项目设置或全局设置中配置可用图片模型，导演文本已保存");
+            submission.validateImage(imageTask);
             await generateStyleProfileCover(personalStyle.id, imageTask, personalStyle.coverStatus === "ready");
             await queryClient.invalidateQueries({ queryKey: ["style-profiles"] });
             message.success("风格封面已提交");
@@ -264,7 +276,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                 width={600}
                 okText="开始分析"
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !typeLabel || !usage || settings.text.length > STYLE_LOCK_TEXT_CHARS }}
+                okButtonProps={{ disabled: !textPicker.value || !typeLabel || !usage || settings.text.length > STYLE_LOCK_TEXT_CHARS }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -298,8 +310,7 @@ export function StyleLockControl({ detail, tasks, disabled }: { detail: ProjectD
                         <ModelPicker preferenceScope="short-drama"
                             config={effectiveConfig}
                             capability="text"
-                            value={settings.textModel}
-                            onChange={(textModel) => setSettings((value) => ({ ...value, textModel }))}
+                            {...textPicker}
                             variant="creation"
                             fullWidth
                             placeholder="选择用于风格分析的文本模型"

@@ -8,6 +8,8 @@
  */
 import { afterAll, expect, test } from "bun:test";
 import { Window } from "happy-dom";
+import type { DramaModelCatalog } from "@/services/api/drama";
+import type { DramaProgress } from "@/services/api/project-drama";
 
 const dom = new Window({ url: "http://localhost/", width: 1440, height: 1000 });
 const originals = new Map<string, PropertyDescriptor | undefined>();
@@ -23,6 +25,8 @@ const globals: Record<string, unknown> = {
     HTMLInputElement: dom.HTMLInputElement,
     HTMLTextAreaElement: dom.HTMLTextAreaElement,
     HTMLButtonElement: dom.HTMLButtonElement,
+    HTMLBodyElement: dom.HTMLBodyElement,
+    HTMLHtmlElement: dom.HTMLHtmlElement,
     Element: dom.Element,
     Node: dom.Node,
     Text: dom.Text,
@@ -30,6 +34,7 @@ const globals: Record<string, unknown> = {
     SVGElement: dom.SVGElement,
     ShadowRoot: dom.ShadowRoot,
     Event: dom.Event,
+    CustomEvent: dom.CustomEvent,
     KeyboardEvent: dom.KeyboardEvent,
     MouseEvent: dom.MouseEvent,
     MutationObserver: dom.MutationObserver,
@@ -165,7 +170,9 @@ async function mount(path: string, { prepare, ...options }: MountOptions = {}) {
 
 const byText = (selector: string, text: string) => [...document.querySelectorAll(selector)].find((node) => (node.textContent || "").includes(text));
 const summaryValue = (label: string) => {
-    for (const row of document.querySelectorAll("dl.drama-flow-summary > div")) if (row.querySelector("dt")?.textContent === label) return row.querySelector("dd")?.textContent || "";
+    for (const row of document.querySelectorAll("dl.drama-flow-summary > div")) {
+        if (row.querySelector("dt")?.textContent === label) return (row.querySelector(".drama-flow-model-name") ?? row.querySelector("dd"))?.textContent || "";
+    }
     return undefined;
 };
 const infoValue = (label: string) => {
@@ -173,6 +180,129 @@ const infoValue = (label: string) => {
     return terms.find((node) => node.textContent === label)?.nextElementSibling?.textContent || undefined;
 };
 const P = fx.FIXTURE_PROJECT_ID;
+
+test("MC-TEXT 文本卡的可用渠道贯通剧本优化、立项、画风、色卡和资产提取", async () => {
+    const { useDramaModelPreferencesStore: prefs } = await import("@/stores/use-drama-model-preferences-store");
+    const before = useConfigStore.getState().config;
+    const previous = prefs.getState().models;
+    const blocked = "CHANNEL_000001::text-paused";
+    const effective = "CHANNEL_000001::text-ready";
+    const requests: Array<{ url: string; model?: string; logicalModelId?: string; replace?: boolean }> = [];
+    let requireReplaceConfirmation = false;
+    const page = await mount(`/drama-flow/${P}/script`, {
+        workflowId: "pipeline-2",
+        style: "locked",
+        prepare: (f) => {
+            for (const key of ["text-paused", "text-ready", "text-chosen"]) {
+                f.catalog.channels[0].models.push({ modelKey: key, displayName: key, available: true, capability: "text", priceTiers: [] });
+            }
+            const config = useConfigStore.getState();
+            config.mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
+            const current = useConfigStore.getState().config;
+            useConfigStore.setState({
+                config: {
+                    ...current,
+                    channels: current.channels.map((channel) => ({
+                        ...channel,
+                        modelCosts: channel.modelCosts?.map((item) => (item.model.startsWith("text-") ? { ...item, logicalModelId: `logical-${item.model}` } : item)),
+                    })),
+                },
+            });
+            prefs.setState({ models: { text: blocked } });
+            const handle = f.handle;
+            f.handle = (method, url, body) => {
+                if (/\/drama\/steps\/(script\.adapt|style\.lock|scene\.palette|assets\.extract)$/.test(url) && method.toUpperCase() === "GET") {
+                    return { status: 200, body: { code: 0, msg: "", data: { usage: { skill: { name: "测试技能", version: "1" }, profile: { label: "测试风格" } } } } };
+                }
+                if (url.endsWith("/run") && method.toUpperCase() === "POST") {
+                    requests.push({ url, ...(body as { model?: string; logicalModelId?: string }) });
+                    if (requireReplaceConfirmation && url.endsWith("/script.adapt/run") && !requests.at(-1)?.replace) {
+                        return { status: 409, body: { code: 409, reason: "drama_episodes_replace_required", msg: "请确认补写", details: { mode: "design", episodes: [{ unitId: fx.FIXTURE_UNIT_ID, title: "第 1 集", shots: 1, hasShotlist: true }] } } };
+                    }
+                    return { status: 400, body: { code: 400, msg: "模拟请求已收集" } };
+                }
+                const result = handle(method, url, body);
+                if (url.split("?")[0].endsWith("/drama/scenes") && result?.body?.data) {
+                    Object.assign(result.body.data, { paletteReady: true });
+                }
+                if (url === "/dramas/models" && result?.body?.data) {
+                    const catalog = result.body.data as DramaModelCatalog;
+                    catalog.options.text = catalog.options.text.filter((option) => option.choice.modelKey !== "text-paused");
+                    catalog.unavailable = { ...catalog.unavailable, text: [{ choice: { channelId: "CHANNEL_000001", modelKey: "text-paused" }, reason: "测试渠道已停用" }] };
+                }
+                return result;
+            };
+        },
+    });
+    try {
+        expect(summaryValue("文本模型")).toContain("现在改用 text-ready");
+        await page.click(byText("button", "补写本集设计"));
+        expect(document.querySelector('[aria-label="选择用于剧本优化的文本模型"]')?.textContent).toContain("text-ready");
+        await page.click(byText('[role="dialog"] button', "补写所选集设计"));
+        expect(requests[0]).toMatchObject({ url: `/projects/${P}/drama/steps/script.adapt/run`, model: effective, logicalModelId: "logical-text-ready" });
+        await page.go(`/drama-flow/${P}/shots`);
+        expect(summaryValue("文本模型")).toContain("text-ready");
+        await page.click(document.querySelector('section[aria-label="全剧立项"] button'));
+        expect(requests[1]).toMatchObject({ url: `/projects/${P}/drama/steps/director.setup/run`, model: effective, logicalModelId: "logical-text-ready" });
+        for (const [openLabel, pickerLabel, imageSwitch, target] of [
+            ["分析项目风格", "选择用于风格分析的文本模型", "", `/projects/${P}/drama/steps/style.lock/run`],
+            ["生成场次色卡", "选择用于场次色卡的文本模型", "提取后给新资产出图", `/projects/${P}/drama/steps/scene.palette/run`],
+            ["提取角色、场景与道具", "选择用于提取资产的文本模型", "给新资产出图", `/projects/${P}/units/${fx.FIXTURE_UNIT_ID}/drama/steps/assets.extract/run`],
+        ]) {
+            await page.go(`/drama-flow/${P}/look`);
+            await page.click(document.querySelector(`button[aria-label="${openLabel}"]`));
+            const picker = document.querySelector(`[aria-label="${pickerLabel}"]`);
+            if (openLabel === "分析项目风格") {
+                expect(picker?.textContent).toContain("text-ready");
+                await page.click(picker);
+                expect((byText('[role="option"]', "text-paused") as HTMLButtonElement).disabled).toBe(true);
+                await page.click(byText('[role="option"]', "text-chosen"));
+            }
+            expect(picker?.textContent).toContain("text-chosen");
+            expect(summaryValue("文本模型")).toContain("text-chosen");
+            if (imageSwitch) await page.click(document.querySelector(`[role="switch"][aria-label="${imageSwitch}"]`));
+            await page.click(document.querySelector('[role="dialog"] .ant-modal-footer button.ant-btn-primary'));
+            expect(requests.at(-1)).toMatchObject({ url: target, model: "CHANNEL_000001::text-chosen", logicalModelId: "logical-text-chosen" });
+            await page.go(`/drama-flow/${P}/script`);
+        }
+        requireReplaceConfirmation = true;
+        for (const disabledKey of ["text-chosen", "text-ready"]) {
+            await page.click(byText("button", "补写本集设计"));
+            await page.click(byText('[role="dialog"] button', "补写所选集设计"));
+            const beforeConfirmation = requests.length;
+            expect(requests.at(-1)).toMatchObject({ model: `CHANNEL_000001::${disabledKey}`, logicalModelId: `logical-${disabledKey}` });
+            const catalog = page.client.getQueryData<DramaModelCatalog>(["drama-models"])!;
+            const removed = catalog.options.text.find((option) => option.choice.modelKey === disabledKey)!;
+            await act(async () => {
+                page.client.setQueryData(["drama-models"], {
+                    ...catalog,
+                    options: { ...catalog.options, text: catalog.options.text.filter((option) => option !== removed) },
+                    unavailable: { ...catalog.unavailable, text: [...(catalog.unavailable?.text ?? []), { choice: removed.choice, reason: "文本渠道已暂停" }] },
+                });
+            });
+            await flush();
+            const picker = document.querySelector('[aria-label="选择补写或替换使用的文本模型"]');
+            const confirm = buttonByText(picker!.closest('[role="dialog"]')!, "补写设计")!;
+            if (disabledKey === "text-chosen") {
+                expect(summaryValue("文本模型")).toContain("text-ready");
+                expect(picker?.textContent).toContain("text-ready");
+                await page.click(confirm);
+                expect(requests).toHaveLength(beforeConfirmation + 1);
+                expect(requests.at(-1)).toMatchObject({ replace: true, model: effective, logicalModelId: "logical-text-ready" });
+                await page.go(`/drama-flow/${P}/shots`);
+                await page.go(`/drama-flow/${P}/script`);
+            } else {
+                expect(confirm.disabled).toBe(true);
+                await page.click(confirm);
+                expect(requests).toHaveLength(beforeConfirmation);
+            }
+        }
+    } finally {
+        await page.dispose();
+        useConfigStore.setState({ config: before });
+        prefs.setState({ models: previous });
+    }
+}, 20000);
 
 for (const mode of ["promise", "undefined"] as const) {
     test(`D-00 分镜：选中 → 保存后段数据更新 → 换选 → 关详情 → 离开（scrollIntoView 返回 ${mode}）`, async () => {
@@ -411,6 +541,66 @@ test("D-03 模型名：目录读到时显示名字，不出现内部渠道 ID；
     }
 });
 
+test("短剧能力目录刷新失败时，缓存不能放行报价；恢复后重新校验模型", async () => {
+    const page = await mount(`/drama-flow/${P}/video`);
+    try {
+        expect(summaryValue("视频模型")).toBe(fx.FIXTURE_VIDEO_MODEL_NAME);
+        fixture.overrides.set("/dramas/models", "error");
+        await act(async () => {
+            await page.client.invalidateQueries({ queryKey: ["drama-models"] });
+        });
+        await flush();
+        expect(summaryValue("视频模型")).toContain("没法确认");
+        const generate = byText("button", "出这一段") as HTMLButtonElement | undefined;
+        if (generate && !generate.disabled) await page.click(generate);
+        expect(fixture.state.previews).toBe(0);
+        expect(document.querySelector('[role="dialog"]')).toBeNull();
+        fixture.overrides.delete("/dramas/models");
+        await act(async () => {
+            await page.client.invalidateQueries({ queryKey: ["drama-models"] });
+        });
+        await flush();
+        expect(summaryValue("视频模型")).toBe(fx.FIXTURE_VIDEO_MODEL_NAME);
+        type QuoteRequest = { model: { model: string; logicalModelId?: string }; requestId: string; previewHash?: string };
+        const quotes: QuoteRequest[] = [];
+        const submissions: QuoteRequest[] = [];
+        const handle = fixture.handle;
+        fixture.handle = (method, url, body) => {
+            if (method.toUpperCase() === "POST") {
+                if (url === `/projects/${P}/video-chains/preview`) quotes.push(body as QuoteRequest);
+                if (url === `/projects/${P}/video-chains`) {
+                    submissions.push(body as QuoteRequest);
+                    return { status: 400, body: { code: 400, msg: "验收夹具已记录请求" } };
+                }
+            }
+            return handle(method, url, body);
+        };
+        await page.click(buttonByText(cardOf("S02")!, "出这一段"));
+        await page.click(buttonByText(modal()!, "预览当前场景与费用"));
+        expect(quotes[0]?.model.model).toBe(fx.FIXTURE_VIDEO_MODEL);
+        expect(buttonByText(modal()!, "开始连续生成")).toBeTruthy();
+        fixture.overrides.set("/dramas/models", "error");
+        await act(async () => {
+            await page.client.invalidateQueries({ queryKey: ["drama-models"] });
+        });
+        await flush();
+        expect(buttonByText(modal()!, "开始连续生成")).toBeFalsy();
+        expect(submissions).toHaveLength(0);
+        fixture.overrides.delete("/dramas/models");
+        await act(async () => {
+            await page.client.invalidateQueries({ queryKey: ["drama-models"] });
+        });
+        await flush();
+        await page.click(buttonByText(modal()!, "预览当前场景与费用"));
+        await page.click(buttonByText(modal()!, "开始连续生成"));
+        expect(quotes).toHaveLength(2);
+        expect(submissions).toEqual([{ ...quotes[1], previewHash: "preview-2" }]);
+        expect(fixture.forbidden).toEqual([]);
+    } finally {
+        await page.dispose();
+    }
+});
+
 test("D-03 模型名：目录在读、没读到时不报「已不可用」", async () => {
     let page = await mount(`/drama-flow/${P}?panel=info`, { imageModel: "CHANNEL_000001::gone-image-model", prepare: (next) => next.overrides.set("/model-catalog", "pending") });
     try {
@@ -609,6 +799,251 @@ test("R8-01 全局同步音频开、6 秒，所选模型不支持音频且只有
     } finally {
         await page.dispose();
         useConfigStore.setState({ config: before });
+    }
+});
+
+for (const scenario of ["切换模型", "弃稿确认时停用", "独立开局时停用", "弃稿确认时换集", "尚未锁定画风"] as const) {
+    test(`MC-SHOTS 跨确认${scenario}，只按当前卡片与当前集提交`, async () => {
+        const { useDramaModelPreferencesStore: prefs } = await import("@/stores/use-drama-model-preferences-store");
+        const before = useConfigStore.getState().config;
+        const previous = prefs.getState().models;
+        const textA = "CHANNEL_000001::fixture-text";
+        const textB = "CHANNEL_000001::text-b";
+        const requests: Array<{ model: string; logicalModelId?: string; allowMissingHandoff?: boolean }> = [];
+        const path = `/drama-flow/${P}/shots?ep=${fx.FIXTURE_UNIT_ID}`;
+        const page = await mount(path, {
+            workflowId: "pipeline-2",
+            style: scenario === "尚未锁定画风" ? "none" : "locked",
+            handoffGate: true,
+            prepare: (f) => {
+                f.catalog.channels[0].models.push({ modelKey: "text-b", displayName: "分镜备选文本", available: true, capability: "text", priceTiers: [] });
+                useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
+                prefs.setState({ models: { text: textA } });
+                const handle = f.handle;
+                f.handle = (method, url, body) => {
+                    const result = handle(method, url, body);
+                    if (url.endsWith("/chapter.shots/run") && method.toUpperCase() === "POST") requests.push(body as (typeof requests)[number]);
+                    if (url.endsWith(`/${fx.FIXTURE_UNIT_ID}/workspace`) && result?.body?.data) {
+                        Object.assign(result.body.data, {
+                            shots: [{ id: fx.FIXTURE_SHOT_ID, unitId: fx.FIXTURE_UNIT_ID, position: 0, title: "S01 随行鲜" }],
+                            shotArtifacts: [{ id: "existing-board", shotId: fx.FIXTURE_SHOT_ID, type: "storyboard", status: "ready" }],
+                        });
+                    }
+                    return result;
+                };
+            },
+        });
+        const disableText = async () => {
+            const key = ["drama-models"];
+            const catalog = page.client.getQueryData<DramaModelCatalog>(key)!;
+            await act(async () => {
+                page.client.setQueryData(key, { ...catalog, options: { ...catalog.options, text: [] }, unavailable: { ...catalog.unavailable, text: catalog.options.text.map(({ choice }) => ({ choice, reason: "文本渠道已暂停" })) } });
+            });
+            await flush();
+        };
+        const changeModel = async (model: string, logicalId: string) => {
+            await act(async () => {
+                useConfigStore.setState(({ config }) => ({
+                    config: {
+                        ...config,
+                        channels: config.channels.map((channel) => ({
+                            ...channel,
+                            modelCosts: channel.modelCosts?.map((item) => (`CHANNEL_000001::${item.model}` === model ? { ...item, logicalModelId: logicalId } : item)),
+                        })),
+                    },
+                }));
+                prefs.getState().remember("text", model);
+            });
+            await flush();
+        };
+        try {
+            expect(summaryValue("文本模型")).toContain("验收文本模型");
+            await page.click(byText("button", "整集重新生成"));
+            const discard = byText('[role="dialog"] button', "删掉并整集重新生成");
+            if (scenario === "尚未锁定画风") {
+                expect(page.text()).toContain("项目还没锁定画风：先到「定妆 · 画风」让导演定画风，再生成分镜");
+                expect(discard).toBeUndefined();
+                expect(requests).toHaveLength(0);
+                return;
+            }
+            expect(discard).toBeTruthy();
+            expect(requests).toHaveLength(0);
+            if (scenario === "弃稿确认时换集") await page.go(`/drama-flow/${P}/shots?ep=previous-episode`);
+            if (scenario === "弃稿确认时停用") await disableText();
+            if (scenario === "切换模型") {
+                await changeModel(textB, "latest-b");
+                expect(summaryValue("文本模型")).toContain("分镜备选文本");
+            }
+            await page.click(discard);
+            if (scenario === "弃稿确认时停用" || scenario === "弃稿确认时换集") {
+                expect(requests).toHaveLength(0);
+                return;
+            }
+            expect(requests).toHaveLength(1);
+            expect(requests[0].model).toBe(scenario === "切换模型" ? textB : textA);
+            const independent = byText('[role="dialog"] button', "独立开局");
+            expect(independent).toBeTruthy();
+            if (scenario === "独立开局时停用") {
+                await disableText();
+                await page.click(independent);
+                expect(requests).toHaveLength(1);
+            } else {
+                expect(requests[0].logicalModelId).toBe("latest-b");
+                await changeModel(textA, "latest-a");
+                expect(summaryValue("文本模型")).toContain("验收文本模型");
+                await page.click(independent);
+                expect(requests).toHaveLength(2);
+                expect(requests[1]).toMatchObject({ model: textA, logicalModelId: "latest-a", allowMissingHandoff: true });
+            }
+        } finally {
+            await page.dispose();
+            useConfigStore.setState({ config: before });
+            prefs.setState({ models: previous });
+        }
+    });
+}
+
+// 模拟已打开页面时平台停用图片渠道，只刷新服务端短剧目录，保留浏览器保存的模型。
+async function disableFixtureImage(page: Awaited<ReturnType<typeof mount>>, key: string) {
+    const catalog = page.client.getQueryData<DramaModelCatalog>(["drama-models"])!;
+    const removed = catalog.options.image.find((option) => option.choice.modelKey === key)!;
+    await act(async () => {
+        page.client.setQueryData(["drama-models"], {
+            ...catalog,
+            options: { ...catalog.options, image: catalog.options.image.filter((option) => option !== removed) },
+            unavailable: { ...catalog.unavailable, image: [{ choice: removed.choice, reason: "图片渠道已暂停" }] },
+        });
+    });
+    await flush();
+}
+
+test("MC-IMG 确认面板打开后渠道停用：阻止旧选择，切换后卡片与排队请求一致", async () => {
+    const { useDramaModelPreferencesStore } = await import("@/stores/use-drama-model-preferences-store");
+    const before = useConfigStore.getState().config;
+    const prefs = useDramaModelPreferencesStore.getState().models;
+    const page = await mount(`/drama-flow/${P}/look`, {
+        stopAtAssets: true,
+        style: "locked",
+        imageModel: "CHANNEL_000001::image-a",
+        prepare: (f) => {
+            f.catalog.channels[0].models.push({ modelKey: "image-b", displayName: "备选图片渠道", available: true, capability: "image", priceTiers: [] });
+            useDramaModelPreferencesStore.setState({ models: {} });
+            useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
+        },
+    });
+    try {
+        await page.click(byText("button", "继续：角色场景资产"));
+        expect(modal()?.querySelector("button[aria-haspopup]")?.textContent).toContain("验收图片模型");
+        await act(async () => {
+            useDramaModelPreferencesStore.getState().remember("image", "CHANNEL_000001::image-b");
+        });
+        expect(modal()?.querySelector("button[aria-haspopup]")?.textContent).toContain("备选图片渠道");
+        await act(async () => {
+            useDramaModelPreferencesStore.getState().remember("image", "CHANNEL_000001::image-a");
+        });
+        await disableFixtureImage(page, "image-a");
+        const submit = () => buttonByText(modal()!, "为2个资产出图")!;
+        expect(submit().disabled).toBe(true);
+        await page.click(submit());
+        expect(fixture.state.imageQueues).toHaveLength(0);
+        await page.click(modal()!.querySelector("button[aria-haspopup]"));
+        const paused = byText('[role="option"]', "image-a") as HTMLButtonElement;
+        expect(paused.disabled).toBe(true);
+        expect(paused.textContent).toContain("图片渠道已暂停");
+        await page.click(byText("button.canvas-model-picker-brand", "备选图片渠道"));
+        await page.click(byText('[role="option"]', "image-b"));
+        expect(summaryValue("图片模型")).toContain("备选图片渠道");
+        expect(submit().disabled).toBe(false);
+        await page.click(submit());
+        expect(fixture.state.imageQueues.map((q) => q.imageTask?.model)).toEqual(["CHANNEL_000001::image-b"]);
+        expect(fixture.forbidden).toEqual([]);
+    } finally {
+        await page.dispose();
+        useConfigStore.setState({ config: before });
+        useDramaModelPreferencesStore.setState({ models: prefs });
+    }
+});
+
+test("MC-IMG 继续纯文本步骤：最后一个图片渠道停用时请求中没有出图模板", async () => {
+    const before = useConfigStore.getState().config;
+    const posts: unknown[] = [];
+    const page = await mount(`/drama-flow/${P}/look`, {
+        stopAtAssets: true,
+        style: "locked",
+        imageModel: "CHANNEL_000001::image-a",
+        prepare: (f) => {
+            f.catalog.channels[0].models.push({ modelKey: "gpt-6.1-sol", displayName: "文本渠道", available: true, capability: "text", priceTiers: [] });
+            useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
+            const handle = f.handle;
+            f.handle = (method, path, body) => {
+                if (method.toUpperCase() === "POST" && path.endsWith("/drama/pipeline/next")) {
+                    posts.push(body);
+                    return { status: 200, body: { code: 0, data: {}, msg: "" } };
+                }
+                return handle(method, path, body);
+            };
+        },
+    });
+    try {
+        await disableFixtureImage(page, "image-a");
+        const key = ["project", P, "drama", "progress"];
+        const progress = page.client.getQueryData<DramaProgress>(key)!;
+        await act(async () => {
+            page.client.setQueryData(key, { ...progress, pipeline: { ...progress.pipeline, current: "palette", stop: { stage: "palette", continuable: true, label: "场次色卡", action: "继续：场次色卡" } } });
+        });
+        await flush();
+        expect(summaryValue("文本模型")).toContain("文本渠道");
+        await page.click(byText("button", "继续：场次色卡"));
+        expect(posts).toHaveLength(1);
+        expect(posts[0]).toHaveProperty("model", "CHANNEL_000001::gpt-6.1-sol");
+        expect(posts[0]).not.toHaveProperty("imageTask");
+        expect(fixture.forbidden).toEqual([]);
+    } finally {
+        await page.dispose();
+        useConfigStore.setState({ config: before });
+    }
+});
+
+test("MC-IMG 原偏好恢复后可重新选择并提交，即使它与弹窗打开时保存的偏好相同", async () => {
+    const { useDramaModelPreferencesStore: prefs } = await import("@/stores/use-drama-model-preferences-store");
+    const config = useConfigStore.getState().config;
+    const previous = prefs.getState().models;
+    const modelB = "CHANNEL_000001::image-b";
+    const page = await mount(`/drama-flow/${P}/look`, {
+        stopAtAssets: true,
+        style: "locked",
+        imageModel: "CHANNEL_000001::image-a",
+        prepare: (f) => {
+            f.catalog.channels[0].models.push({ modelKey: "image-b", displayName: "恢复图片渠道", available: true, capability: "image", priceTiers: [] });
+            useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
+            prefs.setState({ models: { image: modelB } });
+        },
+    });
+    try {
+        const key = ["drama-models"];
+        const all = page.client.getQueryData<DramaModelCatalog>(key)!;
+        await disableFixtureImage(page, "image-b");
+        await page.click(byText("button", "继续：角色场景资产"));
+        const picker = () => modal()!.querySelector("button[aria-haspopup]")!;
+        expect(picker().textContent).toContain("验收图片模型");
+        await act(async () => {
+            page.client.setQueryData(key, all);
+        });
+        await disableFixtureImage(page, "image-a");
+        const submit = () => buttonByText(modal()!, "为2个资产出图")!;
+        expect(submit().disabled).toBe(true);
+        await page.click(picker());
+        await page.click(byText("button.canvas-model-picker-brand", "恢复图片渠道"));
+        await page.click(byText('[role="option"]', "image-b"));
+        expect(picker().textContent).toContain("恢复图片渠道");
+        expect(summaryValue("图片模型")).toContain("恢复图片渠道");
+        expect(submit().disabled).toBe(false);
+        await page.click(submit());
+        expect(fixture.state.imageQueues.map((q) => q.imageTask?.model)).toEqual([modelB]);
+    } finally {
+        await page.dispose();
+        useConfigStore.setState({ config });
+        prefs.setState({ models: previous });
     }
 });
 

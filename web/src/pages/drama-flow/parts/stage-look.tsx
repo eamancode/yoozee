@@ -18,6 +18,8 @@ import type { FlowStageView } from "../model/stages";
 import { STYLE_LOCK_TEXT, type StyleLockState } from "../model/style-lock";
 import { LookAssets } from "./look-assets";
 import { ReadError, StageLayout, StageTabs, SummaryRow, type StageTab } from "./layout";
+import { modelSummaryItem } from "./model-card";
+import type { StepModel } from "../hooks/use-flow-data";
 
 export { lookAssetError } from "./look-assets";
 
@@ -44,7 +46,7 @@ export function StageLook({
     onSelect: (id?: string) => void;
     onRetry: (assets: ProjectAsset[]) => void;
 }) {
-    const { project, detail, assets, assetsQuery, bible, bibleQuery, projectTasks, chapters, episodeUnits, unit, allUnits, rail, dramaRule } = data;
+    const { project, detail, assets, assetsQuery, bible, bibleQuery, projectTasks, chapters, episodeUnits, unit, allUnits, rail, dramaRule, stepModels } = data;
     const active: LookTab = LOOK_TABS.includes(tab as LookTab) ? (tab as LookTab) : "style";
     const scenesQuery = useQuery({
         queryKey: [...dramaScenesKey(project?.id || "", unit?.id), unit?.updatedAt || "", dramaRule?.maxSeconds ?? 0, dramaRule?.minSeconds ?? 0],
@@ -75,9 +77,11 @@ export function StageLook({
                     <p>{stage?.state === "running" ? "正在定画风、做色卡、出定妆图；出好一张显示一张。" : "画风、色卡、角色、场景、道具。后面每一段视频都拿这些当参考。"}</p>
                 </div>
                 <div className="drama-flow-work-actions">
-                    <StyleLockControl detail={detail} tasks={projectTasks} />
-                    <ScenePaletteControl detail={detail} chapters={chapters} episodes={episodeUnits} tasks={projectTasks} />
-                    {unit ? <AssetsExtractControl detail={detail} unit={unit} units={allUnits} paletteReady={scenesQuery.data?.unitId === unit.id ? scenesQuery.data.paletteReady : undefined} unitNoun={rail.noun} tasks={projectTasks} /> : null}
+                    <StyleLockControl detail={detail} stepModels={stepModels} tasks={projectTasks} />
+                    <ScenePaletteControl detail={detail} stepModels={stepModels} chapters={chapters} episodes={episodeUnits} tasks={projectTasks} />
+                    {unit ? (
+                        <AssetsExtractControl detail={detail} stepModels={stepModels} unit={unit} units={allUnits} paletteReady={scenesQuery.data?.unitId === unit.id ? scenesQuery.data.paletteReady : undefined} unitNoun={rail.noun} tasks={projectTasks} />
+                    ) : null}
                 </div>
             </div>
             <StageTabs<LookTab> tabs={tabs} active={active} onChange={onTab} />
@@ -85,16 +89,16 @@ export function StageLook({
                 bibleQuery.isError ? (
                     <ReadError what="风格档案" onRetry={() => void bibleQuery.refetch()} />
                 ) : (
-                    <LookStyle projectId={project.id} bible={bible} lock={data.styleLock} />
+                    <LookStyle projectId={project.id} bible={bible} lock={data.styleLock} textModel={stepModels.text} imageModel={stepModels.image} />
                 )
             ) : (active === "palette" || assetsTab) && assetsQuery.isError ? (
                 <ReadError what="资产和色卡" onRetry={() => void assetsQuery.refetch()} />
             ) : (active === "palette" || assetsTab) && !assetsQuery.data ? (
                 <p className="drama-flow-muted">正在读资产…</p>
             ) : active === "palette" ? (
-                <LookPalettes projectId={project.id} bible={bible} palettes={palettes} />
+                <LookPalettes projectId={project.id} bible={bible} palettes={palettes} textModel={stepModels.text} />
             ) : assetsTab ? (
-                <LookAssets project={project} category={active} assets={assets} selectedId={selectedId} retrying={retrying} onSelect={onSelect} onRetry={onRetry} />
+                <LookAssets project={project} category={active} assets={assets} imageModel={stepModels.image} selectedId={selectedId} retrying={retrying} onSelect={onSelect} onRetry={onRetry} />
             ) : (
                 <StageLayout>
                     <div className="drama-flow-panel">
@@ -110,7 +114,8 @@ export function StageLook({
     );
 }
 
-function LookStyle({ projectId, bible, lock }: { projectId: string; bible?: DramaBible; lock: StyleLockState }) {
+/** textModel：定画风、场次色卡用；imageModel：定妆图（资产出图）用。 */
+function LookStyle({ projectId, bible, lock, textModel, imageModel }: { projectId: string; bible?: DramaBible; lock: StyleLockState; textModel: StepModel; imageModel: StepModel }) {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const [draft, setDraft] = useState<DramaBible | undefined>(undefined);
@@ -133,6 +138,8 @@ function LookStyle({ projectId, bible, lock }: { projectId: string; bible?: Dram
                     { label: "来源", value: record ? MASTER_PALETTE_SOURCE_LABELS[record.source] || record.source : "—" },
                     { label: "主基调色", value: bible?.master_palette ? `${(bible.master_palette.groups || []).reduce((sum, group) => sum + (group.colors?.length || 0), 0)} 色` : "—" },
                     { label: "场次色彩脚本", value: bible?.color_script?.length ? `${bible.color_script.length} 场` : "—" },
+                    modelSummaryItem(textModel),
+                    modelSummaryItem(imageModel),
                 ]}
             />
             {record?.font_note ? (
@@ -178,7 +185,7 @@ function LookStyle({ projectId, bible, lock }: { projectId: string; bible?: Dram
     );
 }
 
-function LookPalettes({ projectId, bible, palettes }: { projectId: string; bible?: DramaBible; palettes: ProjectAsset[] }) {
+function LookPalettes({ projectId, bible, palettes, textModel }: { projectId: string; bible?: DramaBible; palettes: ProjectAsset[]; textModel: StepModel }) {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["project", projectId] });
@@ -232,6 +239,7 @@ function LookPalettes({ projectId, bible, palettes }: { projectId: string; bible
                     { label: "场次色卡", value: palettes.length - master.length },
                     { label: "没合成上", value: missing, tone: missing ? "bad" : undefined },
                     { label: "场次已不在", value: gone, tone: gone ? "warn" : undefined },
+                    modelSummaryItem(textModel),
                 ]}
             />
             <div className="drama-flow-panel">

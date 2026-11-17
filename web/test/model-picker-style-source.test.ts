@@ -36,10 +36,10 @@ test("每次打开菜单都展开当前选中模型所属目录，无有效选�
 
 test("选择最终模型关闭菜单，仍可通过 Escape 和外部点击关闭", async () => {
     const component = await Bun.file(new URL("../src/components/model-picker.tsx", import.meta.url)).text();
-    const selection = component.match(/onClick=\{\(\) => \{\s*if \(!model\) return;([\s\S]*?)\}\}/)?.[1] || "";
+    const selection = component.match(/onClick=\{\(event\) => \{\s*if \(!model\) return;([\s\S]*?)\}\}/)?.[1] || "";
     expect(selection).toContain("onChange(model)");
     expect(selection).toContain("setOpen(false)");
-    expect(selection).not.toContain("focus()");
+    expect(selection).toContain("if (event.detail === 0 && triggerContent !== undefined) triggerRef.current?.focus({ preventScroll: true })");
     expect(component).toContain('event.key === "Escape"');
     expect(component).toContain('window.addEventListener("pointerdown", closeOnOutsidePointer, true)');
 });

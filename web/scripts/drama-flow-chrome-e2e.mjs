@@ -199,7 +199,8 @@ const byText = (selector, text) => `[...document.querySelectorAll(${JSON.stringi
 /** poll 要的是能序列化的真假值；DOM 元素本身回不到 Node 这边。 */
 const exists = (locator) => `Boolean(${locator})`;
 const crashed = `/页面运行异常|is not a function/.test(document.body.innerText)`;
-const summary = (label) => `[...document.querySelectorAll("dl.drama-flow-summary > div")].find((row) => row.querySelector("dt")?.textContent === ${JSON.stringify(label)})?.querySelector("dd")?.textContent`;
+const summary = (label) =>
+    `(() => { const row = [...document.querySelectorAll("dl.drama-flow-summary > div")].find((r) => r.querySelector("dt")?.textContent === ${JSON.stringify(label)}); return (row?.querySelector(".drama-flow-model-name") ?? row?.querySelector("dd"))?.textContent })()`;
 const info = (label) => `[...document.querySelectorAll("dl.drama-flow-info-facts dt")].find((dt) => dt.textContent === ${JSON.stringify(label)})?.nextElementSibling?.textContent`;
 
 const primaryButton = `document.querySelector(".drama-flow-bar-actions .ant-btn-primary")`;
@@ -221,6 +222,39 @@ const paneButtonsHit = `(() => { const pane = document.querySelector("aside.dram
   return { ok: buttons.length > 0 && !misses.length, buttons: buttons.length, misses, scrolls: body ? body.scrollHeight > body.clientHeight : false, pane: { top: Math.round(box.top), bottom: Math.round(box.bottom), right: Math.round(box.right) }, paneMax: getComputedStyle(pane).getPropertyValue("--drama-flow-pane-max"), clear: getComputedStyle(pane).getPropertyValue("--drama-flow-launcher-clear") }; })()`;
 
 /** 等浮层尺寸和位置连续 2 秒不变（头像媒体加载完会变大），超时返回最后一次读数。 */
+async function modelCardCase(cdp) {
+    const card = `document.querySelector('button[aria-label^="更换视频模型"]')`;
+    const expanded = (value) => `(${card})?.getAttribute("aria-expanded") === "${value}"`;
+    const key = async (name, code, vk, text) => {
+        await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: name, code, windowsVirtualKeyCode: vk, text });
+        await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: name, code, windowsVirtualKeyCode: vk });
+    };
+    for (const part of [".drama-flow-model-label", ".drama-flow-model-name"]) {
+        await cdp.click(`(${card})?.querySelector("${part}")`, part);
+        check(await cdp.poll(expanded(true), "picker opened"), `模型卡点击 ${part} 打开`);
+        await cdp.click(`(${card})?.querySelector("${part}")`, part);
+        check(await cdp.poll(expanded(false), "picker closed"), `再次点击 ${part} 收起`);
+    }
+    const point = await cdp.evaluate(`(() => { const b = ${card}; const r = b.getBoundingClientRect(); const x = r.left + 3, y = r.top + r.height / 2; return document.elementFromPoint(x,y) === b ? { x,y } : null })()`);
+    if (!check(point, "留白直接命中原生模型按钮")) return;
+    for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await cdp.send("Input.dispatchMouseEvent", { type, ...point, button: "left", buttons: type === "mousePressed" ? 1 : 0, clickCount: 1 });
+    check(await cdp.poll(expanded(true), "padding opens"), "点击模型卡留白打开");
+    await cdp.click(card, "收起模型卡");
+    // 浮层关闭时浏览器可以把焦点还给页面，从当前焦点按 Tab 验证卡片可达。
+    await key("Tab", "Tab", 9);
+    for (let i = 0; i < 100 && !(await cdp.evaluate(`document.activeElement === ${card}`)); i++) await key("Tab", "Tab", 9);
+    if (!check(await cdp.evaluate(`document.activeElement === ${card}`), "Tab 能聚焦整张模型卡")) return;
+    for (const [name, code, vk, text] of [
+        ["Enter", "Enter", 13, "\r"],
+        [" ", "Space", 32, " "],
+    ]) {
+        await key(name, code, vk, text);
+        if (!check(await cdp.poll(`${expanded(true)} && document.activeElement?.matches('[role="option"]')`, "keyboard opens"), `${code} 打开并聚焦候选模型`, await cdp.evaluate("document.activeElement?.outerHTML.slice(0,240)"))) return;
+        await key("Enter", "Enter", 13, "\r");
+        check(await cdp.poll(`${expanded(false)} && document.activeElement === ${card}`, "choice returns focus"), "Enter 选中模型并返回触发按钮");
+    }
+}
+
 async function stableLauncher(cdp) {
     let last = "";
     let same = 0;
@@ -640,6 +674,7 @@ async function main() {
         await cdp.click(`document.querySelector('aside.drama-flow-pane button[aria-label="收起详情"]')`, "关出片详情");
         check(await cdp.poll(`!document.querySelector("aside.drama-flow-pane")`, "video closed"), "出片详情关闭");
         check(await cdp.evaluate(`${summary("视频模型")} === ${JSON.stringify(FIXTURE_VIDEO_MODEL_NAME)}`), "D-03 出片页视频模型显示名字");
+        await modelCardCase(cdp);
         check(!(await cdp.evaluate(crashed)), "出片详情选择、切换、关闭不崩");
 
         // R5-ZOOM：资产详情的图点开放大（角色主卡、已出图子卡、场景）：按原图比例显示，能放大，Esc 退出；不写任何东西。

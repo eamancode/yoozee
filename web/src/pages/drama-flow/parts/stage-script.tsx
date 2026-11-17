@@ -18,6 +18,7 @@ import { getProjectUnit, updateProjectUnit, type ProjectUnit } from "@/services/
 import type { FlowData } from "../hooks/use-flow-data";
 import type { FlowStageView } from "../model/stages";
 import { ReadError, StageLayout, StageTabs, SummaryRow } from "./layout";
+import { modelSummaryItem } from "./model-card";
 
 /** 剧本正文存的是 HTML（带一条来源注释）：编辑时只给纯文本，保存时再包回去并保留来源注释。 */
 export function scriptHtmlToText(html: string) {
@@ -48,7 +49,7 @@ export function sourceParagraphs(chapterText: string, from: number, to: number) 
 type ScriptTab = "episodes" | "source" | "check";
 
 export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots }: { data: FlowData; stage?: FlowStageView; tab?: string; onTab: (tab: ScriptTab) => void; onSelectUnit: (unitId: string) => void; onRedoShots: (unitId: string) => void }) {
-    const { detail, unit, fullUnit, workspaceQuery, unitsQuery, rail, episodes, episodesQuery, brief, projectTasks, chapters, episodeUnits, allUnits, project, dramaRule } = data;
+    const { detail, unit, fullUnit, workspaceQuery, unitsQuery, rail, episodes, episodesQuery, brief, projectTasks, chapters, episodeUnits, allUnits, project, dramaRule, stepModels } = data;
     const active: ScriptTab = tab === "source" || tab === "check" ? tab : "episodes";
     const sss = Boolean(project && projectWorkflow(project.workflowId).storyboardMode === "sss");
     const designs = useSSSDocuments(project?.id || "", sss);
@@ -76,6 +77,7 @@ export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots
                 </div>
                 <div className="drama-flow-work-actions">
                     <ScriptAdaptControl
+                        stepModels={stepModels}
                         detail={detail}
                         chapters={chapters}
                         episodes={episodeUnits}
@@ -95,6 +97,7 @@ export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots
                     { label: "原文章节", value: unitsQuery.isError ? "没读到" : chapters.length },
                     { label: "已有分镜", value: episodes ? `${withShots}/${episodeRows.length} 集` : episodesQuery.isError ? "没读到" : "…" },
                     { label: "检查提醒", value: lastOutcome ? lastOutcome.errors + lastOutcome.warnings : "—", tone: lastOutcome && lastOutcome.errors ? "bad" : lastOutcome?.warnings ? "warn" : undefined },
+                    modelSummaryItem(stepModels.text),
                 ]}
             />
             <StageTabs<ScriptTab>

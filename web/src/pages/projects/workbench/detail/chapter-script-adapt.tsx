@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScrollText } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
+import { dialogModelPicker, dialogTextSubmission, useDialogSubmissionModels, type StepDialogModels } from "./step-dialog-models";
 import { Callout } from "@/components/ui/product/callout";
 import { projectWorkflow } from "@/lib/project-workflow";
 import { useSSSDocuments } from "./sss-project-panels";
@@ -35,6 +36,7 @@ import { ScriptAdaptRunPanel } from "./script-adapt-run-panel";
 import { parseScriptAdaptStream, resumedScriptAdaptStream, SCRIPT_ADAPT_CONCEPT_TURN, scriptAdaptStreamFromResult, type ScriptAdaptResume } from "./script-adapt-stream";
 
 type ScriptAdaptControlProps = {
+    stepModels?: StepDialogModels;
     detail: ProjectDetail;
     /** 原文章节、剧集（项目里的顺序）。 */
     chapters: ProjectUnit[];
@@ -72,13 +74,15 @@ function previousAdaptRun(task?: GenerationTask) {
  * 章节页的「剧本优化」（项目级步骤 script.adapt）：对话框选原文章节（默认全部还没改编的）或已有剧集（只调节奏）、
  * 集数或每集秒数、文本模型，技能由项目风格档案的绑定决定；进度侧栏按集流式显示。会替换已有剧集时先列出影响面确认。
  */
-export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled, onWritten, onChained }: ScriptAdaptControlProps) {
-    const { message, modal } = App.useApp();
+export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled, onWritten, onChained, stepModels }: ScriptAdaptControlProps) {
+    const { message } = App.useApp();
     const queryClient = useQueryClient();
     const projectId = detail.project.id;
     const effectiveConfig = useEffectiveConfig();
+    const submission = useDialogSubmissionModels(stepModels, effectiveConfig);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [open, setOpen] = useState(false);
+    const [replacement, setReplacement] = useState<{ mode: DramaScriptAdaptMode; episodes: DramaEpisodeImpact[]; resumeTaskId?: string }>();
     const [panelOpen, setPanelOpen] = useState(false);
     const [starting, setStarting] = useState(false);
     const [preparing, setPreparing] = useState(false);
@@ -92,6 +96,11 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
     // 打开对话框时剧集清单还没读到：读到后按是否都改编过再定一次默认模式。
     const modePendingRef = useRef(false);
     const [settings, setSettings] = useState<Settings>(() => ({ mode: defaultMode(), sourceIds: [], countBy: "episodes", targetEpisodes: 1, episodeSeconds: 90, textModel: "", images: true, imageModel: "" }));
+    const textPicker = dialogModelPicker("text", stepModels, settings.textModel, (textModel) => setSettings((current) => ({ ...current, textModel })));
+    const imagePicker = dialogModelPicker("image", stepModels, settings.imageModel, (imageModel) => {
+        setPrecheckError("");
+        setSettings((current) => ({ ...current, imageModel }));
+    });
     const briefQuery = useQuery({ queryKey: dramaBriefKey(projectId), queryFn: async () => (await getDramaBrief(projectId)).document, enabled: open });
     const usageQuery = useQuery({
         queryKey: ["project", projectId, "drama-step", "script.adapt", detail.project.styleProfile || ""],
@@ -156,12 +165,24 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
         await Promise.all([queryClient.invalidateQueries({ queryKey: ["project", projectId] }), queryClient.invalidateQueries({ queryKey: ["projects"] }), queryClient.invalidateQueries({ queryKey: ["project-chapter-generation-tasks", projectId] })]);
     };
 
-    const confirmReplace = (mode: DramaScriptAdaptMode, impacts: DramaEpisodeImpact[]) =>
-        new Promise<boolean>((resolve) => {
-            const withShots = impacts.filter((item) => item.shots || item.hasShotlist);
-            modal.confirm({
-                title: mode === "design" ? `为 ${impacts.length} 集补写设计并更新定稿台词？` : mode === "rhythm" ? `改写 ${impacts.length} 集剧集的正文？` : `替换已有的 ${impacts.length} 集剧集？`,
-                content: (
+    const replacementDialog = () => {
+        if (!replacement) return null;
+        const { mode, episodes: impacts, resumeTaskId } = replacement;
+        const withShots = impacts.filter((item) => item.shots || item.hasShotlist);
+        return (
+            <Modal
+                open
+                centered
+                title={mode === "design" ? `为 ${impacts.length} 集补写设计并更新定稿台词？` : mode === "rhythm" ? `改写 ${impacts.length} 集剧集的正文？` : `替换已有的 ${impacts.length} 集剧集？`}
+                okText={mode === "design" ? "补写设计" : mode === "rhythm" ? "改写" : "生成成功后替换"}
+                okButtonProps={{ danger: true, disabled: stepModels && !stepModels.text.effective }}
+                cancelText="取消"
+                onCancel={() => setReplacement(undefined)}
+                onOk={() => {
+                    setReplacement(undefined);
+                    void start({ replace: true, resumeTaskId });
+                }}
+            >
                     <div className="space-y-2 text-sm leading-6 text-foreground/62">
                         <p>
                             {mode === "design" ? "按所选剧集保存新版设计与台词定稿表。台词有改动时会更新剧本正文，已有镜头表、段和导演文档保留原版本。" : mode === "rhythm"
@@ -180,23 +201,25 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                             ))}
                         </ul>
                         {withShots.length ? <p>其中 {withShots.length} 集已有镜头表或段，此操作无法撤销。</p> : null}
+                        {stepModels && !resumeTaskId ? (
+                            <label className="block">
+                                <span className="mb-1.5 block font-medium">本次提交的文本模型</span>
+                                <ModelPicker preferenceScope="short-drama" config={effectiveConfig} capability="text" {...textPicker} fullWidth placeholder="选择补写或替换使用的文本模型" />
+                            </label>
+                        ) : null}
                     </div>
-                ),
-                okText: mode === "design" ? "补写设计" : mode === "rhythm" ? "改写" : "生成成功后替换",
-                okButtonProps: { danger: true },
-                cancelText: "取消",
-                centered: true,
-                onOk: () => resolve(true),
-                onCancel: () => resolve(false),
-            });
-        });
+            </Modal>
+        );
+    };
 
     const start = async (options: { replace?: boolean; resumeTaskId?: string } = {}) => {
         const previous = options.resumeTaskId ? previousAdaptRun(taskDetail) : undefined;
         const mode = previous?.mode || settings.mode;
         const sourceUnitIds = previous?.sourceUnitIds || settings.sourceIds;
         if (detail.project.status === "archived") return message.warning("项目已归档，请先在项目设置中恢复");
-        const textModel = settings.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
+        const resumeModel = options.resumeTaskId ? taskDetail?.model || "" : undefined;
+        const { model: textModel, issue } = dialogTextSubmission(stepModels?.text, effectiveConfig, settings.textModel, resumeModel);
+        if (issue) return message.warning(issue);
         const config = { ...effectiveConfig, model: textModel, textModel };
         if (!isAiConfigReady(config, textModel)) {
             navigateToSettings({ continueCreation: true });
@@ -206,10 +229,10 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
         // 出图开着时出图模板在开跑前组好（续跑沿用上一次的开关）：组不出来时不建任务，原因留在对话框里（续跑时直接提示）。
         let assetImageTask: Awaited<ReturnType<typeof assetImageTaskTemplate>> | undefined;
         if (mode !== "design" && (previous ? previous.images : settings.images)) {
-            const imageModel = settings.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
+            const imageModel = stepModels ? imagePicker.value : settings.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
             const imageConfig = { ...effectiveConfig, model: imageModel };
             const fail = (reason: string) => (options.resumeTaskId ? void message.error(`没有继续剧本优化：${reason}`) : setPrecheckError(reason));
-            if (!imageModel || !isAiConfigReady(imageConfig, imageModel)) return fail("资产出图用的图片模型还没配好：到设置里配置，或关掉「出图」。");
+            if (!imageModel || stepModels?.image.disabledReason(imageModel) || !isAiConfigReady(imageConfig, imageModel)) return fail("资产出图用的图片模型还没配好：到设置里配置，或关掉「出图」。");
             setPreparing(true);
             try {
                 assetImageTask = await assetImageTaskTemplate(imageConfig, imageModel);
@@ -229,7 +252,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             const result = await runScriptAdapt(
                 {
                     projectId,
-                    config,
+                    config: submission.textConfig(config, resumeModel, assetImageTask),
                     mode,
                     sourceUnitIds,
                     ...(previous && mode === "adapt" ? { targetEpisodes: previous.episodes } : {}),
@@ -266,7 +289,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
             if (impact) {
                 setStarting(false);
                 setPanelOpen(false);
-                if (await confirmReplace(impact.mode, impact.episodes)) await start({ ...options, replace: true });
+                setReplacement({ ...impact, resumeTaskId: options.resumeTaskId });
                 return;
             }
             await refresh();
@@ -297,6 +320,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
 
     return (
         <>
+            {replacementDialog()}
             <Button size="small" icon={<ScrollText className="size-3.5" />} disabled={disabled || running || (!chapters.length && !episodes.length)} loading={running} onClick={() => openDialog()} aria-label="剧本优化">
                 {running ? "剧本优化中" : "剧本优化"}
             </Button>
@@ -313,7 +337,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                 width={580}
                 okText={settings.mode === "design" ? "补写所选集设计" : settings.mode === "rhythm" ? "调节奏" : "改编成剧本"}
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.mode !== "design" && settings.images && !settings.imageModel), loading: preparing }}
+                okButtonProps={{ disabled: !textPicker.value || !settings.sourceIds.length || !usage || (settings.mode !== "design" && settings.images && !imagePicker.value), loading: preparing }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -391,8 +415,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                         <ModelPicker preferenceScope="short-drama"
                             config={effectiveConfig}
                             capability="text"
-                            value={settings.textModel}
-                            onChange={(textModel) => setSettings((current) => ({ ...current, textModel }))}
+                            {...textPicker}
                             variant="creation"
                             fullWidth
                             placeholder="选择用于剧本优化的文本模型"
@@ -420,11 +443,7 @@ export function ScriptAdaptControl({ detail, chapters, episodes, tasks, disabled
                             <ModelPicker preferenceScope="short-drama"
                                 config={effectiveConfig}
                                 capability="image"
-                                value={settings.imageModel}
-                                onChange={(imageModel) => {
-                                    setPrecheckError("");
-                                    setSettings((current) => ({ ...current, imageModel }));
-                                }}
+                                {...imagePicker}
                                 fullWidth
                                 placeholder="选择资产出图用的图片模型"
                                 showSelectedPrice
