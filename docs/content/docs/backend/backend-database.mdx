@@ -13,6 +13,14 @@ description: 柚子后端核心持久化表与状态边界
 
 `sll_metric_hours` 以 UTC 小时为主键，保存成功率接口的模型级响应和采集状态。成功的同轮快照不重写，失败可在同一小时补采；连续两个小时无新有效数据标记为过期。平台口径从 `tasks` 的近 24 小时成功和失败终态去重，按视频创建日志的实际渠道及 `api_call_logs.video_provider_model_key` 归属。没有实际出站证据或同一任务无法唯一归属时显示未知。
 
+## v1.8.6 画布升级与官方素材
+
+迁移 104 对应上游 85，增加站点级姿势库来源表 `pose_library_sources` 和条目表 `pose_library_items`。姿势图片存放在数据目录下的 `pose-library/`，数据库登记来源、署名及图片路径。
+
+柚子迁移 103 执行上游迁移 96 的统一节点转换。它按用户和画布处理当前画布、可恢复快照、Agent 撤销记录及创作批准基线。转换当前画布时递增修订号；恢复快照的修订号保留。无法验证原始哈希或解析持久文档时，整个迁移事务回滚。
+
+官方素材使用独立的 `yingce_schema_migrations` 记录上游 1–4，业务表为 `official_assets`（发布快照）、`official_asset_imports`（用户导入映射）和 `official_asset_recommendations`（推荐和授权）。启动时校验两本迁移账；历史柚子迁移 96–102 继续保留原名称及校验和。回滚旧程序时须同时还原升级前数据库备份，因为旧程序只接受自己的结构版本。
+
 ## 五条流水线与第二次顺延（迁移 100）
 
 迁移 100 在最前面加入「流水线一 SSS 电影导演」「流水线二 SSS 短剧导演」：同一事务里依次把已有项目 `pipeline-3 → pipeline-5`、`pipeline-2 → pipeline-4`、`pipeline-1 → pipeline-3`、空字符串或 NULL → `pipeline-5`（由高到低，不会二次顺延），PostgreSQL 上把列默认改为 `pipeline-5`（SQLite 同迁移 97 不重建表）；`tasks.input_json` 的 `metadata.assetWorkflow` 同样改写 `id` 与 `label`，其余字节保留，快照损坏或 ID 非法则中止且不输出正文。账本记录版本 100，重复启动不再顺延。迁移 97 的编号与标签已冻结成字面值，不随现行定义变化。现行编号：一 SSS 电影、二 SSS 短剧（新建默认）、三 本体论、四 资产一体化、五 原流程。下面「迁移 97」一节描述的是当时的编号。

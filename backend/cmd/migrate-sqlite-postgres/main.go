@@ -115,8 +115,7 @@ func publicTableNames(db *gorm.DB) ([]string, error) {
 
 // validateTargetTableNames compares the existing PostgreSQL schema against the
 // same business-table list used by Models() and migrations().
-// schema_migrations is created by database.MigrateSchema and is intentionally
-// not part of the row-copy list, so it is allowed as the only system table.
+// Both ledgers are created by database.MigrateSchema and excluded from row copying.
 func validateTargetTableNames(actual []string) error {
 	expected := make(map[string]struct{}, len(migrations()))
 	for _, migration := range migrations() {
@@ -135,7 +134,7 @@ func validateTargetTableNames(actual []string) error {
 	}
 	extra := make([]string, 0)
 	for name := range actualSet {
-		if name == "schema_migrations" {
+		if name == "schema_migrations" || name == "yingce_schema_migrations" {
 			continue
 		}
 		if _, ok := expected[name]; !ok {
@@ -393,6 +392,12 @@ func migrations() []tableMigration {
 		migrateTable[model.ModelChannel]("model_channels"),
 		migrateTable[model.ChannelModel]("channel_models"),
 		migrateTable[model.ChannelModelPriceTier]("channel_model_price_tiers"),
+		migrateTable[model.SLLCatalogImport]("sll_catalog_imports"),
+		migrateTable[model.SLLCatalogLine]("sll_catalog_lines"),
+		migrateTable[model.SLLMetricHour]("sll_metric_hours"),
+		migrateTable[model.ProjectVideoRoute]("project_video_routes"),
+		migrateTable[model.ProjectVideoRouteStreak]("project_video_route_streaks"),
+		migrateTable[model.ProjectVideoRouteEvent]("project_video_route_events"),
 		migrateTable[model.IDSequence]("id_sequences"),
 		migrateTable[model.LogicalModel]("logical_models"),
 		migrateTable[model.LogicalModelRevision]("logical_model_revisions"),
@@ -437,6 +442,9 @@ func migrations() []tableMigration {
 		migrateTable[model.ResourceOffloadJob]("resource_offload_jobs"),
 		migrateTable[model.AnnouncementImageDraft]("announcement_image_drafts"),
 		migrateTable[model.Asset]("assets"),
+		migrateTable[model.OfficialAsset]("official_assets"),
+		migrateTable[model.OfficialAssetImport]("official_asset_imports"),
+		migrateTable[model.OfficialAssetRecommendation]("official_asset_recommendations"),
 		migrateTable[model.AssetFolder]("asset_folders"),
 		migrateTable[model.ProjectAssetLink]("project_asset_links"),
 		migrateTable[model.ProjectAssetFolder]("project_asset_folders"),
@@ -481,6 +489,8 @@ func migrations() []tableMigration {
 		migrateTable[model.Task]("tasks"),
 		migrateTable[model.WorkbenchTool]("workbench_tools"),
 		migrateTable[model.WorkbenchPreset]("workbench_presets"),
+		migrateTable[model.PoseLibrarySource]("pose_library_sources"),
+		migrateTable[model.PoseLibraryItem]("pose_library_items"),
 		migrateTable[model.CloudAgentExecution]("cloud_agent_executions"),
 		migrateTable[model.CloudAgentEventRecord]("cloud_agent_event_records"),
 		migrateTable[model.CloudAgentMessageRecord]("cloud_agent_message_records"),

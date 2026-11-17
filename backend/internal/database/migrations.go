@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 102
+const CurrentSchemaVersion int64 = 104
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -54,9 +54,11 @@ const (
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
 type SchemaStatus struct {
-	Current  int64 `json:"current"`
-	Expected int64 `json:"expected"`
-	Ready    bool  `json:"ready"`
+	Current        int64 `json:"current"`
+	Expected       int64 `json:"expected"`
+	YingceCurrent  int64 `json:"yingceCurrent"`
+	YingceExpected int64 `json:"yingceExpected"`
+	Ready          bool  `json:"ready"`
 }
 
 type schemaMigration struct {
@@ -67,6 +69,10 @@ type schemaMigration struct {
 }
 
 func (schemaMigration) TableName() string { return "schema_migrations" }
+
+type yingceSchemaMigration schemaMigration
+
+func (yingceSchemaMigration) TableName() string { return "yingce_schema_migrations" }
 
 type migration struct {
 	version  int64
@@ -366,6 +372,19 @@ var schemaMigrations = []migration{
 	{version: 102, name: "project_video_routing", checksum: "sha256:project-video-routing-v102", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.ProjectVideoRoute{}, &model.ProjectVideoRouteStreak{}, &model.ProjectVideoRouteEvent{})
 	}},
+	{version: 103, name: "canvas_unified_text_nodes", checksum: canvasNodeModelChecksum, apply: migrateCanvasNodeModel},
+	{version: 104, name: "pose_library", checksum: "sha256:pose-library-v85-20261105", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.PoseLibrarySource{}, &model.PoseLibraryItem{})
+	}},
+}
+
+var yingceSchemaMigrations = []migration{
+	{version: 1, name: "official_assets", checksum: "sha256:official-assets-v61-20261026", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.OfficialAsset{}, &model.OfficialAssetImport{}) }},
+	{version: 2, name: "official_asset_recommendations", checksum: "sha256:official-asset-recommendations-v62-20261027", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.OfficialAssetRecommendation{}) }},
+	{version: 3, name: "official_character_snapshots", checksum: "sha256:official-character-snapshots-v63-20261029", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.OfficialAssetRecommendation{}, &model.OfficialAsset{})
+	}},
+	{version: 4, name: "official_recommendation_consent", checksum: "sha256:official-recommendation-consent-v64-20261031", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.OfficialAssetRecommendation{}) }},
 }
 
 // Freeze v96's default: a pre-workflow project must become the old original workflow
@@ -1265,23 +1284,70 @@ func MigrateSchema(db *gorm.DB) error {
 				return fmt.Errorf("记录数据库迁移 %d：%w", item.version, err)
 			}
 		}
+		if err := tx.AutoMigrate(&yingceSchemaMigration{}); err != nil {
+			return fmt.Errorf("初始化官方素材迁移记录：%w", err)
+		}
+		for _, item := range yingceSchemaMigrations {
+			var record yingceSchemaMigration
+			err := tx.First(&record, "version = ?", item.version).Error
+			if err == nil {
+				if err := validateMigrationRecord(schemaMigration(record), item); err != nil {
+					return err
+				}
+				continue
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			if err := item.apply(tx); err != nil {
+				return fmt.Errorf("执行官方素材迁移 %d（%s）：%w", item.version, item.name, err)
+			}
+			if err := tx.Create(&yingceSchemaMigration{Version: item.version, Name: item.name, Checksum: item.checksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
+				return err
+			}
+		}
 		return RequireSchemaVersion(tx)
 	})
 }
 
 func ReadSchemaStatus(db *gorm.DB) (SchemaStatus, error) {
-	status := SchemaStatus{Expected: CurrentSchemaVersion}
+	status := SchemaStatus{Expected: CurrentSchemaVersion, YingceExpected: int64(len(yingceSchemaMigrations))}
 	if !db.Migrator().HasTable(&schemaMigration{}) {
 		return status, nil
 	}
 	if err := db.Model(&schemaMigration{}).Select("COALESCE(MAX(version), 0)").Scan(&status.Current).Error; err != nil {
 		return status, fmt.Errorf("读取数据库结构版本：%w", err)
 	}
+	hasYingceMigrations := db.Migrator().HasTable(&yingceSchemaMigration{})
+	if hasYingceMigrations {
+		if err := db.Model(&yingceSchemaMigration{}).Select("COALESCE(MAX(version), 0)").Scan(&status.YingceCurrent).Error; err != nil {
+			return status, fmt.Errorf("读取官方素材数据库结构版本：%w", err)
+		}
+	}
 	if status.Current != status.Expected {
 		return status, nil
 	}
 	if err := validateMigrationRecords(db); err != nil {
 		return status, err
+	}
+	if !hasYingceMigrations {
+		return status, nil
+	}
+	var count int64
+	if err := db.Model(&yingceSchemaMigration{}).Count(&count).Error; err != nil {
+		return status, err
+	}
+	if count != int64(len(yingceSchemaMigrations)) {
+		return status, nil
+	}
+	for _, item := range yingceSchemaMigrations {
+		var row yingceSchemaMigration
+		if err := db.First(&row, "version = ?", item.version).Error; err != nil {
+			return status, err
+		}
+		if err := validateMigrationRecord(schemaMigration(row), item); err != nil {
+			return status, err
+		}
 	}
 	status.Ready = true
 	return status, nil
@@ -1327,6 +1393,9 @@ func RequireSchemaVersion(db *gorm.DB) error {
 	}
 	if status.Current > status.Expected {
 		return fmt.Errorf("数据库结构版本 %d 高于程序支持的 %d，拒绝使用旧程序连接新数据库", status.Current, status.Expected)
+	}
+	if !status.Ready {
+		return fmt.Errorf("官方素材数据库迁移尚未完成，请先执行 migrate-schema up")
 	}
 	return nil
 }
