@@ -115,8 +115,7 @@ func publicTableNames(db *gorm.DB) ([]string, error) {
 
 // validateTargetTableNames compares the existing PostgreSQL schema against the
 // same business-table list used by Models() and migrations().
-// schema_migrations is created by database.MigrateSchema and is intentionally
-// not part of the row-copy list, so it is allowed as the only system table.
+// Both ledgers are created by database.MigrateSchema and excluded from row copying.
 func validateTargetTableNames(actual []string) error {
 	expected := make(map[string]struct{}, len(migrations()))
 	for _, migration := range migrations() {
@@ -135,7 +134,7 @@ func validateTargetTableNames(actual []string) error {
 	}
 	extra := make([]string, 0)
 	for name := range actualSet {
-		if name == "schema_migrations" {
+		if name == "schema_migrations" || name == "yingce_schema_migrations" {
 			continue
 		}
 		if _, ok := expected[name]; !ok {
@@ -437,6 +436,9 @@ func migrations() []tableMigration {
 		migrateTable[model.ResourceOffloadJob]("resource_offload_jobs"),
 		migrateTable[model.AnnouncementImageDraft]("announcement_image_drafts"),
 		migrateTable[model.Asset]("assets"),
+		migrateTable[model.OfficialAsset]("official_assets"),
+		migrateTable[model.OfficialAssetImport]("official_asset_imports"),
+		migrateTable[model.OfficialAssetRecommendation]("official_asset_recommendations"),
 		migrateTable[model.AssetFolder]("asset_folders"),
 		migrateTable[model.ProjectAssetLink]("project_asset_links"),
 		migrateTable[model.ProjectAssetFolder]("project_asset_folders"),
