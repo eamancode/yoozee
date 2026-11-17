@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 101
+const CurrentSchemaVersion int64 = 102
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -351,6 +351,9 @@ var schemaMigrations = []migration{
 	{version: 99, name: "segment_asset_bindings", checksum: "sha256:segment-asset-bindings-v99", apply: migrateSegmentAssetBindings},
 	{version: 100, name: "sss_workflow_renumber", checksum: "sha256:sss-workflow-renumber-v100", apply: migrateSSSWorkflowRenumber},
 	{version: 101, name: "canvas_unified_text_nodes", checksum: canvasNodeModelChecksum, apply: migrateCanvasNodeModel},
+	{version: 102, name: "pose_library", checksum: "sha256:pose-library-v85-20261105", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.PoseLibrarySource{}, &model.PoseLibraryItem{})
+	}},
 }
 
 var yingceSchemaMigrations = []migration{

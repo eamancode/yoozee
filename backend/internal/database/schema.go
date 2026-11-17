@@ -130,6 +130,8 @@ func Models() []any {
 		&model.CanvasEditLease{},
 		&model.WorkbenchTool{},
 		&model.WorkbenchPreset{},
+		&model.PoseLibrarySource{},
+		&model.PoseLibraryItem{},
 		&model.CanvasShare{},
 		&model.PromptTemplate{},
 		&model.UserPromptCustomization{},

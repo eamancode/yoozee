@@ -483,6 +483,8 @@ func migrations() []tableMigration {
 		migrateTable[model.Task]("tasks"),
 		migrateTable[model.WorkbenchTool]("workbench_tools"),
 		migrateTable[model.WorkbenchPreset]("workbench_presets"),
+		migrateTable[model.PoseLibrarySource]("pose_library_sources"),
+		migrateTable[model.PoseLibraryItem]("pose_library_items"),
 		migrateTable[model.CloudAgentExecution]("cloud_agent_executions"),
 		migrateTable[model.CloudAgentEventRecord]("cloud_agent_event_records"),
 		migrateTable[model.CloudAgentMessageRecord]("cloud_agent_message_records"),

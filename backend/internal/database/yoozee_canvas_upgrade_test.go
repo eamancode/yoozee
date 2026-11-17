@@ -18,7 +18,7 @@ func TestYoozeeCanvasUpgradePreservesExistingLedger(t *testing.T) {
 	}
 	// Recreate the deployed schema-100 boundary, including absence of the
 	// separate official asset ledger and all three new business tables.
-	for _, table := range []any{&yingceSchemaMigration{}, &model.OfficialAsset{}, &model.OfficialAssetImport{}, &model.OfficialAssetRecommendation{}} {
+	for _, table := range []any{&yingceSchemaMigration{}, &model.OfficialAsset{}, &model.OfficialAssetImport{}, &model.OfficialAssetRecommendation{}, &model.PoseLibrarySource{}, &model.PoseLibraryItem{}} {
 		if err := db.Migrator().DropTable(table); err != nil {
 			t.Fatal(err)
 		}
@@ -42,6 +42,9 @@ func TestYoozeeCanvasUpgradePreservesExistingLedger(t *testing.T) {
 			t.Fatal(err)
 		}
 		status, err := ReadSchemaStatus(db)
+		if !db.Migrator().HasTable(&model.PoseLibrarySource{}) || !db.Migrator().HasTable(&model.PoseLibraryItem{}) {
+			t.Fatal("missing pose library business tables")
+		}
 		if err != nil || !status.Ready || status.YingceCurrent != 4 || status.Current != CurrentSchemaVersion {
 			t.Fatalf("status %+v: %v", status, err)
 		}
