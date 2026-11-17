@@ -1398,7 +1398,7 @@
     font-size: var(--fs-caption);
 }
 
-/* 段卡操作在中间列左对齐：远离右下角柚智浮层的固定热区，宽窄布局下都点得到。 */
+/* 段卡操作在内容列左对齐；中等屏宽的两列卡片在对应断点改为纵排。 */
 .drama-flow-vcard-actions {
     display: flex;
     flex-wrap: wrap;
@@ -1699,6 +1699,13 @@
         grid-auto-flow: column;
         justify-content: start;
         align-items: center;
+    }
+}
+
+@media (min-width: 901px) and (max-width: 1180px) {
+    .drama-flow-vcard-actions {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }
 
