@@ -14,6 +14,8 @@ import { bindProjectAssetImage, replaceProjectCharacterRepresentations, type Dra
 
 import { assetFields } from "../model/asset-fields";
 import { DetailPane, PaneSection, StageLayout, SummaryRow } from "./layout";
+import { modelSummaryItem } from "./model-card";
+import type { StepModel } from "../hooks/use-flow-data";
 
 export const IMAGE_STATUS: Record<DramaImageStatus, { text: string; tone?: "ok" | "run" | "bad" | "warn" }> = {
     bound: { text: "已出图", tone: "ok" },
@@ -32,12 +34,15 @@ export function LookAssets({
     project,
     category,
     assets,
+    imageModel,
     selectedId,
     retrying,
     onSelect,
     onRetry,
 }: {
     project: Project;
+    /** 资产出图、重新出图用的图片模型。 */
+    imageModel: StepModel;
     category: "character" | "environment" | "prop";
     assets: ProjectAsset[];
     selectedId?: string;
@@ -88,6 +93,7 @@ export function LookAssets({
                     { label: "出图中", value: statuses.filter((status) => status === "queued" || status === "waiting").length, tone: "run" },
                     { label: "失败", value: failed.length, tone: failed.length ? "bad" : undefined },
                     { label: "还没出", value: statuses.filter((status) => status === "none" || status === "paused").length },
+                    modelSummaryItem(imageModel),
                 ]}
             />
             {failed.length > 1 ? (

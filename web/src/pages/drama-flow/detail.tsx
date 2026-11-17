@@ -21,6 +21,7 @@ import { downloadDramaDelivery, queueDramaAssetImages, resynthesizeDramaPalettes
 import { cancelVideoChain } from "@/services/api/project-video-chains";
 import type { ProjectAsset } from "@/services/api/projects";
 import { useConfigStore } from "@/stores/use-config-store";
+import { useDramaModelPreferencesStore } from "@/stores/use-drama-model-preferences-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 import { projectTasksKey, useFlowData } from "./hooks/use-flow-data";
@@ -61,7 +62,7 @@ export default function DramaFlowDetailPage() {
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
 
     const data = useFlowData(projectId, search.get("ep") || "");
-    const { project, progress, pipeline, pipelineQuery, coreQuery, rail, unit, unitId, segments, unitSegments, steps, activeChains, chainReadOf, assets, bible, episodes, videoModel, refreshVideo } = data;
+    const { project, progress, pipeline, pipelineQuery, coreQuery, rail, unit, unitId, segments, unitSegments, steps, activeChains, chainReadOf, assets, bible, episodes, videoModel, imageModel, refreshVideo } = data;
     const focusId = search.get("item") || undefined;
     const tab = search.get("tab") || undefined;
     const panel = search.get("panel");
@@ -156,13 +157,18 @@ export default function DramaFlowDetailPage() {
     const [imagePanelOpen, setImagePanelOpen] = useState(false);
     const queueLock = useRef(false);
     const pendingImageAssets = useMemo(() => pendingAssetImages(assets), [assets]);
+    const buildAssetImageTask = (model: string) => {
+        const reason = model && data.stepModels.image.disabledReason(model);
+        if (reason) throw new Error(reason);
+        const config = { ...effectiveConfig, model };
+        if (!model || !isAiConfigReady(config, model)) throw new Error("请先选择可用的图片模型");
+        return assetImageTaskTemplate(config, model);
+    };
     const queueImages = useMutation({
         mutationKey: ["drama-flow-asset-images", projectId],
         mutationFn: async ({ model, assetIds }: { model: string; assetIds: string[] }) => {
             if (!assetIds.length) throw new Error("请至少选择一个资产");
-            const config = { ...effectiveConfig, model };
-            if (!model || !isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
-            return queueDramaAssetImages(projectId, { assetIds, imageTask: await assetImageTaskTemplate(config, model) });
+            return queueDramaAssetImages(projectId, { assetIds, imageTask: await buildAssetImageTask(model) });
         },
         onSuccess: async (result) => {
             setImagePanelOpen(false);
@@ -185,10 +191,7 @@ export default function DramaFlowDetailPage() {
             const visual = list.filter((asset) => asset.category !== "palette");
             if (palettes.length) await resynthesizeDramaPalettes(projectId, { assetIds: palettes.map((asset) => asset.id) });
             if (!visual.length) return;
-            const model = project?.defaultImageModel || effectiveConfig.imageModel;
-            const config = { ...effectiveConfig, model };
-            if (!model || !isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
-            const result = await queueDramaAssetImages(projectId, { assetIds: visual.map((asset) => asset.id), imageTask: await assetImageTaskTemplate(config, model) });
+            const result = await queueDramaAssetImages(projectId, { assetIds: visual.map((asset) => asset.id), imageTask: await buildAssetImageTask(imageModel) });
             if (result.failed.length) throw new Error(`${result.failed.length} 张没排上，原因写在卡片上`);
         },
         onSuccess: async (_, list) => {
@@ -224,13 +227,15 @@ export default function DramaFlowDetailPage() {
             setImagePanelOpen(true);
             return;
         }
-        const textModel = effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
-        const config = { ...effectiveConfig, model: textModel, textModel };
+        // 与文本模型卡同一个值：只取短剧这一步能用的模型，没有就去设置。
+        const textModel = data.textModel;
+        // 到资产停靠点时单独确认出图，其余步骤只带模型卡校验过的图片模型；空值表示纯文本继续。
+        const config = { ...effectiveConfig, model: textModel, textModel, imageModel: atAssets ? "" : imageModel };
         if (!textModel || !isAiConfigReady(config, textModel)) {
             navigateToSettings({ continueCreation: true });
             return;
         }
-        await continueProjectPipeline(project.id, config, project.defaultImageModel, undefined, atAssets ? { withoutImages: true } : undefined);
+        await continueProjectPipeline(project.id, config);
         await Promise.all([queryClient.invalidateQueries({ queryKey: dramaProgressKey(project.id) }), queryClient.invalidateQueries({ queryKey: projectTasksKey(project.id) })]);
     };
 
@@ -412,7 +417,8 @@ export default function DramaFlowDetailPage() {
                 <AssetImageRecovery
                     assets={pendingImageAssets}
                     config={effectiveConfig}
-                    defaultModel={project.defaultImageModel || effectiveConfig.imageModel || effectiveConfig.model}
+                    defaultModel={imageModel}
+                    modelSelection={{ ...data.stepModels.image, onChange: (model) => useDramaModelPreferencesStore.getState().remember("image", model) }}
                     busy={queueImages.isPending}
                     onClose={() => {
                         if (!queueImages.isPending) setImagePanelOpen(false);
@@ -427,6 +433,7 @@ export default function DramaFlowDetailPage() {
             ) : null}
             {chainTarget ? (
                 <VideoChainPanel
+                    key={JSON.stringify([chainTarget.unitId, chainTarget.shotId, videoModel])}
                     open
                     projectId={projectId}
                     whiteModelStoryboardEnabled={project.whiteModelStoryboardEnabled === true}
@@ -436,6 +443,9 @@ export default function DramaFlowDetailPage() {
                     onClose={() => setChainTarget(undefined)}
                     onRefresh={refreshVideo}
                     buildModel={async () => {
+                        if (!videoModel || data.stepModels.video.disabledReason(videoModel)) {
+                            throw new Error(data.stepModels.video.status("请选择可用的视频模型").text);
+                        }
                         // 费用预览和确认提交都走这里：时长按这一段的正文取模型能提交的档位，不用全局偏好里的秒数。
                         const target = segments.find((item) => item.shotId === chainTarget.shotId);
                         const config = chainVideoConfig(effectiveConfig, videoModel, { aspectRatio: project?.aspectRatio, contentSeconds: target ? target.durationMs / 1000 : undefined });

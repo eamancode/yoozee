@@ -10,6 +10,7 @@ export function AssetImageRecovery({
     assets,
     config,
     defaultModel,
+    modelSelection,
     busy,
     onClose,
     onSubmit,
@@ -17,26 +18,40 @@ export function AssetImageRecovery({
     assets: ProjectAsset[];
     config: AiConfig;
     defaultModel: string;
+    modelSelection?: { chosen: string; disabledReason: (model: string) => string; onChange: (model: string) => void };
     busy: boolean;
     onClose: () => void;
     onSubmit: (selection: { model: string; assetIds: string[] }) => void;
 }) {
-    const [model, setModel] = useState(defaultModel);
+    const [localModel, setLocalModel] = useState(defaultModel);
+    const [lastChoice, setLastChoice] = useState(modelSelection?.chosen);
     const [ids, setIds] = useState(() => assets.filter((asset) => asset.visual?.definition.productionPriority !== "low").map((asset) => asset.id));
+    // 外部显式换模型要同步；目录停用正在确认的渠道时展示原因，由用户重新选，避免静默改价。
+    if (modelSelection && modelSelection.chosen !== lastChoice) {
+        setLastChoice(modelSelection.chosen);
+        setLocalModel(modelSelection.chosen || defaultModel);
+    }
+    const model = localModel || defaultModel;
+    const reason = model ? modelSelection?.disabledReason(model) : "";
+    const canSubmit = Boolean(model && !reason && ids.length && !busy);
     return (
         <AppModal
             open
             title="继续资产出图"
             onCancel={onClose}
-            onOk={() => onSubmit({ model, assetIds: ids })}
+            onOk={() => { if (canSubmit) onSubmit({ model, assetIds: ids }); }}
             okText={`为 ${ids.length} 个资产出图`}
             confirmLoading={busy}
-            okButtonProps={{ disabled: !model || !ids.length }}
+            okButtonProps={{ disabled: !canSubmit }}
             cancelButtonProps={{ disabled: busy }}
         >
             <div className="space-y-4">
                 <Alert type="info" showIcon title="选择本次图片渠道与资产" description="已成功的图片不会重出。子卡需等待主卡图片，请同时选择尚未出图的主卡。鉴权或余额异常会暂停本批后续任务，可修复渠道后在此继续。" />
-                <ModelPicker preferenceScope="short-drama" config={config} capability="image" value={model} onChange={setModel} fullWidth showSelectedPrice />
+                <ModelPicker preferenceScope="short-drama" config={config} capability="image" value={model} modelDisabledReason={modelSelection?.disabledReason} onChange={(value) => {
+                    setLocalModel(value);
+                    modelSelection?.onChange(value);
+                }} fullWidth showSelectedPrice />
+                {reason && <Alert type="warning" showIcon title={reason} />}
                 <Checkbox checked={ids.length === assets.length} indeterminate={ids.length > 0 && ids.length < assets.length} onChange={(event) => setIds(event.target.checked ? assets.map((asset) => asset.id) : [])}>
                     全选待出图资产
                 </Checkbox>

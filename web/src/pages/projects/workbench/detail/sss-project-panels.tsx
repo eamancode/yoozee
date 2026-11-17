@@ -8,6 +8,7 @@ import { announceCreatedGenerationTask, type GenerationTask } from "@/services/a
 import { logicalModelIDForConfig, useConfigStore } from "@/stores/use-config-store";
 import { DocumentText } from "./ontology-documents-drawer";
 import { followDramaRunTask } from "./project-chapter-ai";
+import { dialogTextSubmission, type StepDialogModels } from "./step-dialog-models";
 
 export function useSSSDocuments(projectId: string, enabled = true) {
     return useQuery({ queryKey: ontologyDocumentsKey(projectId), queryFn: ({ signal }) => getOntologyDocuments(projectId, signal), enabled: Boolean(projectId && enabled) });
@@ -42,7 +43,7 @@ export function EpisodeDesign({ projectId, unitId }: { projectId: string; unitId
     );
 }
 
-export function DirectorSetup({ projectId, tasks }: { projectId: string; tasks: GenerationTask[] }) {
+export function DirectorSetup({ projectId, tasks, textModel }: { projectId: string; tasks: GenerationTask[]; textModel?: StepDialogModels["text"] }) {
     const docs = useSSSDocuments(projectId);
     const client = useQueryClient();
     const config = useDramaModelConfig();
@@ -53,7 +54,8 @@ export function DirectorSetup({ projectId, tasks }: { projectId: string; tasks: 
     const checkpoint = latest && (latest.status === "failed" || latest.status === "cancelled") && latest.dramaRounds?.completed ? latest : undefined;
     const run = useMutation({
         mutationFn: async (resumeTaskId?: string) => {
-            const model = config.textModel || config.model || config.textModels[0] || "";
+            const { model, issue } = dialogTextSubmission(textModel, config, "", resumeTaskId ? checkpoint?.model || "" : undefined);
+            if (issue) throw new Error(issue);
             const selected = { ...config, model, textModel: model };
             if (!model || !ready(selected, model)) {
                 navigateToSettings({ continueCreation: true });

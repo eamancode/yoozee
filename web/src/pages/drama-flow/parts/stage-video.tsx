@@ -19,6 +19,7 @@ import { queryReadState, readValue, type ReadState } from "../model/read-state";
 import type { FlowStageView } from "../model/stages";
 import type { ShotVideoStep } from "../model/video-steps";
 import { DetailPane, PaneSection, ReadError, StageLayout, SummaryRow } from "./layout";
+import { modelSummaryItem } from "./model-card";
 import { secondsText } from "./stage-shots";
 
 type Chip = { text: string; tone?: "ok" | "run" | "bad" | "warn" };
@@ -69,7 +70,7 @@ export function StageVideo({
     onRetryAll: () => void;
     onStopAll: () => void;
 }) {
-    const { project, unit, unitId, unitSegments: progress, steps, workspace, workspaceQuery, pipelineQuery, videoModel, progressRead } = data;
+    const { project, unit, unitId, unitSegments: progress, steps, workspace, workspaceQuery, pipelineQuery, videoModel, progressRead, videoOffFamily, dramaModel, segmentRule, stepModels } = data;
     // 段和出片状态来自进度接口，候选和花费来自当前集的 workspace、出片链来自链接口：哪一个没读到，就把依赖它的数字写成「没读到」。
     const progressUnread = progressRead !== "ready";
     // 生成中、排队、失败要进度和这一集的出片链都读到才算得出来。
@@ -146,7 +147,7 @@ export function StageVideo({
                     { label: "还没出", value: readValue(videoRead, notYet) },
                     { label: "本集已花", value: unitSpent },
                     { label: "余额", value: walletQuery.data ? creditsText(walletQuery.data.account.availableMicrocredits) : walletQuery.isError ? "没读到" : "…" },
-                    { label: "视频模型", value: videoModelName.text, tone: videoModel ? videoModelName.tone : "bad" },
+                    modelSummaryItem(stepModels.video, videoOffFamily !== undefined ? "warn" : undefined),
                 ]}
             />
             {running + waiting + failed ? (
@@ -165,6 +166,17 @@ export function StageVideo({
             {pipelineQuery.isError ? <ReadError what="出片进度" onRetry={() => void pipelineQuery.refetch()} /> : null}
             {workspaceQuery.isError ? <ReadError what="这一集的候选视频和花费" onRetry={() => void workspaceQuery.refetch()} /> : null}
             {!progressUnread && videoRead === "error" ? <ReadError what="这一集的出片状态（生成中、排队、失败）" onRetry={() => void data.refreshVideo()} /> : null}
+            {videoOffFamily !== undefined && dramaModel ? (
+                <div className="drama-flow-note" data-tone="warn">
+                    所选视频模型{videoOffFamily ? `属于「${videoOffFamily.label}」` : "认不出属于哪个生成模型"}，不是本项目生成模型「{dramaModel.label}」那一族。分镜是按「{dramaModel.label}」的规则装的段
+                    {segmentRule ? `；这个模型一段最长 ${segmentRule.maxSeconds} 秒，超时长的段要回分镜重新装段再出` : ""}。
+                </div>
+            ) : null}
+            {segmentRule?.problem ? (
+                <div className="drama-flow-note" data-tone="warn">
+                    {segmentRule.problem}
+                </div>
+            ) : null}
             {!canGenerate && progress.length ? (
                 <div className="drama-flow-note" data-tone="warn">
                     还没配好可用的视频模型，先到设置里配好再出片。

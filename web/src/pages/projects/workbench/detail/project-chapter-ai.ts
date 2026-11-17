@@ -203,10 +203,11 @@ export type StyleLockRunInput = {
 };
 
 /** 起风格锁定任务（不等它跑完），章节页的侧栏接上它的流。 */
-async function startStyleLock(input: StyleLockRunInput) {
-    const model = input.config.textModel || input.config.model;
-    const config = { ...input.config, model };
-    const imageTask = await directorCoverTaskTemplate(input.config,input.defaultImageModel);
+async function startStyleLock(input: StyleLockRunInput, configBeforeSubmit?: (image?: DramaImageTaskTemplate) => AiConfig) {
+    const imageTask = await directorCoverTaskTemplate(input.config, input.defaultImageModel);
+    const current = configBeforeSubmit?.(imageTask) ?? input.config;
+    const model = current.textModel || current.model;
+    const config = { ...current, model };
     const { task, usage } = await runDramaProjectStep(input.projectId, "style.lock", {
         model,
         ...(logicalModelIDForConfig(config) ? { logicalModelId: logicalModelIDForConfig(config) } : {}),
@@ -224,8 +225,8 @@ async function startStyleLock(input: StyleLockRunInput) {
  * 风格锁定（流程步骤 style.lock，项目级）：一个任务一轮，服务端按项目的画面类型、风格文字、参考图（随任务以图片发给文本模型）和剧本写风格锚
  * 和主基调色卡；收尾只出候选，用户点「锁定此风格」才写进项目。页面只订阅任务文本流。
  */
-export async function runStyleLock(input: StyleLockRunInput, options?: ChapterTaskOptions) {
-    const { task, usage } = await startStyleLock(input);
+export async function runStyleLock(input: StyleLockRunInput, options?: ChapterTaskOptions & { configBeforeSubmit?: (image?: DramaImageTaskTemplate) => AiConfig }) {
+    const { task, usage } = await startStyleLock(input, options?.configBeforeSubmit);
     options?.onTaskUpdate?.(task);
     const completed = await followDramaRunTask(task, options);
     return { task: completed, usage, outcome: dramaStyleLockOutcomeOf(completed) };

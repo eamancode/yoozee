@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { Check, ChevronDown, Coins } from "lucide-react";
 import { Popover } from "antd";
 import { usePopoverAnchorAlign } from "@/hooks/use-popover-anchor-align";
@@ -38,6 +38,12 @@ type ModelPickerProps = {
     modelFilter?: (model: string) => boolean;
     /** 调用方额外的不可选原因（例如短剧只能用平台模型）；返回非空串时选项置灰并显示原因。 */
     modelDisabledReason?: (model: string) => string;
+    /** 自定义触发器里的内容（替换默认的图标、名称和价格）；调用方要自己写清当前模型和状态。 */
+    triggerContent?: ReactNode;
+    /** 触发器的辅助名称；默认用 placeholder。 */
+    triggerAriaLabel?: string;
+    /** 是否在触发器下方显示「上次使用的模型不可用」一类提示；调用方自己写状态时可关掉。 */
+    showPreferenceNotice?: boolean;
 };
 
 export function ModelPicker({
@@ -58,6 +64,9 @@ export function ModelPicker({
     showConfiguredModelName = false,
     modelFilter,
     modelDisabledReason,
+    triggerContent,
+    triggerAriaLabel,
+    showPreferenceNotice = true,
 }: ModelPickerProps) {
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
     const recentModels = useDramaModelPreferencesStore((state) => state.models);
@@ -155,10 +164,11 @@ export function ModelPicker({
         }
         setOpen(nextOpen);
     };
-    const focusMenuOption = (last = false) => {
+    const focusMenuOption = (last = false, preferSelected = false) => {
         window.requestAnimationFrame(() => {
             const buttons = menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-model-picker-item]:not(:disabled)');
-            const target = last ? buttons?.item((buttons?.length || 1) - 1) : buttons?.item(0);
+            const selected = preferSelected && menuRef.current?.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]:not(:disabled)');
+            const target = selected || (last ? buttons?.item((buttons?.length || 1) - 1) : buttons?.item(0));
             focusPickerOption(target);
         });
     };
@@ -271,10 +281,11 @@ export function ModelPicker({
                                         disabled={Boolean(disabledReason)}
                                         className="canvas-model-picker-option disabled:cursor-not-allowed disabled:opacity-45"
                                         style={{ background: selected ? theme.toolbar.activeBg : "transparent", color: theme.node.text }}
-                                        onClick={() => {
+                                        onClick={(event) => {
                                             if (!model) return;
                                             onChange(model);
                                             setOpen(false);
+                                            if (event.detail === 0 && triggerContent !== undefined) triggerRef.current?.focus({ preventScroll: true });
                                         }}
                                     >
                                         <ModelLabel
@@ -334,14 +345,17 @@ export function ModelPicker({
                 <button
                     ref={triggerRef}
                     type="button"
-                    className={cn("canvas-composer-model-picker", fullWidth ? "w-full" : "min-w-36 max-w-full", className)}
+                    className={cn(triggerContent === undefined && "canvas-composer-model-picker", fullWidth ? "w-full" : "min-w-36 max-w-full", className)}
                     aria-haspopup="listbox"
                     aria-expanded={open}
-                    aria-label={placeholder}
-                    title={current ? pickerModelOptionLabel(config, current, showConfiguredModelName) : placeholder}
+                    aria-label={triggerAriaLabel || placeholder}
+                    title={triggerAriaLabel || (current ? pickerModelOptionLabel(config, current, showConfiguredModelName) : placeholder)}
                     onKeyDown={handleTriggerKeyDown}
+                    onClick={(event) => {
+                        if (event.detail === 0 && triggerContent !== undefined && !open) focusMenuOption(false, true);
+                    }}
                 >
-                    <span className="canvas-model-picker-label flex min-w-0 items-center gap-2">
+                    {triggerContent !== undefined ? triggerContent : <span className="canvas-model-picker-label flex min-w-0 items-center gap-2">
                         <span className="canvas-model-picker-trigger-icon">
                             <ModelIcon config={config} model={current} />
                         </span>
@@ -352,11 +366,11 @@ export function ModelPicker({
                             </span>
                         ) : null}
                         {showSelectedPrice && creditsEnabled ? <ModelPrice price={currentPrice} quote={routeQuote} compact /> : null}
-                    </span>
-                    <ChevronDown className={cn("canvas-model-picker-chevron", open && "is-open")} aria-hidden="true" />
+                    </span>}
+                    {triggerContent === undefined ? <ChevronDown className={cn("canvas-model-picker-chevron", open && "is-open")} aria-hidden="true" /> : null}
                 </button>
             </Popover>
-            {preferenceNotice ? <p role="status" className="mt-1 text-xs text-foreground/60">{preferenceNotice}</p> : null}
+            {showPreferenceNotice && preferenceNotice ? <p role="status" className="mt-1 text-xs text-foreground/60">{preferenceNotice}</p> : null}
         </div>
     );
 }

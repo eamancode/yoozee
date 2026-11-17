@@ -5,6 +5,7 @@ import { Palette } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { ModelPicker } from "@/components/model-picker";
+import { dialogModelPicker, dialogTextSubmission, useDialogSubmissionModels, type StepDialogModels } from "./step-dialog-models";
 import { Callout } from "@/components/ui/product/callout";
 import { dramaRunModeLabel } from "../drama-model";
 import { navigateToSettings } from "@/lib/settings-navigation";
@@ -24,6 +25,7 @@ import { turnaroundImageModel } from "./project-character-media";
 import { parseScenePaletteStream, resumedScenePaletteStream, scenePaletteStreamFromResult, type ScenePaletteStreamState } from "./scene-palette-stream";
 
 type ScenePaletteControlProps = {
+    stepModels?: StepDialogModels;
     detail: ProjectDetail;
     chapters: ProjectUnit[];
     episodes: ProjectUnit[];
@@ -127,12 +129,13 @@ function ScenePaletteRunGroups(stream: ScenePaletteStreamState, headings: Map<st
  * 绑定决定。项目要先锁定风格（风格锚 + 主基调色卡），没锁定时按钮禁用并提示。色卡图由代码合成，不选图片模型。进度侧栏按集流式显示每场的色块；
  * 剧本优化跑完服务端自动接着建的任务也在这里接上（followChainedScenePalette）。
  */
-export function ScenePaletteControl({ detail, chapters, episodes, tasks, disabled }: ScenePaletteControlProps) {
+export function ScenePaletteControl({ detail, chapters, episodes, tasks, disabled, stepModels }: ScenePaletteControlProps) {
     const { message } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const projectId = detail.project.id;
     const effectiveConfig = useEffectiveConfig();
+    const submission = useDialogSubmissionModels(stepModels, effectiveConfig);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const candidates = episodes.length ? episodes : chapters;
     const fromChapters = !episodes.length;
@@ -144,6 +147,11 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
     const [resumeView, setResumeView] = useState<{ from: number; total: number; previous: ScenePaletteStreamState }>();
     const followedRef = useRef(new Set<string>());
     const [settings, setSettings] = useState<Settings>({ sourceIds: [], textModel: "", chainImages: true, imageModel: "" });
+    const textPicker = dialogModelPicker("text", stepModels, settings.textModel, (textModel) => setSettings((current) => ({ ...current, textModel })));
+    const imagePicker = dialogModelPicker("image", stepModels, settings.imageModel, (imageModel) => {
+        setPrecheckError("");
+        setSettings((current) => ({ ...current, imageModel }));
+    });
     const [preparing, setPreparing] = useState(false);
     const [precheckError, setPrecheckError] = useState("");
     const usageQuery = useQuery({
@@ -196,7 +204,9 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
     const start = async (options: { resumeTaskId?: string } = {}) => {
         const previous = options.resumeTaskId ? previousPaletteRun(taskDetail) : undefined;
         if (detail.project.status === "archived") return message.warning("项目已归档，请先在项目设置中恢复");
-        const textModel = settings.textModel || effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "";
+        const resumeModel = options.resumeTaskId ? taskDetail?.model || "" : undefined;
+        const { model: textModel, issue } = dialogTextSubmission(stepModels?.text, effectiveConfig, settings.textModel, resumeModel);
+        if (issue) return message.warning(issue);
         const config = { ...effectiveConfig, model: textModel, textModel };
         if (!isAiConfigReady(config, textModel)) {
             navigateToSettings({ continueCreation: true });
@@ -206,10 +216,10 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
         // 接着提取资产要出图时，出图模板在开跑前组好：组不出来时不建任务，原因留在对话框里（续跑时直接提示）。
         let assetImageTask: Awaited<ReturnType<typeof assetImageTaskTemplate>> | undefined;
         if (settings.chainImages) {
-            const imageModel = settings.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
+            const imageModel = stepModels ? imagePicker.value : settings.imageModel || turnaroundImageModel(effectiveConfig, detail.project.defaultImageModel);
             const imageConfig = { ...effectiveConfig, model: imageModel };
             const fail = (reason: string) => (options.resumeTaskId ? void message.error(`没有继续场次色卡：${reason}`) : setPrecheckError(reason));
-            if (!imageModel || !isAiConfigReady(imageConfig, imageModel)) return fail("资产出图用的图片模型还没配好：到设置里配置，或关掉「提取后出图」。");
+            if (!imageModel || stepModels?.image.disabledReason(imageModel) || !isAiConfigReady(imageConfig, imageModel)) return fail("资产出图用的图片模型还没配好：到设置里配置，或关掉「提取后出图」。");
             setPreparing(true);
             try {
                 assetImageTask = await assetImageTaskTemplate(imageConfig, imageModel);
@@ -227,7 +237,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
         setPanelOpen(true);
         try {
             const result = await runScenePalette(
-                { projectId, config, sourceUnitIds, resumeTaskId: options.resumeTaskId, assetImageTask },
+                { projectId, config: submission.textConfig(config, resumeModel, assetImageTask), sourceUnitIds, resumeTaskId: options.resumeTaskId, assetImageTask },
                 {
                     onTaskUpdate: (task) => {
                         followedRef.current.add(task.id);
@@ -331,7 +341,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                 width={560}
                 okText="生成"
                 cancelText="取消"
-                okButtonProps={{ disabled: !settings.textModel || !settings.sourceIds.length || !usage || (settings.chainImages && !settings.imageModel), loading: preparing }}
+                okButtonProps={{ disabled: !textPicker.value || !settings.sourceIds.length || !usage || (settings.chainImages && !imagePicker.value), loading: preparing }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
@@ -365,8 +375,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                         <ModelPicker preferenceScope="short-drama"
                             config={effectiveConfig}
                             capability="text"
-                            value={settings.textModel}
-                            onChange={(textModel) => setSettings((current) => ({ ...current, textModel }))}
+                            {...textPicker}
                             variant="creation"
                             fullWidth
                             placeholder="选择用于场次色卡的文本模型"
@@ -397,11 +406,7 @@ export function ScenePaletteControl({ detail, chapters, episodes, tasks, disable
                                     <ModelPicker preferenceScope="short-drama"
                                         config={effectiveConfig}
                                         capability="image"
-                                        value={settings.imageModel}
-                                        onChange={(imageModel) => {
-                                            setPrecheckError("");
-                                            setSettings((current) => ({ ...current, imageModel }));
-                                        }}
+                                        {...imagePicker}
                                         fullWidth
                                         placeholder="选择资产出图用的图片模型"
                                         showSelectedPrice

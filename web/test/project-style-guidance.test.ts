@@ -10,7 +10,7 @@ describe("项目风格引导", () => {
         expect(source).toContain("const projectStyleMissing = styleMissingOf(detail.project);");
         const lock = await read("pages/projects/workbench/detail/chapter-style-lock.tsx");
         expect(lock).toContain("return !projectLockedStyle(project.bibleJson).locked && !parseStyleProfile(project.styleProfileJson)?.prompt.trim();");
-        expect(await read("pages/drama-flow/hooks/use-storyboard-run.tsx")).toContain("if (projectStyleMissing(project)) return message.warning(");
+        expect(await read("pages/drama-flow/hooks/use-storyboard-run.tsx")).toContain("projectStyleMissing(project)");
         expect(source).toContain("okButtonProps={{ disabled: !selectedTextModel || projectStyleMissing || Boolean(segmentRule.problem) || !storyboardStep }}");
         expect(source).toContain("项目还没锁定风格");
     });

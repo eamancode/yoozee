@@ -9,21 +9,40 @@ import { dramaImageStatusOf } from "@/pages/projects/workbench/detail/drama-imag
 import { dramaBibleKey, dramaProgressKey } from "@/pages/projects/workbench/detail/drama-panels";
 import { unitsOfKind } from "@/pages/projects/workbench/detail/unit-numbering";
 import { useProjectPipeline } from "@/pages/projects/workbench/detail/use-project-pipeline";
-import { findDramaModel, projectVideoModel, useDramaModels } from "@/pages/projects/workbench/drama-model";
+import { useDramaModelAvailability } from "@/pages/projects/drama-model-picker";
+import { findDramaModel, useDramaModels } from "@/pages/projects/workbench/drama-model";
 import { dramaEpisodesKey, getDramaBible, getDramaBrief, getDramaEpisodes } from "@/services/api/project-drama";
 import { videoChainsQuery, type VideoChain, type VideoChainList } from "@/services/api/project-video-chains";
 import { getProjectCore, getProjectUnitWorkspace, listProjectAssets, listProjectUnits, type ProjectDetail } from "@/services/api/projects";
 import { listGenerationTasks } from "@/services/api/task-center";
+import { useDramaModelPreferencesStore, type DramaModelCapability } from "@/stores/use-drama-model-preferences-store";
 
+import { flowImageModel, flowTextModel, flowVideoModel, stepModelStatus, videoFamilyMismatch } from "../model/step-models";
 import { styleLockState } from "../model/style-lock";
 import { combineReadStates, queryReadState, videoStateRead, type ReadState } from "../model/read-state";
 import { activeChainIds, latestVideoSteps, type ShotVideoStep } from "../model/video-steps";
+import { useModelNames, type ModelName } from "./use-model-names";
 
 export const unitWorkspaceKey = (projectId: string, unitId: string) => ["project", projectId, "unit-workspace", unitId] as const;
 /** 和旧章节页同一个 key：剧本优化、定画风、色卡、提取资产的控件都从这里认自己的任务。 */
 export const projectTasksKey = (projectId: string) => ["project-chapter-generation-tasks", projectId] as const;
 
 const activeTask = (status: string) => status === "queued" || status === "running";
+
+/** 一步要用的一类模型：chosen 是用户原来选的（上次用的或项目默认，未校验），effective 是这次实际会提交的。 */
+export type StepModel = {
+    capability: DramaModelCapability;
+    chosen: string;
+    effective: string;
+    /** 这一步不能用这个模型的原因（个人渠道、平台不可用、画幅不支持）；能用为空串。 */
+    disabledReason: (model: string) => string;
+    /** 给人看的状态：unset 是既没原选择也没有可用模型时写的话。 */
+    status: (unset: string) => ModelName;
+    /** 模型目录读到没有：没读到时不能把模型判成下架，也不能把空的实际模型判成没配。 */
+    catalogRead: ReadState;
+    /** 模型目录没读到时重读。 */
+    retryCatalog?: () => void;
+};
 
 /**
  * 主页面要的全部数据：项目、单元、资产、进度、出片链、当前集工作区、项目任务、风格档案、剧集表。
@@ -32,6 +51,7 @@ const activeTask = (status: string) => status === "queued" || status === "runnin
 export function useFlowData(projectId: string, requestedUnitId: string) {
     const queryClient = useQueryClient();
     const effectiveConfig = useDramaModelConfig();
+    const recentModels = useDramaModelPreferencesStore((state) => state.models);
 
     const coreQuery = useQuery({ queryKey: ["project", projectId, "core"], queryFn: () => getProjectCore(projectId), enabled: Boolean(projectId), refetchOnMount: "always" });
     const unitsQuery = useQuery({ queryKey: ["project", projectId, "units"], queryFn: () => listProjectUnits(projectId), enabled: Boolean(projectId) });
@@ -132,7 +152,47 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
 
     const dramaModels = useDramaModels();
     const dramaModel = project ? findDramaModel(dramaModels.data, project.generationModel) : undefined;
-    const videoModel = project && dramaModel ? projectVideoModel(effectiveConfig, project.defaultVideoModel, dramaModels.data, dramaModel) : "";
+    // 各步骤要用的模型：模型卡显示、确认面板默认值和提交都用这几个值（规则见 model/step-models.ts）。
+    // 只取这一步能用的：短剧在服务端执行（个人渠道不行）、平台目录里可用、视频给得出项目画幅，且模型目录没确认下架。
+    const modelNames = useModelNames(true);
+    const textAvailability = useDramaModelAvailability("text");
+    const imageAvailability = useDramaModelAvailability("image");
+    const videoAvailability = useDramaModelAvailability("video", { aspectRatio: project?.aspectRatio });
+    function resolveStep(
+        capability: DramaModelCapability,
+        chosen: string,
+        availability: ReturnType<typeof useDramaModelAvailability>,
+        resolve: (accepts: (model: string) => boolean) => string,
+    ): StepModel {
+        const directory = availability.catalogQuery;
+        const options = directory.data?.options?.[capability];
+        const capabilityRead = directory.data && !Array.isArray(options) ? "error" : queryReadState(directory);
+        const catalogRead = combineReadStates([modelNames.catalogRead, capabilityRead]);
+        const nameOf = (model: string | undefined, unset: string) => modelNames.nameOf(model, unset, catalogRead);
+        const disabledReason = (model: string) => {
+            if (catalogRead === "loading") return "正在读取模型目录，请稍候";
+            if (catalogRead === "error") return "模型目录没读到，没法确认现在是否可用";
+            if (!model || nameOf(model, "").tone === "bad") return "模型已不可用";
+            return availability.disabledReason(model);
+        };
+        const effective = resolve((model) => !disabledReason(model));
+        return {
+            capability, chosen, effective, disabledReason, catalogRead,
+            status: (unset) => stepModelStatus({ chosen, effective, catalogRead, nameOf, disabledReason, unset }),
+            retryCatalog: catalogRead === "error" ? () => {
+                if (modelNames.catalogRead === "error") void modelNames.refetch();
+                if (capabilityRead === "error") void directory.refetch();
+            } : undefined,
+        };
+    }
+    const stepModels = {
+        text: resolveStep("text", recentModels.text?.trim() || "", textAvailability, (accepts) => flowTextModel(effectiveConfig, recentModels, accepts)),
+        image: resolveStep("image", recentModels.image?.trim() || project?.defaultImageModel?.trim() || "", imageAvailability, (accepts) => project ? flowImageModel(effectiveConfig, recentModels, project.defaultImageModel, accepts) : ""),
+        video: resolveStep("video", recentModels.video?.trim() || project?.defaultVideoModel?.trim() || "", videoAvailability, (accepts) => project && dramaModel ? flowVideoModel(effectiveConfig, recentModels, project.defaultVideoModel, dramaModels.data, dramaModel, accepts) : ""),
+    };
+    const { text: { effective: textModel }, image: { effective: imageModel }, video: { effective: videoModel } } = stepModels;
+    // 视频模型可以换到项目生成模型以外的族；换了要提醒分段规则是按原来那一族装的。
+    const videoOffFamily = useMemo(() => videoFamilyMismatch(effectiveConfig, videoModel, dramaModels.data, dramaModel), [effectiveConfig, videoModel, dramaModels.data, dramaModel]);
     const segmentLimit = segmentMaxSecondsWithBrief(dramaModel?.duration.max || 0, briefQuery.data);
     const segmentRule = useMemo(
         () => (dramaModel ? segmentDurationRule(segmentLimit.seconds, videoModel ? modelCapabilityConfigFor(effectiveConfig, videoModel).video?.duration : undefined, segmentLimit.byBrief ? "项目设置" : dramaModel.label) : undefined),
@@ -219,7 +279,13 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
         brief: briefQuery.data,
         episodes: episodesQuery.data,
         dramaModel,
+        /** 各步骤的模型卡、信息面板读这里（原选择、实际提交、状态）。 */
+        stepModels,
         videoModel,
+        /** 视频模型不属于项目生成模型那一族时是它所属的族（认不出为 null）；同族为 undefined。 */
+        videoOffFamily,
+        imageModel,
+        textModel,
         segmentRule,
         dramaRule,
         detail,
