@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -312,7 +313,10 @@ func TestDramaSettingsRejectUnreadablePromptSkill(t *testing.T) {
 	settings := summary.Production.Settings
 	settings.PromptSkill = &DramaSkillRef{SkillID: "missing-skill", SkillName: "不存在的技能"}
 	_, err := svc.UpdateDramaSettings("usr-drama", summary.Project.ID, UpdateDramaSettingsRequest{Settings: &settings})
-	assertSkillRuntimeStatus(t, err, 403)
+	var invalid *AppError
+	if !errors.As(err, &invalid) || invalid.Status != 400 || !strings.Contains(err.Error(), "技能") {
+		t.Fatalf("unavailable skill: %v", err)
+	}
 	settings.PromptSkill = &DramaSkillRef{}
 	if _, err := svc.UpdateDramaSettings("usr-drama", summary.Project.ID, UpdateDramaSettingsRequest{Settings: &settings}); err != nil {
 		t.Fatalf("an empty skill ref clears the selection: %v", err)

@@ -65,12 +65,13 @@ func TestDramaFlow2SuixingxianDraftAndSceneOwnership(t *testing.T) {
 		case strings.Contains(system, "作品圣经"):
 			return `{"logline":"雨夜热橙汁","characters":[{"name":"林深","appearance":"湿透的半大孩子"},{"name":"阿婆","appearance":"围裙上的橙子皮"}],"props":[{"name":"旧保温杯","appearance":"杯盖裂缝"}],"scenes":[{"name":"大学城后街","appearance":"雨中的小吃摊"}]}`
 		case strings.Contains(system, "整段视频提示词"):
-			return "第一段：大学城后街的暴雨中，阿婆将保温杯递给林深。"
+			return "第一段：大学城后街的暴雨中，暖黄灯泡照着小吃摊，阿婆将掉了漆的保温杯递给林深。镜头停在两人握杯的手上，跟随他的视线抬向摊前的灯，再缓慢拉开。"
 		default:
 			return `{"shots":[{"scene":"大学城后街","characters":["林深","阿婆"],"props":["旧保温杯"],"speaker":"林深","dialogue":"谢谢阿婆。","action":"林深捧住保温杯","imagePrompt":"雨中暖黄的推车灯","videoPrompt":"阿婆把杯子递给林深","durationSeconds":5}]}`
 		}
 	}
-	settings := DramaSettings{Models: fakeDramaModels, MediaMode: DramaMediaAuto, ReviewMode: DramaReviewEvery, EpisodeMode: DramaEpisodeModeChapter, ChaptersPerEpisode: 1, EpisodeSeconds: 60}
+	settings := DramaSettings{Models: fakeDramaModels, MediaMode: DramaMediaAuto, ReviewMode: DramaReviewEvery, EpisodeMode: DramaEpisodeModeChapter, ChaptersPerEpisode: 1}
+	settings.EpisodeSeconds = 60
 	quote, err := svc.EstimateDrama("usr-drama", DramaEstimateRequest{Settings: settings, WordCount: len([]rune(source)), ChapterCount: len(chapters)})
 	if err != nil || quote.Episodes != 8 || quote.Videos <= 0 || len(fake.requests) > 0 {
 		t.Fatalf("quote=%+v err=%v requests=%d", quote, err, len(fake.requests))
