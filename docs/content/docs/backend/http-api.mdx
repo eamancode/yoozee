@@ -27,6 +27,21 @@ description: 信封、错误码与 OpenAPI
 
 场景资产出图按参考图额度编排关联道具：`productionPriority=high` 的关键道具、人物身份参考和用户补充参考不可降级；中优先级及未标优先级的道具可在额度不足或图片不可用时转为文字。先让出色卡，再让出普通道具；转为文字的道具名称与本体描述保留在提示词，名称同时记录到任务 `metadata.assetImageTextOnlyProps`。关联资产、主版本图片及分镜绑定保持不变。必需参考仍超过额度时拒绝提交，错误包含必需数量、名称和支持额度；不增加重试入口或自动重试历史任务。
 
+## 画布素材和角色
+
+下列路径均在 `/api` 下，使用登录 Cookie。
+
+| 路径 | 行为 |
+| --- | --- |
+| `GET /official-assets`、`GET /official-assets/:id/reference` | 在官方素材库已启用时浏览已发布素材、取得画布引用。 |
+| `POST /official-assets/:id/import`、`POST /official-assets/:id/import-to-project` | 导入个人素材库或自己的项目。同一目标重复导入返回已有资产。 |
+| `POST /official-assets/:id/copy-character` | 以已发布角色快照另存个人卡。请求携带 `sourceVersionId`、名称和可选设定，版本已变更时拒绝。 |
+| `GET /official-asset-recommendations/consent-policy`、`POST /official-asset-recommendations` | 用户取得授权文本版本后，提交自己的素材进入审核。管理员通过 `PATCH /admin/official-asset-recommendations/:id/review` 决定发布、退回或拒绝。 |
+| `GET /pose-library/poses`、`GET /pose-library/items/:id/thumb`、`GET /pose-library/items/:id/image` | 浏览已启用且图片就绪的姿势，读取缩略图或原图。 |
+| `POST /pose-library/use` | 传入 `ids` 数组，把姿势原图复制为当前用户的资源。选用同一版本的原图会复用已有资源。 |
+| `PUT /characters/:assetId/representations`、`PUT /projects/:id/characters/:assetId/representations` | 同一角色版本中保存 1–24 张形象及可选 `definition`。换装使用 `outfit:<标识>` 角色。省略设定时沿用当前版本。 |
+| `GET /resources/:id/file?format=jpeg` | 有原件读取权限时，可将 PNG/WebP 转为 JPEG 下载。原件须在 32 MiB、1600 万像素以内。描述、范围或缩略图请求沿用正常资源分发。 |
+
 ## 白模分镜开关
 
 项目创建、更新与读取使用布尔字段 `whiteModelStoryboardEnabled`。创建省略时为 false；更新省略时保留原值，显式 false 关闭。历史项目迁移后为 true。项目更新仍校验资源归属，保存时增加项目修订。

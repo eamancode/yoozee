@@ -17,6 +17,7 @@ import (
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/payment"
 	"yingce/backend/internal/platform"
+	"yingce/backend/internal/poselibrary"
 	"yingce/backend/internal/prompts"
 	"yingce/backend/internal/providercatalog"
 	"yingce/backend/internal/repository"
@@ -83,6 +84,7 @@ type Service struct {
 	auth                     *auth.Service
 	sms                      *sms.Service
 	canvas                   *canvas.Service
+	poseLibrary              *poselibrary.Service
 	canvasRealtime           *canvas.RealtimeHub
 	workbench                *workbench.Service
 	piRunnerMu               sync.Mutex
@@ -177,6 +179,7 @@ func newService(repo *repository.Repository, dataDir string) *Service {
 	service.sms = service.newSMSDomain()
 	service.auth.SetSMSDelivery(service.sms)
 	service.canvas = canvas.New(service.repo, canvasHost{svc: service})
+	service.poseLibrary = poselibrary.New(service.repo, service.dataDir, poseLibraryAdminGate{svc: service})
 	service.canvasRealtime = canvasRealtime
 	service.workbench = workbench.New(service.repo, workbenchAdminGate{svc: service}, workbenchAdminGate{svc: service})
 	service.platform = platform.New(service.repo, coordinator, platformHost{svc: service})
