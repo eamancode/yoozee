@@ -441,6 +441,10 @@ export function getProject(id: string) {
     return http.get<ProjectDetail>(`/projects/${encodeURIComponent(id)}`).then(normalizeProjectDetail);
 }
 
+export function getCanvasLinkedProject(id: string, signal?: AbortSignal) {
+    return http.get<ProjectDetail>(`/projects/${encodeURIComponent(id)}`, { params: { view: "canvas" }, signal }).then(normalizeProjectDetail);
+}
+
 export function getProjectCore(id: string) {
     return http.get<ProjectCore>(`/projects/${encodeURIComponent(id)}/core`);
 }

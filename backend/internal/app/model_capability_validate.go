@@ -290,7 +290,16 @@ func (s *Service) ValidateTaskCapability(input map[string]any) error {
 		return BadAuthRequest("任务输入格式无效")
 	}
 	var taskInput canvasGenerationInput
-	if err := json.Unmarshal(encoded, &taskInput); err != nil || (taskInput.Mode != "image" && taskInput.Mode != "video" && taskInput.Mode != "audio") {
+	if err := json.Unmarshal(encoded, &taskInput); err != nil {
+		return nil
+	}
+	if taskInput.Mode == "text" {
+		if err := ValidateThinkingLevelRequest(taskInput.TextOptions.ThinkingLevel); err != nil {
+			return newModelCapabilityArgumentError("thinkingLevel", "unsupported_value", err)
+		}
+		return nil
+	}
+	if taskInput.Mode != "image" && taskInput.Mode != "video" && taskInput.Mode != "audio" {
 		return nil
 	}
 	if isWorkflowProviderInterface(taskInput.Config.InterfaceType) {
@@ -447,8 +456,11 @@ func validateVideoTask(profile *VideoCapabilityConfig, input canvasGenerationInp
 		}
 	}
 	seconds, err := strconv.Atoi(strings.TrimSpace(input.Config.VideoSeconds))
-	if err != nil || !videoDurationAllowed(profile.Duration, seconds) {
-		return newModelCapabilityArgumentError("durationSeconds", "unsupported_value", BadAuthRequest("视频时长不在当前模型支持范围内"))
+	if err != nil {
+		return newModelCapabilityArgumentError("durationSeconds", "unsupported_value", BadAuthRequest(fmt.Sprintf("视频时长不在当前模型支持范围内（%s）", videoDurationAllowedLabel(profile.Duration))))
+	}
+	if !videoDurationAllowed(profile.Duration, seconds) {
+		return newModelCapabilityArgumentError("durationSeconds", "unsupported_value", BadAuthRequest(fmt.Sprintf("视频时长 %d 秒不在当前模型支持范围内（%s）", seconds, videoDurationAllowedLabel(profile.Duration))))
 	}
 	if input.Config.Size != "" && !videoRatioAllowed(profile.Ratios, input.Config.Size) {
 		return newModelCapabilityArgumentError("size", "unsupported_value", BadAuthRequest("画面比例不在当前模型支持范围内"))
@@ -1033,6 +1045,57 @@ func videoDurationAllowed(value VideoDurationConfig, seconds int) bool {
 		return containsInt(value.Values, seconds)
 	}
 	return seconds >= value.Min && seconds <= value.Max && value.Step > 0 && (seconds-value.Min)%value.Step == 0
+}
+
+// videoDurationSpan 把可选时长归成等差区间：范围声明直接取上下限与步长；多于 3 档的等差枚举也按区间描述，
+// 避免在提示里列出几十个档位。归不成区间时 ok 为 false，list 是从小到大的档位文本。
+func videoDurationSpan(value VideoDurationConfig) (low, high, step int, list string, ok bool) {
+	if value.Selection != "enum" {
+		return value.Min, value.Max, value.Step, "", true
+	}
+	values := append([]int(nil), value.Values...)
+	sort.Ints(values)
+	labels := make([]string, 0, len(values))
+	for _, item := range values {
+		labels = append(labels, strconv.Itoa(item))
+	}
+	list = strings.Join(labels, "、")
+	if len(values) <= 3 {
+		return 0, 0, 0, list, false
+	}
+	step = values[1] - values[0]
+	for index := 2; index < len(values); index++ {
+		if values[index]-values[index-1] != step {
+			return 0, 0, 0, list, false
+		}
+	}
+	return values[0], values[len(values)-1], step, list, step > 0
+}
+
+// videoDurationAllowedLabel 用与 videoDurationAllowed 相同的口径描述可选时长，例如“5–30 秒，步长 1”“可选 5、10 秒”。
+func videoDurationAllowedLabel(value VideoDurationConfig) string {
+	low, high, step, list, ok := videoDurationSpan(value)
+	switch {
+	case !ok:
+		return "可选 " + list + " 秒"
+	case value.Selection != "enum":
+		return fmt.Sprintf("%d–%d 秒，步长 %d", low, high, step)
+	case step == 1:
+		return fmt.Sprintf("可选 %d–%d 秒", low, high)
+	}
+	return fmt.Sprintf("可选 %d–%d 秒，步长 %d", low, high, step)
+}
+
+// videoDurationSupportLabel 是写进业务提示的简短版本，例如“5–30 秒”“5、10 秒”。
+func videoDurationSupportLabel(value VideoDurationConfig) string {
+	low, high, step, list, ok := videoDurationSpan(value)
+	switch {
+	case !ok:
+		return list + " 秒"
+	case step > 1:
+		return fmt.Sprintf("%d–%d 秒（步长 %d）", low, high, step)
+	}
+	return fmt.Sprintf("%d–%d 秒", low, high)
 }
 
 func videoRatioAllowed(options []string, value string) bool {

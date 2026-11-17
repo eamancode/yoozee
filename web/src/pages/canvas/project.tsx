@@ -79,7 +79,7 @@ import { handleListGenerate } from "./list-mode-generator";
 import { CanvasToolbar } from "@/components/canvas/canvas-toolbar";
 import { useCanvasCreateCommands } from "@/components/canvas/use-canvas-create-commands";
 import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
-import { getProject, listCharacters, type ProjectAsset } from "@/services/api/projects";
+import { getCanvasLinkedProject, listCharacters, type ProjectAsset } from "@/services/api/projects";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
 import { persistCanvasAgentCameraFollow, readCanvasAgentCameraFollow } from "@/lib/canvas/canvas-agent-camera-follow";
 import { CanvasShareModal } from "@/components/canvas/canvas-share-modal";
@@ -535,7 +535,7 @@ function CanvasViewportPage() {
         [persistLocalEdits, projectId, setConnections, setNodes],
     );
     const linkedProjectId = shortDramaEnabled ? currentProject?.projectId || "" : "";
-    const linkedProjectQuery = useQuery({ queryKey: ["project", linkedProjectId], queryFn: () => getProject(linkedProjectId), enabled: Boolean(linkedProjectId) });
+    const linkedProjectQuery = useQuery({ queryKey: ["project", linkedProjectId, "canvas-context"], queryFn: ({ signal }) => getCanvasLinkedProject(linkedProjectId, signal), enabled: Boolean(linkedProjectId) });
     const refetchLinkedProject = linkedProjectQuery.refetch;
     const archiveNodesToLinkedFolder = useCallback(
         (folder: CanvasNodeData, droppedNodes: CanvasNodeData[]) => {
@@ -2659,7 +2659,7 @@ function CanvasViewportPage() {
         ) : emptyStateKind === "linked" && drama.summary ? (
             <CanvasDramaEmptyState
                 dramaName={drama.summary.project.name}
-                studioPath={`/projects/${encodeURIComponent(drama.summary.project.id)}`}
+                studioPath={`/drama-flow-2/${encodeURIComponent(drama.summary.project.id)}`}
                 episodeLabel={dramaFirstEpisode ? `第 ${dramaFirstEpisode.number} 集` : undefined}
                 onProjectEpisode={dramaFirstEpisode ? () => void drama.projectEpisode(dramaFirstEpisode.id) : undefined}
                 onAddText={() => createNode(CanvasNodeType.Text)}

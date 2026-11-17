@@ -150,7 +150,7 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 	if projectID == "" || shotID == "" {
 		return prompt, nil
 	}
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return "", err
 	}

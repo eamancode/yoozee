@@ -184,6 +184,7 @@ type Metadata struct {
 	Parameters              []Parameter      `json:"parameters,omitempty"`
 	ImageParameters         []ImageParameter `json:"imageParameters,omitempty"`
 	Create                  string           `json:"-"`
+	Agent                   string           `json:"-"`
 	Poll                    string           `json:"-"`
 	Cancel                  string           `json:"-"`
 	ContentType             string           `json:"-"`
@@ -200,6 +201,10 @@ type Metadata struct {
 	UnavailableReason string `json:"-"`
 	// Kind 区分生成类与处理类 provider；处理类以输入媒体为主体，不要求 prompt。
 	Kind ProviderKind `json:"kind,omitempty"`
+	// TextWire / AgentWire 是 create / agent 声明路径对应的宿主已知文本线格式（见 textwire.go），
+	// 只对文本 provider 计算；为空表示请求和响应完全按插件自己的映射处理。
+	TextWire  string `json:"-"`
+	AgentWire string `json:"-"`
 }
 
 // ProviderKind 描述 provider 的业务形态。空值等同 generation。

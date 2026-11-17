@@ -245,7 +245,7 @@ func sceneRuleNotice(unit model.ProjectUnit, episode int, scenes []drama.Scene, 
 // DramaScenes 读一个单元的场次表（按正文实时切）。rule 是视频渠道段长（与生成分段 run 请求的 rule 同口径），
 // 每场的小节按它选的戏类切，场次条的节数才与实际运行一致。
 func (s *Service) DramaScenes(userID string, projectID string, unitID string, rule *DramaShotlistRule) (*DramaScenesView, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, NotFound("项目不存在")
@@ -270,7 +270,7 @@ func (s *Service) DramaScenes(userID string, projectID string, unitID string, ru
 
 // ProjectDramaScenes 读项目场次表里每个单元（全部剧集，没有剧集时全部原文章节）的场次表；rule 同 DramaScenes。
 func (s *Service) ProjectDramaScenes(userID string, projectID string, rule *DramaShotlistRule) ([]DramaScenesView, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, NotFound("项目不存在")

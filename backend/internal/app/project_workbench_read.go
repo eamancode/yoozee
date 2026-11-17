@@ -104,12 +104,12 @@ type ProjectAssetPage struct {
 }
 
 func (s *Service) ProjectCore(userID string, projectID string) (ProjectCore, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return ProjectCore{}, err
 	}
 	if s.reconcileCharacterTurnaroundTasks(userID, project.ID) {
-		project, err = s.repo.ProjectForUser(userID, projectID)
+		project, err = s.repo.WorkbenchProjectForUser(userID, projectID)
 		if err != nil {
 			return ProjectCore{}, err
 		}
@@ -118,7 +118,7 @@ func (s *Service) ProjectCore(userID string, projectID string) (ProjectCore, err
 }
 
 func (s *Service) ProjectUnitSummaries(userID string, projectID string) (ProjectUnitSummaries, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ProjectUnitSummaries{}, NotFound("项目不存在")
 		}
@@ -144,7 +144,7 @@ func (s *Service) ProjectUnitSummaries(userID string, projectID string) (Project
 }
 
 func (s *Service) ProjectOverview(userID string, projectID string) (ProjectOverview, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return ProjectOverview{}, err
 	}
 	var metrics ProjectOverviewMetrics
@@ -182,7 +182,7 @@ func (s *Service) ProjectOverview(userID string, projectID string) (ProjectOverv
 }
 
 func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID string) (ProjectUnitWorkspace, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return ProjectUnitWorkspace{}, err
 	}
 	unit, err := s.repo.ProjectUnit(projectID, unitID)
@@ -371,7 +371,7 @@ func (s *Service) ProjectCanvasesPage(userID string, projectID string, page int,
 }
 
 func (s *Service) ProjectAssetCandidatesPage(userID string, projectID string, page int, pageSize int, unitID string, status string, category string, query string) (ProjectAssetCandidatePage, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return ProjectAssetCandidatePage{}, err
 	}
 	page, pageSize = normalizeProjectPage(page, pageSize, 200)

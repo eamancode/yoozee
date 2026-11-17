@@ -17,6 +17,9 @@ type canonicalAgentRequest struct {
 	ToolChoice     interface{}              `json:"toolChoice"`
 	SystemPrompt   string                   `json:"systemPrompt"`
 	PromptCacheKey string                   `json:"promptCacheKey,omitempty"`
+	// PassReasoning 允许回传同协议产生的思考内容；auto 使用上游默认，不能误当成关闭。
+	// DeepSeek 等要求带工具的会话回传所有 assistant 轮次的完整 reasoning_content。
+	PassReasoning bool `json:"-"`
 }
 
 func expandCanonicalAgentRequest(source *canonicalAgentRequest, config providerConfig, declarative bool) (*agentToolRequests, error) {
@@ -163,6 +166,9 @@ func canonicalAgentChatBody(source *canonicalAgentRequest, claude bool) map[stri
 		}
 		if claude && stringField(message, "role") == "system" {
 			converted["content"] = canonicalAgentText(message["content"])
+		}
+		if source.PassReasoning && stringField(message, "role") == "assistant" {
+			attachCanonicalAgentReasoning(converted, message, claude)
 		}
 		if stringField(message, "role") == "tool" {
 			converted["tool_call_id"] = message["tool_call_id"]

@@ -1078,7 +1078,7 @@ type ProjectOntologyDocuments struct {
 }
 
 func (s *Service) ProjectOntologyDocuments(userID string, projectID string) (ProjectOntologyDocuments, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return ProjectOntologyDocuments{}, ontologyProjectError(err)
 	}

@@ -109,7 +109,11 @@ func allSurfaces() []Surface {
 }
 
 func metadata(id, name, vendor string, capability Capability, create, poll, contentType string) Metadata {
-	return Metadata{ID: id, Version: "1.0.0", Name: name, Vendor: vendor, Categories: []Capability{capability}, Scopes: allSurfaces(), Create: create, Poll: poll, ContentType: contentType, Enabled: true, Installable: true}
+	info := Metadata{ID: id, Version: "1.0.0", Name: name, Vendor: vendor, Categories: []Capability{capability}, Scopes: allSurfaces(), Create: create, Poll: poll, ContentType: contentType, Enabled: true, Installable: true}
+	if capability == CapabilityText {
+		info.TextWire = TextWireForOperation(create)
+	}
+	return info
 }
 
 func mediaParams() []Parameter {

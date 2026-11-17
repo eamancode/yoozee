@@ -35,7 +35,7 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 	if assetImage && projectID != "" && projectID != domainID {
 		return "", BadAuthRequest("任务项目与资产项目不一致")
 	}
-	project, err := s.repo.ProjectForUser(userID, domainID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, domainID)
 	if err != nil {
 		return "", err
 	}

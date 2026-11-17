@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"yingce/backend/internal/kernel"
@@ -24,6 +26,7 @@ type (
 
 const (
 	FeatureShortDrama            = platform.FeatureShortDrama
+	FeatureDramaFlow2            = platform.FeatureDramaFlow2
 	FeatureTaskCenter            = platform.FeatureTaskCenter
 	FeatureCredits               = platform.FeatureCredits
 	FeatureCustomChannels        = platform.FeatureCustomChannels
@@ -114,6 +117,42 @@ func (s *Service) ResetRuntimePolicySetting(actor *model.User) (*PublicRuntimePo
 
 func (s *Service) FeatureAvailability() (*PublicFeatureAvailability, error) {
 	return s.platformDomain().FeatureAvailability()
+}
+
+// FeatureAvailabilityForUser 只对当前登录者计算灰度资格，公开响应不包含其他账号 ID。
+func (s *Service) FeatureAvailabilityForUser(userID string) (*PublicFeatureAvailability, error) {
+	setting, err := s.FeatureAvailability()
+	if err != nil {
+		return nil, err
+	}
+	if setting.ShortDramaEnabled && !setting.DramaFlow2Enabled && userID != "" {
+		for _, id := range strings.Split(os.Getenv("YOOZEE_DRAMA_FLOW2_PREVIEW_USERS"), ",") {
+			if strings.TrimSpace(id) == userID {
+				setting.DramaFlow2Enabled = true
+				break
+			}
+		}
+	}
+	return setting, nil
+}
+
+func (s *Service) dramaFlow2Enabled(userID string) (bool, error) {
+	setting, err := s.FeatureAvailabilityForUser(userID)
+	if err != nil {
+		return false, err
+	}
+	return setting.ShortDramaEnabled && setting.DramaFlow2Enabled, nil
+}
+
+func (s *Service) requireDramaFlow2(userID string) error {
+	enabled, err := s.dramaFlow2Enabled(userID)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return kernel.Forbidden("短剧新工作流2暂未开放")
+	}
+	return nil
 }
 
 func (s *Service) AdminFeatureAvailability(actor *model.User) (*PublicFeatureAvailability, error) {

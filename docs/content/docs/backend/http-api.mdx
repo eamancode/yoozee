@@ -5,6 +5,16 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 短剧新工作流2
+
+工作区入口 `/drama-flow-2` 使用官方短剧接口 `/api/dramas`。官方项目由 `drama_productions` 关联，接口同时核对作品和项目归属。既有 `/projects`、`/drama-flow` 的项目分页与专属写入操作使用工作台项目范围。官方项目可使用所属账号的项目素材和精修画布。
+
+画布读取 `GET /api/projects/:id?view=canvas` 获取关联项目的章节、素材及目录。官方作品的这次读取不运行旧工作台的产物补偿。
+
+新入口受短剧总开关和 `dramaFlow2Enabled` 控制，新开关默认关闭。管理员可以配置 `YOOZEE_DRAMA_FLOW2_PREVIEW_USERS`，填写以逗号分隔的内部账户 ID 进行灰度。用户入口、创建、开始制作和后端调度使用相同资格。关闭后，调度器仍可同步已提交任务的结果。
+
+官方制作台调用全局助手时传递当前项目、集和镜头上下文。读取镜头时校验归属，更新镜头时要求用户审批，并核对审批时的镜头版本，避免覆盖其他修改。
+
 ## 素材库图片复用查询
 
 `GET /api/assets?page=1&pageSize=40&imageReferences=1` 返回分页图片候选：图片素材，以及人物、场景、道具的实体/文本资产。保留用户归属、状态、关键词、分类和分页限制，不全量读取素材库。
@@ -560,7 +570,8 @@ operations 的结构化配额在提交事务内实时统计账号的素材/画�
 - 每次模型请求前，服务端修复工具调用与结果的配对，不因历史形状让整轮失败。具体规则：缺结果的调用优先补服务端已保存的真实回执（只认该调用声明之后、同工具名的结果），否则补 `errorClass: approval_deferred` 的"未执行"结果；"等待审批"或"未执行"占位在服务端已有真实回执时换成回执；同一调用的重复结果只保留一份，真实结果优先于占位；找不到调用的结果改为 `orphan_tool_results` 运行状态数据消息；调用 ID 缺失或别名冲突的调用被移除。运行时历史仍无法使用时退回服务端历史。
 - `POST /agent/runs/:id/approvals/:approvalId/decision` 的 `{ decision, reason? }` 可在批准图片生成时附带 `mediaSettings: { logicalModelId? | channelId? + channelModelKey?, size, quality }`。仅替换本次模型选择、画幅和质量，不允许修改目标、提示词、引用、模式或快照。服务端先无收费预检，失败保留待审批状态；成功原子更新审批调用、哈希及预览，提交任务时再次校验内容、资源归属、模型能力、价格与累计预算。相同参数重复批准幂等，不同参数复用已决定审批返回 409。
 - 审批拒绝是独立终态 `rejected`，表示本次操作未执行；不会生成 `tool_failed`、继续调用模型、写入画布、提交生成任务或扣费。拒绝后的草稿按既有草稿策略保留，用户可在下一轮说明修改方向。
-- 创建和追加消息可选择 `reasoningMode`，默认 `off`；`auto`/`deep` 为服务端行为策略与模型推理配置的选择，不等于允许暴露内部思维链。供应商能力由后端校验；声明式 Agent 渠道不支持时明确报错。推理可能增加耗时和费用。
+- 创建和追加消息可选择 `reasoningMode`，默认 `off`。`auto` 使用模型默认档，`deep` 选择模型声明的深度档。也可指定 `minimal`、`low`、`medium`、`high` 或 `max`。模型能力来自用户实际选中的渠道，推理可能增加耗时和费用。
+- 文本任务通过 `textOptions.thinkingLevel` 传递相同意图。旧任务的 `thinking: true` 继续表示中等档。显式档位优先。模型和插件目录的 `textWire` 表示从插件声明的文本端点识别出的请求格式。Agent 仅向同协议的后续请求传递该协议支持的思考签名。
 - Cloud Agent 与首页创造的规划请求使用自动工具选择。OpenAI Chat Completion 兼容协议会把显式 `auto` 归一化为省略 `tool_choice`，沿用协议默认的自动选择语义；显式开启思考模式时还会在首个上游请求前移除 `required` 或指定函数对象。非思考模式仍保留艺术点评、提示词优化等结构化任务的强制函数选择。若上游隐式开启思考而本地未声明，仍按 `required` → `auto` → 省略字段做兼容重试。
 - `GET /agent/profile?scope=user|project|canvas&projectId=...&canvasId=...` 按作用域读取生效的用户 → 项目 → 画布偏好；`PATCH /agent/profile` 用 `{ scope, projectId?, canvasId?, content, revision }` 更新单层（首次 revision 为 0，冲突返回 409）。读取返回各层独立数字 revision，以及合并文档的 `revision`/`hash`；新轮次携带合并 `profileRevision`，发生变化拒绝创建，已运行轮次仍用提交时固定的快照。system prompt 只包含层级、revision、hash 和长度清单，正文保存在运行快照中；本轮快照有层时才提供 `agent_profile_read`，只读清单中存在的层。没有偏好层时工具清单不含该工具。偏好仅是非授权数据，不能扩展工具、节点或预算，不能绕过审批；最多 12000 字符/层。
 - 行为规则唯一来源是编译进后端的 `agent-system-policy.md` v19；不再 embed 旧操作合同或独立媒体策略。媒体 ID/版本/哈希从同一系统合同派生，仅服务于冻结校验。画布能力和工具 Policy 仍由代码强制执行；新生成模式还须接入共享任务适配器。用户目标、画布内容和长期记忆以动态消息提供，不写入稳定 system 前缀。

@@ -19,6 +19,7 @@ func newProjectWorkflowV2TestService(t *testing.T) (*Service, *gorm.DB) {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(
+		&model.DramaProduction{},
 		&model.Project{}, &model.ProjectUnit{}, &model.CanvasProject{}, &model.Asset{}, &model.AssetVersion{}, &model.ProjectAssetLink{}, &model.ProjectAssetCandidate{},
 		&model.AssetRepresentation{}, &model.CharacterVoiceBinding{},
 		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotEvidence{}, &model.ShotAssetReference{},

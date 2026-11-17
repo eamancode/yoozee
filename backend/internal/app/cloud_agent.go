@@ -24,16 +24,24 @@ const cloudAgentOperation = "cloud_agent"
 // A run is one immutable, durable model turn backed by a normal task. Subsequent
 // turns reference the previous run, not a mutable in-memory conversation. This
 // reuses transactional billing, worker leases, cancellation and text replay.
+type CloudAgentPageContext struct {
+	Kind      string `json:"kind"`
+	ProjectID string `json:"projectId"`
+	EpisodeID string `json:"episodeId,omitempty"`
+	ShotID    string `json:"shotId,omitempty"`
+}
+
 type CloudAgentRequest struct {
-	ReasoningMode   string `json:"reasoningMode,omitempty"`
-	ProfileRevision string `json:"profileRevision,omitempty"`
-	CanvasID        string `json:"canvasId"`
-	Prompt          string `json:"prompt"`
-	Model           string `json:"model,omitempty"`
-	LogicalModelID  string `json:"logicalModelId,omitempty"`
-	ChannelID       string `json:"channelId,omitempty"`
-	ChannelModelKey string `json:"channelModelKey,omitempty"`
-	PermissionMode  string `json:"permissionMode"`
+	PageContext     *CloudAgentPageContext `json:"pageContext,omitempty"`
+	ReasoningMode   string                 `json:"reasoningMode,omitempty"`
+	ProfileRevision string                 `json:"profileRevision,omitempty"`
+	CanvasID        string                 `json:"canvasId"`
+	Prompt          string                 `json:"prompt"`
+	Model           string                 `json:"model,omitempty"`
+	LogicalModelID  string                 `json:"logicalModelId,omitempty"`
+	ChannelID       string                 `json:"channelId,omitempty"`
+	ChannelModelKey string                 `json:"channelModelKey,omitempty"`
+	PermissionMode  string                 `json:"permissionMode"`
 	// PinnedSkillIDs 是用户为对话固定或在本条消息里点名的技能；其他已安装技能由 Agent 按目录自动发现。
 	PinnedSkillIDs        []string `json:"pinnedSkillIds,omitempty"`
 	ContextScope          []string `json:"contextScope"`
@@ -93,26 +101,27 @@ type cloudAgentState struct {
 }
 
 type CloudAgentRun struct {
-	ID             string              `json:"id"`
-	ConversationID string              `json:"conversationId"`
-	UserPrompt     string              `json:"userPrompt"`
-	IdempotencyKey string              `json:"idempotencyKey"`
-	CanvasID       string              `json:"canvasId"`
-	ParentID       string              `json:"parentId,omitempty"`
-	Status         string              `json:"status"`
-	Revision       int64               `json:"revision"`
-	CleanupPending bool                `json:"cleanupPending,omitempty"`
-	FailureMessage string              `json:"failureMessage,omitempty"`
-	PermissionMode string              `json:"permissionMode"`
-	Model          string              `json:"model"`
-	CreatedAt      time.Time           `json:"createdAt"`
-	UpdatedAt      time.Time           `json:"updatedAt"`
-	Events         []CloudAgentEvent   `json:"events,omitempty"`
-	Skills         []cloudAgentSkill   `json:"skills,omitempty"`
-	Approval       *cloudAgentApproval `json:"approval,omitempty"`
-	SpentCredits   float64             `json:"spentCredits"`
-	Step           int                 `json:"step"`
-	ActiveMessage  map[string]string   `json:"activeMessage,omitempty"`
+	PageContext    *CloudAgentPageContext `json:"pageContext,omitempty"`
+	ID             string                 `json:"id"`
+	ConversationID string                 `json:"conversationId"`
+	UserPrompt     string                 `json:"userPrompt"`
+	IdempotencyKey string                 `json:"idempotencyKey"`
+	CanvasID       string                 `json:"canvasId"`
+	ParentID       string                 `json:"parentId,omitempty"`
+	Status         string                 `json:"status"`
+	Revision       int64                  `json:"revision"`
+	CleanupPending bool                   `json:"cleanupPending,omitempty"`
+	FailureMessage string                 `json:"failureMessage,omitempty"`
+	PermissionMode string                 `json:"permissionMode"`
+	Model          string                 `json:"model"`
+	CreatedAt      time.Time              `json:"createdAt"`
+	UpdatedAt      time.Time              `json:"updatedAt"`
+	Events         []CloudAgentEvent      `json:"events,omitempty"`
+	Skills         []cloudAgentSkill      `json:"skills,omitempty"`
+	Approval       *cloudAgentApproval    `json:"approval,omitempty"`
+	SpentCredits   float64                `json:"spentCredits"`
+	Step           int                    `json:"step"`
+	ActiveMessage  map[string]string      `json:"activeMessage,omitempty"`
 	// 事件已全量落库，运行详情只返回一页，因此必须把"这一页在整条日志里的位置"说清楚：
 	// EventSeqBase 是本次返回的首条事件之前已入库的条数（不变量 events[i].seq ==
 	// eventSeqBase + i + 1），EventCount 是该运行累计事件条数，LatestSeq 可直接当作下次
@@ -180,7 +189,7 @@ func validateCloudAgentRequest(req *CloudAgentRequest) error {
 			return err
 		}
 	}
-	if req.ReasoningMode != "" && req.ReasoningMode != "off" && req.ReasoningMode != "auto" && req.ReasoningMode != "deep" {
+	if req.ReasoningMode != "" && !validCloudAgentReasoningMode(req.ReasoningMode) {
 		return BadAuthRequest("无效的 Agent 推理模式")
 	}
 	if req.ProfileRevision != "" {
@@ -190,6 +199,14 @@ func validateCloudAgentRequest(req *CloudAgentRequest) error {
 	}
 	if req.FocusNodeOmittedCount < 0 || req.FocusNodeOmittedCount > 10000 {
 		return BadAuthRequest("画布焦点省略计数无效")
+	}
+	if req.PageContext != nil {
+		if req.CanvasID != "" {
+			return BadAuthRequest("当前页面上下文不能同时绑定画布")
+		}
+		if err := validateCloudAgentPageContextShape(*req.PageContext); err != nil {
+			return err
+		}
 	}
 	if len(req.FocusNodeIDs) > 8 {
 		return BadAuthRequest("画布焦点节点最多 8 个")
@@ -278,7 +295,7 @@ func agentRunOutput(task *model.Task, state cloudAgentState) *CloudAgentRun {
 	if task.Status == model.TaskStatusSucceeded {
 		status = "completed"
 	}
-	return &CloudAgentRun{ID: task.ID, UserPrompt: state.Request.Prompt, IdempotencyKey: state.Request.IdempotencyKey, CanvasID: task.ProjectID, ParentID: state.ParentID, Status: status, PermissionMode: state.Request.PermissionMode, Model: task.Model, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt, Skills: state.Skills}
+	return &CloudAgentRun{PageContext: state.Request.PageContext, ID: task.ID, UserPrompt: state.Request.Prompt, IdempotencyKey: state.Request.IdempotencyKey, CanvasID: task.ProjectID, ParentID: state.ParentID, Status: status, PermissionMode: state.Request.PermissionMode, Model: task.Model, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt, Skills: state.Skills}
 }
 
 func (s *Service) cloudAgentTask(userID, id string) (*model.Task, cloudAgentState, error) {
@@ -392,6 +409,14 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 			return nil, err
 		}
 	}
+	if req.PageContext != nil {
+		if err := s.requireDramaFlow2(userID); err != nil {
+			return nil, err
+		}
+		if _, err := cloudAgentDramaPageTarget(s.repo, userID, req.PageContext, "", ""); err != nil {
+			return nil, err
+		}
+	}
 	// Resolve and freeze the effective preference document before idempotency
 	// lookup. A retry without an explicit revision must still refer to the same
 	// immutable input; a changed profile therefore cannot silently create a
@@ -430,13 +455,14 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	var inheritedConfirmationFingerprints []string
 	parentStatus := ""
 	if parentID != "" {
-		parent, _, parentErr := s.cloudAgentTask(userID, parentID)
+		parent, parentRequest, parentErr := s.cloudAgentTask(userID, parentID)
 		if parentErr != nil {
 			return nil, parentErr
 		}
 		// 同一段对话可以跟随页面切换画布绑定（首页 → 画布 → 离开画布）。
 		// 归属已由 cloudAgentTask 按 userID 校验；换绑后旧画布的节点事实不再可用。
-		scopeChanged := parent.ProjectID != req.CanvasID
+		pageChanged := !sameCloudAgentPageContext(parentRequest.Request.PageContext, req.PageContext)
+		scopeChanged := parent.ProjectID != req.CanvasID || pageChanged
 		superseded := s.cloudAgentParentCanBeSuperseded(userID, parentID)
 		// 续轮收束要读上一轮**全部**事件（运行详情默认只返回尾部一窗）：长会话一旦被截断，
 		// 新轮就看不到上一轮改过哪些节点、提交过哪些任务，表现为"忘了自己做过什么"。
@@ -488,7 +514,12 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 			history = append(history, providerTextMessage{Role: "user", Content: context, AgentContextSource: "continuation"})
 		}
 		if scopeChanged {
-			history = append(history, providerTextMessage{Role: "user", Content: cloudAgentScopeChangeNotice(parent.ProjectID, req.CanvasID), AgentContextSource: "continuation"})
+			if parent.ProjectID != req.CanvasID {
+				history = append(history, providerTextMessage{Role: "user", Content: cloudAgentScopeChangeNotice(parent.ProjectID, req.CanvasID), AgentContextSource: "continuation"})
+			}
+			if pageChanged {
+				history = append(history, providerTextMessage{Role: "user", Content: cloudAgentPageScopeNotice(parentRequest.Request.PageContext, req.PageContext), AgentContextSource: "continuation"})
+			}
 		}
 	}
 	history = trimCloudAgentTextHistory(history, cloudAgentHistoryKeepRounds, cloudAgentHistoryMaxBytes)
@@ -560,6 +591,11 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	// Keep the catalog out of TextHistory (which defines conversation turns),
 	// while exposing it as a fresh data message for this run immediately before
 	// the current user request.
+	if req.PageContext != nil && len(canonical.Messages) > 0 {
+		catalog := map[string]any{"role": "user", "content": cloudAgentPageScopeNotice(nil, req.PageContext), cloudAgentContextSourceKey: "page_context"}
+		last := canonical.Messages[len(canonical.Messages)-1]
+		canonical.Messages = append(append([]map[string]any{}, canonical.Messages[:len(canonical.Messages)-1]...), catalog, last)
+	}
 	if strings.TrimSpace(canvasSummary) != "" && len(canonical.Messages) > 0 {
 		catalog := map[string]any{
 			"role":                     "user",
@@ -571,7 +607,7 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	}
 	canonical.PromptCacheKey = cloudAgentPromptCacheKeyForRequest(req.CanvasID, cloudAgentPromptCacheIdentity(req, policy), canonical.SystemPrompt, canonical.Tools)
 	attachCloudAgentPlan(&canonical, inheritedPlan)
-	input := map[string]any{"mode": "text", "prompt": req.Prompt, "textHistory": history, "textOptions": map[string]any{"stream": true, "thinking": cloudAgentReasoningEnabled(policy.ReasoningMode)}, "cloudAgent": state,
+	input := map[string]any{"mode": "text", "prompt": req.Prompt, "textHistory": history, "textOptions": map[string]any{"stream": true, "thinking": cloudAgentReasoningEnabled(policy.ReasoningMode), "thinkingLevel": cloudAgentThinkingLevel(policy.ReasoningMode, false)}, "cloudAgent": state,
 		"agentRequests": map[string]any{"canonical": canonical},
 		"config":        map[string]any{"channelId": req.ChannelID, "channelModelKey": req.ChannelModelKey, "model": firstNonEmpty(req.ChannelModelKey, req.Model), "systemPrompt": system}}
 	input["piSessionJSONL"] = ""
