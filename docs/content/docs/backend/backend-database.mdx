@@ -13,6 +13,10 @@ description: 柚子后端核心持久化表与状态边界
 
 `sll_metric_hours` 以 UTC 小时为主键，保存成功率接口的模型级响应和采集状态。成功的同轮快照不重写，失败可在同一小时补采；连续两个小时无新有效数据标记为过期。平台口径从 `tasks` 的近 24 小时成功和失败终态去重，按视频创建日志的实际渠道及 `api_call_logs.video_provider_model_key` 归属。没有实际出站证据或同一任务无法唯一归属时显示未知。
 
+## 短剧新工作流2的上游字段
+
+柚子迁移 105–108 分别执行上游 78（角色声音与造型）、90（制作草稿）、92（可编辑的图像提示及分段参考素材）和 94（设定图风格及导入来源）。新增字段分别位于 `drama_casts`、`drama_shots`、`drama_productions` 和 `drama_segments`。旧设定保留原主键、时间戳和媒体引用；回填仅写新增列。原文已保存而暂不参与制作的章节通过 `project_units.status = reserved` 表示。
+
 ## v1.8.6 画布升级与官方素材
 
 迁移 104 对应上游 85，增加站点级姿势库来源表 `pose_library_sources` 和条目表 `pose_library_items`。姿势图片存放在数据目录下的 `pose-library/`，数据库登记来源、署名及图片路径。
