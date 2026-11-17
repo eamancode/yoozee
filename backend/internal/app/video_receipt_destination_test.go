@@ -1,7 +1,9 @@
 package app
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +44,12 @@ func TestVideoReceiptDestination(t *testing.T) {
 	other := task
 	other.ID = "copied-task"
 	check("copied origin proof", other, current, false)
+	other = task
+	other.RouteRun++
+	check("copied proof from an earlier attempt", other, current, false)
+	otherChannel := current
+	otherChannel.ID = "another-channel"
+	check("origin proof from another channel", task, otherChannel, false)
 	legacy := task
 	legacy.InputJSON = `{"config":{"channelId":"dest-channel","model":"old"}}`
 	check("unchanged historical channel row", legacy, original, true)
@@ -63,4 +71,71 @@ func TestVideoReceiptDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("conflicting origins for one job", task, current, false)
+}
+
+func TestVideoReceiptDestinationAdmissionScope(t *testing.T) {
+	f := newProjectRoutingFixture(t)
+	if _, err := f.s.OverrideProjectVideoRouting("user-1", f.projectID, routingOriginal, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	chain := f.start(t)
+	state := f.tick(t, chain.ID)
+	step := state.Steps[0]
+	parent, err := f.s.repo.TaskForUser("user-1", chain.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := f.s.videoChainInput(parent, &step)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input[videoReceiptOriginKey] = "client-supplied"
+	request := CreateTaskRequest{
+		ProjectID: f.projectID, Type: "canvas_video", Operation: "text_to_video",
+		Prompt: stringValue(input["prompt"]), Model: step.Model, Input: input,
+		admission:       &taskAdmission{ID: step.TaskID, MaxCharge: &step.Quote.AmountMicrocredits, ParentControllerID: chain.ID, ParentControllerLease: parent.LeaseOwner},
+		creationPrepare: &creationTaskPreparation{},
+	}
+	prepared, err := f.s.CreateTask(parent.UserID, request)
+	if err != nil || strings.Contains(prepared.InputJSON, videoReceiptOriginKey) {
+		t.Fatalf("chain preflight must not carry a receipt origin: %v", err)
+	}
+	state = f.untilTask(t, chain.ID, 0)
+	child, err := f.s.repo.TaskForUser(parent.UserID, state.Steps[0].TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved struct {
+		Stamp videoReceiptOriginStamp `json:"_videoReceiptOrigin"`
+	}
+	if err := json.Unmarshal([]byte(child.InputJSON), &saved); err != nil {
+		t.Fatal(err)
+	}
+	channel, err := f.s.repo.SystemChannel("system-video")
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin, err := videoReceiptOrigin(channel.BaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := f.s.videoReceiptOriginMAC(child, channel.ID, origin)
+	if err != nil || saved.Stamp.ChannelID != channel.ID || saved.Stamp.RouteRun != child.RouteRun || saved.Stamp.MAC != hex.EncodeToString(proof) {
+		t.Fatalf("persisted chain child is missing its own signed channel origin: %v", err)
+	}
+
+	ordinary := globalSixSecondsRequest("false")
+	ordinary["config"].(map[string]any)["videoSeconds"] = "30"
+	ordinary[videoReceiptOriginKey] = saved.Stamp
+	task, err := f.s.CreateTask(parent.UserID, CreateTaskRequest{
+		Type: "canvas_video", Operation: "text_to_video", ProjectID: f.projectID,
+		Prompt: "普通画布视频", Input: ordinary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := f.s.repo.TaskForUser(parent.UserID, task.ID)
+	if err != nil || strings.Contains(stored.InputJSON, videoReceiptOriginKey) {
+		t.Fatalf("ordinary canvas task persisted a video-chain origin proof: %v", err)
+	}
 }

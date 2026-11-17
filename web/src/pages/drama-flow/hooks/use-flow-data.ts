@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useDramaModelConfig } from "@/hooks/use-drama-model-config";
@@ -94,7 +94,18 @@ export function useFlowData(projectId: string, requestedUnitId: string, watchVid
     const chapters = useMemo(() => allUnits.filter((unit) => unit.kind !== "episode"), [allUnits]);
     const rail = useMemo(() => unitsOfKind(allUnits, "episode"), [allUnits]);
     const episodeUnits = rail.units;
-    const unit = rail.units.find((item) => item.id === requestedUnitId) || rail.units[0];
+    const selectedIndex = episodeUnits.findIndex((item) => item.id === requestedUnitId);
+    const selected = episodeUnits[selectedIndex];
+    const selectedId = selected?.id;
+    const nextId = selectedId && episodeUnits[selectedIndex + 1]?.id;
+    const previousId = selectedId && episodeUnits[selectedIndex - 1]?.id;
+    const [neighbors, setNeighbors] = useState<{ projectId: string; id: string; nextId?: string; previousId?: string }>();
+    useEffect(() => {
+        if (selectedId) setNeighbors({ projectId, id: selectedId, nextId, previousId });
+    }, [projectId, selectedId, nextId, previousId]);
+    // 删除回包和索引刷新可以先后到达。当前集消失时，画面和 URL 纠偏都沿用删除前的相邻集。
+    const knownSelection = neighbors?.projectId === projectId && neighbors.id === requestedUnitId ? neighbors : undefined;
+    const unit = selected || (knownSelection && (episodeUnits.find((item) => item.id === knownSelection.nextId) || episodeUnits.find((item) => item.id === knownSelection.previousId))) || episodeUnits[0];
     const unitId = unit?.id || "";
 
     const workspaceQuery = useQuery({

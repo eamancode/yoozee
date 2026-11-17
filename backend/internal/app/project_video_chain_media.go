@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/protocol"
 )
 
 type videoChainUploadContextKey struct{}
@@ -115,12 +117,26 @@ func (s *Service) uploadVideoChainReferences(ctx context.Context, task *model.Ta
 	if err = json.Unmarshal(raw, &generation); err != nil {
 		return err
 	}
+	// Nothing is sent during this phase for a segment without references.
+	// The worker resolves the channel and enforces outbound policy at dispatch.
+	if len(generation.ReferenceImages)+len(generation.ReferenceVideos)+len(generation.ReferenceAudios) == 0 && generation.Mask == nil {
+		return nil
+	}
+	ctx = withProtocolRegistry(ctx, s.protocolRegistry())
+	// Prepare-only uses the protocol saved with the confirmed step. URL inputs
+	// still need local access and storage checks when no upstream upload is due.
+	if state.Request.PrepareOnly && generation.Config.InterfaceType != "" {
+		preparedCtx := ensureOfficialProtocolAdapter(ctx, generation.Config.InterfaceType)
+		adapter, _ := declarativeProtocolAdapterForContext(preparedCtx, generation.Config.InterfaceType)
+		if !videoChainHasUpload(adapter, generation) {
+			return s.hydrateGenerationMedia(task.UserID, &generation, providerMediaHydrationPolicyFor(preparedCtx, generation))
+		}
+	}
 	config, err := s.resolveProviderConfig(generation.Config)
 	if err != nil {
 		return err
 	}
 	generation.Config = config
-	ctx = withProtocolRegistry(ctx, s.protocolRegistry())
 	ctx = ensureOfficialProtocolAdapter(ctx, config.InterfaceType)
 	if err = s.hydrateGenerationMedia(task.UserID, &generation, providerMediaHydrationPolicyFor(ctx, generation)); err != nil {
 		return err
@@ -147,6 +163,17 @@ func (s *Service) uploadVideoChainReferences(ctx context.Context, task *model.Ta
 	ctx = context.WithValue(ctx, videoChainUploadContextKey{}, checkpoint)
 	request := protocolRequestFromInput(generation)
 	return uploadProtocolMedia(ctx, generation, adapter, &request)
+}
+
+func videoChainHasUpload(adapter protocol.Adapter, input canvasGenerationInput) bool {
+	uploader, ok := adapter.(protocol.MediaUploadAdapter)
+	if !ok {
+		return false
+	}
+	kinds := uploader.UploadKinds()
+	return (len(input.ReferenceImages) > 0 || input.Mask != nil) && slices.Contains(kinds, "image") ||
+		len(input.ReferenceVideos) > 0 && slices.Contains(kinds, "video") ||
+		len(input.ReferenceAudios) > 0 && slices.Contains(kinds, "audio")
 }
 
 func videoChainUploadScope(config providerConfig) string {

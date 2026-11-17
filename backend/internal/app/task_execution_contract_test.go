@@ -16,10 +16,14 @@ func TestAgentMediaAdmissionPersistsOriginAndChargeAuthorization(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.admission = &taskAdmission{ID: "generation-task", MaxCharge: ptr(int64(1000)), AgentRunID: run.ID, GenerationID: "generation", ApprovalID: "approval"}
+	req.Input[videoReceiptOriginKey] = "client-supplied"
 	req.creationPrepare = &creationTaskPreparation{}
 	task, err := s.CreateTask(run.UserID, req)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.Contains(task.InputJSON, videoReceiptOriginKey) {
+		t.Fatal("Agent media approval carried a video-chain origin proof")
 	}
 	order := req.creationPrepare.Order
 	if task.AgentRunID != run.ID || task.GenerationID != "generation" || task.ApprovalID != "approval" || order == nil || !order.ChargeLimitSet || task.AuthorizedChargeMicrocredits != order.AmountMicrocredits || order.ChargeLimitMicrocredits != order.AmountMicrocredits {

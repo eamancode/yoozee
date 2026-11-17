@@ -171,7 +171,11 @@ func TestVideoDepthStubPersistsTemporaryResultAndMeasuresDuration(t *testing.T) 
 	config := providerConfig{BaseURL: server.URL, APIKey: "stub-key", InterfaceType: VolcengineMediaKitVideoDepthProtocol, Model: "depth-alias"}
 	task := seedMediaTask(t, db, config)
 	task.Type = "canvas_video"
-	task.InputJSON = `{"mode":"video","metadata":{"videoProcessing":true}}`
+	taskInput, err := json.Marshal(map[string]any{"mode": "video", "config": config, "metadata": map[string]any{"videoProcessing": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.InputJSON = string(taskInput)
 	if err := db.Save(task).Error; err != nil {
 		t.Fatal(err)
 	}

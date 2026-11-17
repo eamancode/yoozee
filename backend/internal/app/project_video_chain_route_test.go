@@ -1,14 +1,18 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"yingce/backend/internal/drama"
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/outbound/outboundtest"
 )
 
 // 第九轮 R8-01：费用预览时，客户端带来的全局时长不能在选档前把合法镜头拒掉；
@@ -62,6 +66,65 @@ func assertVideoChainPreflightOnly(t *testing.T, f *videoChainFixture) {
 		if err := f.db.Model(row).Count(&count).Error; err != nil || count != 0 {
 			t.Fatalf("preflight created %T: count=%d err=%v", row, count, err)
 		}
+	}
+}
+
+func TestVideoChainSystemQuoteAndPreparationStayOffline(t *testing.T) {
+	// No hostname has an address in this in-memory DNS fixture.
+	outboundtest.PublicDNS(t)
+	var lookups atomic.Int32
+	dial := net.DefaultResolver.Dial
+	net.DefaultResolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		lookups.Add(1)
+		return dial(ctx, network, address)
+	}
+	for _, images := range []int{0, 7} {
+		t.Run(fmt.Sprintf("%d references", images), func(t *testing.T) {
+			f := newVideoChainFixture(t, "A", "A")
+			seedOnlySlotSystemVideo(t, f)
+			f.req.Scope = "single"
+			f.req.Model.Input = globalSixSecondsRequest("false")
+			const content = 26
+			if images == 7 {
+				addHTTPRecoveryShot(t, f, "生效参考素材\n@图1、@图2、@图3、@图4、@图5、@图6、@图7。\n镜头正文\n阿婆整理推车，林深站在左边。")
+				f.req.ShotID = "s1"
+			} else {
+				setShotSeconds(t, f, content)
+			}
+			view, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req)
+			if err != nil || len(view.Steps) != 1 || view.PreviewHash == "" || view.TotalMicrocredits != 3_000_000 {
+				t.Fatalf("offline quote failed: %+v, %v", view, err)
+			}
+			step := view.Steps[0]
+			if step.ShotID != f.req.ShotID || step.ContentSeconds != content || step.GenerationSeconds != 30 || step.ReferenceCount != images {
+				t.Fatalf("offline quote changed content or references: %+v", step)
+			}
+			assertVideoChainPreflightOnly(t, f)
+			if images == 0 {
+				f.req.PreviewHash = view.PreviewHash
+				controller, err := f.s.CreateProjectVideoChain("user-1", f.projectID, f.req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				prepared := f.tick(t, controller.ID).Steps[0]
+				if prepared.Phase != "prepared" || prepared.Error != "" {
+					t.Fatalf("reference-free segment could not prepare offline: %+v", prepared)
+				}
+				var tasks []model.Task
+				if err := f.db.Select("id", "type", "status").Find(&tasks).Error; err != nil || len(tasks) != 1 || tasks[0].ID != controller.ID || tasks[0].Type != "project_video_chain" || tasks[0].Status != model.TaskStatusRunning {
+					t.Fatalf("preparation should create only the controller: %+v, %v", tasks, err)
+				}
+			}
+			for _, table := range []any{&model.BillingOrder{}, &model.RouteAttempt{}, &model.ApiCallLog{}} {
+				var count int64
+				if err := f.db.Model(table).Count(&count).Error; err != nil || count != 0 {
+					t.Fatalf("offline path wrote %T: %d, %v", table, count, err)
+				}
+			}
+			if lookups.Load() != 0 || f.uploads.Load() != 0 {
+				t.Fatalf("offline path attempted %d DNS connections and %d uploads", lookups.Load(), f.uploads.Load())
+			}
+		})
 	}
 }
 

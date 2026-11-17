@@ -387,7 +387,12 @@ func (s *Service) ValidateTaskCapability(input map[string]any) error {
 		return BadAuthRequest("当前视频模型能力参数无效")
 	}
 	applyAutoDLVideoScreenSpec(&taskInput, normalized.Video)
-	applyFixedVideoResolution(&taskInput, normalized.Video)
+	if applyFixedVideoResolution(&taskInput, normalized.Video) {
+		if options, _ := input["capabilityOptions"].(map[string]any); options != nil {
+			delete(options, "resolution")
+			options["vquality"] = taskInput.Config.VQuality
+		}
+	}
 	if config, ok := input["config"].(map[string]any); ok {
 		config["size"] = taskInput.Config.Size
 		config["vquality"] = taskInput.Config.VQuality
@@ -404,13 +409,15 @@ func applyModelSpecificImageCapability(profile *ImageCapabilityConfig, _ string,
 }
 
 // applyFixedVideoResolution 让单档位 SKU 的预扣、恢复和上游请求保持同一分辨率。
-func applyFixedVideoResolution(input *canvasGenerationInput, profile *VideoCapabilityConfig) {
+func applyFixedVideoResolution(input *canvasGenerationInput, profile *VideoCapabilityConfig) bool {
 	if input == nil || profile == nil || len(profile.Resolutions) != 1 {
-		return
+		return false
 	}
 	if resolution := videoResolutionNameRequest(profile, profile.Resolutions[0]); resolution != "" {
 		input.Config.VQuality = resolution
+		return true
 	}
+	return false
 }
 
 func validateVideoTask(profile *VideoCapabilityConfig, input canvasGenerationInput) error {
