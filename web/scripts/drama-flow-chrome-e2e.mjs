@@ -474,7 +474,7 @@ async function clickOrDiagnose(cdp, locator, label, outDir, shotName) {
     return false;
 }
 
-async function quoteCase(cdp, fixture, { label, segmentId, buttonText, previewText, viewport, outDir }) {
+async function quoteCase(cdp, fixture, { label, segmentId, buttonText, previewText, resumeChainId, viewport, outDir }) {
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false });
     await cdp.evaluate(`localStorage.setItem("yingce:theme_store", JSON.stringify({ state: { theme: "light" }, version: 0 }))`);
     await cdp.navigate(`/drama-flow/${P}/video`);
@@ -494,8 +494,14 @@ async function quoteCase(cdp, fixture, { label, segmentId, buttonText, previewTe
     await sleep(800);
     check(!(await cdp.evaluate(crashed)), `${label}：打开面板后页面没有崩（无 RouteErrorPage）`);
     await cdp.click(buttonIn(chainModal, previewText), `${label}：${previewText}`);
-    check(await cdp.poll(`(${chainModal})?.textContent.includes("平台积分（整链预估")`, "quote", 10000), `${label}：看到整链预估花费`);
+    const quoteText = resumeChainId ? "剩余步骤预估 1.5 平台积分" : "1.5 平台积分（整链预估";
+    check(await cdp.poll(`(${chainModal})?.textContent.includes(${JSON.stringify(quoteText)})`, "quote", 10000), `${label}：看到${resumeChainId ? "剩余步骤" : "整链"}预估花费`);
     check(fixture.state.previews === 1, `${label}：只发了 1 次只读预览`, `previews=${fixture.state.previews}`);
+    const quoted = fixture.state.previewRequests[0];
+    const expectedShotId = segmentId === "S01" ? FIXTURE_SHOT_ID : FIXTURE_SHOT_ID_2;
+    check(quoted?.resumeChainId === resumeChainId && quoted?.shotId === expectedShotId && Boolean(quoted?.requestId), `${label}：报价请求对应当前镜头和${resumeChainId ? "原失败链" : "新链"}`, JSON.stringify(quoted));
+    check(await cdp.poll(`(${chainModal})?.textContent.includes("报价标识 preview-1")`, "quote receipt", 5000), `${label}：显示本次有效报价标识`);
+    if (resumeChainId) check(await cdp.poll(exists(buttonIn(chainModal, "确认报价并从失败段继续")), "resume confirmation", 5000), `${label}：展示原链确认入口`);
     await cdp.click(buttonIn(chainModal, "关闭"), `${label}：关闭面板`);
     check(await cdp.poll(`!document.body.innerText.includes("同场景连续生成")`, "modal closed", 5000), `${label}：取消后面板关闭`);
     const submitted = fixture.calls.filter((call) => call.method !== "GET" && /\/video-chains(\/[^/]+\/(retry|cancel))?$/.test(call.path));
@@ -921,7 +927,7 @@ async function main() {
             fixture = useFixture();
             await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 没有出片链`, segmentId: "S02", buttonText: "出这一段", previewText: "预览当前场景与费用", viewport, outDir });
             fixture = useFixture({ chains: "failed" });
-            await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 出片失败`, segmentId: "S01", buttonText: "重新出", previewText: "预览新任务与费用", viewport, outDir });
+            await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 出片失败`, segmentId: "S01", buttonText: "重新出", previewText: "从失败步骤重新报价", resumeChainId: "chain-failed", viewport, outDir });
         }
 
         // R8-01：预览请求按所选模型能力对齐。夹具按权威能力校验真实发出的配置（同步音频 false、时长 15/30 秒档）。
