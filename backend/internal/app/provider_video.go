@@ -87,6 +87,15 @@ func runVideoTaskWithPolicy(ctx context.Context, input canvasGenerationInput, po
 		return nil, errors.New("OpenAI 风格视频接口不支持参考视频或参考音频，请切换到 Seedance / Agent Plan 渠道")
 	}
 	id := resumedProviderRequestID(ctx)
+	if id == "" {
+		references, err := validateDramaReferenceInputs(input, protocolRequestFromInput(input))
+		if err != nil {
+			return nil, err
+		}
+		if len(references) > 0 {
+			return nil, errors.New("当前旧视频接口没有明确的参考图编号规则，请切换到已配置的视频协议")
+		}
+	}
 	var created map[string]interface{}
 	if id == "" && isGrokVideoConfig(input.Config) {
 		requestBody, err := grokVideoBody(input)
@@ -361,7 +370,11 @@ func runSeedanceAgentPlanVideoTask(ctx context.Context, input canvasGenerationIn
 			value := parseBool(input.Config.VideoWatermark, false)
 			body.Watermark = &value
 		}
-		if err := postJSON(ctx, input.Config, "/contents/generations/tasks", body, &created); err != nil {
+		spec := protocol.RequestSpec{Body: body}
+		if err := compileDramaReferenceRequest(input, protocolRequestFromInput(input), &spec, "legacy-ark-video"); err != nil {
+			return nil, err
+		}
+		if err := postJSON(ctx, input.Config, "/contents/generations/tasks", spec.Body, &created); err != nil {
 			return nil, err
 		}
 		if data, ok := created["data"].(map[string]interface{}); ok {
@@ -517,6 +530,13 @@ func seedanceVideosRequestBody(input canvasGenerationInput) (seedanceVideosReque
 	}
 	if len(audioURLs) > 0 {
 		body.ReferenceAudios = audioURLs
+	}
+	spec := protocol.RequestSpec{Body: body}
+	if err := compileDramaReferenceRequest(input, protocolRequestFromInput(input), &spec, "legacy-seedance-video"); err != nil {
+		return seedanceVideosRequest{}, err
+	}
+	if compiled, ok := spec.Body.(map[string]any); ok {
+		body.Prompt = stringField(compiled, "prompt")
 	}
 	return body, nil
 }

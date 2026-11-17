@@ -1100,13 +1100,30 @@ func TestProviderPayloadErrorCategoryPrefersProviderCodeOverModerationWording(t 
 }
 
 func TestRunVideoTaskRequiresOfficialPluginWhenRegistryEmpty(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("missing plugin sent an upstream request: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
 	ctx := withProtocolRegistry(context.Background(), emptyProtocolRegistry)
-	_, err := runVideoTaskForTest(ctx, canvasGenerationInput{
-		Prompt: "make it move",
-		Config: providerConfig{BaseURL: "https://example.com", APIKey: "key", Model: "MiniMax-H3", InterfaceType: "minimax-video"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "插件未安装") {
-		t.Fatalf("runVideoTask() error = %v, want plugin missing", err)
+	for _, test := range []struct {
+		protocol string
+		model    string
+	}{
+		{protocol: "minimax-video", model: "MiniMax-H3"},
+		{protocol: "volcengine-ark-seedance-25", model: "doubao-seedance-2-5-260628"},
+		{protocol: "wenew-h3-video", model: "h3_video"},
+	} {
+		t.Run(test.protocol, func(t *testing.T) {
+			_, err := runVideoTaskForTest(ctx, canvasGenerationInput{
+				Prompt: "make it move",
+				Config: providerConfig{BaseURL: server.URL, APIKey: "key", Model: test.model, InterfaceType: test.protocol},
+			})
+			if err == nil || !strings.Contains(err.Error(), "插件未安装") {
+				t.Fatalf("runVideoTask() error = %v, want plugin missing", err)
+			}
+		})
 	}
 }
 
