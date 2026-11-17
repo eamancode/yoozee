@@ -1050,7 +1050,9 @@ test("出片恢复：503 受理未知时换线只读估价，核实后重新报�
     const interceptor = apiClient.interceptors.response.use(async (reply) => {
         if (delayOldQuote && reply.config.url === chainPath + "/preview") {
             delayOldQuote = false;
-            await new Promise<void>((resolve) => { releaseOldQuote = resolve; });
+            await new Promise<void>((resolve) => {
+                releaseOldQuote = resolve;
+            });
         }
         return reply;
     });
