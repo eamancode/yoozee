@@ -158,12 +158,7 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
     const textAvailability = useDramaModelAvailability("text");
     const imageAvailability = useDramaModelAvailability("image");
     const videoAvailability = useDramaModelAvailability("video", { aspectRatio: project?.aspectRatio });
-    function resolveStep(
-        capability: DramaModelCapability,
-        chosen: string,
-        availability: ReturnType<typeof useDramaModelAvailability>,
-        resolve: (accepts: (model: string) => boolean) => string,
-    ): StepModel {
+    function resolveStep(capability: DramaModelCapability, chosen: string, availability: ReturnType<typeof useDramaModelAvailability>, resolve: (accepts: (model: string) => boolean) => string): StepModel {
         const directory = availability.catalogQuery;
         const options = directory.data?.options?.[capability];
         const capabilityRead = directory.data && !Array.isArray(options) ? "error" : queryReadState(directory);
@@ -177,20 +172,33 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
         };
         const effective = resolve((model) => !disabledReason(model));
         return {
-            capability, chosen, effective, disabledReason, catalogRead,
+            capability,
+            chosen,
+            effective,
+            disabledReason,
+            catalogRead,
             status: (unset) => stepModelStatus({ chosen, effective, catalogRead, nameOf, disabledReason, unset }),
-            retryCatalog: catalogRead === "error" ? () => {
-                if (modelNames.catalogRead === "error") void modelNames.refetch();
-                if (capabilityRead === "error") void directory.refetch();
-            } : undefined,
+            retryCatalog:
+                catalogRead === "error"
+                    ? () => {
+                          if (modelNames.catalogRead === "error") void modelNames.refetch();
+                          if (capabilityRead === "error") void directory.refetch();
+                      }
+                    : undefined,
         };
     }
     const stepModels = {
         text: resolveStep("text", recentModels.text?.trim() || "", textAvailability, (accepts) => flowTextModel(effectiveConfig, recentModels, accepts)),
-        image: resolveStep("image", recentModels.image?.trim() || project?.defaultImageModel?.trim() || "", imageAvailability, (accepts) => project ? flowImageModel(effectiveConfig, recentModels, project.defaultImageModel, accepts) : ""),
-        video: resolveStep("video", recentModels.video?.trim() || project?.defaultVideoModel?.trim() || "", videoAvailability, (accepts) => project && dramaModel ? flowVideoModel(effectiveConfig, recentModels, project.defaultVideoModel, dramaModels.data, dramaModel, accepts) : ""),
+        image: resolveStep("image", recentModels.image?.trim() || project?.defaultImageModel?.trim() || "", imageAvailability, (accepts) => (project ? flowImageModel(effectiveConfig, recentModels, project.defaultImageModel, accepts) : "")),
+        video: resolveStep("video", recentModels.video?.trim() || project?.defaultVideoModel?.trim() || "", videoAvailability, (accepts) =>
+            project && dramaModel ? flowVideoModel(effectiveConfig, recentModels, project.defaultVideoModel, dramaModels.data, dramaModel, accepts) : "",
+        ),
     };
-    const { text: { effective: textModel }, image: { effective: imageModel }, video: { effective: videoModel } } = stepModels;
+    const {
+        text: { effective: textModel },
+        image: { effective: imageModel },
+        video: { effective: videoModel },
+    } = stepModels;
     // 视频模型可以换到项目生成模型以外的族；换了要提醒分段规则是按原来那一族装的。
     const videoOffFamily = useMemo(() => videoFamilyMismatch(effectiveConfig, videoModel, dramaModels.data, dramaModel), [effectiveConfig, videoModel, dramaModels.data, dramaModel]);
     const segmentLimit = segmentMaxSecondsWithBrief(dramaModel?.duration.max || 0, briefQuery.data);

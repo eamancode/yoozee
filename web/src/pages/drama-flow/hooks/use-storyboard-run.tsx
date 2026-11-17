@@ -41,7 +41,9 @@ export function useStoryboardRun(data: FlowData) {
     const current = useRef<{ data: FlowData; config: typeof effectiveConfig } | null>(null);
     useLayoutEffect(() => {
         current.current = { data, config: effectiveConfig };
-        return () => { current.current = null; };
+        return () => {
+            current.current = null;
+        };
     }, [data, effectiveConfig]);
 
     const shotlistQuery = useQuery({ queryKey: dramaShotlistKey(projectId, unitId), queryFn: async ({ signal }) => (await getDramaShotlist(projectId, unitId, signal)).shotlist, enabled: Boolean(projectId && unitId) });
@@ -153,9 +155,13 @@ export function useStoryboardRun(data: FlowData) {
             if (!sameTarget()) return;
             if (
                 handlePrecondition(error, {
-                    previous: (id) => { if (sameTarget()) navigate(`/drama-flow/${projectId}/shots?ep=${encodeURIComponent(id)}`); },
+                    previous: (id) => {
+                        if (sameTarget()) navigate(`/drama-flow/${projectId}/shots?ep=${encodeURIComponent(id)}`);
+                    },
                     independent: () => void generate(onlySections, true),
-                    design: () => { if (sameTarget()) navigate(`/drama-flow/${projectId}/script?ep=${encodeURIComponent(unitId)}`); },
+                    design: () => {
+                        if (sameTarget()) navigate(`/drama-flow/${projectId}/script?ep=${encodeURIComponent(unitId)}`);
+                    },
                 })
             )
                 return;

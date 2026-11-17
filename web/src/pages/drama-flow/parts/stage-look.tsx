@@ -79,7 +79,9 @@ export function StageLook({
                 <div className="drama-flow-work-actions">
                     <StyleLockControl detail={detail} stepModels={stepModels} tasks={projectTasks} />
                     <ScenePaletteControl detail={detail} stepModels={stepModels} chapters={chapters} episodes={episodeUnits} tasks={projectTasks} />
-                    {unit ? <AssetsExtractControl detail={detail} stepModels={stepModels} unit={unit} units={allUnits} paletteReady={scenesQuery.data?.unitId === unit.id ? scenesQuery.data.paletteReady : undefined} unitNoun={rail.noun} tasks={projectTasks} /> : null}
+                    {unit ? (
+                        <AssetsExtractControl detail={detail} stepModels={stepModels} unit={unit} units={allUnits} paletteReady={scenesQuery.data?.unitId === unit.id ? scenesQuery.data.paletteReady : undefined} unitNoun={rail.noun} tasks={projectTasks} />
+                    ) : null}
                 </div>
             </div>
             <StageTabs<LookTab> tabs={tabs} active={active} onChange={onTab} />
