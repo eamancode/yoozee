@@ -924,7 +924,7 @@ export function ComposerControls({
                 showOptionPrices
                 placeholder="选择文本模型"
             />
-            {(!supportsReasoningLevels || levels.length > 0) ? (
+            {!supportsReasoningLevels || levels.length > 0 ? (
                 <Popover
                     ref={thinkingAnchor}
                     open={thinkingOpen}

@@ -23,7 +23,7 @@ func seedOnlySlotSystemVideo(t *testing.T, f *videoChainFixture) {
 	profile.Video.GenerateAudio = VideoBooleanConfig{Supported: false, Default: false}
 	capability, _ := json.Marshal(profile)
 	rows := []any{
-		&model.ModelChannel{ID: "system-video", Scope: model.ChannelScopeSystem, Enabled: true, Name: "Mock system video", BaseURL: "https://upstream.invalid", APIKey: "fixture-only"},
+		&model.ModelChannel{ID: "system-video", Scope: model.ChannelScopeSystem, Enabled: true, Name: "Mock system video", BaseURL: f.upstreamURL, APIKey: "fixture-only"},
 		&model.ChannelModel{ID: "system-model", ChannelID: "system-video", ModelKey: "seedance-2.5-test", ProviderModelKey: "seedance-2.5-mock", Capability: "video", Protocol: model.ChannelInterfaceType("seedance-videos-compatible"), CapabilityConfigJSON: string(capability), Enabled: true, PriceConfigured: true, BillingMode: "fixed_request"},
 		&model.CreditAccount{UserID: "user-1", AvailableMicrocredits: 50_000_000},
 	}

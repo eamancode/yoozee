@@ -805,7 +805,14 @@ export function AssetLibraryPickerModal({
                                 // 翻页、切分类时保留上一屏并调暗，新数据到达后替换，不闪空白。
                                 <div className="asset-picker-grid" data-refreshing={refreshing || undefined} aria-busy={refreshing || undefined}>
                                     {visibleItems.map((item) => (
-                                        <PickerCard key={item.id} item={item} categoryLabel={showCardCategory ? categoryLabels[item.category] : undefined} selected={selected.has(item.id)} onToggle={() => toggle(item)} onPreview={onPreview ? () => onPreview(item) : undefined} />
+                                        <PickerCard
+                                            key={item.id}
+                                            item={item}
+                                            categoryLabel={showCardCategory ? categoryLabels[item.category] : undefined}
+                                            selected={selected.has(item.id)}
+                                            onToggle={() => toggle(item)}
+                                            onPreview={onPreview ? () => onPreview(item) : undefined}
+                                        />
                                     ))}
                                 </div>
                             ) : (
