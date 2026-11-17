@@ -92,6 +92,10 @@ func Run(ctx context.Context, request ProcessRequest, bridge Bridge) error {
 		"NODE_ENV=production",
 		"PI_OFFLINE=1",
 	}
+	if runtime.GOOS == "windows" {
+		// Node falls back to the protected Windows system temp directory without TEMP.
+		cmd.Env = append(cmd.Env, "TEMP="+os.TempDir())
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("open Agent runtime output: %w", err)
