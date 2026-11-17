@@ -116,7 +116,16 @@ export function PriceTierFields({
                             </div>
                             <div className="admin-price-tier-match-grid">
                                 <Form.Item className="mb-0" name={[index, "operation"]} label="生成方式" rules={[{ required: true, message: "请选择生成方式" }]}>
-                                    <Select options={isDepth ? [{ label: "任意生成方式", value: "*" }, { label: "相对深度", value: "depth" }] : operationOptions(capability)} />
+                                    <Select
+                                        options={
+                                            isDepth
+                                                ? [
+                                                      { label: "任意生成方式", value: "*" },
+                                                      { label: "相对深度", value: "depth" },
+                                                  ]
+                                                : operationOptions(capability)
+                                        }
+                                    />
                                 </Form.Item>
                                 {isVideo && !isDepth ? (
                                     <Form.Item className="mb-0" name={[index, "resolution"]} label="分辨率" rules={[{ required: true, message: "请选择分辨率" }]}>

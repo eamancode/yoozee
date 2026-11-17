@@ -34,7 +34,9 @@ const base = {
 mock.module("@/stores/use-user-store", () => ({ useUserStore: (select: (state: unknown) => unknown) => select({ user: { id: "owner" }, hydrated: true }) }));
 mock.module("@/components/cached-resource-image", () => ({ CachedResourceImage: () => <span>图片</span> }));
 mock.module("@/services/user-data-sync", () => ({
-    loadAssetsForUse: async () => { throw new Error("个人素材选择不应导入官方素材"); },
+    loadAssetsForUse: async () => {
+        throw new Error("个人素材选择不应导入官方素材");
+    },
     loadAssetLibraryPage: async ({ page }: { page: number }) => ({
         assets: [{ ...base, id: `remote-${page}`, title: page === 1 ? "历史上传图" : "历史生成图" }],
         total: 81,
