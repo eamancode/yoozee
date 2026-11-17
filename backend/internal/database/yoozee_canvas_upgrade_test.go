@@ -34,8 +34,8 @@ func TestYoozeeCanvasUpgradePreservesExistingLedger(t *testing.T) {
 	if err := db.Order("version").Find(&original).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(original) == 0 || original[len(original)-1].Name != "sss_workflow_renumber" {
-		t.Fatal("expected Yoozee schema 100")
+	if len(original) == 0 || original[len(original)-1].Version != 102 || original[len(original)-1].Name != "project_video_routing" {
+		t.Fatal("expected the existing project video routing migration at version 102")
 	}
 	raw := migrationCanvas(t, "保留旧镜头")
 	if err := db.Create(&model.CanvasProject{ID: "project", UserID: "actor", Revision: 5, PayloadJSON: raw}).Error; err != nil {
