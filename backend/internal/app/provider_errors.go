@@ -81,6 +81,9 @@ type providerAnalyticsContext struct {
 	Billing               taskBillingLifecycle
 	UserID                string
 	TaskID                string
+	ProjectID             string
+	TaskType              string
+	RouteRun              int
 	TraceID               string
 	RequestID             string
 	BillingOrderID        string
@@ -98,6 +101,7 @@ type providerAnalyticsContext struct {
 
 func withProviderAnalytics(ctx context.Context, service *Service, task model.Task) context.Context {
 	metadata := providerAnalyticsContext{Service: service, UserID: task.UserID, TaskID: task.ID, TraceID: task.TraceID, RequestID: task.RequestID, BillingOrderID: task.BillingOrderID, Capability: capabilityFromTaskType(task.Type), Operation: task.Operation, Model: task.Model, ProviderRequestID: task.ProviderRequestID}
+	metadata.ProjectID, metadata.TaskType, metadata.RouteRun = task.ProjectID, task.Type, task.RouteRun
 	if service != nil {
 		metadata.Billing = service.taskBilling()
 	}

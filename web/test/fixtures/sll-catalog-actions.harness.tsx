@@ -3,10 +3,19 @@ import { Window } from "happy-dom";
 
 const dom = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({
-    window: dom, document: dom.document, navigator: dom.navigator, HTMLElement: dom.HTMLElement,
-    Element: dom.Element, Node: dom.Node, SVGElement: dom.SVGElement, ShadowRoot: dom.ShadowRoot,
-    ResizeObserver: dom.ResizeObserver, getComputedStyle: dom.getComputedStyle.bind(dom), IS_REACT_ACT_ENVIRONMENT: true,
-})) Object.defineProperty(globalThis, name, { configurable: true, value });
+    window: dom,
+    document: dom.document,
+    navigator: dom.navigator,
+    HTMLElement: dom.HTMLElement,
+    Element: dom.Element,
+    Node: dom.Node,
+    SVGElement: dom.SVGElement,
+    ShadowRoot: dom.ShadowRoot,
+    ResizeObserver: dom.ResizeObserver,
+    getComputedStyle: dom.getComputedStyle.bind(dom),
+    IS_REACT_ACT_ENVIRONMENT: true,
+}))
+    Object.defineProperty(globalThis, name, { configurable: true, value });
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -18,9 +27,13 @@ test("confirm the group and drive independent catalog and metric actions through
     const path = "/admin/channels/fixture/sll-catalog";
     const calls: string[] = [];
     const imported = {
-        group: "contracted", needsGroupConfirmation: false, added: 1, updated: 0, collectedAt: "2026-11-17T10:00:00Z", excluded: [],
-        rows: [{ modelId: "abc", displayName: "Fixture", group: "contracted", groupRatio: 1.5, available: true, enabled: true, capabilities: {}, tiers: [],
-            metric: { state: "never", windowHours: 24, rate: null, stale: false } }],
+        group: "contracted",
+        needsGroupConfirmation: false,
+        added: 1,
+        updated: 0,
+        collectedAt: "2026-11-17T10:00:00Z",
+        excluded: [],
+        rows: [{ modelId: "abc", displayName: "Fixture", group: "contracted", groupRatio: 1.5, available: true, enabled: true, capabilities: {}, tiers: [], metric: { state: "never", windowHours: 24, rate: null, stale: false } }],
     };
     let view = { ...imported, group: "old-group", needsGroupConfirmation: true };
     let reported = false;
@@ -39,9 +52,24 @@ test("confirm the group and drive independent catalog and metric actions through
     const root = createRoot(document.body.appendChild(document.createElement("div")));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const button = (label: string) => Array.from(document.querySelectorAll("button")).find((node) => node.textContent?.trim() === label)!;
-    const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 40)); });
+    const settle = () =>
+        act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 40));
+        });
     try {
-        await act(async () => root.render(<QueryClientProvider client={client}><SLLCatalogDialog channelId="fixture" onClose={() => {}} onImported={async () => { reported = true; }} /></QueryClientProvider>));
+        await act(async () =>
+            root.render(
+                <QueryClientProvider client={client}>
+                    <SLLCatalogDialog
+                        channelId="fixture"
+                        onClose={() => {}}
+                        onImported={async () => {
+                            reported = true;
+                        }}
+                    />
+                </QueryClientProvider>,
+            ),
+        );
         await settle();
         const input = document.querySelector("#sll-call-group") as HTMLInputElement;
         expect(document.body.textContent).toContain("渠道凭据已变更");

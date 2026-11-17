@@ -24,6 +24,9 @@ func TestClaimFailedTaskProviderRecoveryUsesConditionalLease(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := repo.ClaimFailedTaskProviderRecovery("task-1", "user-1", "manual-recovery:stale", time.Minute, 99); !errors.Is(err, ErrTaskProviderRecoveryConflict) {
+		t.Fatalf("claim from another route run: %v", err)
+	}
 	if err := repo.ClaimFailedTaskProviderRecovery("task-1", "", "manual-recovery:one", time.Minute); err != nil {
 		t.Fatalf("first claim: %v", err)
 	}

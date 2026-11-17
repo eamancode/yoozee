@@ -18,10 +18,14 @@ function durationText(cap: SLLCapabilities) {
 function rateText(metric: SLLMetric) {
     const rate = metric.rate != null ? `${metric.rate}%` : "";
     switch (metric.state) {
-        case "value": return rate || "无统计";
-        case "unavailable": return "供应商无统计";
-        case "fetch_failed": return rate ? `采集失败，上次 ${rate}` : "采集失败";
-        default: return "尚未采集";
+        case "value":
+            return rate || "无统计";
+        case "unavailable":
+            return "供应商无统计";
+        case "fetch_failed":
+            return rate ? `采集失败，上次 ${rate}` : "采集失败";
+        default:
+            return "尚未采集";
     }
 }
 
@@ -36,17 +40,34 @@ function SLLModelDetail({ row }: { row: SLLCatalogRow }) {
         <details className="border-b border-[var(--admin-border)] py-2">
             <summary className="cursor-pointer break-words">
                 <strong>{row.displayName}</strong> · {row.modelId} · {row.available ? (row.enabled ? "已启用" : "已停用") : "已排除"}
-                <span className="ml-2">{rateText(metric)}{metric.stale ? "（已过期）" : ""}</span>
+                <span className="ml-2">
+                    {rateText(metric)}
+                    {metric.stale ? "（已过期）" : ""}
+                </span>
             </summary>
             <div className="mt-2 space-y-1 pl-4 text-sm">
                 {row.reason && <p>{row.reason}</p>}
                 {row.description && <p>供应商说明 · {row.description}</p>}
-                <p>上游人民币成本（{row.group} 分组，倍率 {row.groupRatio}） · {(row.tiers || []).map((tier) => `${tier.resolution} ¥${tier.costMicroCny / 1_000_000}/条`).join("、") || "无合格价档"}</p>
-                <p>时长 {durationText(cap)} · 画幅 {cap.aspectRatios?.join(" / ") || "待核实"}</p>
-                <p>图片 {referenceLimit(cap.maxImages)}{cap.minImages ? `，至少 ${cap.minImages} 张` : ""} · 视频 {referenceLimit(cap.maxVideos)} · 音频 {referenceLimit(cap.maxAudios)}</p>
-                <p>参考总数 {referenceLimit(cap.maxReferences)} · 单条参考视频时长 {cap.maxVideoSeconds == null ? "待核实" : `≤ ${cap.maxVideoSeconds} 秒`} · 同步生成声音 {cap.generateAudio == null ? "待核实" : cap.generateAudio ? "支持" : "不支持"}</p>
-                <p>官方模型级成功率（近 {metric.windowHours || 24} 小时） · {rateText(metric)}{metric.stale ? " · 已过期" : ""} · 样本数 {metric.sampleCount ?? "未公开"}</p>
-                <p>统计来源 {metric.source || "SLL 公开成功率"} · 采集时间 {localTime(metric.collectedAt)} · 最近尝试 {localTime(metric.attemptedAt)}</p>
+                <p>
+                    {row.available ? "上游人民币成本" : "上次入池时的上游人民币成本"}（{row.group} 分组，倍率 {row.groupRatio}） · {(row.tiers || []).map((tier) => `${tier.resolution} ¥${tier.costMicroCny / 1_000_000}/条`).join("、") || "无合格价档"}
+                </p>
+                <p>
+                    时长 {durationText(cap)} · 画幅 {cap.aspectRatios?.join(" / ") || "待核实"}
+                </p>
+                <p>
+                    图片 {referenceLimit(cap.maxImages)}
+                    {cap.minImages ? `，至少 ${cap.minImages} 张` : ""} · 视频 {referenceLimit(cap.maxVideos)} · 音频 {referenceLimit(cap.maxAudios)}
+                </p>
+                <p>
+                    参考总数 {referenceLimit(cap.maxReferences)} · 单条参考视频时长 {cap.maxVideoSeconds == null ? "待核实" : `≤ ${cap.maxVideoSeconds} 秒`} · 同步生成声音 {cap.generateAudio == null ? "待核实" : cap.generateAudio ? "支持" : "不支持"}
+                </p>
+                <p>
+                    官方模型级成功率（近 {metric.windowHours || 24} 小时） · {rateText(metric)}
+                    {metric.stale ? " · 已过期" : ""} · 样本数 {metric.sampleCount ?? "未公开"}
+                </p>
+                <p>
+                    统计来源 {metric.source || "SLL 公开成功率"} · 采集时间 {localTime(metric.collectedAt)} · 最近尝试 {localTime(metric.attemptedAt)}
+                </p>
             </div>
         </details>
     );
@@ -61,19 +82,30 @@ export function SLLCatalogResults({ view, keyword }: { view: SLLCatalogView; key
         <div className="space-y-2">
             {localTime(view.collectedAt) !== "—" && (
                 <div className="text-sm">
-                    <p>最近目录同步 {localTime(view.collectedAt)} · 分组 {view.group} · 新增 {view.added} · 更新 {view.updated} · 排除 {exclusions.length} 项</p>
-                    <p className="break-all">价目来源 {view.source}{view.version ? ` · 来源版本 ${view.version}` : ""} · 供应商更新时间未公开</p>
+                    <p>
+                        最近目录同步 {localTime(view.collectedAt)} · 分组 {view.group} · 新增 {view.added} · 更新 {view.updated} · 排除 {exclusions.length} 项
+                    </p>
+                    <p className="break-all">
+                        价目来源 {view.source}
+                        {view.version ? ` · 来源版本 ${view.version}` : ""} · 供应商更新时间未公开
+                    </p>
                 </div>
             )}
             <div className="max-h-[42vh] overflow-auto" aria-label="SLL 线路与规格">
-                {rows.map((row) => <SLLModelDetail key={row.modelId} row={row} />)}
+                {rows.map((row) => (
+                    <SLLModelDetail key={row.modelId} row={row} />
+                ))}
                 {!rows.length && <p>{term ? "没有匹配的线路" : "当前没有已同步的线路"}</p>}
             </div>
             {exclusions.length > 0 && (
                 <details>
                     <summary className="cursor-pointer">查看排除原因（{visibleExclusions.length}）</summary>
                     <ul className="max-h-48 overflow-auto text-sm">
-                        {visibleExclusions.map((row, index) => <li key={`${row.modelId}-${row.resolution}-${index}`}>{row.modelId} {row.resolution} · {row.reason}</li>)}
+                        {visibleExclusions.map((row, index) => (
+                            <li key={`${row.modelId}-${row.resolution}-${index}`}>
+                                {row.modelId} {row.resolution} · {row.reason}
+                            </li>
+                        ))}
                     </ul>
                 </details>
             )}
@@ -123,11 +155,24 @@ export function SLLCatalogDialog({ channelId, onClose, onImported }: { channelId
                 <div className="flex flex-wrap items-center gap-2">
                     <label htmlFor="sll-call-group">供应商调用分组</label>
                     <Input id="sll-call-group" className="max-w-44" placeholder="填写实际分组" maxLength={128} value={group} disabled={!!working} onChange={(event) => setDraft({ value: event.target.value, reconfirming })} />
-                    <Button type="primary" loading={working === "sync"} disabled={!!working || !group.trim() || !query.data} onClick={() => void run("sync")}>同步公开价目</Button>
-                    <Button loading={working === "metrics"} disabled={!!working || !query.data?.rows?.length} onClick={() => void run("metrics")}>刷新官方成功率</Button>
+                    <Button type="primary" loading={working === "sync"} disabled={!!working || !group.trim() || !query.data} onClick={() => void run("sync")}>
+                        同步公开价目
+                    </Button>
+                    <Button loading={working === "metrics"} disabled={!!working || !query.data?.rows?.length} onClick={() => void run("metrics")}>
+                        刷新官方成功率
+                    </Button>
                 </div>
                 <p className="text-sm">成功率每小时采集，按上游模型 ID 关联。连续两个周期未更新时标为过期。</p>
-                {(error || query.error) && <div role="alert">{error || query.error?.message}{query.error && <Button size="small" onClick={() => void query.refetch()}>重读目录</Button>}</div>}
+                {(error || query.error) && (
+                    <div role="alert">
+                        {error || query.error?.message}
+                        {query.error && (
+                            <Button size="small" onClick={() => void query.refetch()}>
+                                重读目录
+                            </Button>
+                        )}
+                    </div>
+                )}
                 {notice && <p role="status">{notice}</p>}
                 <Input aria-label="搜索 SLL 展示名或上游 ID" placeholder="搜索展示名或上游 ID" value={keyword} allowClear onChange={(event) => setKeyword(event.target.value)} />
                 {query.data ? <SLLCatalogResults view={query.data} keyword={keyword} /> : query.isLoading && <p role="status">正在读取目录…</p>}

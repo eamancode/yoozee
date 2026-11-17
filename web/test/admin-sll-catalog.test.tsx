@@ -9,19 +9,24 @@ import type { SLLCatalogRow, SLLCatalogView } from "../src/services/api/admin-sl
 import type { ModelChannel } from "../src/stores/use-config-store";
 
 const row: SLLCatalogRow = {
-    modelId: "model.a", displayName: "Seedance 2.5（MJ）", group: "default", groupRatio: 1, available: true, enabled: false,
+    modelId: "model.a",
+    displayName: "Seedance 2.5（MJ）",
+    group: "default",
+    groupRatio: 1,
+    available: true,
+    enabled: false,
     capabilities: { durationMin: 30, durationMax: 30, maxImages: 7, maxAudios: 0 },
     tiers: [{ resolution: "720p", costMicroCny: 6_000_000 }],
     metric: { state: "value", source: "SLL 官方", windowHours: 24, rate: 0, sampleCount: null, stale: false },
 };
 const view: SLLCatalogView = {
-    group: "default", source: "https://api.lecapi.net/api/pricing", collectedAt: "2026-11-17T10:00:00Z", added: 2, updated: 1,
+    group: "default",
+    source: "https://api.lecapi.net/api/pricing",
+    collectedAt: "2026-11-17T10:00:00Z",
+    added: 2,
+    updated: 1,
     excluded: [{ modelId: "model.a", resolution: "1080p", reason: "超出单条预算" }],
-    rows: [
-        row,
-        { ...row, modelId: "model.b", metric: { ...row.metric, state: "unavailable", rate: null } },
-        { ...row, modelId: "model.c", metric: { ...row.metric, state: "fetch_failed", rate: 89.5, stale: true } },
-    ],
+    rows: [row, { ...row, modelId: "model.b", metric: { ...row.metric, state: "unavailable", rate: null } }, { ...row, modelId: "model.c", metric: { ...row.metric, state: "fetch_failed", rate: 89.5, stale: true } }],
 };
 
 test("catalog shows exact upstream IDs, costs, exclusions, unknown capabilities, real zero and collection failures", () => {
@@ -40,7 +45,12 @@ test("catalog shows exact upstream IDs, costs, exclusions, unknown capabilities,
 
 test("SLL catalog action follows the server's channel projection", () => {
     const channel: ModelChannel = { id: "system", name: "同名渠道", baseUrl: "", apiKey: "", apiFormat: "openai", models: [] };
-    const render = (available: boolean) => renderToStaticMarkup(<App><ChannelModelManager channel={{ ...channel, sllCatalogAvailable: available }} onChanged={() => {}} /></App>);
+    const render = (available: boolean) =>
+        renderToStaticMarkup(
+            <App>
+                <ChannelModelManager channel={{ ...channel, sllCatalogAvailable: available }} onChanged={() => {}} />
+            </App>,
+        );
     expect(render(true)).toContain("SLL 视频线路目录");
     expect(render(false)).not.toContain("SLL 视频线路目录");
 });

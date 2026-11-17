@@ -95,7 +95,7 @@ func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int, expect
 		if err != nil {
 			return err
 		}
-		if err := scope.requireShots(tx); err != nil {
+		if err := scope.requireTargets(tx); err != nil {
 			return err
 		}
 		var count int64

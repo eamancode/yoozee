@@ -43,6 +43,21 @@ func (s *Service) beginTaskRouteAttempt(task *model.Task) (*model.RouteAttempt, 
 	if err != nil {
 		return nil, err
 	}
+	if isVideoTaskType(task.Type) && task.ProviderRequestID != "" {
+		if len(attempts) == 0 {
+			// Historical orders can predate routing attempts. The persisted
+			// provider handle goes straight to polling; route selection is
+			// exclusively an admission operation.
+			return nil, nil
+		}
+		original := &attempts[len(attempts)-1]
+		if original.ProviderRequestID != "" && original.ProviderRequestID != task.ProviderRequestID ||
+			original.RouteID != "" && task.RouteID != "" && original.RouteID != task.RouteID {
+			return nil, routeDispatchUncertainError{"原视频受理号与路由记录不一致，已停止提交"}
+		}
+		original.DispatchState = "accepted"
+		return original, nil
+	}
 	if len(attempts) > 0 {
 		existing := &attempts[len(attempts)-1]
 		switch existing.DispatchState {
@@ -80,6 +95,9 @@ func (s *Service) beginTaskRouteAttempt(task *model.Task) (*model.RouteAttempt, 
 			}
 			return s.switchTaskToNextRoute(task, attempts)
 		}
+	}
+	if isVideoTaskType(task.Type) && task.ProviderRequestID == "" && (task.PollStage == "poll" || task.Attempts > 1 && task.RouteRun <= 1) {
+		return nil, routeDispatchUncertainError{"历史视频任务缺少可核实的受理号与尝试记录，已停止提交"}
 	}
 	if task.LogicalModelID == "" {
 		return s.createDirectTaskAttempt(task)

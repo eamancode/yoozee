@@ -636,11 +636,11 @@ func (s *Service) applyScriptAdaptTask(task model.Task, meta *dramaStepTaskMeta,
 	if concept != "" {
 		documents = append(documents, model.ProjectOntologyDocument{ID: newID(), ProjectID: projectID, Kind: model.OntologyDocConcept, Content: concept, TaskID: task.ID, CreatedBy: task.UserID})
 	}
-	if err := s.repo.ApplyDramaEpisodes(projectID, deleteIDs, create, update, order, documents); err != nil {
+	if err := s.repo.ApplyDramaEpisodes(task.UserID, projectID, task.ID, deleteIDs, create, update, order, documents); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return DramaScriptAdaptOutcome{}, errors.New("要改写的剧集已被删除，没有写入")
 		}
-		return DramaScriptAdaptOutcome{}, err
+		return DramaScriptAdaptOutcome{}, episodeMutationError(err)
 	}
 	return outcome, nil
 }

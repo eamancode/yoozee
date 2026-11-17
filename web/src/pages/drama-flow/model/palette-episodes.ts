@@ -17,7 +17,7 @@ export function paletteSceneGroups(episodes: Pick<ProjectUnit, "id" | "title">[]
     });
     const outside: PaletteGroup = { key: "outside", title: episodes ? "历史色卡 · 来源不在当前剧集" : "剧集顺序未读到", assets: [], entries: [] };
     const legacy: PaletteGroup = { key: "legacy", title: "历史色卡 · 未记录来源剧集", assets: [], entries: [] };
-    const groupFor = (unitId?: string) => unitId ? current.get(unitId) ?? outside : legacy;
+    const groupFor = (unitId?: string) => (unitId ? (current.get(unitId) ?? outside) : legacy);
     for (const asset of palettes) {
         if (!asset.palette?.master) groupFor(asset.palette?.entry?.unit_id).assets.push(asset);
     }

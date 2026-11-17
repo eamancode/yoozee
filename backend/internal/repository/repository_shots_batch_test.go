@@ -18,13 +18,16 @@ func TestReplaceProjectUnitShotsWithShotlistInsertsInBatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Project{}, &model.Shot{}, &model.ShotRevision{}, &model.ShotAssetReference{}, &model.ShotArtifact{}, &model.ShotEvidence{}, &model.ProjectAssetCandidate{}, &model.DramaShotlist{}); err != nil {
+	if err := db.AutoMigrate(&model.Project{}, &model.ProjectUnit{}, &model.Shot{}, &model.ShotRevision{}, &model.ShotAssetReference{}, &model.ShotArtifact{}, &model.ShotEvidence{}, &model.ProjectAssetCandidate{}, &model.DramaShotlist{}); err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, _ := db.DB()
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	now := time.Now()
 	if err := db.Create(&model.Project{ID: "p1", UserID: "u1", Name: "长章"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.ProjectUnit{ID: "u1", ProjectID: "p1", Kind: model.ProjectUnitKindChapter}).Error; err != nil {
 		t.Fatal(err)
 	}
 	const n = 2000

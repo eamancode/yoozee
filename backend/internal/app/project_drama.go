@@ -551,8 +551,9 @@ func (s *Service) segmentForShot(userID string, projectID string, shot *model.Sh
 	if err != nil {
 		return drama.Segment{}, nil, false, err
 	}
+	seenVersions := map[string]bool{}
 	for _, ref := range references {
-		if ref.Role != "reference" || ref.Status != "linked" {
+		if ref.Role == "continuity" || ref.Role == shotAssetRoleStyle || ref.Status != "linked" || seenVersions[ref.AssetVersionID] {
 			continue
 		}
 		version, err := s.repo.AssetVersionForProject(projectID, ref.AssetVersionID)
@@ -560,6 +561,10 @@ func (s *Service) segmentForShot(userID string, projectID string, shot *model.Sh
 			continue
 		}
 		info := assets[version.AssetID]
+		if info.Category == model.AssetCategoryPalette {
+			continue
+		}
+		seenVersions[ref.AssetVersionID] = true
 		seg.Refs = append(seg.Refs, drama.Ref{File: ref.AssetVersionID, Role: dramaRefRole(info.Category), Note: info.Title})
 	}
 	if len(seg.Refs) > 0 {
@@ -636,7 +641,7 @@ func (s *Service) writeDramaSegments(userID string, projectID string, req DramaS
 }
 
 func (s *Service) writeDramaSegmentsTransaction(userID string, projectID string, req DramaSegmentsWriteRequest) ([]ProjectDramaSegmentView, error) {
-	project, err := s.activeProjectForUser(userID, projectID)
+	project, err := requireActiveProject(s.repo.LockActiveStoryboardProject(userID, projectID))
 	if err != nil {
 		return nil, err
 	}

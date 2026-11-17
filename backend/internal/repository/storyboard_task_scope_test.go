@@ -24,11 +24,14 @@ func storyboardTaskTestRepo(t *testing.T) *Repository {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	if err := db.AutoMigrate(&model.Project{}, &model.Shot{}, &model.CanvasProject{}, &model.ProductionTaskLink{}, &model.Task{}); err != nil {
+	if err := db.AutoMigrate(&model.Project{}, &model.ProjectUnit{}, &model.Shot{}, &model.CanvasProject{}, &model.WorkflowInstance{}, &model.WorkflowStepInstance{}, &model.ProductionTaskLink{}, &model.Task{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, row := range []any{
 		&model.Project{ID: "project", UserID: "user", Name: "任务保护", Status: model.ProjectStatusActive},
+		&model.ProjectUnit{ID: "episode", ProjectID: "project", Kind: model.ProjectUnitKindEpisode},
+		&model.WorkflowInstance{ID: "workflow", ProjectID: "project", UnitID: "episode"},
+		&model.WorkflowStepInstance{ID: "surviving-step", WorkflowInstanceID: "workflow"},
 		&model.CanvasProject{ID: "canvas", UserID: "user", ProjectID: "project"},
 		&model.Shot{ID: "target", ProjectID: "project", UnitID: "episode"},
 		&model.Shot{ID: "neighbor", ProjectID: "project", UnitID: "episode"},
@@ -167,5 +170,149 @@ func TestStoryboardTaskAdmissionAfterConcurrentDelete(t *testing.T) {
 	}
 	if err := repo.db.Model(link).Count(&count).Error; err != nil || count != 0 {
 		t.Fatalf("orphan output link: %d, %v", count, err)
+	}
+}
+
+func TestUnitTaskAdmissionFencesDeletedEpisode(t *testing.T) {
+	repo := storyboardTaskTestRepo(t)
+	const director = `{"metadata":{"domainProjectId":"project","chapterId":"removed","source":"short-drama-chapter-storyboard"}}`
+	if err := repo.db.Create(&model.ProjectUnit{ID: "removed", ProjectID: "project", Kind: model.ProjectUnitKindEpisode}).Error; err != nil {
+		t.Fatal(err)
+	}
+	deleted := make(chan struct{})
+	release := make(chan struct{})
+	deleteResult := make(chan error, 1)
+	go func() {
+		deleteResult <- repo.Transaction(func(tx *Repository) error {
+			if _, err := tx.LockActiveStoryboardProject("user", "project"); err != nil {
+				return err
+			}
+			if err := tx.db.Delete(&model.ProjectUnit{}, "project_id = ? AND id = ?", "project", "removed").Error; err != nil {
+				return err
+			}
+			close(deleted)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case err := <-deleteResult:
+		t.Fatalf("delete ended before admission: %v", err)
+	case <-deleted:
+	}
+	task := model.Task{ID: "director", UserID: "user", ProjectID: "project", Type: "canvas_text", Status: model.TaskStatusQueued, InputJSON: director}
+	started := make(chan struct{})
+	admission := make(chan error, 1)
+	go func() {
+		close(started)
+		admission <- repo.CreateTaskWithActiveLimit(&task, 10)
+	}()
+	<-started
+	close(release)
+	if err := <-deleteResult; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-admission; !errors.Is(err, ErrStoryboardTaskUnitGone) {
+		t.Fatalf("whole-episode storyboard queued after deletion: %v", err)
+	}
+	if err := repo.CreateTaskWithCreditReservation(&task, &model.BillingOrder{}, 10); !errors.Is(err, ErrStoryboardTaskUnitGone) {
+		t.Fatalf("stale episode reached billing: %v", err)
+	}
+	if _, err := repo.RetryTaskWithBilling("user", &task, nil, 10); !errors.Is(err, ErrStoryboardTaskUnitGone) {
+		t.Fatalf("stale episode reached retry: %v", err)
+	}
+}
+
+func TestUnitTaskAdmissionChecksOnlyItsProjectInputs(t *testing.T) {
+	repo := storyboardTaskTestRepo(t)
+	if err := repo.db.Create(&model.ProjectUnit{ID: "foreign", ProjectID: "another", Kind: model.ProjectUnitKindEpisode}).Error; err != nil {
+		t.Fatal(err)
+	}
+	task := model.Task{UserID: "user", ProjectID: "canvas", Type: "canvas_text", Status: model.TaskStatusQueued}
+	for _, tc := range []struct{ name, metadata string }{
+		{"extract", `"source":"short-drama-assets-extract","chapterId":"missing"`},
+		{"extract-queue", `"source":"short-drama-assets-extract","chapterId":"episode","dramaAssets":{"unitId":"episode","chain":{"queue":["missing"]}}`},
+		{"director-queue", `"source":"short-drama-chapter-storyboard","chapterId":"episode","dramaPipeline":{"queue":["missing"]}`},
+		{"setup", `"source":"short-drama-director-setup","dramaSetup":{"basis":["episode","missing"]}`},
+		{"adapt", `"source":"short-drama-script-adapt","dramaAdapt":{"sourceUnitIds":["episode"],"replaceUnitIds":["missing"]}`},
+		{"palette", `"source":"short-drama-scene-palette","dramaScenePalette":{"episodes":[{"unitId":"foreign"}]}`},
+		{"unit-only", `"unitId":"foreign"`},
+		{"workflow-step", `"workflowStepId":"deleted-step"`},
+	} {
+		task.ID = tc.name
+		task.InputJSON = `{"metadata":{"domainProjectId":"project",` + tc.metadata + `}}`
+		if err := repo.CreateTaskWithActiveLimit(&task, 10); !errors.Is(err, ErrStoryboardTaskUnitGone) {
+			t.Errorf("%s queued with a missing or foreign episode: %v", tc.name, err)
+		}
+	}
+	for _, tc := range []struct{ name, input string }{
+		{"remaining", `{"metadata":{"domainProjectId":"project","source":"short-drama-assets-extract","chapterId":"episode","dramaAssets":{"unitId":"episode","chain":{"queue":["episode"]}}}}`},
+		{"project-style", `{"metadata":{"domainProjectId":"project","source":"short-drama-style-lock","dramaStyleLock":{"text":"deleted episode"}}}`},
+		{"linked-step", `{"workflowStepId":"surviving-step","domainProjectId":"project"}`},
+		{"evaluation", `{"metadata":{"source":"drama-step-eval","dramaAdapt":{"sourceUnitIds":["fixture-only"]}}}`},
+		{"independent-drama", `{"metadata":{"domainProjectId":"project","source":"drama_production","shotId":"independent-shot"}}`},
+	} {
+		task.ID, task.InputJSON = tc.name, tc.input
+		if err := repo.CreateTaskWithActiveLimit(&task, 10); err != nil {
+			t.Errorf("%s should remain usable: %v", tc.name, err)
+		}
+	}
+	var count int64
+	if err := repo.db.Model(&model.Task{}).Count(&count).Error; err != nil || count != 5 {
+		t.Fatalf("unexpected persisted tasks: %d, %v", count, err)
+	}
+}
+
+func TestUnitTaskAdmissionResolvesControllerOnlyChildren(t *testing.T) {
+	repo := storyboardTaskTestRepo(t)
+	expires := time.Now().Add(time.Hour)
+	saveParent := func(id, owner, project, unit, kind string) {
+		t.Helper()
+		parent := model.Task{
+			ID: id, UserID: owner, ProjectID: project, Type: kind, Status: model.TaskStatusRunning, LeaseOwner: "worker", LeaseExpiresAt: &expires,
+			InputJSON: `{"unitId":"` + unit + `","steps":[]}`,
+		}
+		if err := repo.db.Create(&parent).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	saveParent("stale", "user", "project", "deleted", model.TaskTypeProjectVideoChain)
+	saveParent("current", "user", "project", "episode", model.TaskTypeProjectVideoChain)
+	saveParent("foreign-user", "other", "project", "episode", model.TaskTypeProjectVideoChain)
+	saveParent("foreign-project", "user", "elsewhere", "episode", model.TaskTypeProjectVideoChain)
+	saveParent("wrong-type", "user", "project", "episode", "canvas_text")
+	for _, tc := range []struct {
+		parent string
+		want   error
+	}{
+		{"stale", ErrStoryboardTaskUnitGone}, {"current", nil}, {"foreign-user", gorm.ErrRecordNotFound},
+		{"foreign-project", gorm.ErrRecordNotFound}, {"wrong-type", gorm.ErrRecordNotFound},
+	} {
+		child := model.Task{
+			ID: "child-" + tc.parent, UserID: "user", ProjectID: "project", Type: "canvas_video", Status: model.TaskStatusQueued,
+			ParentControllerID: tc.parent, ParentControllerLease: "worker", InputJSON: `{"_projectVideoChain":{"controllerId":"` + tc.parent + `"}}`,
+		}
+		if err := repo.CreateTaskWithActiveLimit(&child, 10); !errors.Is(err, tc.want) {
+			t.Errorf("child of %s: got %v, want %v", tc.parent, err, tc.want)
+		}
+	}
+	sourceOnly := model.Task{
+		ID: "source-only", UserID: "user", ProjectID: "project", Type: "canvas_video", Status: model.TaskStatusQueued,
+		ParentControllerID: "stale", ParentControllerLease: "worker", InputJSON: `{"_projectVideoChain":{"controllerId":"stale","sourceShotId":"neighbor"}}`,
+	}
+	if err := repo.CreateTaskWithActiveLimit(&sourceOnly, 10); !errors.Is(err, ErrStoryboardTaskUnitGone) {
+		t.Fatalf("surviving source shot from a different episode hid a deleted target: %v", err)
+	}
+	var children int64
+	if err := repo.db.Model(&model.Task{}).Where("type = ?", "canvas_video").Count(&children).Error; err != nil || children != 1 {
+		t.Fatalf("unexpected children: %d, %v", children, err)
+	}
+	original := model.Task{ID: "original", UserID: "user", ProjectID: "project", Type: "canvas_video", Status: model.TaskStatusFailed,
+		InputJSON: `{"_projectVideoChain":{"controllerId":"stale"}}`}
+	if err := repo.db.Create(&original).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimFailedTaskProviderRecovery(original.ID, original.UserID, "manual-recovery:fixture", time.Minute); err != nil {
+		t.Fatalf("original upstream status query was blocked: %v", err)
 	}
 }

@@ -49,7 +49,7 @@ func TestOntologyRemovalRechecksArtifactsInsideTransaction(t *testing.T) {
 	}
 
 	// 没确认过整集替换：带视频的段拦下，没产物的段也一起回滚。
-	if err := svc.deleteDirectorRemovedShots(project.ID, unit.ID, removed, false, nil); !required(err) {
+	if err := svc.deleteDirectorRemovedShots(project.UserID, project.ID, unit.ID, removed, false, nil); !required(err) {
 		t.Fatalf("unconfirmed artifacts must block: %v", err)
 	}
 	if !exists("shot-plain") || !exists("shot-video") {
@@ -57,14 +57,14 @@ func TestOntologyRemovalRechecksArtifactsInsideTransaction(t *testing.T) {
 	}
 	// 确认时只有 1 个视频，之后又多了 1 个：仍然拦下。
 	addVideo(2)
-	if err := svc.deleteDirectorRemovedShots(project.ID, unit.ID, removed, true, map[string]int{"shot-video": 1}); !required(err) {
+	if err := svc.deleteDirectorRemovedShots(project.UserID, project.ID, unit.ID, removed, true, map[string]int{"shot-video": 1}); !required(err) {
 		t.Fatalf("artifacts added after confirmation must block: %v", err)
 	}
 	if !exists("shot-plain") || !exists("shot-video") {
 		t.Fatal("a blocked removal must roll back every deletion")
 	}
 	// 确认数与现在一致：两段都删。
-	if err := svc.deleteDirectorRemovedShots(project.ID, unit.ID, removed, true, map[string]int{"shot-video": 2}); err != nil {
+	if err := svc.deleteDirectorRemovedShots(project.UserID, project.ID, unit.ID, removed, true, map[string]int{"shot-video": 2}); err != nil {
 		t.Fatal(err)
 	}
 	if exists("shot-plain") || exists("shot-video") {

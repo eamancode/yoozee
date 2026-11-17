@@ -56,6 +56,7 @@ const (
 	ReasonPackageEvalNotPassed ErrorReason = "package_eval_not_passed"
 	// ReasonDramaEpisodesReplace 是剧本优化会替换已有剧集（或改写有镜头表的剧集），请求没带 replace=true；details.episodes 列出影响面。
 	ReasonDramaEpisodesReplace    ErrorReason = "drama_episodes_replace_required"
+	ReasonEpisodeActiveTasks      ErrorReason = "episode_active_tasks"
 	ReasonEpisodeDesignRequired   ErrorReason = "episode_design_required"
 	ReasonDirectorBibleRequired   ErrorReason = "director_bible_required"
 	ReasonDirectorSetupNotReady   ErrorReason = "director_setup_not_ready"

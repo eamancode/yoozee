@@ -9,6 +9,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { createEpisodeProject } from "./drama-flow-episode-project";
+import { createDramaJourneyProject } from "./drama-flow-journey-project";
 import type { DramaModelCatalog } from "@/services/api/drama";
 import type { DramaCompileResult, DramaProgress } from "@/services/api/project-drama";
 import type { ProjectUnitWorkspace } from "@/services/api/projects";
@@ -192,7 +193,13 @@ test("单元资产绑定：固定版本、静默角色、试听、同类更换�
     const compileModels: string[] = [];
     const writes: Array<[string, unknown]> = [];
     const actor = (id: string, title: string, sample?: string) => ({
-        id, title, category: "character", primaryVersionId: id + "-current", versionCount: 2, mediaType: "image", usages: [],
+        id,
+        title,
+        category: "character",
+        primaryVersionId: id + "-current",
+        versionCount: 2,
+        mediaType: "image",
+        usages: [],
         storageKey: "resource:" + fx.FIXTURE_IMAGE_PORTRAIT,
         character: { version: 2, versionId: id + "-current", definition: {}, representations: [], voice: { profile: { sampleResourceId: sample } } },
     });
@@ -201,7 +208,13 @@ test("单元资产绑定：固定版本、静默角色、试听、同类更换�
     const library = [{ ...main, variants: [variant] }, actor("b", "顾宁", "shared"), { ...actor("p", "口琴"), category: "prop" }];
     const versionImages: Record<string, string> = { pinned: fx.FIXTURE_IMAGE_SQUARE, "b-current": fx.FIXTURE_IMAGE_PORTRAIT, "dress-current": "res-night-costume", "p-current": "res-harmonica" };
     const row = (asset: typeof main, version: string, sample?: string) => ({
-        id: "r-" + version, shotId: shot, assetVersionId: version, role: "reference", source: "segment", status: "linked", asset,
+        id: "r-" + version,
+        shotId: shot,
+        assetVersionId: version,
+        role: "reference",
+        source: "segment",
+        status: "linked",
+        asset,
         referencedVersion: { id: version, assetId: asset.id, version: 1, sampleResourceId: sample, representations: [{ id: version, resourceId: versionImages[version], role: "primary", mediaType: "image/png" }] },
     });
     const refs = [row(main, "pinned", "shared"), row(library[1], "b-current", "shared")];
@@ -223,10 +236,12 @@ test("单元资产绑定：固定版本、静默角色、试听、同类更换�
                     const speaker = refs.find((item) => item.assetVersionId === "pinned");
                     const files = refs.map((item, i) => ({ file: item.assetVersionId, tag: "@图片" + (i + 1), role: "identity" }));
                     if (speaker) files.push({ file: "shared", tag: "@音频1", role: "voice" });
-                    return ok({ compiled: {
-                        voiceBindings: speaker ? [{ versionId: "pinned", sampleResourceId: "shared", tag: "@音频1" }] : [],
-                        result: { prompt: "当前引用", files, issues: [] },
-                    } });
+                    return ok({
+                        compiled: {
+                            voiceBindings: speaker ? [{ versionId: "pinned", sampleResourceId: "shared", tag: "@音频1" }] : [],
+                            result: { prompt: "当前引用", files, issues: [] },
+                        },
+                    });
                 }
                 if (verb === "POST" && url === path) {
                     const body = input as { replaceReferenceId?: string; assetVersionId: string };
@@ -239,7 +254,10 @@ test("单元资产绑定：固定版本、静默角色、试听、同类更换�
                 }
                 if (verb === "DELETE" && url.startsWith(path + "/")) {
                     writes.push([verb, url]);
-                    refs.splice(refs.findIndex((item) => url.endsWith("/" + item.id)), 1);
+                    refs.splice(
+                        refs.findIndex((item) => url.endsWith("/" + item.id)),
+                        1,
+                    );
                     return ok({});
                 }
                 const result = handle(method, url, input);
@@ -917,30 +935,37 @@ test("项目自动切线清除旧报价，手选覆盖只在本项目生效", as
     type Quote = { model: { model: string }; requestId: string; previewHash?: string };
     const quotes: Quote[] = [];
     const submissions: Quote[] = [];
-    const page = await mount(`/drama-flow/${P}/video`, { prepare(f) {
-        for (const [key, name] of [[automatic, "Seedance 自动线路"], [manual, "Seedance 手选线路"]]) {
-            f.catalog.channels[0].models.push({ ...f.catalog.channels[0].models[0], modelKey: key, displayName: name });
-        }
-        prefs.setState({ models: { video: fx.FIXTURE_VIDEO_MODEL } });
-        useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
-        const handle = f.handle;
-        f.handle = (method, path, body) => {
-            if (path.startsWith(`/projects/${otherId}/`)) {
-                if (path.endsWith("/core")) return { status: 200, body: { code: 0, msg: "ok", data: { project: { ...other.project, id: otherId } } } };
-                return other.handle(method, path.replace(`/projects/${otherId}/`, `/projects/${P}/`), body);
+    const page = await mount(`/drama-flow/${P}/video`, {
+        prepare(f) {
+            for (const [key, name] of [
+                [automatic, "Seedance 自动线路"],
+                [manual, "Seedance 手选线路"],
+            ]) {
+                f.catalog.channels[0].models.push({ ...f.catalog.channels[0].models[0], modelKey: key, displayName: name });
             }
-            if (method.toUpperCase() === "POST") {
-                if (path === `/projects/${P}/video-chains/preview`) quotes.push(body as Quote);
-                if (path === `/projects/${P}/video-chains`) {
-                    submissions.push(body as Quote);
-                    return { status: 200, body: { code: 0, msg: "ok", data: { chain: { id: "mock-confirmed" } } } };
+            prefs.setState({ models: { video: fx.FIXTURE_VIDEO_MODEL } });
+            useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
+            const handle = f.handle;
+            f.handle = (method, path, body) => {
+                if (path.startsWith(`/projects/${otherId}/`)) {
+                    if (path.endsWith("/core")) return { status: 200, body: { code: 0, msg: "ok", data: { project: { ...other.project, id: otherId } } } };
+                    return other.handle(method, path.replace(`/projects/${otherId}/`, `/projects/${P}/`), body);
                 }
-            }
-            return handle(method, path, body);
-        };
-    } });
+                if (method.toUpperCase() === "POST") {
+                    if (path === `/projects/${P}/video-chains/preview`) quotes.push(body as Quote);
+                    if (path === `/projects/${P}/video-chains`) {
+                        submissions.push(body as Quote);
+                        return { status: 200, body: { code: 0, msg: "ok", data: { chain: { id: "mock-confirmed" } } } };
+                    }
+                }
+                return handle(method, path, body);
+            };
+        },
+    });
     const reloadRouting = async () => {
-        await act(async () => { await page.client.invalidateQueries({ queryKey: routeKey }); });
+        await act(async () => {
+            await page.client.invalidateQueries({ queryKey: routeKey });
+        });
         await flush();
     };
     try {
@@ -1001,44 +1026,70 @@ test("出片恢复：21 秒与 7 张参考，查询原请求、换模型报价�
     const chainPath = `/projects/${P}/video-chains`;
     const backup = "lec-vp-seedance-2-5-backup";
     const first = { shotId: fx.FIXTURE_SHOT_ID, title: "S01", status: "succeeded", phase: "completed", contentSeconds: 8, generationSeconds: 15, model: fx.FIXTURE_VIDEO_MODEL, referenceCount: 2, videoResourceId: "completed-video" };
-    const failed = { ...first, shotId: fx.FIXTURE_SHOT_ID_2, title: "S02", status: "failed", phase: "generating", contentSeconds: 21, generationSeconds: 30, referenceCount: 7, videoResourceId: "", taskId: "original-child", error: "HTTP 503", diagnostic: { category: "route_unavailable", submissionOutcome: "unknown", safeToResubmit: true, canQueryProvider: false, upstreamCode: "HTTP 503" } };
+    const failed = {
+        ...first,
+        shotId: fx.FIXTURE_SHOT_ID_2,
+        title: "S02",
+        status: "failed",
+        phase: "generating",
+        contentSeconds: 21,
+        generationSeconds: 30,
+        referenceCount: 7,
+        videoResourceId: "",
+        taskId: "original-child",
+        error: "HTTP 503",
+        diagnostic: { category: "route_unavailable", submissionOutcome: "unknown", safeToResubmit: true, canQueryProvider: false, upstreamCode: "HTTP 503" },
+    };
     const chain = { id: "chain-failed", scope: "scene", anchorShotId: first.shotId, projectId: P, unitId: U, status: "failed", previewHash: "old", totalMicrocredits: 0, steps: [first, failed] };
     type Quote = { shotId: string; model: { model: string; input: { config: { videoSeconds: string } } }; resumeChainId: string; requestId: string; previewHash?: string };
     const quotes: Quote[] = [];
     const confirmations: Quote[] = [];
     let lookups = 0;
     let route: { status: string; model: string; fromModel: string; revision: number } | null = null;
-    const page = await mount(`/drama-flow/${P}/video`, { prepare(f) {
-        f.state.segments[1].durationMs = 21000;
-        f.catalog.channels[0].models.push({ ...f.catalog.channels[0].models[0], modelKey: backup, displayName: "Seedance 2.5 备用" });
-        useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
-        const fallback = f.handle;
-        const ok = (data: unknown) => ({ status: 200, body: { code: 0, msg: "ok", data } });
-        f.handle = (method, path, body) => {
-            if (path === `/projects/${P}/drama/video-routing`) return ok({ route });
-            if (path === `/projects/${P}/drama/video-routing/override`) {
-                const input = body as { model: string; fromModel: string; revision: number };
-                route = { status: "manual", model: input.model, fromModel: input.fromModel, revision: input.revision + 1 };
-                return ok({ route });
-            }
-            if (method.toLowerCase() === "get" && path.split("?")[0] === chainPath) return ok({ chains: [chain] });
-            if (path === "/tasks/original-child" && method.toLowerCase() === "get") {
-                lookups++;
-                return ok({ id: "original-child", status: "failed", billing: { status: "refunded" } });
-            }
-            if (path === chainPath + "/preview") {
-                const input = body as Quote;
-                quotes.push(input);
-                return ok({ chain: { ...chain, id: "", status: "preview", previewHash: `quote-${quotes.length}`, totalMicrocredits: 2000000, steps: [first, { ...failed, model: input.model.model, status: "waiting", taskId: "", error: "", quote: { billingMode: "fixed_request", amountMicrocredits: 2000000 } }] } });
-            }
-            if (path === chainPath + "/chain-failed/retry") {
-                confirmations.push(body as Quote);
-                chain.status = "running";
-                return ok({ chain });
-            }
-            return fallback(method, path, body);
-        };
-    } });
+    const page = await mount(`/drama-flow/${P}/video`, {
+        prepare(f) {
+            f.state.segments[1].durationMs = 21000;
+            f.catalog.channels[0].models.push({ ...f.catalog.channels[0].models[0], modelKey: backup, displayName: "Seedance 2.5 备用" });
+            useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
+            const fallback = f.handle;
+            const ok = (data: unknown) => ({ status: 200, body: { code: 0, msg: "ok", data } });
+            f.handle = (method, path, body) => {
+                if (path === `/projects/${P}/drama/video-routing`) return ok({ route });
+                if (path === `/projects/${P}/drama/video-routing/override`) {
+                    const input = body as { model: string; fromModel: string; revision: number };
+                    route = { status: "manual", model: input.model, fromModel: input.fromModel, revision: input.revision + 1 };
+                    return ok({ route });
+                }
+                if (method.toLowerCase() === "get" && path.split("?")[0] === chainPath) return ok({ chains: [chain] });
+                if (path === "/tasks/original-child" && method.toLowerCase() === "get") {
+                    lookups++;
+                    // A later reconciliation records a protocol rejection for this attempt.
+                    if (lookups === 2) failed.diagnostic.submissionOutcome = "not_submitted";
+                    return ok({ id: "original-child", status: "failed", billing: { status: "refunded" } });
+                }
+                if (path === chainPath + "/preview") {
+                    const input = body as Quote;
+                    quotes.push(input);
+                    return ok({
+                        chain: {
+                            ...chain,
+                            id: "",
+                            status: "preview",
+                            previewHash: `quote-${quotes.length}`,
+                            totalMicrocredits: 2000000,
+                            steps: [first, { ...failed, model: input.model.model, status: "waiting", taskId: "", error: "", quote: { billingMode: "fixed_request", amountMicrocredits: 2000000 } }],
+                        },
+                    });
+                }
+                if (path === chainPath + "/chain-failed/retry") {
+                    confirmations.push(body as Quote);
+                    chain.status = "running";
+                    return ok({ chain });
+                }
+                return fallback(method, path, body);
+            };
+        },
+    });
     try {
         await page.click(buttonByText(cardOf("S01")!, "出这一段"));
         expect(buttonByText(modal()!, "预览当前场景与费用")).toBeUndefined();
@@ -1049,6 +1100,11 @@ test("出片恢复：21 秒与 7 张参考，查询原请求、换模型报价�
         await page.click(buttonByText(modal()!, "查询原请求与结算"));
         expect(lookups).toBe(1);
         expect(modal()?.textContent).toContain("已退款");
+        expect((buttonByText(modal()!, "从失败步骤重新报价") as HTMLButtonElement).disabled).toBe(true);
+        expect(quotes).toHaveLength(0);
+        expect(confirmations).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "查询原请求与结算"));
+        expect(lookups).toBe(2);
         await page.click(buttonByText(modal()!, "从失败步骤重新报价"));
         expect(modal()?.textContent).toContain("复用已完成视频");
         expect(modal()?.textContent).toContain("内容 21 秒 → 生成 30 秒");
@@ -1068,7 +1124,10 @@ test("出片恢复：21 秒与 7 张参考，查询原请求、换模型报价�
         expect(quotes[1]).toMatchObject({ resumeChainId: chain.id, shotId: first.shotId, model: { model: `CHANNEL_000001::${backup}`, input: { config: { videoSeconds: "30" } } } });
         expect(quotes[1].requestId).not.toBe(quotes[0].requestId);
         const confirm = buttonByText(modal()!, "确认报价并从失败段继续") as HTMLButtonElement;
-        await act(async () => { confirm.click(); confirm.click(); });
+        await act(async () => {
+            confirm.click();
+            confirm.click();
+        });
         await flush();
         expect(confirmations).toEqual([{ ...quotes[1], previewHash: "quote-2" }]);
         expect(prefs.getState().models.video).toBe(oldPreferences.video);
@@ -1087,28 +1146,56 @@ test("出片恢复：已受理的超时先查原上游任务，取回视频后�
     let closed = false;
     const requests: string[] = [];
     const original = { id: "accepted-child", status: "failed", providerRequestId: "accepted-job", billing: { status: "uncertain" } };
-    const page = await mount(`/drama-flow/${P}/video`, { prepare(f) {
-        const fallback = f.handle;
-        const ok = (data: unknown) => ({ status: 200, body: { code: 0, msg: "ok", data } });
-        f.handle = (method, path, body) => {
-            const step = { shotId: fx.FIXTURE_SHOT_ID, title: "S01", model: fx.FIXTURE_VIDEO_MODEL, contentSeconds: 21, generationSeconds: 30, referenceCount: 7, taskId: original.id, phase: "generating", status: "failed", diagnostic: { category: "timeout", quoteId: "initial-quote", submissionOutcome: "accepted", terminalStatus: recovered ? "succeeded" : "failed", safeToResubmit: false, canQueryProvider: !recovered, billingStatus: recovered ? "settled" : "uncertain" } };
-            const chain = { id: "timed-out", projectId: P, unitId: U, anchorShotId: step.shotId, status: closed ? "succeeded" : "failed", steps: [step], previewHash: "initial-quote", totalMicrocredits: 0 };
-            if (method.toLowerCase() === "get" && path.split("?")[0] === chainPath) return ok({ chains: [chain] });
-            if (path === `/tasks/${original.id}`) { requests.push(path); return ok(original); }
-            if (path === `/tasks/${original.id}/query-provider`) { requests.push(path); recovered = true; return ok({ task: { ...original, status: "succeeded" }, providerStatus: "completed", recovered, billingSettled: true }); }
-            if (path === chainPath + "/preview") {
-                requests.push(path);
-                return ok({ chain: { ...chain, id: "", status: "preview", previewHash: "reuse-result", steps: [{ ...step, status: "succeeded", videoResourceId: "original-output" }] } });
-            }
-            if (path === chainPath + "/timed-out/retry") {
-                requests.push(path);
-                expect(body).toMatchObject({ previewHash: "reuse-result", resumeChainId: chain.id });
-                closed = true;
-                return ok({ chain: { ...chain, status: "succeeded" } });
-            }
-            return fallback(method, path, body);
-        };
-    } });
+    const page = await mount(`/drama-flow/${P}/video`, {
+        prepare(f) {
+            const fallback = f.handle;
+            const ok = (data: unknown) => ({ status: 200, body: { code: 0, msg: "ok", data } });
+            f.handle = (method, path, body) => {
+                const step = {
+                    shotId: fx.FIXTURE_SHOT_ID,
+                    title: "S01",
+                    model: fx.FIXTURE_VIDEO_MODEL,
+                    contentSeconds: 21,
+                    generationSeconds: 30,
+                    referenceCount: 7,
+                    taskId: original.id,
+                    phase: "generating",
+                    status: "failed",
+                    diagnostic: {
+                        category: "timeout",
+                        quoteId: "initial-quote",
+                        submissionOutcome: "accepted",
+                        terminalStatus: recovered ? "succeeded" : "failed",
+                        safeToResubmit: false,
+                        canQueryProvider: !recovered,
+                        billingStatus: recovered ? "settled" : "uncertain",
+                    },
+                };
+                const chain = { id: "timed-out", projectId: P, unitId: U, anchorShotId: step.shotId, status: closed ? "succeeded" : "failed", steps: [step], previewHash: "initial-quote", totalMicrocredits: 0 };
+                if (method.toLowerCase() === "get" && path.split("?")[0] === chainPath) return ok({ chains: [chain] });
+                if (path === `/tasks/${original.id}`) {
+                    requests.push(path);
+                    return ok(original);
+                }
+                if (path === `/tasks/${original.id}/query-provider`) {
+                    requests.push(path);
+                    recovered = true;
+                    return ok({ task: { ...original, status: "succeeded" }, providerStatus: "completed", recovered, billingSettled: true });
+                }
+                if (path === chainPath + "/preview") {
+                    requests.push(path);
+                    return ok({ chain: { ...chain, id: "", status: "preview", previewHash: "reuse-result", steps: [{ ...step, status: "succeeded", videoResourceId: "original-output" }] } });
+                }
+                if (path === chainPath + "/timed-out/retry") {
+                    requests.push(path);
+                    expect(body).toMatchObject({ previewHash: "reuse-result", resumeChainId: chain.id });
+                    closed = true;
+                    return ok({ chain: { ...chain, status: "succeeded" } });
+                }
+                return fallback(method, path, body);
+            };
+        },
+    });
     try {
         await page.click(buttonByText(cardOf("S01")!, "重新出"));
         expect(modal()?.textContent).toContain("原报价 initial-quote");
@@ -1125,26 +1212,39 @@ test("出片恢复：已受理的超时先查原上游任务，取回视频后�
         expect(requests).toEqual(["/tasks/accepted-child", "/tasks/accepted-child/query-provider", chainPath + "/preview", chainPath + "/timed-out/retry"]);
         expect(fixture.forbidden).toEqual([]);
         expect(page.errors).toEqual([]);
-    } finally { await page.dispose(); }
+    } finally {
+        await page.dispose();
+    }
 });
 
 test("出片预览：26 秒正文的预检错误独立显示，历史视频仍可查看，旧报价不能确认", async () => {
     const chainPath = `/projects/${P}/video-chains`;
-    const page = await mount(`/drama-flow/${P}/video`, { chains: "history", prepare(f) {
-        f.state.segments[0].durationMs = 26000;
-        const handle = f.handle;
-        f.handle = (method, path, body) => {
-            const reply = handle(method, path, body);
-            if (method.toLowerCase() === "get" && path.split("?")[0] === chainPath) {
-                const list = reply?.body?.data as { chains: { steps: Record<string, unknown>[] }[] };
-                Object.assign(list.chains[0].steps[0], { contentSeconds: 8, generationSeconds: 15, videoResourceId: "old-take" });
-            }
-            if (path === chainPath + "/preview" && f.state.previews === 2) {
-                return { status: 400, body: { code: 400, msg: "参考数量超限", reason: "model_capability_not_supported", details: { shotId: fx.FIXTURE_SHOT_ID, model: fx.FIXTURE_VIDEO_MODEL, contentSeconds: 26, generationSeconds: 30, allowedSeconds: [15, 30], referenceCount: 7, message: "最多支持 5 张参考图" } } };
-            }
-            return reply;
-        };
-    } });
+    const page = await mount(`/drama-flow/${P}/video`, {
+        chains: "history",
+        prepare(f) {
+            f.state.segments[0].durationMs = 26000;
+            const handle = f.handle;
+            f.handle = (method, path, body) => {
+                const reply = handle(method, path, body);
+                if (method.toLowerCase() === "get" && path.split("?")[0] === chainPath) {
+                    const list = reply?.body?.data as { chains: { steps: Record<string, unknown>[] }[] };
+                    Object.assign(list.chains[0].steps[0], { contentSeconds: 8, generationSeconds: 15, videoResourceId: "old-take" });
+                }
+                if (path === chainPath + "/preview" && f.state.previews === 2) {
+                    return {
+                        status: 400,
+                        body: {
+                            code: 400,
+                            msg: "参考数量超限",
+                            reason: "model_capability_not_supported",
+                            details: { shotId: fx.FIXTURE_SHOT_ID, model: fx.FIXTURE_VIDEO_MODEL, contentSeconds: 26, generationSeconds: 30, allowedSeconds: [15, 30], referenceCount: 7, message: "最多支持 5 张参考图" },
+                        },
+                    };
+                }
+                return reply;
+            };
+        },
+    });
     try {
         await page.click(buttonByText(cardOf("S01")!, "出这一段"));
         await page.click(buttonByText(modal()!, "预览当前场景与费用"));
@@ -1160,7 +1260,9 @@ test("出片预览：26 秒正文的预检错误独立显示，历史视频仍�
         expect(currentPath).toContain("/shots?");
         expect(currentPath).toContain(fx.FIXTURE_SHOT_ID);
         expect(submitted()).toEqual([]);
-    } finally { await page.dispose(); }
+    } finally {
+        await page.dispose();
+    }
 });
 
 for (const chains of ["none", "history", "failed", "running"] as const) {
@@ -1663,6 +1765,128 @@ async function deleteEpisode(page: EpisodePage, title: string) {
     for (const impact of ["正文", "镜头表", "段", "画布"]) expect(dialog.textContent).toContain(impact);
     await page.click(buttonByText(dialog, "删除剧集"));
 }
+
+test("FLOW-01 同一三集项目增减剧集、删除单元、更换演员并按新线路完成失败段", async () => {
+    const server = createDramaJourneyProject();
+    const writes: Array<{ method: string; path: string; body: unknown }> = [];
+    const { useDramaModelPreferencesStore: prefs } = await import("@/stores/use-drama-model-preferences-store");
+    const previous = prefs.getState().models;
+    const config = useConfigStore.getState().config;
+    const page = await mount(`/drama-flow/${P}/script?ep=ep-a`, {
+        prepare(f) {
+            server.attach(f);
+            const handle = f.handle;
+            f.handle = (method, path, body) => {
+                if (method.toUpperCase() !== "GET" && path.startsWith("/projects/")) writes.push({ method: method.toUpperCase(), path, body });
+                return handle(method, path, body);
+            };
+            prefs.setState({ models: { video: fx.FIXTURE_VIDEO_MODEL } });
+            useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(f.catalog.channels as never));
+        },
+    });
+    const shot = "shot-ep-a";
+    const identity = { projectId: P, unitId: "ep-a", shotId: shot };
+    const media = { imageIds: ["image-new"], audioIds: ["voice-new"] };
+    const stage = (label: string) => page.click(byText("nav.drama-flow-strip button", label));
+    const editor = () => page.click(document.querySelector('[aria-label="编辑绑定 S01"]'));
+    const checkCompiledMedia = () => {
+        const rows = [...document.querySelectorAll("aside.drama-flow-pane .drama-flow-seg-assets > span")];
+        expect(
+            rows.map((row) => ({
+                tag: row.textContent?.split(" · ")[0],
+                resource: row
+                    .querySelector("img,audio")
+                    ?.getAttribute("src")
+                    ?.match(/\/resources\/([^/]+)\/file$/)?.[1],
+            })),
+        ).toEqual([
+            { tag: "@图片1", resource: "image-new" },
+            { tag: "@音频1", resource: "voice-new" },
+        ]);
+    };
+    try {
+        checkEpisodeSelection("雨棚", "ep-a");
+        expect(episodeRail().querySelector(".drama-flow-rail-head > span")?.textContent).toBe("剧集 · 3");
+        await page.click(episodeButton("添加剧集"));
+        await fillEpisodeField(episodeDialog().querySelector("input")!, "清晨");
+        await page.click(buttonByText(episodeDialog(), "创建剧集"));
+        checkEpisodeSelection("清晨", "new-ep-4");
+        await page.click(selectEpisode("渡口"));
+        await deleteEpisode(page, "渡口");
+        checkEpisodeSelection("归家", "ep-c");
+        await page.click(selectEpisode("雨棚"));
+        await stage("分镜");
+        checkEpisodeSelection("雨棚", "ep-a");
+        expect(episodeRail().querySelector(".drama-flow-rail-head > span")?.textContent).toBe("剧集 · 3");
+        expect(selectEpisode("清晨")).toBeDefined();
+        expect(selectEpisode("渡口")).toBeUndefined();
+        await page.click(document.querySelector('[aria-label="删除分镜单元 S02"]'));
+        await page.click(byText('[role="dialog"] button', "确认删除"));
+        expect(document.querySelector('[aria-label="删除分镜单元 S02"]')).toBeNull();
+        await editor();
+        expect(document.querySelector(`audio[aria-label="试听${server.oldActor}的声音样本"]`)?.getAttribute("src")).toContain("/voice-old/file");
+        await page.click(document.querySelector(`[aria-label="更换${server.oldActor}"]`));
+        const options = document.querySelector<HTMLInputElement>("#flow-unit-binding-choice")!;
+        await act(async () => options.dispatchEvent(new dom.KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown", keyCode: 40 })));
+        await flush();
+        await page.click(byText(".ant-select-item-option", server.newActor));
+        await page.click(buttonByText(episodeDialog(), "保存绑定"));
+        expect(document.querySelector('article.drama-flow-seg [aria-label="绑定的资产"]')?.textContent).toContain(server.newActor);
+        expect(document.querySelector('article.drama-flow-seg [aria-label="绑定的资产"]')?.textContent).not.toContain(server.oldActor);
+        await stage("出片");
+        checkEpisodeSelection("雨棚", "ep-a");
+        expect(cardOf("S02")).toBeUndefined();
+        await page.click(buttonByText(cardOf("S01")!, "详情"));
+        checkCompiledMedia();
+        expect(server.compiles.at(-1)).toMatchObject({ ...identity, ...media, model: fx.FIXTURE_VIDEO_MODEL });
+
+        for (let index = 0; index < 4; index++) {
+            const model = index === 3 ? server.automaticModel : fx.FIXTURE_VIDEO_MODEL;
+            const expected = { ...identity, ...media, model };
+            await page.click(buttonByText(cardOf("S01")!, index === 0 ? "出这一段" : "重新出"));
+            if (index === 3) {
+                expect(summaryValue("视频模型")).toBe(server.automaticName);
+                expect(modal()?.textContent).toContain("已自动切换项目视频线路");
+                expect(buttonByText(modal()!, "确认报价并从失败段继续")).toBeUndefined();
+            } else {
+                expect(summaryValue("视频模型")).toBe(fx.FIXTURE_VIDEO_MODEL_NAME);
+            }
+            await page.click(buttonByText(modal()!, index === 0 ? "预览当前场景与费用" : "从失败步骤重新报价"));
+            expect(server.attempts).toHaveLength(index);
+            expect(server.quotes).toHaveLength(index + 1);
+            const quote = server.quotes[index];
+            expect(quote).toMatchObject(expected);
+            if (index > 0) expect(quote.resumeChainId).toBe("journey-chain");
+            expect(modal()?.textContent).toContain(quote.previewHash);
+            await page.click(buttonByText(modal()!, index === 0 ? "开始连续生成" : "确认报价并从失败段继续"));
+            expect(server.attempts).toHaveLength(index + 1);
+            expect(server.attempts[index]).toMatchObject({ ...expected, previewHash: quote.previewHash, requestId: quote.requestId, status: index === 3 ? "succeeded" : "failed" });
+            await page.click(buttonByText(modal()!, "关闭"));
+        }
+        expect(new Set(server.quotes.map((quote) => quote.previewHash)).size).toBe(4);
+        expect(new Set(server.attempts.map((attempt) => attempt.taskId)).size).toBe(4);
+        expect(server.compiles.at(-1)).toMatchObject({ ...identity, ...media, model: server.automaticModel });
+        checkCompiledMedia();
+        expect(cardOf("S01")?.textContent).toContain("已出片");
+        expect(cardOf("S02")).toBeUndefined();
+        await stage("分镜");
+        expect(selectEpisode("渡口")).toBeUndefined();
+        expect(document.querySelector('[aria-label="删除分镜单元 S02"]')).toBeNull();
+        await editor();
+        expect(document.querySelector(`audio[aria-label="试听${server.newActor}的声音样本"]`)?.getAttribute("src")).toContain("/voice-new/file");
+        expect(server.episodes.units.filter((unit) => unit.kind === "episode").map((unit) => unit.id)).toEqual(["ep-a", "ep-c", "new-ep-4"]);
+        expect(writes.every(({ path }) => path.startsWith(`/projects/${P}/`))).toBe(true);
+        expect(writes.filter(({ method }) => method === "DELETE").map(({ path }) => path)).toEqual([`/projects/${P}/units/ep-b`, `/projects/${P}/shots/discard-unit`]);
+        expect(writes.filter(({ path }) => path === `/projects/${P}/shots/${shot}/assets`).map(({ body }) => body)).toEqual([expect.objectContaining({ assetVersionId: "actor-new-v1", replaceReferenceId: expect.any(String) })]);
+        expect(fixture.forbidden).toEqual([]);
+        expect(page.errors).toEqual([]);
+    } finally {
+        await page.dispose();
+        useConfigStore.setState({ config });
+        prefs.setState({ models: previous });
+        localStorage.removeItem("drama-flow:rail-view");
+    }
+}, 30000);
 
 test("EP-01 三集项目经真实导航增集、编辑正文、删中间集和末集，再从缓存为空的旧链接打开", async () => {
     const server = createEpisodeProject();

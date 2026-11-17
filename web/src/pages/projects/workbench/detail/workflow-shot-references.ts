@@ -315,7 +315,7 @@ export function referenceMediaForCompiledFiles(detail: Pick<ProjectDetail, "asse
     const unsupported: string[] = [];
     const boundSamples = new Set<string>();
     for (const reference of references) {
-        if (reference.role !== "reference") continue;
+        if (reference.role === "style" || reference.role === "continuity") continue;
         const asset = reference.asset || detail.assets.find((item) => item.primaryVersionId === reference.assetVersionId);
         if (!asset) continue;
         const sample = projectAssetVoiceSampleResourceId(asset, reference);

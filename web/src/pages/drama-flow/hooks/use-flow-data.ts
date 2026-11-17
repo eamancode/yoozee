@@ -219,7 +219,7 @@ export function useFlowData(projectId: string, requestedUnitId: string, watchVid
             ...videoStep,
             select: (model: string) => videoRouting.select(model, route?.model || videoStep.effective),
             disabledReason: (model: string) => videoRouting.issue || videoStep.disabledReason(model),
-            status: (unset: string) => videoRouting.issue ? { text: videoRouting.issue, tone: "warn" as const } : videoStep.status(unset),
+            status: (unset: string) => (videoRouting.issue ? { text: videoRouting.issue, tone: "warn" as const } : videoStep.status(unset)),
             retryCatalog: videoRouting.retry || videoStep.retryCatalog,
         },
     };

@@ -785,7 +785,7 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		return DramaStepTaskOutcome{}, err
 	}
 	// 先删不再需要的旧段（事务内逐段复核产物后立即删除），再写段、按新顺序排；删除被拦下时什么都不写。
-	if err := s.deleteDirectorRemovedShots(target.ProjectID, target.UnitID, removed, meta.Discard, meta.Confirmed); err != nil {
+	if err := s.deleteDirectorRemovedShots(task.UserID, target.ProjectID, target.UnitID, removed, meta.Discard, meta.Confirmed); err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
 	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: segments}); err != nil {
@@ -809,9 +809,13 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 // 生产只跑一个 backend 进程；多进程部署时这里不跨进程。
 var ontologyEpisodeLocks sync.Map
 
-func lockOntologyEpisode(unitID string) func() {
+func ontologyEpisodeMutex(unitID string) *sync.Mutex {
 	mu, _ := ontologyEpisodeLocks.LoadOrStore(unitID, &sync.Mutex{})
-	m := mu.(*sync.Mutex)
+	return mu.(*sync.Mutex)
+}
+
+func lockOntologyEpisode(unitID string) func() {
+	m := ontologyEpisodeMutex(unitID)
 	m.Lock()
 	return m.Unlock
 }
@@ -866,14 +870,17 @@ var errOntologyRemovalBlocked = errors.New("ontology removal blocked")
 
 // deleteDirectorRemovedShots 在一个事务里逐段复核产物并立即删除（本体论、SSS 导演分镜共用）：没有产物的段直接删；有产物的段必须是建任务时确认过（discard）
 // 且产物没有增加。任一段不满足就整体回滚、一段都不删，返回需要确认的段。SQLite 写事务独占，计数与删除之间没有窗口；
-// PostgreSQL 先锁镜头行，计数与删除是同一事务里紧挨着的两条语句。
-func (s *Service) deleteDirectorRemovedShots(projectID string, unitID string, removed []string, discard bool, confirmedShots map[string]int) error {
+// 项目、镜头按与删集相同的顺序加锁，计数与删除在同一事务。
+func (s *Service) deleteDirectorRemovedShots(userID, projectID, unitID string, removed []string, discard bool, confirmedShots map[string]int) error {
 	if len(removed) == 0 {
 		return nil
 	}
 	var blocked []string
 	now := time.Now()
 	err := s.repo.Transaction(func(r *repository.Repository) error {
+		if _, err := r.LockActiveStoryboardProject(userID, projectID); err != nil {
+			return err
+		}
 		for _, shotID := range removed {
 			n, err := r.CountActiveShotArtifacts(projectID, shotID)
 			if err != nil {
@@ -925,6 +932,9 @@ func (s *Service) reorderOntologySegments(userID string, projectID string, unitI
 // writeOntologyDocs 在一个事务里写收尾的全部文档；同一任务已写过的（同单元、同种类）跳过，重新收尾不重复加版本。
 func (s *Service) writeOntologyDocs(task model.Task, projectID string, docs []ontologyDocWrite) error {
 	return s.repo.Transaction(func(r *repository.Repository) error {
+		if _, err := r.LockActiveStoryboardProject(task.UserID, projectID); err != nil {
+			return err
+		}
 		for _, d := range docs {
 			written, err := r.OntologyDocumentWrittenByTask(projectID, d.unitID, d.kind, task.ID)
 			if err != nil {

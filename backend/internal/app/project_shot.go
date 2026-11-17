@@ -91,6 +91,9 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 	unitID := strings.TrimSpace(req.UnitID)
 	if unitID != "" {
 		if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
+			if IsProjectNotFound(err) {
+				return model.Shot{}, NotFound("所属单元已不存在，请刷新剧集列表后重试")
+			}
 			return model.Shot{}, err
 		}
 	}
@@ -143,6 +146,9 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 		return model.Shot{}, err
 	}
 	if err := s.repo.SaveShotWithRevisionSelective(&shot, &revision, create, staleDeciderFor(&revision), plans...); err != nil {
+		if IsProjectNotFound(err) {
+			return model.Shot{}, NotFound("镜头或所属单元已不存在，请刷新后重试")
+		}
 		return model.Shot{}, segmentReferenceWriteError(err)
 	}
 	return shot, nil
@@ -330,7 +336,7 @@ func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, 
 }
 
 func (s *Service) linkShotAsset(userID string, projectID string, shotID string, req LinkShotAssetRequest) (model.ShotAssetReference, error) {
-	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+	if _, err := requireActiveProject(s.repo.LockActiveStoryboardProject(userID, projectID)); err != nil {
 		return model.ShotAssetReference{}, err
 	}
 	if _, err := s.repo.ShotForProject(projectID, shotID); err != nil {
@@ -417,7 +423,7 @@ func (s *Service) UnlinkShotAsset(userID string, projectID string, shotID string
 }
 
 func (s *Service) unlinkShotAsset(userID string, projectID string, shotID string, referenceID string) error {
-	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+	if _, err := requireActiveProject(s.repo.LockActiveStoryboardProject(userID, projectID)); err != nil {
 		return err
 	}
 	if _, err := s.repo.ShotForProject(projectID, shotID); err != nil {

@@ -929,7 +929,7 @@ func (s *Service) applySSSShotsTask(task model.Task, meta *dramaSSSMeta, result 
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
-	if err := s.deleteDirectorRemovedShots(target.ProjectID, target.UnitID, removed, meta.Discard, meta.Confirmed); err != nil {
+	if err := s.deleteDirectorRemovedShots(task.UserID, target.ProjectID, target.UnitID, removed, meta.Discard, meta.Confirmed); err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
 	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: segments}); err != nil {

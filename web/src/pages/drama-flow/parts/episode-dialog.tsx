@@ -10,12 +10,7 @@ import { createProjectUnit, deleteProjectUnit } from "@/services/api/projects";
 type EpisodeFields = { title: string; sourceText?: string };
 export type EpisodeDialogTarget = { kind: "create" } | { kind: "delete"; id: string; title: string };
 
-export function EpisodeDialog({ projectId, target, onClose, onSaved }: {
-    projectId: string;
-    target: EpisodeDialogTarget;
-    onClose: () => void;
-    onSaved: (createdId?: string) => void;
-}) {
+export function EpisodeDialog({ projectId, target, onClose, onSaved }: { projectId: string; target: EpisodeDialogTarget; onClose: () => void; onSaved: (createdId?: string) => void }) {
     const client = useQueryClient();
     const { message } = App.useApp();
     const submitting = useRef(false);
@@ -46,19 +41,29 @@ export function EpisodeDialog({ projectId, target, onClose, onSaved }: {
             void client.invalidateQueries({ queryKey: ["drama-flow", "summary", projectId] });
             void client.invalidateQueries({ queryKey: ["projects"] });
         },
-        onSettled: () => { submitting.current = false; },
+        onSettled: () => {
+            submitting.current = false;
+        },
     });
     const submit = (fields?: EpisodeFields) => {
         if (submitting.current) return;
         submitting.current = true;
-        change.mutate(fields, { onSuccess: (created) => {
-            onSaved(created?.id);
-            message.success(created ? "剧集已创建" : "剧集已删除");
-        } });
+        change.mutate(fields, {
+            onSuccess: (created) => {
+                onSaved(created?.id);
+                message.success(created ? "剧集已创建" : "剧集已删除");
+            },
+        });
     };
-    const close = () => { if (!submitting.current) onClose(); };
+    const close = () => {
+        if (!submitting.current) onClose();
+    };
     const creating = target.kind === "create";
-    const error = change.isError ? <p role="alert" className="drama-flow-note" data-tone="error">{change.error.message || (creating ? "创建剧集失败" : "删除剧集失败")}</p> : null;
+    const error = change.isError ? (
+        <p role="alert" className="drama-flow-note" data-tone="error">
+            {change.error.message || (creating ? "创建剧集失败" : "删除剧集失败")}
+        </p>
+    ) : null;
     return (
         <AppModal open width={480} title={creating ? "添加剧集" : "删除此剧集"} onCancel={close} closable={!change.isPending} footer={null}>
             {creating ? (
@@ -71,8 +76,12 @@ export function EpisodeDialog({ projectId, target, onClose, onSaved }: {
                     </Form.Item>
                     {error}
                     <div className="flex justify-end gap-2">
-                        <Button onClick={close} disabled={change.isPending}>取消</Button>
-                        <Button type="primary" htmlType="submit" loading={change.isPending}>创建剧集</Button>
+                        <Button onClick={close} disabled={change.isPending}>
+                            取消
+                        </Button>
+                        <Button type="primary" htmlType="submit" loading={change.isPending}>
+                            创建剧集
+                        </Button>
                     </div>
                 </Form>
             ) : (
@@ -80,8 +89,12 @@ export function EpisodeDialog({ projectId, target, onClose, onSaved }: {
                     <p>将删除「{target.title}」的剧集正文、镜头表和全部分镜段。已关联的画布会保留在项目中。</p>
                     {error}
                     <div className="mt-4 flex justify-end gap-2">
-                        <Button onClick={close} disabled={change.isPending}>取消</Button>
-                        <Button danger type="primary" onClick={() => submit()} loading={change.isPending}>删除剧集</Button>
+                        <Button onClick={close} disabled={change.isPending}>
+                            取消
+                        </Button>
+                        <Button danger type="primary" onClick={() => submit()} loading={change.isPending}>
+                            删除剧集
+                        </Button>
                     </div>
                 </>
             )}

@@ -32,11 +32,11 @@ func TestVideoChainProviderRequestIDUsesOriginalAttemptInstant(t *testing.T) {
 	}
 	insert("old", "previous-job", start.Add(-time.Millisecond).In(time.FixedZone("east", 8*3600)))
 	insert("current", "original-job", start.Add(time.Millisecond).In(time.FixedZone("west", -8*3600)))
-	if id, err := New(db).VideoChainProviderRequestID("owner", "child", "", start); err != nil || id != "original-job" {
+	if id, err := New(db).VideoChainProviderRequestID("owner", "child", "", start, ""); err != nil || id != "original-job" {
 		t.Fatalf("original request = %q, %v", id, err)
 	}
 	insert("inconsistent", "different-job", start.Add(time.Second))
-	if id, err := New(db).VideoChainProviderRequestID("owner", "child", "", start); err == nil || id != "" {
+	if id, err := New(db).VideoChainProviderRequestID("owner", "child", "", start, ""); err == nil || id != "" {
 		t.Fatalf("conflicting receipts returned %q, %v", id, err)
 	}
 }

@@ -44,6 +44,9 @@ type ShotArtifactStaleDecider func(artifacts []model.ShotArtifact, references []
 // 有产物过期时才把章节工作流退回分镜步。
 func (r *Repository) SaveShotWithRevisionSelective(shot *model.Shot, revision *model.ShotRevision, create bool, decide ShotArtifactStaleDecider, syncPlans ...SegmentReferenceSync) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardUnit(tx, shot.ProjectID, shot.UnitID); err != nil {
+			return err
+		}
 		if !create && len(syncPlans) > 0 {
 			var current model.Shot
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ? AND project_id = ?", shot.ID, shot.ProjectID).Error; err != nil {
@@ -128,6 +131,9 @@ func (r *Repository) ReplaceProjectUnitShots(projectID string, unitID string, sh
 // （已有就版本号加一并覆盖），段和它的来源一起成功或一起失败。
 func (r *Repository) ReplaceProjectUnitShotsWithShotlist(projectID string, unitID string, shots []model.Shot, revisions []model.ShotRevision, references []model.ShotAssetReference, expectedShotIDs []string, shotlist *model.DramaShotlist) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardUnit(tx, projectID, unitID); err != nil {
+			return err
+		}
 		if shotlist != nil {
 			if err := upsertDramaShotlist(tx, shotlist, shotlist.Version); err != nil {
 				return err
@@ -183,7 +189,12 @@ func (r *Repository) ReplaceProjectUnitShotsWithShotlist(projectID string, unitI
 
 // SaveDramaShotlist 只写一章的镜头表记录（检查没过的草稿），不动本章镜头。
 func (r *Repository) SaveDramaShotlist(shotlist *model.DramaShotlist) error {
-	return r.db.Transaction(func(tx *gorm.DB) error { return upsertDramaShotlist(tx, shotlist, 0) })
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardUnit(tx, shotlist.ProjectID, shotlist.UnitID); err != nil {
+			return err
+		}
+		return upsertDramaShotlist(tx, shotlist, 0)
+	})
 }
 
 func upsertDramaShotlist(tx *gorm.DB, shotlist *model.DramaShotlist, expectedVersion int) error {
@@ -293,6 +304,9 @@ func (r *Repository) DeleteProjectShot(projectID string, shotID string, updatedA
 // ReorderUnitShots 按给定顺序重写一章镜头的位置（拆段、合段后用）。
 func (r *Repository) ReorderUnitShots(projectID string, unitID string, shotIDs []string, updatedAt time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardUnit(tx, projectID, unitID); err != nil {
+			return err
+		}
 		for position, shotID := range shotIDs {
 			result := tx.Model(&model.Shot{}).Where("id = ? AND project_id = ? AND unit_id = ?", shotID, projectID, unitID).Updates(map[string]any{"position": position, "updated_at": updatedAt})
 			if result.Error != nil {
@@ -453,6 +467,9 @@ func (r *Repository) CreateProjectAssetCandidates(candidates []model.ProjectAsse
 func (r *Repository) CreateProjectAssetCandidate(candidate *model.ProjectAssetCandidate) (bool, error) {
 	inserted := false
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardUnit(tx, candidate.ProjectID, candidate.UnitID); err != nil {
+			return err
+		}
 		if candidate.ShotID != "" {
 			if err := lockShotRow(tx.Where("project_id = ?", candidate.ProjectID), candidate.ShotID); err != nil {
 				return err
@@ -468,6 +485,9 @@ func (r *Repository) CreateProjectAssetCandidate(candidate *model.ProjectAssetCa
 // ConfirmProjectAssetCandidate 将正式资产身份、首版本、项目引用和候选状态放在同一事务中，避免出现半确认数据。
 func (r *Repository) ConfirmProjectAssetCandidate(candidate *model.ProjectAssetCandidate, asset *model.Asset, version *model.AssetVersion, link *model.ProjectAssetLink, createAsset bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardProject(tx, candidate.ProjectID); err != nil {
+			return err
+		}
 		if createAsset {
 			if err := tx.Create(asset).Error; err != nil {
 				return err
@@ -545,6 +565,9 @@ func (r *Repository) NextWorkflowStep(instanceID string, position int) (*model.W
 
 func (r *Repository) CreateWorkflowInstance(instance *model.WorkflowInstance, steps []model.WorkflowStepInstance) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardUnit(tx, instance.ProjectID, instance.UnitID); err != nil {
+			return err
+		}
 		if err := tx.Create(instance).Error; err != nil {
 			return err
 		}
@@ -589,6 +612,10 @@ func (r *Repository) RegisterTaskOutputRecords(projectID string, representation 
 		}
 		if shotID != "" {
 			if err := lockShotRow(tx, shotID); err != nil {
+				return err
+			}
+		} else if productionLink != nil {
+			if err := lockStoryboardUnit(tx, projectID, productionLink.UnitID); err != nil {
 				return err
 			}
 		}
@@ -647,11 +674,12 @@ func (r *Repository) RegisterTaskOutputRecords(projectID string, representation 
 
 // CreateShotEvidence 记一条证据。
 func (r *Repository) CreateShotEvidence(evidence *model.ShotEvidence) error {
-	if evidence.ShotID == "" {
-		return r.db.Create(evidence).Error
-	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := lockShotRow(tx.Where("project_id = ?", evidence.ProjectID), evidence.ShotID); err != nil {
+		if evidence.ShotID != "" {
+			if err := lockShotRow(tx.Where("project_id = ?", evidence.ProjectID), evidence.ShotID); err != nil {
+				return err
+			}
+		} else if err := lockStoryboardUnit(tx, evidence.ProjectID, evidence.UnitID); err != nil {
 			return err
 		}
 		return tx.Create(evidence).Error
@@ -678,6 +706,9 @@ func (r *Repository) ShotArtifactForProject(projectID string, artifactID string)
 func (r *Repository) SelectShotArtifact(projectID string, artifactID string, updatedAt time.Time) (*model.ShotArtifact, error) {
 	var selected model.ShotArtifact
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardProject(tx, projectID); err != nil {
+			return err
+		}
 		if err := tx.First(&selected, "id = ? AND project_id = ?", artifactID, projectID).Error; err != nil {
 			return err
 		}
@@ -722,6 +753,9 @@ type UnitShotWrite struct {
 // 对应任何小节的旧段（连同产物、证据、版本、引用、候选和制作任务关联）。沿用的段 ID 不变，没变的段分镜图、预演、视频都留着。
 func (r *Repository) ReplaceProjectUnitShotsKeeping(projectID string, unitID string, writes []UnitShotWrite, deletes []string, shotlist *model.DramaShotlist, now time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardUnit(tx, projectID, unitID); err != nil {
+			return err
+		}
 		if shotlist != nil {
 			if err := upsertDramaShotlist(tx, shotlist, shotlist.Version); err != nil {
 				return err

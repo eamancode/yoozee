@@ -17,7 +17,7 @@ func TestVideoChainOriginal503Receipts(t *testing.T) {
 		name, detail, category, count string
 		resubmit                      bool
 	}{
-		{"explicit rejection", "当前分组 default 下对于模型 lec-vp-seedance-2-5-f 无可用渠道", "route_unavailable", "increment", true},
+		{"upstream reports no route", "当前分组 default 下对于模型 lec-vp-seedance-2-5-f 无可用渠道", "route_unavailable", "increment", false},
 		{"unspecified service failure", "Service unavailable", "upstream_service", "ignore", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -58,6 +58,14 @@ func TestVideoChainOriginal503Receipts(t *testing.T) {
 			if state.Steps[0].Status != "failed" || state.Steps[1].Status != "waiting" || calls.Load() != 1 {
 				t.Fatalf("failed chain did additional work: statuses %s, %s; creates %d", state.Steps[0].Status, state.Steps[1].Status, calls.Load())
 			}
+			resume := f.req
+			resume.ResumeChainID = chain.ID
+			if _, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, resume); err == nil {
+				t.Fatal("unknown 503 submission allowed a new quote")
+			}
+			if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID, resume); err == nil || calls.Load() != 1 {
+				t.Fatal("unknown 503 submission allowed another generation")
+			}
 		})
 	}
 }
@@ -71,6 +79,8 @@ func TestVideoChainAttemptReconciliationDecisions(t *testing.T) {
 		{"open bill", "", "", "execution", "accepted", "original", "provider_failed", "uncertain", "provider_failed", "increment", false, true},
 		{"reconciled failure", "", "", "execution", "accepted", "original", "provider_failed", "refunded", "provider_failed", "increment", true, true},
 		{"late receipt overrides rejection", "upstream_503", "无可用渠道", "execution", "submission_unknown", "original", "", "refunded", "route_unavailable", "ignore", false, true},
+		{"protocol rejected creation", "upstream_503", "无可用渠道", "execution", "rejected_no_job", "", "", "refunded", "route_unavailable", "increment", true, false},
+		{"unconfirmed no route and refunded", "upstream_503", "no available channel", "execution", "submission_unknown", "", "", "refunded", "route_unavailable", "increment", false, false},
 		{"generic execution error", "", "任务执行失败", "execution", "submission_unknown", "", "", "refunded", "unknown", "ignore", false, false},
 		{"preflight", "", "参考图必须至少一张", "preparation", "not_sent", "", "", "none", "preflight", "ignore", true, false},
 		{"parameter error", "upstream_400", "", "execution", "rejected_no_job", "", "", "refunded", "invalid_input", "ignore", true, false},
@@ -119,5 +129,13 @@ func TestVideoChainOriginalIDBelongsToCurrentRun(t *testing.T) {
 	d, err = f.s.videoChainAttemptDiagnostic(child)
 	if err != nil || d.originalRequestID != "provider-job-2" || !d.CanQueryProvider || d.SubmissionOutcome != "accepted" || d.SafeToResubmit {
 		t.Fatalf("current receipt missing: %+v, %v", d, err)
+	}
+	child.ProviderRequestID, child.PollStage = "provider-job-2", "provider_failed"
+	if err := f.db.Model(&attempt).Update("provider_request_id", "other-job").Error; err != nil {
+		t.Fatal(err)
+	}
+	d, err = f.s.videoChainAttemptDiagnostic(child)
+	if err == nil || d.SafeToResubmit || d.CanQueryProvider {
+		t.Fatalf("terminal mark on conflicting original receipt: %+v, %v", d, err)
 	}
 }

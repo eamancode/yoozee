@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"yingce/backend/internal/model"
 )
 
@@ -23,12 +24,57 @@ const platformSource = "yingce:terminal-video-tasks"
 // Offers enumerates exact eligible SKUs. The caller projects the storyboard's actual
 // input against these SKUs and rechecks the chosen SKU at quote / confirmation.
 func (s *Store) Offers(ctx context.Context, allowedChannelIDs []string, now time.Time) ([]Offer, error) {
+	out, err := s.eligibleOffers(ctx, allowedChannelIDs, "")
+	if err != nil || len(out) == 0 {
+		return out, err
+	}
+	db := s.db.WithContext(ctx)
+	snap, err := readSnapshot(db, now)
+	if err != nil {
+		return nil, err
+	}
+	rates, err := platformRates(db, allowedChannelIDs, now)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		o := &out[i]
+		if o.Supplier == "sll" && o.Official.Source == MetricsURL {
+			o.Official = snap.view(o.ProviderModelKey, now)
+		}
+		o.Platform = RateView{State: "unavailable", Source: platformSource, WindowHours: 24, CollectedAt: &now}
+		if rate, ok := rates[routeIdentity{o.ChannelID, o.ProviderModelKey}]; ok {
+			o.Platform = rate
+		}
+	}
+	return out, nil
+}
+
+// EligibleTier checks the same published SKU and credential group as discovery;
+// success-rate sampling is irrelevant to reauthorizing an already chosen route.
+func (s *Store) EligibleTier(ctx context.Context, channelID, tierID string) (*Offer, error) {
+	if channelID == "" || tierID == "" {
+		return nil, nil
+	}
+	offers, err := s.eligibleOffers(ctx, []string{channelID}, tierID)
+	if err != nil || len(offers) != 1 {
+		return nil, err
+	}
+	return &offers[0], nil
+}
+
+func (s *Store) eligibleOffers(ctx context.Context, allowedChannelIDs []string, tierID string) ([]Offer, error) {
 	out := []Offer{}
 	if len(allowedChannelIDs) == 0 {
 		return out, nil
 	}
 	db := s.db.WithContext(ctx)
 	var channels []model.ModelChannel
+	if tierID != "" {
+		// During confirmation/reservation keep the rows that authorize this SKU
+		// stable until commit. SQLite obtains its writer lock on the project.
+		db = db.Clauses(clause.Locking{Strength: "SHARE"}).Session(&gorm.Session{})
+	}
 	if err := db.Where("id IN ? AND scope = ? AND enabled = ?", allowedChannelIDs, model.ChannelScopeSystem, true).Find(&channels).Error; err != nil {
 		return nil, err
 	}
@@ -37,7 +83,12 @@ func (s *Store) Offers(ctx context.Context, allowedChannelIDs []string, now time
 		active[ch.ID] = ch
 	}
 	var items []model.ChannelModel
-	if err := db.Where("channel_id IN ? AND capability = ? AND enabled = ? AND price_configured = ?", allowedChannelIDs, "video", true, true).Find(&items).Error; err != nil {
+	itemQuery := db.Where("channel_id IN ? AND capability = ? AND enabled = ? AND price_configured = ?", allowedChannelIDs, "video", true, true)
+	if tierID != "" {
+		parent := s.db.WithContext(ctx).Model(&model.ChannelModelPriceTier{}).Select("channel_model_id").Where("id = ?", tierID)
+		itemQuery = itemQuery.Where("id IN (?)", parent)
+	}
+	if err := itemQuery.Find(&items).Error; err != nil {
 		return nil, err
 	}
 	byID := map[string]model.ChannelModel{}
@@ -52,7 +103,11 @@ func (s *Store) Offers(ctx context.Context, allowedChannelIDs []string, now time
 		return out, nil
 	}
 	var tiers []model.ChannelModelPriceTier
-	if err := db.Where("channel_model_id IN ? AND billing_mode = ? AND enabled = ? AND price_configured = ?", ids, "fixed_request", true, true).Order("channel_model_id ASC, id ASC").Find(&tiers).Error; err != nil {
+	tierQuery := db.Where("channel_model_id IN ? AND billing_mode = ? AND enabled = ? AND price_configured = ?", ids, "fixed_request", true, true)
+	if tierID != "" {
+		tierQuery = tierQuery.Where("id = ?", tierID)
+	}
+	if err := tierQuery.Order("channel_model_id ASC, id ASC").Find(&tiers).Error; err != nil {
 		return nil, err
 	}
 	var states []model.SLLCatalogImport
@@ -75,14 +130,6 @@ func (s *Store) Offers(ctx context.Context, allowedChannelIDs []string, now time
 		}
 		entries[line.ChannelModelID] = e
 	}
-	snap, err := readSnapshot(db, now)
-	if err != nil {
-		return nil, err
-	}
-	rates, err := platformRates(db, allowedChannelIDs, now)
-	if err != nil {
-		return nil, err
-	}
 	for _, t := range tiers {
 		item := byID[t.ChannelModelID]
 		ch := active[item.ChannelID]
@@ -95,10 +142,7 @@ func (s *Store) Offers(ctx context.Context, allowedChannelIDs []string, now time
 		}
 		offer := Offer{ChannelID: ch.ID, ChannelModelID: item.ID, ModelKey: item.ModelKey, ProviderModelKey: upstream, PriceTierID: t.ID,
 			DisplayName: item.DisplayName, Supplier: ch.ID, Resolution: t.Resolution, SelectorJSON: t.SelectorJSON, CapabilityConfigJSON: item.CapabilityConfigJSON,
-			Official: RateView{State: "unavailable", WindowHours: 24}, Platform: RateView{State: "unavailable", Source: platformSource, WindowHours: 24, CollectedAt: &now}}
-		if metric, ok := rates[routeIdentity{ch.ID, upstream}]; ok {
-			offer.Platform = metric
-		}
+			Official: RateView{State: "unavailable", WindowHours: 24}}
 		if state, managed := cfg[ch.ID]; managed || IsSLLChannel(ch) {
 			e, ok := entries[item.ID]
 			if !managed || !ok || !IsSLLChannel(ch) || e.ModelID != upstream || item.ProviderModelKey != upstream || e.Group != state.SupplierGroup || credentialDigest(ch) != state.CredentialDigest || checkExecutionConfig(item, e) != nil {
@@ -120,7 +164,7 @@ func (s *Store) Offers(ctx context.Context, allowedChannelIDs []string, now time
 			}
 			offer.Supplier = "sll"
 			offer.CostMicroCNY = *cost
-			offer.Official = snap.view(upstream, now)
+			offer.Official.Source = MetricsURL
 		} else {
 			if !seedance25.MatchString(upstream) && !(item.ProviderModelKey == upstream && seedance25.MatchString(item.DisplayName)) {
 				continue

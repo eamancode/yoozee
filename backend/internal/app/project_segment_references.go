@@ -89,19 +89,35 @@ func (s *Service) pinStoredSegmentFiles(projectID string, seg *drama.Segment, re
 	if err != nil {
 		return err
 	}
-	pinned := map[string]string{}
+	assetOf := map[string]string{}
+	versionsOf := map[string][]string{}
 	for _, version := range versions {
-		if _, exists := pinned[version.AssetID]; exists {
-			// With multiple versions bound, a historical asset ID alone is ambiguous.
-			pinned[version.AssetID] = ""
-		} else {
-			pinned[version.AssetID] = version.ID
+		assetOf[version.ID] = version.AssetID
+		versionsOf[version.AssetID] = append(versionsOf[version.AssetID], version.ID)
+	}
+	versionAt := map[int]string{}
+	for _, ref := range refs {
+		if ref.Role == "reference" && ref.Status == "linked" && ref.Source == "segment" {
+			versionAt[ref.Position] = ref.AssetVersionID
 		}
 	}
-	for _, ref := range seg.Refs {
-		if id, exists := pinned[ref.File]; exists && id == "" {
+	pinned := map[string]string{}
+	for i, ref := range seg.Refs {
+		matches := versionsOf[ref.File]
+		if len(matches) == 0 {
+			continue
+		}
+		version := versionAt[i]
+		if assetOf[version] != ref.File {
+			if len(matches) != 1 {
+				return BadAuthRequest("分段中的旧资产编号对应多个版本，请明确指定版本")
+			}
+			version = matches[0]
+		}
+		if other, exists := pinned[ref.File]; exists && other != version {
 			return BadAuthRequest("分段中的旧资产编号对应多个版本，请明确指定版本")
 		}
+		pinned[ref.File] = version
 	}
 	remapSegmentFiles(seg, pinned)
 	return nil

@@ -43,7 +43,7 @@ func (s *Service) QueryFailedVideoTask(ctx context.Context, userID string, taskI
 	if err != nil {
 		return nil, err
 	}
-	return s.queryFailedVideoTask(ctx, task, strings.TrimSpace(userID))
+	return s.queryFailedVideoTask(ctx, task)
 }
 
 func (s *Service) AdminQueryFailedVideoTask(ctx context.Context, actor *model.User, logID string, requestedProviderID string) (result *ProviderTaskQueryResult, returnErr error) {
@@ -86,20 +86,14 @@ func (s *Service) AdminQueryFailedVideoTask(ctx context.Context, actor *model.Us
 	if returnErr != nil {
 		return nil, returnErr
 	}
-	if task.UserID != log.UserID {
-		return nil, BadAuthRequest("请求与任务归属不一致")
+	if err := s.validateOriginalVideoLog(task, log, requestedProviderID); err != nil {
+		return nil, err
 	}
 	if task.Status == model.TaskStatusSucceeded {
 		result = &ProviderTaskQueryResult{Task: taskForOutput(*task), ProviderStatus: "succeeded", Recovered: true, BillingSettled: s.billingSettled(task)}
 		return result, nil
 	}
-	if strings.TrimSpace(requestedProviderID) != "" {
-		task.ProviderRequestID = strings.TrimSpace(requestedProviderID)
-	}
-	if task.ProviderRequestID == "" {
-		task.ProviderRequestID = strings.TrimSpace(log.ProviderRequestID)
-	}
-	result, returnErr = s.queryFailedVideoTask(ctx, task, "")
+	result, returnErr = s.queryFailedVideoTask(ctx, task)
 	return result, returnErr
 }
 
@@ -131,6 +125,9 @@ func (s *Service) AdminRecoverVideoByURL(ctx context.Context, actor *model.User,
 		}
 		_ = s.appendAdminAudit(actor, "api_log.recover_video_url", "api_call_log", log.ID, "人工转存上游视频并回写", metadata)
 	}()
+	if err := s.validateOriginalVideoLog(task, log, providerRequestID); err != nil {
+		return nil, err
+	}
 	if task.Status == model.TaskStatusSucceeded {
 		result = &ProviderTaskQueryResult{Task: taskForOutput(*task), ProviderStatus: "succeeded", Recovered: true, BillingSettled: s.billingSettled(task)}
 		return result, nil
@@ -150,7 +147,7 @@ func (s *Service) AdminRecoverVideoByURL(ctx context.Context, actor *model.User,
 	}
 	parsedURL = recoveryURLForAudit(parsed)
 	owner := "manual-recovery:" + newID()
-	if err := s.repo.ClaimFailedTaskProviderRecovery(task.ID, "", owner, providerTaskRecoveryLeaseDuration); err != nil {
+	if err := s.repo.ClaimFailedTaskProviderRecovery(task.ID, task.UserID, owner, providerTaskRecoveryLeaseDuration, task.RouteRun); err != nil {
 		if errors.Is(err, repository.ErrTaskProviderRecoveryConflict) {
 			return nil, &AuthError{Status: 409, Message: "该任务正在恢复中，请稍后再试"}
 		}
@@ -249,6 +246,28 @@ func (s *Service) AdminBatchQueryFailedVideoTasks(ctx context.Context, actor *mo
 	return result, nil
 }
 
+func (s *Service) validateOriginalVideoLog(task *model.Task, log *model.ApiCallLog, requestedProviderID string) error {
+	if task.UserID != log.UserID || task.ID != log.TaskID || !isVideoTaskType(task.Type) {
+		return BadAuthRequest("请求与原视频任务归属不一致")
+	}
+	original, err := s.videoChainAttemptDiagnostic(task)
+	if err != nil {
+		return err
+	}
+	if log.BillingOrderID != task.BillingOrderID || log.ChannelID != original.ChannelID ||
+		(log.RequestKind != "create" && log.RequestKind != "poll") ||
+		(task.RouteRun > 1 && original.originalStart.IsZero()) || log.CreatedAt.Before(original.originalStart) ||
+		(!log.StartedAt.IsZero() && log.StartedAt.Before(original.originalStart)) {
+		return failedPrecondition("所选日志不属于当前视频尝试的原渠道和订单")
+	}
+	suppliedID := strings.TrimSpace(requestedProviderID)
+	if (log.ProviderRequestID != "" && log.ProviderRequestID != original.originalRequestID) ||
+		(suppliedID != "" && suppliedID != original.originalRequestID) {
+		return failedPrecondition("受理号与本次原视频尝试的回执不一致")
+	}
+	return nil
+}
+
 func (s *Service) adminRecoveryTask(logID string) (*model.ApiCallLog, *model.Task, error) {
 	log, err := s.repo.APICallLog(strings.TrimSpace(logID))
 	if err != nil {
@@ -313,7 +332,7 @@ func recoveryURLForAudit(value *url.URL) string {
 	return value.Scheme + "://" + value.Host + value.Path
 }
 
-func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, claimUserID string) (*ProviderTaskQueryResult, error) {
+func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task) (*ProviderTaskQueryResult, error) {
 	billing := s.taskBilling()
 	ctx = withProtocolRegistry(ctx, s.protocolRegistry())
 	if task == nil || task.ID == "" {
@@ -341,15 +360,11 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 		return nil, BadAuthRequest("该任务不是视频生成任务")
 	}
 
-	if original.Chain.ControllerID != "" && claimUserID != "" {
-		diagnostic, err := s.videoChainAttemptDiagnostic(task)
-		if err != nil {
-			return nil, err
-		}
-		task.ProviderRequestID = diagnostic.originalRequestID
-	} else {
-		s.hydrateTaskProviderRequestID(task)
+	diagnostic, err := s.videoChainAttemptDiagnostic(task)
+	if err != nil {
+		return nil, err
 	}
+	task.ProviderRequestID = diagnostic.originalRequestID
 	providerRequestID := strings.TrimSpace(task.ProviderRequestID)
 	if providerRequestID == "" {
 		return nil, BadAuthRequest("该任务没有可恢复的上游任务 ID")
@@ -372,7 +387,7 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	if err := json.Unmarshal([]byte(decryptedInput), &input); err != nil {
 		return nil, fmt.Errorf("任务输入解析失败：%w", err)
 	}
-	config, _, err := s.resolveVideoReceiptConfig(ctx, input.Config, providerRequestID)
+	config, _, err := s.resolveVideoReceiptConfig(withProviderAnalytics(ctx, s, *task), input.Config, providerRequestID)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +401,7 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	task.ProviderRequestID = providerRequestID
 
 	owner := "manual-recovery:" + newID()
-	if err := s.repo.ClaimFailedTaskProviderRecovery(task.ID, claimUserID, owner, providerTaskRecoveryLeaseDuration); err != nil {
+	if err := s.repo.ClaimFailedTaskProviderRecovery(task.ID, task.UserID, owner, providerTaskRecoveryLeaseDuration, task.RouteRun); err != nil {
 		if errors.Is(err, repository.ErrTaskProviderRecoveryConflict) {
 			return nil, &AuthError{Status: 409, Message: "该任务正在查询上游状态，请稍后再试"}
 		}

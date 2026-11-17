@@ -144,7 +144,7 @@ func (s *Store) View(ctx context.Context, channelID string, now time.Time) (View
 			return out, err
 		}
 		item, present := byID[line.ChannelModelID]
-		row := CatalogRow{ModelID: line.ModelID, DisplayName: e.DisplayName, ChannelModelID: item.ID, Enabled: item.Enabled, Available: line.Available, Reason: line.Reason, Group: e.Group, Capabilities: e.Capabilities, Tiers: e.Tiers, Metric: snap.view(e.ModelID, now)}
+		row := CatalogRow{ModelID: line.ModelID, DisplayName: e.DisplayName, ChannelModelID: line.ChannelModelID, Enabled: item.Enabled, Available: line.Available, Reason: line.Reason, Group: e.Group, Capabilities: e.Capabilities, Tiers: e.Tiers, Metric: snap.view(e.ModelID, now)}
 		row.GroupRatio, row.Currency, row.BillingUnit = e.GroupRatio, "CNY", "request"
 		row.Description = e.Description
 		switch {

@@ -99,16 +99,18 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
 
     return (
         <StageLayout pane={pane}>
-            {bindingSegment && workspace ? <ShotBindingEditor
-                key={bindingSegment.shotId}
-                projectId={projectId}
-                segment={bindingSegment}
-                bindings={boundAssetsOf(workspace, bindingSegment)}
-                assets={data.assets}
-                assetsQuery={data.assetsQuery}
-                videoModel={data.videoModel}
-                onClose={() => setEditing((current) => current === editing ? undefined : current)}
-            /> : null}
+            {bindingSegment && workspace ? (
+                <ShotBindingEditor
+                    key={bindingSegment.shotId}
+                    projectId={projectId}
+                    segment={bindingSegment}
+                    bindings={boundAssetsOf(workspace, bindingSegment)}
+                    assets={data.assets}
+                    assetsQuery={data.assetsQuery}
+                    videoModel={data.videoModel}
+                    onClose={() => setEditing((current) => (current === editing ? undefined : current))}
+                />
+            ) : null}
             <div className="drama-flow-work-head">
                 <div>
                     <h2>分镜{unit?.title ? ` · ${unit.title}` : ""}</h2>
@@ -168,7 +170,9 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                                     segment={segment}
                                     episode={episode}
                                     unitTitle={unit?.title}
-                                    onDeleted={() => { if (segment.shotId === selectedId) onSelect(undefined); }}
+                                    onDeleted={() => {
+                                        if (segment.shotId === selectedId) onSelect(undefined);
+                                    }}
                                 />
                             }
                         />
@@ -409,7 +413,9 @@ function SegmentBlock({
                 {assets.map((asset) => (
                     <span key={asset.id} title={`${asset.title} · ${asset.versionId}`} data-kind={asset.kind}>
                         {asset.preview ? <img src={asset.preview} alt="" loading="lazy" /> : null}
-                        {asset.code || asset.title}{asset.version ? ` · v${asset.version}` : ""}{asset.sampleResourceId ? " · 有音样" : ""}
+                        {asset.code || asset.title}
+                        {asset.version ? ` · v${asset.version}` : ""}
+                        {asset.sampleResourceId ? " · 有音样" : ""}
                     </span>
                 ))}
                 <Button size="small" disabled={!onEditBindings} className="ml-auto" aria-label={`编辑绑定 ${segment.spec.id || segment.title}`} onClick={onEditBindings}>

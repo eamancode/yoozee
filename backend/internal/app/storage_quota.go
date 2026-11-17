@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -76,6 +77,21 @@ func (s *Service) createTaskWithinStorageQuota(task *model.Task, billingOrder *m
 	s.storageMu.Lock()
 	err := func() error {
 		defer s.storageMu.Unlock()
+		if task.ParentControllerID != "" && task.Type == "canvas_video" {
+			var input map[string]any
+			if err := json.Unmarshal([]byte(task.InputJSON), &input); err != nil {
+				return err
+			}
+			return s.repo.Transaction(func(tx *repository.Repository) error {
+				if _, err := tx.LockActiveStoryboardProject(task.UserID, task.ProjectID); err != nil {
+					return err
+				}
+				if err := s.checkConfirmedVideoRoute(context.Background(), tx, task.UserID, task.ProjectID, input); err != nil {
+					return err
+				}
+				return createTaskWithStorageQuotaRepository(tx, task, billingOrder, policy)
+			})
+		}
 		return createTaskWithStorageQuotaRepository(s.repo, task, billingOrder, policy)
 	}()
 	if err == nil {

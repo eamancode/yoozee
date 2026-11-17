@@ -343,6 +343,14 @@ func (r *Repository) AsyncMediaAPICallRoot(log model.ApiCallLog) (*model.ApiCall
 	query := r.db.Where("capability = ? AND request_kind = ?", log.Capability, "create")
 	if log.TaskID != "" {
 		query = query.Where("task_id = ?", log.TaskID)
+		if log.Capability == "video" {
+			// An old poll can finish after a retry has already created a new root.
+			if log.ProviderRequestID == "" {
+				return nil, gorm.ErrRecordNotFound
+			}
+			query = query.Where("user_id = ? AND COALESCE(channel_id, '') = ? AND COALESCE(billing_order_id, '') = ? AND provider_request_id = ?",
+				log.UserID, log.ChannelID, log.BillingOrderID, log.ProviderRequestID)
+		}
 	} else {
 		query = query.Where("user_id = ? AND channel_id = ? AND provider_request_id = ?", log.UserID, log.ChannelID, log.ProviderRequestID)
 	}

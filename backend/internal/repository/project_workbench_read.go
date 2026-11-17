@@ -107,7 +107,7 @@ func (r *Repository) ProjectUnitShotArtifacts(projectID string, unitID string) (
 
 func (r *Repository) ProjectUnitShotAssetReferences(projectID string, unitID string) ([]model.ShotAssetReference, error) {
 	var references []model.ShotAssetReference
-	err := r.db.Table("shot_asset_references").Select("shot_asset_references.*").Joins("JOIN shots ON shots.id = shot_asset_references.shot_id").Where("shots.project_id = ? AND shots.unit_id = ?", projectID, unitID).Order("shot_asset_references.created_at asc").Scan(&references).Error
+	err := r.db.Table("shot_asset_references").Select("shot_asset_references.*").Joins("JOIN shots ON shots.id = shot_asset_references.shot_id").Where("shots.project_id = ? AND shots.unit_id = ?", projectID, unitID).Order("shot_asset_references.created_at asc, shot_asset_references.id asc").Scan(&references).Error
 	return references, err
 }
 

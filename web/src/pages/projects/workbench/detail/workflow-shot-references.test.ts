@@ -4,7 +4,16 @@ import test from "node:test";
 import type { ProjectAsset, ProjectDetail, ShotAssetReference } from "@/services/api/projects";
 import type { ReferenceImage } from "@/types/image";
 
-import { buildShotAssetReferenceContext, projectAssetReferenceImage, projectAssetChoices, compileShotAssetReferencePrompt, referenceMediaForCompiledFiles, resolveShotAssetMentionPrompt, shotScenePalette, withShotScenePalette } from "./workflow-shot-references";
+import {
+    buildShotAssetReferenceContext,
+    projectAssetReferenceImage,
+    projectAssetChoices,
+    compileShotAssetReferencePrompt,
+    referenceMediaForCompiledFiles,
+    resolveShotAssetMentionPrompt,
+    shotScenePalette,
+    withShotScenePalette,
+} from "./workflow-shot-references";
 
 test("主卡、子卡、场景、道具固定版本的预览与提交引用一致，换图和取消不残留", () => {
     const assets = ["主卡", "子卡", "场景", "道具"].map(
@@ -38,11 +47,17 @@ test("主卡、子卡、场景、道具固定版本的预览与提交引用一�
     );
     references.forEach((ref, index) => assert.equal(projectAssetReferenceImage(assets[index]!, ref)?.storageKey, `resource:old-${index}`));
     const fixed = references[0]!;
-    const mixed = { ...fixed, referencedVersion: { ...fixed.referencedVersion!, representations: [
-        { id: "audio", resourceId: "voice", mediaType: "audio/wav", role: "primary" },
-        { id: "empty", resourceId: "", mediaType: "image/png", role: "turnaround_sheet" },
-        { id: "face", resourceId: "face", mediaType: "image/png", role: "front" },
-    ] } };
+    const mixed = {
+        ...fixed,
+        referencedVersion: {
+            ...fixed.referencedVersion!,
+            representations: [
+                { id: "audio", resourceId: "voice", mediaType: "audio/wav", role: "primary" },
+                { id: "empty", resourceId: "", mediaType: "image/png", role: "turnaround_sheet" },
+                { id: "face", resourceId: "face", mediaType: "image/png", role: "front" },
+            ],
+        },
+    };
     assert.equal(projectAssetReferenceImage(assets[0]!, mixed)?.storageKey, "resource:face");
     assert.equal(projectAssetReferenceImage(assets[0]!, { ...references[0]!, referencedVersion: { ...references[0]!.referencedVersion!, representations: [] } }), undefined);
     const changed = {
@@ -163,24 +178,58 @@ const locationAsset = {
 } as unknown as ProjectAsset;
 
 test("旧未分段路径仅从带图的固定角色版本取音样，同资源只发送一次；结构化路径逐项按编译清单解析", () => {
-    const assets = ["主卡", "同声造型", "无声造型", "缺图角色"].map((title, i) => ({
-        id: "actor-" + i, title, category: "character", primaryVersionId: "later-" + i, mediaType: "image",
-        character: { voice: { profile: { sampleResourceId: "new-" + i } } },
-    }) as ProjectAsset);
+    const assets = ["主卡", "同声造型", "无声造型", "缺图角色"].map(
+        (title, i) =>
+            ({
+                id: "actor-" + i,
+                title,
+                category: "character",
+                primaryVersionId: "later-" + i,
+                mediaType: "image",
+                character: { voice: { profile: { sampleResourceId: "new-" + i } } },
+            }) as ProjectAsset,
+    );
     const refs = assets.map((asset, i) => ({
-        id: "r-" + i, shotId: "unit", role: "reference", status: "linked", source: "segment", position: i, createdAt: "2026-01-01T00:00:00Z",
-        asset, assetVersionId: "version-" + i, referencedVersion: {
-            id: "version-" + i, assetId: asset.id, version: 1, sampleResourceId: i === 2 ? undefined : i === 3 ? "other-audio" : "shared-audio",
+        id: "r-" + i,
+        shotId: "unit",
+        role: "reference",
+        status: "linked",
+        source: "segment",
+        position: i,
+        createdAt: "2026-01-01T00:00:00Z",
+        asset,
+        assetVersionId: "version-" + i,
+        referencedVersion: {
+            id: "version-" + i,
+            assetId: asset.id,
+            version: 1,
+            sampleResourceId: i === 2 ? undefined : i === 3 ? "other-audio" : "shared-audio",
             representations: i === 3 ? [] : [{ id: "img-" + i, resourceId: "img-" + i, mediaType: "image/png", role: "primary" }],
         },
     }));
     const detail = { assets, shotReferences: refs.slice().reverse() } as ProjectDetail;
     const old = buildShotAssetReferenceContext(detail, "unit");
-    assert.deepEqual(old.assetReferences.map((item) => [item.title, item.audioIndex]), [["主卡", 1], ["同声造型", 1], ["无声造型", undefined]]);
-    assert.deepEqual(old.referenceAudios.map((item) => item.storageKey), ["resource:shared-audio"]);
-    for (const [file, tag] of [["version-0", "@音频1"], ["shared-audio", "<Audio 1>"]]) {
+    assert.deepEqual(
+        old.assetReferences.map((item) => [item.title, item.audioIndex]),
+        [
+            ["主卡", 1],
+            ["同声造型", 1],
+            ["无声造型", undefined],
+        ],
+    );
+    assert.deepEqual(
+        old.referenceAudios.map((item) => item.storageKey),
+        ["resource:shared-audio"],
+    );
+    for (const [file, tag] of [
+        ["version-0", "@音频1"],
+        ["shared-audio", "<Audio 1>"],
+    ]) {
         const compiled = referenceMediaForCompiledFiles(detail, "unit", [{ file, tag, role: "voice" }]);
-        assert.deepEqual(compiled.audios.map((item) => item.storageKey), ["resource:shared-audio"]);
+        assert.deepEqual(
+            compiled.audios.map((item) => item.storageKey),
+            ["resource:shared-audio"],
+        );
         assert.deepEqual(compiled.missing, []);
     }
     for (const file of ["version-2", "new-2", "new-0"]) {
@@ -189,18 +238,35 @@ test("旧未分段路径仅从带图的固定角色版本取音样，同资源�
         assert.equal(compiled.missing.length, 1);
     }
     const remaining = { ...detail, shotReferences: refs.slice(1) };
-    assert.deepEqual(buildShotAssetReferenceContext(remaining, "unit").referenceAudios.map((item) => item.storageKey), ["resource:shared-audio"]);
+    assert.deepEqual(
+        buildShotAssetReferenceContext(remaining, "unit").referenceAudios.map((item) => item.storageKey),
+        ["resource:shared-audio"],
+    );
     assert.deepEqual(buildShotAssetReferenceContext({ ...detail, shotReferences: refs.slice(2) }, "unit").referenceAudios, []);
     const anotherVersion = {
-        ...refs[0], assetVersionId: "alternate", position: 0.5,
+        ...refs[0],
+        assetVersionId: "alternate",
+        position: 0.5,
         referencedVersion: { ...refs[0].referencedVersion, id: "alternate", sampleResourceId: "alternate-audio" },
     };
     const multi = buildShotAssetReferenceContext({ ...detail, shotReferences: [refs[0], anotherVersion, refs[1]] }, "unit");
-    assert.deepEqual(multi.resolvedCharacterVersions.map((item) => item.versionId), ["version-0", "alternate", "version-1"]);
+    assert.deepEqual(
+        multi.resolvedCharacterVersions.map((item) => item.versionId),
+        ["version-0", "alternate", "version-1"],
+    );
     assert.equal(new Set(multi.referenceImages.map((image) => image.id)).size, 3);
-    assert.deepEqual(multi.referenceAudios.map((item) => item.id), ["shared-audio", "alternate-audio"]);
-    assert.deepEqual(multi.referenceAudios.map((item) => item.storageKey), ["resource:shared-audio", "resource:alternate-audio"]);
-    assert.deepEqual(multi.mentionReferences.map((item) => item.assetId), ["actor-0", "actor-1"]);
+    assert.deepEqual(
+        multi.referenceAudios.map((item) => item.id),
+        ["shared-audio", "alternate-audio"],
+    );
+    assert.deepEqual(
+        multi.referenceAudios.map((item) => item.storageKey),
+        ["resource:shared-audio", "resource:alternate-audio"],
+    );
+    assert.deepEqual(
+        multi.mentionReferences.map((item) => item.assetId),
+        ["actor-0", "actor-1"],
+    );
     assert.match(resolveShotAssetMentionPrompt("@[asset:actor-0] 看向 @[asset:actor-1]", multi), /^图片1 看向 图片3/);
 });
 

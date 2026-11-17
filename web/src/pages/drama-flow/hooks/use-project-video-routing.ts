@@ -16,7 +16,7 @@ export function useProjectVideoRouting(projectId: string, watch: boolean) {
         onSuccess: async (result, { id }) => {
             const key = projectVideoRoutingKey(id);
             await client.cancelQueries({ queryKey: key });
-            client.setQueryData<ProjectVideoRouting>(key, (current) => (current?.route?.revision || 0) > (result.route?.revision || 0) ? current : result);
+            client.setQueryData<ProjectVideoRouting>(key, (current) => ((current?.route?.revision || 0) > (result.route?.revision || 0) ? current : result));
         },
         onError: (_error, { id }) => client.invalidateQueries({ queryKey: projectVideoRoutingKey(id) }),
     });

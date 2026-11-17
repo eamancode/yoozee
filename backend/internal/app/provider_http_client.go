@@ -13,14 +13,15 @@ import (
 	"log"
 	"mime"
 	"mime/multipart"
-	"net"
 	"net/http"
+	"net/netip"
 	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"golang.org/x/net/idna"
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/platform"
 )
@@ -73,13 +74,8 @@ func getGeminiJSON(ctx context.Context, config providerConfig, path string, targ
 }
 
 func getGeminiBinary(ctx context.Context, config providerConfig, rawURL string) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, "", err
-	}
-	req.Header.Set("x-goog-api-key", config.APIKey)
-	ApplyOutboundHeaders(req, config.Headers)
-	return doBinary(req)
+	config.APIFormat = "gemini"
+	return getProviderExternalBinary(ctx, config, rawURL)
 }
 
 func geminiVeoURL(baseURL string, path string) string {
@@ -199,49 +195,66 @@ func getProviderExternalBinary(ctx context.Context, config providerConfig, rawUR
 func sameProviderOrigin(baseURL string, rawURL string) bool {
 	base, baseErr := url.Parse(strings.TrimSpace(baseURL))
 	target, targetErr := url.Parse(strings.TrimSpace(rawURL))
-	if baseErr != nil || targetErr != nil || base.Scheme == "" || base.Host == "" || target.Scheme == "" || target.Host == "" {
-		return false
-	}
-	return strings.EqualFold(base.Scheme, target.Scheme) && strings.EqualFold(base.Host, target.Host)
+	return baseErr == nil && targetErr == nil && sameHTTPOrigin(base, target)
 }
 
-// lookupProviderHost 解析主机名；测试里替换成固定答案，避免依赖真实 DNS。
-var lookupProviderHost = func(ctx context.Context, host string) ([]string, error) {
-	return net.DefaultResolver.LookupHost(ctx, host)
+func sameHTTPOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil || a.User != nil || b.User != nil || (a.Scheme != "http" && a.Scheme != "https") || a.Scheme != b.Scheme {
+		return false
+	}
+	host := providerOriginHost(a)
+	port := effectiveHTTPPort(a)
+	return host != "" && host == providerOriginHost(b) && port >= 0 && port == effectiveHTTPPort(b)
 }
 
-// providerHostRelated 判断媒体地址是否属于同一家上游：同源，或解析到渠道的同一台服务器。
-// 派普这类网关把视频结果发到同一 IP 的另一个域名（api.lecapi.net 与 api.paipu.net），
-// 而 /v1/videos/{id}/content 仍然要求渠道鉴权；只按域名判断会让结果下载稳定 403。
-func providerHostRelated(baseURL string, rawURL string) bool {
-	if sameProviderOrigin(baseURL, rawURL) {
-		return true
+func providerOriginHost(u *url.URL) string {
+	host := u.Hostname()
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return ip.String()
 	}
-	base, baseErr := url.Parse(strings.TrimSpace(baseURL))
-	target, targetErr := url.Parse(strings.TrimSpace(rawURL))
-	if baseErr != nil || targetErr != nil || base.Hostname() == "" || target.Hostname() == "" {
-		return false
+	ascii, err := idna.Lookup.ToASCII(host)
+	if err != nil {
+		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	baseAddrs, err := lookupProviderHost(ctx, base.Hostname())
-	if err != nil || len(baseAddrs) == 0 {
-		return false
-	}
-	targetAddrs, err := lookupProviderHost(ctx, target.Hostname())
-	if err != nil || len(targetAddrs) == 0 {
-		return false
-	}
-	shared := make(map[string]struct{}, len(baseAddrs))
-	for _, addr := range baseAddrs {
-		shared[addr] = struct{}{}
-	}
-	for _, addr := range targetAddrs {
-		if _, ok := shared[addr]; ok {
-			return true
+	return strings.ToLower(ascii)
+}
+
+func effectiveHTTPPort(u *url.URL) int {
+	if port := u.Port(); port != "" {
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			return -1
 		}
+		return int(n)
 	}
-	return false
+	if u.Scheme == "https" {
+		return 443
+	}
+	return 80
+}
+
+func isolateDownloadRedirects(client *http.Client) {
+	validate := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if validate != nil {
+			if err := validate(req, via); err != nil {
+				return err
+			}
+		}
+		// net/http copies headers from the initial request on every hop. A CDN
+		// redirect must never regain those headers, even if it redirects again.
+		for _, previous := range via {
+			if !sameHTTPOrigin(previous.URL, req.URL) {
+				if (req.Method != http.MethodGet && req.Method != http.MethodHead) || (req.Body != nil && req.Body != http.NoBody) {
+					return errors.New("媒体下载不允许向其他来源转发请求正文")
+				}
+				req.Header = make(http.Header)
+				ApplyDefaultOutboundHeaders(req)
+				break
+			}
+		}
+		return nil
+	}
 }
 
 func doJSON(req *http.Request, target interface{}) error {
@@ -345,6 +358,9 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 	}
 	ApplyDefaultOutboundHeaders(req)
 	client := OutboundHTTPClientWithProxy(requestTimeout, channelProxyURL)
+	if req.Method == http.MethodGet || req.Method == http.MethodHead || requestKind == "download" {
+		isolateDownloadRedirects(client)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		err = providerConnectionError(err)
@@ -469,7 +485,7 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 	}
 	callLog := model.ApiCallLog{
 		VideoProviderModelKey: metadata.VideoProviderModelKey,
-		UserID: metadata.UserID, TraceID: metadata.TraceID, RequestID: metadata.RequestID, ChannelID: metadata.ChannelID, TaskID: metadata.TaskID, BillingOrderID: metadata.BillingOrderID,
+		UserID:                metadata.UserID, TraceID: metadata.TraceID, RequestID: metadata.RequestID, ChannelID: metadata.ChannelID, TaskID: metadata.TaskID, BillingOrderID: metadata.BillingOrderID,
 		Source: "backend-task", Capability: metadata.Capability, Operation: metadata.Operation,
 		RequestKind: requestKind, Billable: providerRequestIsBillable(req.Method, requestKind),
 		APIFormat: apiFormat, Method: req.Method, Path: req.URL.Path, Model: metadata.Model,

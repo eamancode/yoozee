@@ -134,8 +134,7 @@ func TestSLLQuoteAndExecution(t *testing.T) {
 	if _, err := runProtocolAdapterTask(ctx, input, adapter); err == nil || len(uploaded) != 1 {
 		t.Fatalf("expected withdrawal after upload: %v", err)
 	}
-	old, pollOnly, err := f.s.resolveVideoReceiptConfig(ctx, input.Config, "already-accepted-fixture")
-	if err != nil || !pollOnly || old.ChannelID != ch.ID || old.Model != e.ModelID || old.BaseURL != ch.BaseURL {
-		t.Fatalf("cannot track original receipt after removal: pollOnly=%t err=%v", pollOnly, err)
+	if _, pollOnly, err := f.s.resolveVideoReceiptConfig(ctx, input.Config, "unbound-fixture"); err == nil || pollOnly {
+		t.Fatalf("unbound receipt used withdrawn channel credentials: pollOnly=%t err=%v", pollOnly, err)
 	}
 }

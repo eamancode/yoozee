@@ -64,7 +64,7 @@ func (s *Service) projectVideoRouteCandidates(ctx context.Context, userID, proje
 		if offer.ChannelID == failedChannelID && offer.ProviderModelKey == failedProviderModelKey {
 			continue
 		}
-		reason, err := s.projectVideoOfferMismatch(userID, access, input, contentSeconds, offer)
+		reason, err := s.projectVideoOfferMismatch(userID, access, input, contentSeconds, offer, false)
 		if err != nil {
 			return nil, "", err
 		}
@@ -87,7 +87,7 @@ func (s *Service) projectVideoRouteCandidates(ctx context.Context, userID, proje
 	return candidates, "", nil
 }
 
-func (s *Service) projectVideoOfferMismatch(userID string, access *userGroupAccess, input map[string]any, contentSeconds float64, offer sllcatalog.Offer) (string, error) {
+func (s *Service) projectVideoOfferMismatch(userID string, access *userGroupAccess, input map[string]any, contentSeconds float64, offer sllcatalog.Offer, confirmed bool) (string, error) {
 	if offer.ChannelID == "" || offer.ModelKey == "" || offer.PriceTierID == "" || offer.ProviderModelKey == "" || offer.CostMicroCNY < 0 || offer.CostMicroCNY > 6_000_000 {
 		return "上游按条成本或价档未核实", nil
 	}
@@ -113,6 +113,11 @@ func (s *Service) projectVideoOfferMismatch(userID string, access *userGroupAcce
 		key = canonicalModelOptionName("video", key)
 		if isCapabilityOptionFor("video", key) {
 			config[key] = providerConfigOptionValue(value)
+		}
+	}
+	if confirmed {
+		if submitted, ok := numericScalar(config["videoSeconds"]); !ok || submitted != float64(seconds) {
+			return "已确认的生成时长与当前线路档位不一致", nil
 		}
 	}
 	config["videoSeconds"] = strconv.Itoa(seconds)

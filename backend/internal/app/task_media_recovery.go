@@ -222,7 +222,24 @@ func (s *Service) materializeTaskMedia(ctx context.Context, task *model.Task, co
 				if err := s.saveMediaCheckpoint(task, checkpoint, "download"); err != nil {
 					return nil, err
 				}
-				config, _, err = s.resolveVideoReceiptConfig(ctx, config, task.ProviderRequestID)
+				receiptTask := *task
+				if checkpoint.Mode == "video" && receiptTask.ProviderRequestID == "" {
+					// The provider may have recorded its handle after the worker
+					// took its initial task snapshot, just before media delivery.
+					latest, err := s.repo.TaskForUser(task.UserID, task.ID)
+					if err != nil {
+						return nil, &mediaRecoveryError{stage: "download", cause: err}
+					}
+					if latest.RouteRun != task.RouteRun || latest.BillingOrderID != task.BillingOrderID || latest.ProjectID != task.ProjectID {
+						return nil, &mediaRecoveryError{stage: "download", cause: failedPrecondition("原视频任务或计费订单已变化")}
+					}
+					d, err := s.videoChainAttemptDiagnostic(latest)
+					if err != nil {
+						return nil, &mediaRecoveryError{stage: "download", cause: err}
+					}
+					receiptTask.ProviderRequestID = d.originalRequestID
+				}
+				config, _, err = s.resolveVideoReceiptConfig(withProviderAnalytics(ctx, s, receiptTask), config, receiptTask.ProviderRequestID)
 				if err != nil {
 					return nil, &mediaRecoveryError{stage: "download", cause: err}
 				}

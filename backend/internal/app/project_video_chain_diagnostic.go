@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/repository"
@@ -27,6 +28,7 @@ type videoChainAttemptDiagnostic struct {
 	CanQueryProvider  bool   `json:"canQueryProvider"`
 	CanRecoverMedia   bool   `json:"canRecoverMedia"`
 	originalRequestID string
+	originalStart     time.Time
 }
 
 func (s *Service) videoChainAttemptDiagnostic(child *model.Task) (videoChainAttemptDiagnostic, error) {
@@ -61,9 +63,23 @@ func videoChainDiagnosticFromRepo(repo *repository.Repository, child *model.Task
 	if len(attempts) > 0 {
 		attempt = attempts[len(attempts)-1]
 		d.AttemptID = attempt.ID
+		if attempt.ChannelID != "" && d.ChannelID != "" && attempt.ChannelID != d.ChannelID {
+			return d, failedPrecondition("本次尝试与原视频任务的渠道不一致")
+		}
 		d.ChannelID = firstNonEmpty(attempt.ChannelID, d.ChannelID)
 	}
+	d.originalStart = attempt.StartedAt
+	if d.originalStart.IsZero() {
+		if child.StartedAt != nil {
+			d.originalStart = *child.StartedAt
+		} else if child.RouteRun <= 1 {
+			d.originalStart = child.CreatedAt
+		}
+	}
 	providerID := firstNonEmpty(child.ProviderRequestID, attempt.ProviderRequestID)
+	if child.ProviderRequestID != "" && attempt.ProviderRequestID != "" && child.ProviderRequestID != attempt.ProviderRequestID {
+		return d, failedPrecondition("原任务与本次路由尝试的受理号不一致，请核对原回执")
+	}
 	if child.BillingOrderID != "" {
 		order, err := repo.BillingOrder(child.BillingOrderID)
 		if err != nil {
@@ -72,14 +88,21 @@ func videoChainDiagnosticFromRepo(repo *repository.Repository, child *model.Task
 		if order.UserID != child.UserID || order.TaskID != child.ID {
 			return d, BadAuthRequest("原请求与计费订单归属不一致")
 		}
+		if providerID != "" && order.ProviderRequestID != "" && providerID != order.ProviderRequestID {
+			return d, failedPrecondition("原任务与计费订单的受理号不一致，请核对原回执")
+		}
 		d.BillingStatus = string(order.Status)
+		if d.ChannelID != "" && order.ChannelID != "" && d.ChannelID != order.ChannelID {
+			return d, failedPrecondition("计费订单与原视频任务的渠道不一致")
+		}
 		d.ChannelID = firstNonEmpty(d.ChannelID, order.ChannelID)
 		providerID = firstNonEmpty(providerID, order.ProviderRequestID)
 	}
 	// Earlier retries reused the same local child ID. A receipt from an earlier
 	// generation is not evidence about this attempt.
-	if providerID == "" && child.Status == model.TaskStatusFailed && (child.RouteRun <= 1 || !attempt.StartedAt.IsZero() || child.BillingOrderID != "") {
-		id, err := repo.VideoChainProviderRequestID(child.UserID, child.ID, child.BillingOrderID, attempt.StartedAt)
+	reconcileRunning := child.Status == model.TaskStatusRunning && (child.Attempts > 1 || child.PollStage == "poll" || child.MediaRecoveryJSON != "")
+	if providerID == "" && (child.Status == model.TaskStatusFailed || reconcileRunning) && (child.RouteRun <= 1 || !d.originalStart.IsZero()) {
+		id, err := repo.VideoChainProviderRequestID(child.UserID, child.ID, child.BillingOrderID, d.originalStart, d.ChannelID)
 		if err != nil {
 			return d, err
 		}
@@ -168,9 +191,8 @@ func (d *videoChainAttemptDiagnostic) classify(child *model.Task, attempt model.
 		}
 	}
 	reconciledBilling := d.BillingStatus == "none" || d.BillingStatus == "refunded" || d.BillingStatus == "settled"
-	// Only the original create's explicit no-route receipt is evidence of
-	// rejection. Local refunds alone and HTTP 503 alone prove no such thing.
-	rejected := d.SubmissionOutcome == "not_submitted" || (d.Category == "route_unavailable" && d.SubmissionOutcome == "unknown")
+	// Error text can classify an incident but cannot prove the absence of a billable job.
+	rejected := d.SubmissionOutcome == "not_submitted"
 	d.SafeToResubmit = child.Status == model.TaskStatusFailed && reconciledBilling &&
 		d.Category != "result_persistence" && (rejected || terminalQuery)
 }

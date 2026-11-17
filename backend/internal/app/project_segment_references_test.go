@@ -186,6 +186,11 @@ func TestSegmentReadsPinnedVersionForOlderAssetIDs(t *testing.T) {
 	if err := db.Model(&model.Asset{}).Where("id = ?", assetID).Update("primary_version_id", assetID+"-v2").Error; err != nil {
 		t.Fatal(err)
 	}
+	// A separately attached version must not shadow the segment's saved slot.
+	extra := model.ShotAssetReference{ID: "newer-manual", ShotID: shot.ID, AssetVersionID: assetID + "-v2", Role: "reference", Status: "linked"}
+	if err := db.Create(&extra).Error; err != nil {
+		t.Fatal(err)
+	}
 	views, err := s.DramaSegments(p.UserID, p.ID, u.ID)
 	if err != nil {
 		t.Fatal(err)

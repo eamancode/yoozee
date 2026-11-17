@@ -2,21 +2,43 @@ package repository
 
 import (
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"yingce/backend/internal/model"
 )
 
 // Task admission and deletion both fence on the owned project before reading its shots.
 // The no-op update also obtains SQLite's write lock before any snapshot reads.
 func (r *Repository) LockActiveStoryboardProject(userID, projectID string) (*model.Project, error) {
-	result := r.db.Model(&model.Project{}).Where("id = ? AND user_id = ?", projectID, userID).
-		UpdateColumn("updated_at", gorm.Expr("updated_at"))
-	if result.Error != nil {
-		return nil, result.Error
-	}
-	if result.RowsAffected != 1 {
-		return nil, gorm.ErrRecordNotFound
+	if err := lockStoryboardProject(r.db.Where("user_id = ?", userID), projectID); err != nil {
+		return nil, err
 	}
 	return r.ProjectForUser(userID, projectID)
+}
+
+func lockStoryboardProject(tx *gorm.DB, projectID string) error {
+	result := tx.Model(&model.Project{}).Where("id = ?", projectID).
+		UpdateColumn("updated_at", gorm.Expr("updated_at"))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// Recheck the episode inside the writing transaction. A shot or document
+// prepared before a concurrent deletion must never recreate its children.
+func lockStoryboardUnit(tx *gorm.DB, projectID, unitID string) error {
+	if unitID == "" {
+		return nil // project-level shots, documents and links are supported
+	}
+	if err := lockStoryboardProject(tx, projectID); err != nil {
+		return err
+	}
+	var unit model.ProjectUnit
+	return tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").
+		Where("project_id = ? AND id = ?", projectID, unitID).Take(&unit).Error
 }
 
 func (r *Repository) ShotArtifactIDs(projectID, shotID string) ([]string, error) {

@@ -188,9 +188,7 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 	if _, err = ValidateOutboundURL(url); err != nil {
 		return "", "", err
 	}
-	// 结果地址可能落在渠道的另一个域名（同一台网关，如 api.lecapi.net 与 api.paipu.net），
-	// 这类地址同样需要渠道鉴权，否则上游按未授权拒绝下载。
-	if providerHostRelated(config.BaseURL, url) {
+	if sameProviderOrigin(config.BaseURL, url) {
 		applyProviderAuth(req, config)
 		ApplyOutboundHeaders(req, config.Headers)
 	}
@@ -207,7 +205,9 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 		}
 	}
 	// 客户端总时限与上下文一致；真正决定何时放弃的是停滞看门狗。
-	response, err := OutboundHTTPClientWithProxy(mediaDownloadMaxDuration, proxyURL).Do(req)
+	client := OutboundHTTPClientWithProxy(mediaDownloadMaxDuration, proxyURL)
+	isolateDownloadRedirects(client)
+	response, err := client.Do(req)
 	if err != nil {
 		return "", "", mediaDownloadError(downloadCtx, err)
 	}
@@ -217,7 +217,7 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 		// 火山 CDN（doubao）按客户端指纹拒绝 Go 的 HTTP 栈：同一台机器上 curl/wget 能拿到 200，
 		// Go 无论 HTTP/1.1 还是 HTTP/2 都是 403 ACCESS DENIED。镜像自带 GNU wget，用它兜底。
 		if statusCode == http.StatusForbidden || statusCode == http.StatusUnauthorized {
-			if name, mimeType, fallbackErr := s.downloadTaskMediaWithWget(downloadCtx, url, mode, limit); fallbackErr == nil {
+			if name, mimeType, fallbackErr := s.downloadTaskMediaWithWget(downloadCtx, response.Request.URL.String(), mode, limit); fallbackErr == nil {
 				err = nil
 				return name, mimeType, nil
 			}
@@ -281,7 +281,9 @@ func (s *Service) downloadTaskMediaWithWget(ctx context.Context, url, mode strin
 	if lookupErr != nil {
 		return "", "", lookupErr
 	}
-	cmd := exec.CommandContext(ctx, wget, "-q", "--tries=1", "--timeout=120", "-O", "-", url)
+	// Retry only the final URL already validated by the Go client, without
+	// inheriting local credentials, cookies or custom headers.
+	cmd := exec.CommandContext(ctx, wget, "--no-config", "--no-netrc", "--no-cookies", "--max-redirect=0", "-q", "--tries=1", "--timeout=120", "-O", "-", "--", url)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", "", err

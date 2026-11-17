@@ -76,7 +76,9 @@ export function VideoChainPanel({
     const chain = existing?.status === "running" || existing?.status === "queued" ? existing : preview || existing;
     const failed = existing?.status === "failed" && existing.steps.some((step) => step.shotId === shotId) ? existing : undefined;
     const originalStep = failed?.steps.find((step) => step.status !== "succeeded");
-    const originalPending = Boolean(originalStep?.taskId && originalStep.diagnostic?.safeToResubmit === false && originalStep.diagnostic.terminalStatus !== "succeeded");
+    const originalDiagnostic = originalStep?.diagnostic;
+    const originalPending = Boolean(originalStep?.taskId && originalDiagnostic?.terminalStatus !== "succeeded" &&
+        (originalDiagnostic?.submissionOutcome === "unknown" || originalDiagnostic?.safeToResubmit === false));
     const reuseOnly = Boolean(failed?.steps.length && failed.steps.every((step) => step.status === "succeeded" || step.diagnostic?.terminalStatus === "succeeded"));
     const active = chain?.status === "queued" || chain?.status === "running";
     const referenceAttachments = chain?.steps.map((step) => step.frameAssetId || "").join(",") || "";
@@ -290,7 +292,7 @@ export function VideoChainPanel({
                                         ) : null}
                                         {step.taskId ? <p className="text-xs text-foreground/65">原任务 {step.taskId}</p> : null}
                                         {step.diagnostic?.quoteId ? <p className="break-all text-xs text-foreground/65">原报价 {step.diagnostic.quoteId}</p> : null}
-                                        {step.diagnostic?.safeToResubmit === false && step.diagnostic.terminalStatus === "failed" ? (
+                                        {step.diagnostic && (step.diagnostic.safeToResubmit === false || step.diagnostic.submissionOutcome === "unknown") && step.diagnostic.terminalStatus !== "succeeded" ? (
                                             <p>{step.diagnostic.canRecoverMedia ? "可恢复已有视频的保存。" : step.diagnostic.canQueryProvider ? "先查询原请求的上游终态与结算，再为剩余步骤报价。" : "原请求尚未确认可重发。请按原任务标识核对渠道回执及结算。"}</p>
                                         ) : null}
                                         {step.taskId ? <Button size="small" loading={busy} onClick={() => void queryOriginal(step)}>查询原请求与结算</Button> : null}
@@ -351,7 +353,7 @@ export function VideoChainPanel({
                         {reuseOnly ? "预览可复用的原视频" : failed ? "从失败步骤重新报价" : "预览当前场景与费用"}
                     </Button>
                 ) : null}
-                {chain?.status === "preview" && request.current && !chains.isError ? (
+                {chain?.status === "preview" && request.current && !chains.isError && !originalPending ? (
                     <Button type="primary" disabled={busy} loading={busy} onClick={() => void start()}>
                         {reuseOnly ? "确认复用原视频" : request.current.resumeChainId ? "确认报价并从失败段继续" : "开始连续生成"}
                     </Button>

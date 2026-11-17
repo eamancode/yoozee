@@ -301,7 +301,7 @@ func (s *Service) CreateProjectVideoChain(userID, projectID string, req ProjectV
 	if err == nil {
 		saved, err = s.repo.CreateProjectVideoChain(&task, policy.Task.ActiveTaskLimit, *state.WhiteModelStoryboardEnabled, func(tx *repository.Repository) error {
 			if !req.PrepareOnly {
-				if err := tx.ValidateProjectVideoRouteRevision(projectID, state.RouteRevision); err != nil {
+				if err := s.checkVideoChainQuoteRevision(tx, userID, projectID, state); err != nil {
 					return err
 				}
 			}

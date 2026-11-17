@@ -238,7 +238,9 @@ export function StageVideo({
                                                 重新出
                                             </Button>
                                         ) : step?.state === "paused" ? (
-                                            <Button size="small" disabled={videoRead !== "ready"} onClick={() => onGenerate(segment.shotId)}>查看前序失败</Button>
+                                            <Button size="small" disabled={videoRead !== "ready"} onClick={() => onGenerate(segment.shotId)}>
+                                                查看前序失败
+                                            </Button>
                                         ) : active && step ? (
                                             <Button size="small" loading={stoppingChainId === step.chainId} onClick={() => onStopChain(step.chainId)}>
                                                 停止
@@ -259,9 +261,7 @@ export function StageVideo({
                                         {chip.text}
                                     </span>
                                     <span className="drama-flow-muted">{step?.step.model ? `${data.videoRouting.route ? "已有任务 · " : ""}${models.nameOf(step.step.model, "").text}` : videoModelName.text}</span>
-                                    {data.videoRouting.route && !active && step?.step.model && step.step.model !== videoModel && videoModel ? (
-                                        <span className="drama-flow-muted">下次报价 · {videoModelName.text}</span>
-                                    ) : null}
+                                    {data.videoRouting.route && !active && step?.step.model && step.step.model !== videoModel && videoModel ? <span className="drama-flow-muted">下次报价 · {videoModelName.text}</span> : null}
                                     {step ? <span className="drama-flow-muted">生成 {step.step.generationSeconds} 秒档</span> : null}
                                     <span className="drama-flow-muted">
                                         候选 {readValue(workspaceRead, takes.length)}
@@ -383,9 +383,12 @@ function VideoPane({
                                 const voices = compileQuery.data?.voiceBindings?.filter((item) => item.tag === file.tag) || [];
                                 const titles = voices.map((item) => references.find((ref) => ref.assetVersionId === item.versionId)?.asset?.title).filter(Boolean);
                                 const sample = voices[0]?.sampleResourceId || (asset && reference ? projectAssetVoiceSampleResourceId(asset, reference) : "");
-                                return <span key={file.tag} title={file.file}>{file.tag} · {titles.join("、") || asset?.title || "声音参考"}
-                                    {sample ? <audio className="h-8 max-w-full" controls preload="none" aria-label={`试听 ${file.tag}`} src={resourceFileUrl(sample)} /> : null}
-                                </span>;
+                                return (
+                                    <span key={file.tag} title={file.file}>
+                                        {file.tag} · {titles.join("、") || asset?.title || "声音参考"}
+                                        {sample ? <audio className="h-8 max-w-full" controls preload="none" aria-label={`试听 ${file.tag}`} src={resourceFileUrl(sample)} /> : null}
+                                    </span>
+                                );
                             }
                             const preview = asset ? projectAssetReferenceImage(asset, reference)?.url : "";
                             return (

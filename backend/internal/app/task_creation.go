@@ -26,6 +26,9 @@ type taskAdmission struct {
 }
 
 func storyboardTaskAdmissionError(err error) error {
+	if errors.Is(err, repository.ErrStoryboardTaskUnitGone) {
+		return failedPrecondition("本次任务使用的剧集、章节或关联流程步骤已删除，请刷新列表后重新选择")
+	}
 	if errors.Is(err, repository.ErrProjectUnitShotsChanged) {
 		return failedPrecondition("本次任务使用的分镜单元已删除或已变更，请刷新分镜后重新预览")
 	}
@@ -277,6 +280,9 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		default:
 			return nil, BadAuthRequest("Agent 暂不支持当前模型计费方式")
 		}
+	}
+	if err := s.stampVideoReceiptDestination(&task, normalizedInput); err != nil {
+		return nil, err
 	}
 	if req.creationPrepare != nil {
 		encoded, encodeErr := json.Marshal(normalizedInput)

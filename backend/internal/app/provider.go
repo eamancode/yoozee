@@ -19,7 +19,8 @@ import (
 var sseFrameBoundaryPattern = regexp.MustCompile(`\r?\n\r?\n`)
 
 type canvasGenerationInput struct {
-	authorizeCreate func(context.Context) error
+	authorizeCreate   func(context.Context) error
+	ProjectVideoChain json.RawMessage `json:"_projectVideoChain,omitempty"`
 
 	Mode             string                 `json:"mode"`
 	Prompt           string                 `json:"prompt"`
@@ -172,6 +173,15 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 		return nil, err
 	}
 	input.Config = config
+	if input.Mode == "video" && len(input.ProjectVideoChain) > 0 && resumedProviderRequestID(ctx) == "" {
+		var confirmed map[string]any
+		if err := json.Unmarshal([]byte(rawInput), &confirmed); err != nil {
+			return nil, err
+		}
+		input.authorizeCreate = func(ctx context.Context) error {
+			return s.checkConfirmedVideoRoute(ctx, s.repo.WithContext(ctx), userID, taskProjectID, confirmed)
+		}
+	}
 	if input.Mode == "video" && config.resolvedChannelModelID != "" && resumedProviderRequestID(ctx) == "" {
 		if err := s.checkSLLVideoInput(ctx, config.resolvedChannelModelID, input); err != nil {
 			return nil, err
@@ -222,6 +232,11 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 			if err := s.hydrateGenerationMedia(userID, &input, providerMediaHydrationPolicy{}); err != nil {
 				return nil, err
 			}
+			if input.authorizeCreate != nil {
+				if err := input.authorizeCreate(ctx); err != nil {
+					return nil, err
+				}
+			}
 		}
 		return s.runWorkflowProviderTask(ctx, input)
 	}
@@ -264,12 +279,18 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 			return nil, err
 		}
 	}
-	if input.Mode == "video" && input.VideoCapability != nil {
+	if input.Mode == "video" && input.VideoCapability != nil && !receiptOnly {
 		if err := validateVideoTask(input.VideoCapability, input); err != nil {
 			return nil, err
 		}
 		if config.resolvedChannelModelID != "" && input.VideoCapability.SLLWire != nil {
+			checkProject := input.authorizeCreate
 			input.authorizeCreate = func(ctx context.Context) error {
+				if checkProject != nil {
+					if err := checkProject(ctx); err != nil {
+						return err
+					}
+				}
 				return s.checkSLLVideoInput(ctx, config.resolvedChannelModelID, input)
 			}
 		}

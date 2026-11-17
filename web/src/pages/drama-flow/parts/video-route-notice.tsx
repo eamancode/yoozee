@@ -11,7 +11,7 @@ export function VideoRouteNotice({ routing }: { routing: FlowData["videoRouting"
     const { route, issue, saveError, retry } = routing;
     const name = (model: string) => resolveModelName(config.channels, model) || modelOptionName(model);
     const sameName = route && route.fromModel !== route.model && name(route.fromModel) === name(route.model);
-    const label = (model: string) => sameName ? `${name(model)}（${model}）` : name(model);
+    const label = (model: string) => (sameName ? `${name(model)}（${model}）` : name(model));
     return (
         <>
             {route ? (
@@ -22,13 +22,19 @@ export function VideoRouteNotice({ routing }: { routing: FlowData["videoRouting"
                         {route.status === "auto" ? "新线路" : "当前线路"} {label(route.model)}
                     </p>
                     <p>{route.reason}</p>
-                    <p>成功率 {route.successRate == null ? "未知" : `${route.successRate}%`} · 采样时间 {route.sampledAt ? new Date(route.sampledAt).toLocaleString() : "暂无"}</p>
+                    <p>
+                        成功率 {route.successRate == null ? "未知" : `${route.successRate}%`} · 采样时间 {route.sampledAt ? new Date(route.sampledAt).toLocaleString() : "暂无"}
+                    </p>
                 </div>
             ) : null}
             {issue || saveError ? (
                 <div role="status" className="drama-flow-note w-full" data-tone="warn">
                     {issue || `项目视频线路保存失败。 ${saveError}`}
-                    {retry ? <Button size="small" type="link" onClick={retry}>再读一次</Button> : null}
+                    {retry ? (
+                        <Button size="small" type="link" onClick={retry}>
+                            再读一次
+                        </Button>
+                    ) : null}
                 </div>
             ) : null}
         </>

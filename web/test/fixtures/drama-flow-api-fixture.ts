@@ -474,7 +474,9 @@ export function createDramaFlowFixture(
             ];
             if (issues.length) return capabilityReject(issues);
             state.previews += 1;
-            const steps = state.segments.filter((segment) => segment.shotId === input?.shotId || !input?.shotId).map((segment) => chainStep(segment.shotId, segment.spec.id, "waiting", { phase: "waiting", model: input.model?.model || FIXTURE_VIDEO_MODEL, quote: { amountMicrocredits: 1_500_000 } }));
+            const steps = state.segments
+                .filter((segment) => segment.shotId === input?.shotId || !input?.shotId)
+                .map((segment) => chainStep(segment.shotId, segment.spec.id, "waiting", { phase: "waiting", model: input.model?.model || FIXTURE_VIDEO_MODEL, quote: { amountMicrocredits: 1_500_000 } }));
             return ok({ chain: { ...chainOf("", "preview", steps), previewHash: `preview-${state.previews}`, totalMicrocredits: 1_500_000 * steps.length } });
         }
         // 编译提示词只读不扣费，按当前段给一个确定的结果。

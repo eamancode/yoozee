@@ -9,7 +9,14 @@ export type RailEpisode = { id: string; title: string; summary: string; warn: bo
 const RAIL_VIEW_KEY = "drama-flow:rail-view";
 
 /** 左侧分集列表：每集写段数、已出、在出、失败；可搜索，可切矩阵一屏看全剧。 */
-export function EpisodeRail({ projectId, episodes, activeId, onSelect, readState, onRetry }: {
+export function EpisodeRail({
+    projectId,
+    episodes,
+    activeId,
+    onSelect,
+    readState,
+    onRetry,
+}: {
     projectId: string;
     episodes: RailEpisode[];
     activeId: string;
@@ -39,16 +46,12 @@ export function EpisodeRail({ projectId, episodes, activeId, onSelect, readState
         setDialog(undefined);
     };
     const deleteButton = (episode: RailEpisode) => (
-        <Button type="text" size="small" icon={<Trash2 className="size-3.5" />}
-            title={`删除此剧集：${episode.title}`} aria-label={`删除此剧集：${episode.title}`}
-            onClick={() => setDialog({ kind: "delete", id: episode.id, title: episode.title })} />
+        <Button type="text" size="small" icon={<Trash2 className="size-3.5" />} title={`删除此剧集：${episode.title}`} aria-label={`删除此剧集：${episode.title}`} onClick={() => setDialog({ kind: "delete", id: episode.id, title: episode.title })} />
     );
     return (
         <aside className="drama-flow-rail" aria-label="剧集">
             <div className="drama-flow-rail-head">
-                <span>
-                    剧集{readState === "ready" || episodes.length ? ` · ${episodes.length}` : ""}
-                </span>
+                <span>剧集{readState === "ready" || episodes.length ? ` · ${episodes.length}` : ""}</span>
                 <div className="drama-flow-rail-views">
                     <button type="button" aria-label="列表" aria-pressed={view === "list"} onClick={() => switchView("list")}>
                         <List className="size-3.5" />
@@ -94,9 +97,15 @@ export function EpisodeRail({ projectId, episodes, activeId, onSelect, readState
                     </div>
                 ))
             )}
-            {readState === "error" ? <Button size="small" onClick={onRetry}>重新读取剧集</Button> : readState === "loading" ? (
+            {readState === "error" ? (
+                <Button size="small" onClick={onRetry}>
+                    重新读取剧集
+                </Button>
+            ) : readState === "loading" ? (
                 <p className="drama-flow-rail-none">正在读取剧集…</p>
-            ) : !shown.length ? <p className="drama-flow-rail-none">{episodes.length ? "没有符合的剧集" : "还没有剧集"}</p> : null}
+            ) : !shown.length ? (
+                <p className="drama-flow-rail-none">{episodes.length ? "没有符合的剧集" : "还没有剧集"}</p>
+            ) : null}
             {dialog ? <EpisodeDialog projectId={projectId} target={dialog} onClose={() => setDialog(undefined)} onSaved={saved} /> : null}
         </aside>
     );

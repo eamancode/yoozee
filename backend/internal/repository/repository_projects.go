@@ -255,6 +255,9 @@ func (r *Repository) ImportProjectUnits(projectID string, units []model.ProjectU
 func (r *Repository) ReorderProjectUnits(projectID string, unitIDs []string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
+		if err := New(tx).BumpProjectRevision(projectID); err != nil {
+			return err
+		}
 		for position, unitID := range unitIDs {
 			result := tx.Model(&model.ProjectUnit{}).Where("id = ? AND project_id = ?", unitID, projectID).Updates(map[string]any{"position": position, "updated_at": now})
 			if result.Error != nil {
@@ -264,7 +267,7 @@ func (r *Repository) ReorderProjectUnits(projectID string, unitIDs []string) err
 				return gorm.ErrRecordNotFound
 			}
 		}
-		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": now}).Error
+		return nil
 	})
 }
 
@@ -278,6 +281,9 @@ func (r *Repository) ProjectUnit(projectID string, id string) (*model.ProjectUni
 
 func (r *Repository) UpdateProjectUnit(unit *model.ProjectUnit, invalidateWorkflow bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := New(tx).BumpProjectRevision(unit.ProjectID); err != nil {
+			return err
+		}
 		result := tx.Model(&model.ProjectUnit{}).Where("id = ? AND project_id = ?", unit.ID, unit.ProjectID).Updates(map[string]any{
 			"parent_id": unit.ParentID, "title": unit.Title, "source_text": unit.SourceText, "word_count": unit.WordCount, "status": unit.Status, "position": unit.Position, "updated_at": unit.UpdatedAt,
 		})
@@ -292,16 +298,20 @@ func (r *Repository) UpdateProjectUnit(unit *model.ProjectUnit, invalidateWorkfl
 				return err
 			}
 		}
-		return tx.Model(&model.Project{}).Where("id = ?", unit.ProjectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": unit.UpdatedAt}).Error
+		return nil
 	})
 }
 
-func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
+func (r *Repository) DeleteProjectUnit(userID, projectID, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := (&Repository{db: tx}).BumpProjectRevision(projectID); err != nil {
+		within := New(tx)
+		if _, err := within.LockActiveStoryboardProject(userID, projectID); err != nil {
 			return err
 		}
-		if err := deleteProjectUnitTx(tx, projectID, id); err != nil {
+		if err := deleteProjectUnitTx(tx, userID, projectID, id, ""); err != nil {
+			return err
+		}
+		if err := within.BumpProjectRevision(projectID); err != nil {
 			return err
 		}
 		// 旧工作台可能留下跳号和相同位置；沿用列表的完整排序，避免后续原文或剧集互换。
@@ -316,9 +326,12 @@ func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
 
 // ApplyDramaEpisodes 是剧本优化的写库（同一事务）：删掉被整体替换的剧集（连同镜头、镜头表等，与删除单元同一套），
 // 新建剧集、原地改写调节奏的剧集，再按 order 重排整个项目的单元。
-func (r *Repository) ApplyDramaEpisodes(projectID string, deleteIDs []string, create []model.ProjectUnit, update []model.ProjectUnit, order []string, documents []model.ProjectOntologyDocument) error {
+func (r *Repository) ApplyDramaEpisodes(userID, projectID, taskID string, deleteIDs []string, create []model.ProjectUnit, update []model.ProjectUnit, order []string, documents []model.ProjectOntologyDocument) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repository{db: tx}
+		if _, err := txRepo.LockActiveStoryboardProject(userID, projectID); err != nil {
+			return err
+		}
 		writtenCount := 0
 		for i := range documents {
 			doc := &documents[i]
@@ -337,7 +350,7 @@ func (r *Repository) ApplyDramaEpisodes(projectID string, deleteIDs []string, cr
 			return errors.New("本次剧本优化的文档记录不完整，请检查剧集写入状态")
 		}
 		for _, id := range deleteIDs {
-			if err := deleteProjectUnitTx(tx, projectID, id); err != nil {
+			if err := deleteProjectUnitTx(tx, userID, projectID, id, taskID); err != nil {
 				return fmt.Errorf("删除被替换的剧集 %s：%w", id, err)
 			}
 		}
@@ -383,8 +396,44 @@ func (r *Repository) DramaShotlistUnitIDs(projectID string) ([]string, error) {
 	return ids, err
 }
 
+// A busy in-process director mutex must not hide the actual blocking tasks.
+// Release all DB locks before waiting for that mutex, then recheck during deletion.
+func (r *Repository) CheckProjectUnitDeletion(userID, projectID, id string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if _, err := New(tx).LockActiveStoryboardProject(userID, projectID); err != nil {
+			return err
+		}
+		return guardProjectUnitDeletion(tx, userID, projectID, id, "")
+	})
+}
+
+func guardProjectUnitDeletion(tx *gorm.DB, userID, projectID, id, applyingTaskID string) error {
+	if id == "" {
+		return gorm.ErrRecordNotFound
+	}
+	if err := lockStoryboardUnit(tx, projectID, id); err != nil {
+		return err
+	}
+	var lockedShots []string
+	if err := tx.Model(&model.Shot{}).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("project_id = ? AND unit_id = ?", projectID, id).Order("id").Pluck("id", &lockedShots).Error; err != nil {
+		return err
+	}
+	blockers, err := New(tx).activeStoryboardTasks(userID, projectID, id, lockedShots, true, applyingTaskID)
+	if err != nil {
+		return err
+	}
+	if len(blockers) != 0 {
+		return &EpisodeActiveTasksError{UnitID: id, Tasks: blockers}
+	}
+	return nil
+}
+
 // deleteProjectUnitTx 删除一个单元和挂在它上面的画布关联、镜头、产物、工作流、候选资产与镜头表（不动项目 revision）。
-func deleteProjectUnitTx(tx *gorm.DB, projectID string, id string) error {
+func deleteProjectUnitTx(tx *gorm.DB, userID, projectID, id, applyingTaskID string) error {
+	if err := guardProjectUnitDeletion(tx, userID, projectID, id, applyingTaskID); err != nil {
+		return err
+	}
 	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProjectOntologyDocument{}).Error; err != nil {
 		return err
 	}
@@ -392,13 +441,14 @@ func deleteProjectUnitTx(tx *gorm.DB, projectID string, id string) error {
 		return err
 	}
 	shotIDs := tx.Model(&model.Shot{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, id)
-	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProductionTaskLink{}).Error; err != nil {
+	inEpisode := "project_id = ? AND (unit_id = ? OR shot_id IN (?))"
+	if err := tx.Where(inEpisode, projectID, id, shotIDs).Delete(&model.ProductionTaskLink{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ShotArtifact{}).Error; err != nil {
+	if err := tx.Where(inEpisode, projectID, id, shotIDs).Delete(&model.ShotArtifact{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ShotEvidence{}).Error; err != nil {
+	if err := tx.Where(inEpisode, projectID, id, shotIDs).Delete(&model.ShotEvidence{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotRevision{}).Error; err != nil {

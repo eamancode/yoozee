@@ -110,14 +110,17 @@ export default function DramaFlowDetailPage() {
     const requestedId = search.get("ep");
     useEffect(() => {
         if (!requestedId || requestedId === unitId || !data.unitsQuery.isSuccess || data.unitsQuery.isFetching) return;
-        setSearch((current) => {
-            if (current.get("ep") !== requestedId) return current;
-            const next = new URLSearchParams(current);
-            if (unitId) next.set("ep", unitId);
-            else next.delete("ep");
-            next.delete("item");
-            return next;
-        }, { replace: true });
+        setSearch(
+            (current) => {
+                if (current.get("ep") !== requestedId) return current;
+                const next = new URLSearchParams(current);
+                if (unitId) next.set("ep", unitId);
+                else next.delete("ep");
+                next.delete("item");
+                return next;
+            },
+            { replace: true },
+        );
     }, [requestedId, unitId, data.unitsQuery.isSuccess, data.unitsQuery.isFetching, setSearch]);
 
     const [ignored, setIgnored] = useState<string[]>(() => readIgnoredSuggestions(userId, projectId));
@@ -163,7 +166,23 @@ export default function DramaFlowDetailPage() {
             counts: progressRead ? data.episodeCounts : undefined,
             videos: data.videosRead === "ready" ? { failed: failedSteps.length, running: runningVideos } : undefined,
         });
-    }, [assets, data.assetsQuery.data, data.assetsQuery.isError, data.unitsQuery.data, data.unitsQuery.isError, rail.units.length, data.bibleQuery.isError, pipelineQuery.isError, data.episodeCounts, bible, project?.bibleJson, progress, data.videosRead, failedSteps.length, runningVideos]);
+    }, [
+        assets,
+        data.assetsQuery.data,
+        data.assetsQuery.isError,
+        data.unitsQuery.data,
+        data.unitsQuery.isError,
+        rail.units.length,
+        data.bibleQuery.isError,
+        pipelineQuery.isError,
+        data.episodeCounts,
+        bible,
+        project?.bibleJson,
+        progress,
+        data.videosRead,
+        failedSteps.length,
+        runningVideos,
+    ]);
 
     // 按所选视频模型能力对齐（同步音频、水印、分辨率），只用于新工作流的出片请求，不写回全局偏好。
     const videoConfig = useMemo(() => chainVideoConfig(effectiveConfig, videoModel, { aspectRatio: project?.aspectRatio }), [effectiveConfig, videoModel, project?.aspectRatio]);
@@ -345,7 +364,9 @@ export default function DramaFlowDetailPage() {
                     row && `来源 ${row.sources.length} 处`,
                     row && (row.shots ? `已分镜 ${row.shots} 个镜头` : row.hasShotlist ? "镜头表是草稿" : "还没分镜"),
                     episodeDesigns.isEnabled && episodeDesigns.data && !designed.has(item.id) && "缺本集设计",
-                ].filter(Boolean).join(" · ");
+                ]
+                    .filter(Boolean)
+                    .join(" · ");
                 return { id: item.id, title: item.title || `第 ${index + 1} 集`, summary, warn: mustUnits.has(item.id) };
             }
             if (unread) return { id: item.id, title: item.title || `第 ${index + 1} ${rail.noun}`, summary: pipelineQuery.isError ? "进度没读到" : "正在读进度…", warn: false };
@@ -408,9 +429,15 @@ export default function DramaFlowDetailPage() {
             <StageStrip stages={stages} facts={facts} active={stage} onSelect={(next) => go(next)} />
             <div className="drama-flow-main" data-rail={showRail ? undefined : "off"}>
                 {showRail ? (
-                    <EpisodeRail key={projectId} projectId={projectId} episodes={railEpisodes} activeId={unitId}
-                        readState={queryReadState(data.unitsQuery)} onRetry={() => void data.unitsQuery.refetch()}
-                        onSelect={(id, replace) => go(stage, { ep: id, tab }, replace)} />
+                    <EpisodeRail
+                        key={projectId}
+                        projectId={projectId}
+                        episodes={railEpisodes}
+                        activeId={unitId}
+                        readState={queryReadState(data.unitsQuery)}
+                        onRetry={() => void data.unitsQuery.refetch()}
+                        onSelect={(id, replace) => go(stage, { ep: id, tab }, replace)}
+                    />
                 ) : null}
                 <main className="drama-flow-work">
                     <div className="drama-flow-work-inner">
@@ -426,7 +453,11 @@ export default function DramaFlowDetailPage() {
                         {stage === "look" ? (
                             <StageLook data={data} stage={stageView} tab={tab} selectedId={focusId} retrying={retryingImages} onTab={(next) => setParam("tab", next)} onSelect={(id) => setParam("item", id)} onRetry={(list) => retryImages.mutate(list)} />
                         ) : null}
-                        {needsEpisode ? <div className="drama-flow-empty"><strong>{data.unitsQuery.isError ? "剧集列表没读到" : data.unitsQuery.isLoading ? "正在读取剧集…" : "添加首集后即可开始分镜"}</strong></div> : null}
+                        {needsEpisode ? (
+                            <div className="drama-flow-empty">
+                                <strong>{data.unitsQuery.isError ? "剧集列表没读到" : data.unitsQuery.isLoading ? "正在读取剧集…" : "添加首集后即可开始分镜"}</strong>
+                            </div>
+                        ) : null}
                         {stage === "shots" && unit ? <StageShots key={unitId} data={data} stage={stageView} selectedId={focusId} onSelect={(shotId) => setParam("item", shotId)} /> : null}
                         {stage === "video" && unit ? (
                             <StageVideo
@@ -471,7 +502,13 @@ export default function DramaFlowDetailPage() {
             ) : null}
             {chainTarget?.projectId === projectId ? (
                 <VideoChainPanel
-                    key={JSON.stringify([projectId, chainTarget.unitId, chainTarget.shotId, data.videoRouting.route?.revision, videoModel, project.aspectRatio,
+                    key={JSON.stringify([
+                        projectId,
+                        chainTarget.unitId,
+                        chainTarget.shotId,
+                        data.videoRouting.route?.revision,
+                        videoModel,
+                        project.aspectRatio,
                         data.workspace?.shots.map((shot) => [shot.id, shot.currentRevisionId, shot.durationMs, shot.position]),
                         data.workspace?.shotReferences.map((ref) => [ref.shotId, ref.assetVersionId, ref.role, ref.position, ref.status]),
                         unitSegments.map((item) => [item.shotId, item.durationMs]),
@@ -485,12 +522,22 @@ export default function DramaFlowDetailPage() {
                     onClose={() => setChainTarget(undefined)}
                     onRefresh={refreshVideo}
                     rememberModel={false}
-                    modelPicker={<>
-                        <ModelPicker config={effectiveConfig} capability="video" value={videoModel}
-                            onChange={data.stepModels.video.select} modelDisabledReason={data.stepModels.video.disabledReason}
-                            triggerAriaLabel="更换本次报价的视频模型" showSelectedPrice={false} showPreferenceNotice={false} showOptionPrices />
-                        <VideoRouteNotice routing={data.videoRouting} />
-                    </>}
+                    modelPicker={
+                        <>
+                            <ModelPicker
+                                config={effectiveConfig}
+                                capability="video"
+                                value={videoModel}
+                                onChange={data.stepModels.video.select}
+                                modelDisabledReason={data.stepModels.video.disabledReason}
+                                triggerAriaLabel="更换本次报价的视频模型"
+                                showSelectedPrice={false}
+                                showPreferenceNotice={false}
+                                showOptionPrices
+                            />
+                            <VideoRouteNotice routing={data.videoRouting} />
+                        </>
+                    }
                     onEditShot={(shotId) => {
                         setChainTarget(undefined);
                         go("shots", { ep: chainTarget.unitId, item: shotId });

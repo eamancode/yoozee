@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -257,7 +258,7 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 			referenceWarning = "未使用上一段站位参考：所选模型不支持额外参考图或名额已满"
 		}
 		if usePosition {
-			images = append(images, map[string]any{"id": "pending-position", "role": "reference", "type": "image/png", "mimeType": "image/png"})
+			images = append(images, videoChainPendingPosition())
 			referenceCount = len(images)
 			input["referenceImages"] = images
 			if operation == "text_to_video" {
@@ -333,6 +334,14 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 		}
 		if err != nil {
 			return state, specError(err)
+		}
+		if !req.PrepareOnly && selectedRoute != nil && selectedRoute.Status == "auto" {
+			cost, err := s.projectVideoAutoCost(context.Background(), s.repo, userID, input, selectedRoute)
+			if err != nil {
+				return state, specError(err)
+			}
+			quote.UpstreamCost = cost
+			input["metadata"].(map[string]any)[projectVideoApprovedCostKey] = cost.AmountMicros
 		}
 		// The placeholder participates only in capability/quote checks. Runtime
 		// adds the actual predecessor frame and compiles its real reference tag.

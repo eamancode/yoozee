@@ -53,3 +53,12 @@ func (r *Repository) ValidateProjectVideoRouteRevision(projectID string, expecte
 	}
 	return ErrTaskStateConflict
 }
+
+// Group edits replace the binding rows after updating the group; hold shared
+// locks on the user and group until the same transaction reserves the credits.
+func (r *Repository) LockVideoQuoteGroup(userID string) error {
+	var row struct{ ID string }
+	return r.db.Model(&model.User{}).Select("users.id").
+		Joins("JOIN user_groups ON user_groups.code = COALESCE(NULLIF(LOWER(TRIM(users.user_group)), ''), ?)", model.DefaultUserGroupCode).
+		Where("users.id = ?", userID).Clauses(clause.Locking{Strength: "SHARE"}).Take(&row).Error
+}

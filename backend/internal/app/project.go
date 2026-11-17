@@ -3,10 +3,13 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"yingce/backend/internal/drama"
+	"yingce/backend/internal/kernel"
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/repository"
 
@@ -461,7 +464,10 @@ func (s *Service) DeleteProject(userID string, id string) error {
 }
 
 func (s *Service) activeProjectForUser(userID string, projectID string) (*model.Project, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	return requireActiveProject(s.repo.ProjectForUser(userID, projectID))
+}
+
+func requireActiveProject(project *model.Project, err error) (*model.Project, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -553,10 +559,40 @@ func (s *Service) ReorderProjectUnits(userID string, projectID string, req Reord
 }
 
 func (s *Service) DeleteProjectUnit(userID string, projectID string, unitID string) error {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	unit, err := s.GetProjectUnit(userID, projectID, unitID)
+	if err != nil {
 		return err
 	}
-	return s.repo.DeleteProjectUnit(projectID, unitID)
+	mu := ontologyEpisodeMutex(unit.ID)
+	if !mu.TryLock() {
+		if err := s.repo.CheckProjectUnitDeletion(userID, projectID, unit.ID); err != nil {
+			return episodeMutationError(err)
+		}
+		mu.Lock()
+	}
+	defer mu.Unlock()
+	return episodeMutationError(s.repo.DeleteProjectUnit(userID, projectID, unit.ID))
+}
+
+func episodeMutationError(err error) error {
+	var active *repository.EpisodeActiveTasksError
+	if !errors.As(err, &active) {
+		return err
+	}
+	labels := make([]string, 0, len(active.Tasks))
+	tasks := make([]map[string]string, 0, len(active.Tasks))
+	for _, task := range active.Tasks {
+		status := string(task.Status)
+		tasks = append(tasks, map[string]string{"id": task.ID, "type": task.Type, "status": status})
+		if task.Status == model.TaskStatusFailed {
+			status = task.Stage
+		}
+		labels = append(labels, fmt.Sprintf("%s（%s，%s）", task.ID, task.Type, status))
+	}
+	conflict := NewAppError(http.StatusConflict, "以下任务正在使用本集，请在任务结束或取消后重试："+strings.Join(labels, "、"))
+	conflict.Reason = kernel.ReasonEpisodeActiveTasks
+	conflict.Details = map[string]any{"unitId": active.UnitID, "tasks": tasks}
+	return conflict
 }
 
 func newProjectUnit(projectID string, req CreateProjectUnitRequest, position int) (model.ProjectUnit, error) {
@@ -619,22 +655,10 @@ func (s *Service) UpdateProjectUnit(userID string, projectID string, unitID stri
 }
 
 func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvasUnitRequest) (model.CanvasUnitLink, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
-		return model.CanvasUnitLink{}, err
-	}
 	canvasID := strings.TrimSpace(req.CanvasID)
 	unitID := strings.TrimSpace(req.UnitID)
 	if canvasID == "" || unitID == "" {
 		return model.CanvasUnitLink{}, BadAuthRequest("画布和章节不能为空")
-	}
-	if _, err := s.repo.CanvasProjectForUser(userID, canvasID); err != nil {
-		return model.CanvasUnitLink{}, err
-	}
-	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
-		return model.CanvasUnitLink{}, err
-	}
-	if err := s.repo.AssignCanvasToProject(userID, canvasID, projectID); err != nil {
-		return model.CanvasUnitLink{}, err
 	}
 	role := strings.TrimSpace(req.Role)
 	if role == "" {
@@ -642,10 +666,25 @@ func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvas
 	}
 	now := time.Now()
 	link := model.CanvasUnitLink{ID: newID(), ProjectID: projectID, CanvasID: canvasID, UnitID: unitID, Role: role, CreatedAt: now}
-	if err := s.repo.UpsertCanvasUnitLink(&link); err != nil {
-		return model.CanvasUnitLink{}, err
-	}
-	if err := s.repo.BumpProjectRevision(projectID); err != nil {
+	err := s.repo.Transaction(func(r *repository.Repository) error {
+		if _, err := r.LockActiveStoryboardProject(userID, projectID); err != nil {
+			return err
+		}
+		if _, err := r.CanvasProjectForUser(userID, canvasID); err != nil {
+			return err
+		}
+		if _, err := r.ProjectUnit(projectID, unitID); err != nil {
+			return err
+		}
+		if err := r.AssignCanvasToProject(userID, canvasID, projectID); err != nil {
+			return err
+		}
+		if err := r.UpsertCanvasUnitLink(&link); err != nil {
+			return err
+		}
+		return r.BumpProjectRevision(projectID)
+	})
+	if err != nil {
 		return model.CanvasUnitLink{}, err
 	}
 	return link, nil

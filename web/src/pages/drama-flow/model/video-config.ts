@@ -17,7 +17,7 @@ export function chainVideoConfig(config: AiConfig, model: string, input: { aspec
     if (!profile) return base;
     const booleans = resolveModelVideoBooleanOptions(config, model, {}, { videoGenerateAudio: config.videoGenerateAudio, videoWatermark: config.videoWatermark });
     // 无可用档时保留本段时长，让服务端按本段报出具体能力差异。
-    const seconds = input.contentSeconds !== undefined ? modelVideoSubmissionSeconds(config, model, input.contentSeconds) ?? input.contentSeconds : undefined;
+    const seconds = input.contentSeconds !== undefined ? (modelVideoSubmissionSeconds(config, model, input.contentSeconds) ?? input.contentSeconds) : undefined;
     const resolution = resolveVideoResolutionValue(profile, config.vquality).replace(/p$/i, "");
     return { ...base, ...booleans, ...(resolution ? { vquality: resolution } : {}), ...(seconds !== undefined ? { videoSeconds: String(seconds) } : {}) };
 }

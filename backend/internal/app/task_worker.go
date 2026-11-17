@@ -220,6 +220,22 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 	if err := json.Unmarshal([]byte(decryptedInput), &admissionInput); err != nil {
 		return err
 	}
+	if isVideoTaskType(task.Type) && task.ProviderRequestID == "" && (task.Attempts > 1 || task.PollStage == "poll" || task.BillingOrderID != "") {
+		// Older workers persisted the receipt in the order or attempt before
+		// checkpointing the task. Recover it before the create/parent gates.
+		d, err := s.videoChainAttemptDiagnostic(task)
+		if err != nil {
+			return terminal.markPreparationFailure(task, "原视频回执核对失败", err, true, "")
+		}
+		if d.originalRequestID != "" {
+			if err := s.repo.CheckpointOriginalVideoReceipt(task, d.originalRequestID); err != nil {
+				return err
+			}
+			task.ProviderRequestID = d.originalRequestID
+		} else if task.PollStage == "poll" {
+			return terminal.markPreparationFailure(task, "原视频缺少受理号", routeDispatchUncertainError{"原视频受理号尚未核实，已停止提交"}, true, "")
+		}
+	}
 	if marker, ok := admissionInput[videoChainMetadataKey].(map[string]any); ok && task.ProviderRequestID == "" {
 		parent, err := s.repo.TaskForUser(task.UserID, stringValue(marker["controllerId"]))
 		if err != nil || parent.Status != model.TaskStatusRunning {
@@ -269,8 +285,15 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 	if err != nil {
 		return terminal.markPreparationFailure(task, "路由准备失败", err, isRouteDispatchUncertain(err), "路由准备失败，上游请求未发出")
 	}
-	if err := s.taskBilling().MarkBillingRunning(task.BillingOrderID); err != nil {
-		return terminal.markPreparationFailure(task, "计费准备失败", err, false, "计费准备失败，上游请求未发出")
+	if task.Type == "canvas_video" && admissionInput[videoChainMetadataKey] != nil && task.ProviderRequestID == "" {
+		if err := s.checkConfirmedVideoRoute(ctx, s.repo.WithContext(ctx), task.UserID, task.ProjectID, admissionInput); err != nil {
+			return terminal.markPreparationFailure(task, "项目视频线路需要重新报价", err, false, "原线路授权已失效，上游请求未发出")
+		}
+	}
+	if !isVideoTaskType(task.Type) || task.ProviderRequestID == "" {
+		if err := s.taskBilling().MarkBillingRunning(task.BillingOrderID); err != nil {
+			return terminal.markPreparationFailure(task, "计费准备失败", err, false, "计费准备失败，上游请求未发出")
+		}
 	}
 	routeResult, stateErr := s.routeExecutor().execute(ctx, task, routeAttempt)
 	if stateErr != nil {
@@ -495,9 +518,25 @@ func (s *Service) shouldDeferProviderTask(task model.Task, decryptedInput string
 	if json.Unmarshal([]byte(decryptedInput), &input) != nil {
 		return false
 	}
-	resolved, _, resolveErr := s.resolveVideoReceiptConfig(context.Background(), input.Config, providerRequestID)
-	if resolveErr != nil {
-		return false
+	// This scheduler decision needs the original protocol's polling policy.
+	// It does not open a connection or need to re-authorize a sale.
+	resolved := input.Config
+	if !isVideoTaskType(task.Type) {
+		var resolveErr error
+		resolved, resolveErr = s.resolveProviderConfig(input.Config)
+		if resolveErr != nil {
+			return false
+		}
+	} else if resolved.InterfaceType == "" {
+		channelID := firstNonEmpty(resolved.ChannelID, systemChannelIDFromBaseURL(resolved.BaseURL))
+		if channelID == "" {
+			return false
+		}
+		item, err := s.repo.VideoReceiptModel(channelID, task.ChannelModelID, providerChannelModelKey(resolved))
+		if err != nil {
+			return false
+		}
+		resolved.InterfaceType = string(item.Protocol)
 	}
 	if s.protocolDetachedPolling(resolved.InterfaceType) {
 		// 分离式回查只看总等待时长：上游候车/出片中按间隔回查，超过上限才交给失败处理。

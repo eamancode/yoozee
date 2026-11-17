@@ -58,6 +58,9 @@ func (r *Repository) OntologyEpisodeUnits(projectID string) ([]string, error) {
 // AppendOntologyDocument 追加一个新版本（版本号在事务里取最新加一；并发写同一文档时唯一索引兜住，返回错误由调用方重试或报错）。
 func (r *Repository) AppendOntologyDocument(doc *model.ProjectOntologyDocument) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockStoryboardUnit(tx, doc.ProjectID, doc.UnitID); err != nil {
+			return err
+		}
 		var last model.ProjectOntologyDocument
 		err := tx.Where("project_id = ? AND unit_id = ? AND kind = ?", doc.ProjectID, doc.UnitID, doc.Kind).Order("version DESC").First(&last).Error
 		switch {

@@ -72,6 +72,11 @@ func runVideoTaskWithPolicy(ctx context.Context, input canvasGenerationInput, po
 	if label, official := officialDeclarativeVideoInterface(input.Config.InterfaceType); official {
 		return nil, fmt.Errorf("%s 视频插件未安装", label)
 	}
+	if resumedProviderRequestID(ctx) == "" && input.authorizeCreate != nil {
+		if err := input.authorizeCreate(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if isArkPlanVideoConfig(input.Config) {
 		return runSeedanceAgentPlanVideoTask(ctx, input, pollPolicy)
 	}

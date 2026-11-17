@@ -6,6 +6,7 @@ test("短剧新工作流：分镜、定妆、出片详情的 effect 清理，画
     const result = Bun.spawnSync([process.execPath, "test", "./test/fixtures/drama-flow-lifecycle.harness.tsx", "--timeout", "30000"], { cwd: resolve(import.meta.dir, ".."), timeout: 120000 });
     const output = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
     if (result.exitCode !== 0) throw new Error(output);
+    expect(output).toContain("FLOW-01");
     expect(output).toContain("EP-01");
     expect(output).toContain("EP-02");
     expect(output).toContain("EP-03");

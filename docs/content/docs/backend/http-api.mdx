@@ -19,6 +19,8 @@ description: 信封、错误码与 OpenAPI
 
 新工作流与旧工作台用同一套项目单元接口管理剧集。`POST /api/projects/:id/units` 传 `kind: "episode"`、必填的 `title` 和可选的 `sourceText`。省略 `position` 会把新剧集追加到末尾，成功响应中的 `unit.id` 可用来定位新集。`DELETE /api/projects/:id/units/:unitId` 按稳定 ID 删除本集正文、镜头表、段及本集导演文档，解除本集的画布关联，保留画布与其他剧集。读取 `GET /api/projects/:id/units` 后按当前顺序展示；剧集的前序取同项目中排在它之前的最近一集。增删剧集本身不创建生成任务。
 
+删除剧集时，若本集镜头、连续链及其子任务、导演文档或工作流仍有活动任务，接口返回 HTTP 409，`reason` 为 `episode_active_tasks`。`details.unitId` 标识剧集，`details.tasks` 给出每项任务的 `id`、`type`、`status`。可用这些 ID 查看运行记录，待任务结束后重试。冲突时剧集内容、顺序和任务状态保持原样。已明确关联到本集的非生成任务也受保护，其他剧集的活动任务可继续运行。
+
 `POST /api/projects` 接受 `workflowId=pipeline-1|…|pipeline-5`，依次为「流水线一 SSS 电影导演」「流水线二 SSS 短剧导演」「流水线三 本体论导演」「流水线四 资产一体化」「流水线五 原流程」，省略时选择流水线二。迁移 100 把原一、二、三顺延为三、四、五（下文本段其余描述沿用顺延前的编号，即原一＝现三、原二＝现四、原三＝现五）。流水线一、二的工作流定义含 `storyboardMode=sss`、`storyboardSkill=yz-sss-film-director|yz-sss-drama-director`、`scriptSkill`、`styleSkill`：拆剧本（`script.adapt`）、导演定画风（`style.lock`）、分镜（`chapter.shots`）用这三个技能，不走风格档案绑定表；资产与原二相同。见下文「SSS 导演分镜（流水线一、二）」。原有说明：`workflowId` 省略时选择原流水线一；非法值以 `project_production_invalid` 返回。项目读取返回 `workflowId`、`workflowVersion`，已创建项目不支持通过更新接口切换工作流。迁移 97 将旧流水线一、二顺延为二、三，空 ID 按三读取。流水线一、二共用资产一体化技能、四宫格和空间母版；二、三保持原分镜行为。步骤用法响应的 `workflow` 含 `id`、`label`、资产契约及版式，流水线一定义另含 `storyboardSkill=yz-ontology-director`、`storyboardMode=ontology`；流水线一的「生成分段」（`POST /api/projects/:id/units/:unitId/drama/steps/chapter.shots/run`）改用本体论导演分镜，用法查询返回契约 `ontology.director@1`、技能 `yz-ontology-director`，不会退回旧分镜。工作流不改变生成模式的停点、视频时长、声音流程或白模开关。
 
 流水线一的 `assets.extract` 返回 `assets.extract@2` 契约及固定技能版本。JSON Lines 新增 `generation_prompt`，人物子卡也携带完整提示词；旧摘要字段继续使用原语义。普通图片任务仍通过任务接口创建，服务端根据项目解析四宫格、空间母版或道具配方，不信任客户端指定的三视图模板来覆盖项目输出规格。
@@ -66,7 +68,7 @@ description: 信封、错误码与 OpenAPI
 
 链失败后，先在同一预览接口传 `resumeChainId` 和选定的模型。恢复预览保留已完成段，费用合计仅含仍待生成的段。用户确认后，向 `POST .../:chainId/retry` 提交同一规格、`resumeChainId`、新预览的 `previewHash` 与本次 `requestId`。重复确认复用同一次提交。线路、正文或报价变化后须重新预览。
 
-失败段的 `diagnostic` 包含原尝试、受理状态、故障类别、账务状态以及可用操作。有上游任务 ID 的执行超时可通过 `POST /api/tasks/:taskId/query-provider` 查询已发出的请求。原请求明确未受理或已查询到失败终态，且账务已核清时，可重新报价。无可用路由的 503 与原因不明的 503 分别显示。仅有通用 503 且缺少上游任务 ID 时，继续保留原尝试，等待回执核对。
+失败段的 `diagnostic` 包含原尝试、受理状态、故障类别、账务状态以及可用操作。有上游任务 ID 时，通过 `POST /api/tasks/:taskId/query-provider` 查询原请求。管理员查询也须匹配原用户、任务、本次尝试的开始时间、订单和渠道。原价档下架后，仍可跟踪已受理的原任务并保存作品。只有协议已确认未受理或原请求已核实为失败终态，且账务已核清时，才可重新报价。503 明确提示无可用路由可计一次渠道故障。凡受理状态仍为未知，包括已退款的 503，均须先核对原回执。
 
 控制链持久化在后端，后续镜头等待前组视频可读、截帧保存及参考上传成功后才提交。提示词开头引用实际新增图片编号，片末段改为最后 1 秒硬切至 45° 俯视白模大全景；最后一组不附结束段。正文保持完整，最后 1 秒包含在生成总时长内。失败记录阶段及原因，超限或不支持参考图片时不忽略站位图。镜头、顺序或模型变化会暂停旧计划，重试重新编译最新内容；不静默沿用过期引用或报价。任务 API 禁止客户端伪造控制链或预上传标识。
 

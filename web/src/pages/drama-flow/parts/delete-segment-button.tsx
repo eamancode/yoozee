@@ -15,7 +15,14 @@ import { unitWorkspaceKey } from "../hooks/use-flow-data";
 type Props = { projectId: string; segment: DramaSegmentView; episode: number; unitTitle?: string; onDeleted: () => void };
 
 const artifactLabels: Record<string, string> = {
-    storyboard: "分镜图", action_board: "预演图", start_frame: "首帧", end_frame: "尾帧", video: "视频", audio: "音频", subtitle: "字幕", delivery: "交付件",
+    storyboard: "分镜图",
+    action_board: "预演图",
+    start_frame: "首帧",
+    end_frame: "尾帧",
+    video: "视频",
+    audio: "音频",
+    subtitle: "字幕",
+    delivery: "交付件",
 };
 
 export function DeleteSegmentButton(props: Props) {
@@ -28,7 +35,9 @@ export function DeleteSegmentButton(props: Props) {
             {open && (
                 <DeleteSegmentDialog
                     {...props}
-                    onDeleted={() => { if (trigger.current) props.onDeleted(); }}
+                    onDeleted={() => {
+                        if (trigger.current) props.onDeleted();
+                    }}
                     onCancel={() => {
                         flushSync(() => setOpen(false));
                         trigger.current?.focus({ preventScroll: true });
@@ -57,9 +66,7 @@ function DeleteSegmentDialog({ projectId, segment, episode, unitTitle, onDeleted
         const label = artifactLabels[item.type] || "其他产物";
         counts.set(label, (counts.get(label) || 0) + 1);
     }
-    const inUse = (workspace.data?.tasks || [])
-        .filter((task) => (task.status === "running" || task.status === "queued") && (task.clientContext?.shotId === shotId || artifacts.some((item) => item.taskId === task.id)))
-        .map((task) => `生成任务 ${task.id}`);
+    const inUse = (workspace.data?.tasks || []).filter((task) => (task.status === "running" || task.status === "queued") && (task.clientContext?.shotId === shotId || artifacts.some((item) => item.taskId === task.id))).map((task) => `生成任务 ${task.id}`);
     for (const chain of chains.data?.chains || []) {
         if ((chain.status === "queued" || chain.status === "running") && chain.steps.some((step) => step.shotId === shotId || step.sourceShotId === shotId)) {
             inUse.push(`出片链 ${chain.id}`);
@@ -83,7 +90,9 @@ function DeleteSegmentDialog({ projectId, segment, episode, unitTitle, onDeleted
             message.success(result.deleted ? `已删除分镜单元 ${spec.id}` : `分镜单元 ${spec.id} 已被删除`);
             await removeFromView();
         },
-        onSettled: () => { submitting.current = false; },
+        onSettled: () => {
+            submitting.current = false;
+        },
     });
     const refresh = async () => {
         try {
@@ -105,10 +114,14 @@ function DeleteSegmentDialog({ projectId, segment, episode, unitTitle, onDeleted
     const title = segment.title || spec.title;
     return (
         <AppModal
-            title={`删除分镜单元 ${number}？`} open
+            title={`删除分镜单元 ${number}？`}
+            open
             onCancel={deletion.isPending ? undefined : onCancel}
-            closable={!deletion.isPending} cancelButtonProps={{ disabled: deletion.isPending }}
-            okText="确认删除" cancelText="取消" okButtonProps={{ danger: true, disabled: !canConfirm }}
+            closable={!deletion.isPending}
+            cancelButtonProps={{ disabled: deletion.isPending }}
+            okText="确认删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true, disabled: !canConfirm }}
             confirmLoading={deletion.isPending}
             onOk={() => {
                 if (!canConfirm || submitting.current) return;
@@ -116,13 +129,24 @@ function DeleteSegmentDialog({ projectId, segment, episode, unitTitle, onDeleted
                 deletion.mutate({ expectedRevisionId: segment.revisionId || "", expectedArtifactIds: artifacts.map((item) => item.id) });
             }}
         >
-            <p>{episode ? `第 ${episode} 集` : unitTitle || "当前集"} · 场 {projectSceneCode(spec.scene, episode) || "未编号"} · {title || number}，共 {spec.shots.length} 个子镜头。</p>
+            <p>
+                {episode ? `第 ${episode} 集` : unitTitle || "当前集"} · 场 {projectSceneCode(spec.scene, episode) || "未编号"} · {title || number}，共 {spec.shots.length} 个子镜头。
+            </p>
             <p>删除后，本单元及子镜头从分镜和待出片清单中移除。仅解除本单元的产物记录和素材绑定，保留共享文件及项目资产。</p>
-            {workspace.isError ? <p role="alert">本单元的产物未能读到，请重新核对。</p> : workspace.isFetching ? <p>正在核对关联产物…</p> :
-                <p>{counts.size ? `将移除的关联产物：${Array.from(counts, ([label, count]) => `${label} × ${count}`).join("、")}` : "本单元没有关联产物。"}</p>}
+            {workspace.isError ? (
+                <p role="alert">本单元的产物未能读到，请重新核对。</p>
+            ) : workspace.isFetching ? (
+                <p>正在核对关联产物…</p>
+            ) : (
+                <p>{counts.size ? `将移除的关联产物：${Array.from(counts, ([label, count]) => `${label} × ${count}`).join("、")}` : "本单元没有关联产物。"}</p>
+            )}
             {inUse.length > 0 && <p role="alert">{inUse.join("、")} 正在使用本单元，任务结束后可删除。</p>}
             {deletion.isError && <p role="alert">{deletion.error.message}</p>}
-            {(deletion.isError || workspace.isError || inUse.length > 0) && <Button size="small" onClick={() => void refresh()}>重新核对</Button>}
+            {(deletion.isError || workspace.isError || inUse.length > 0) && (
+                <Button size="small" onClick={() => void refresh()}>
+                    重新核对
+                </Button>
+            )}
         </AppModal>
     );
 }

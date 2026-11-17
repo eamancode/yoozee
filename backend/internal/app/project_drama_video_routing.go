@@ -48,8 +48,12 @@ func (s *Service) OverrideProjectVideoRouting(userID, projectID, selected, from 
 	}
 	state := &model.ProjectVideoRoute{ProjectID: projectID, Model: selected, FromModel: from, Status: "manual", Reason: "用户为本项目选择了视频线路", Revision: revision + 1, ChangedAt: time.Now().UTC()}
 	err = s.repo.Transaction(func(tx *repository.Repository) error {
-		if _, err := tx.LockActiveStoryboardProject(userID, projectID); err != nil {
+		project, err := tx.LockActiveStoryboardProject(userID, projectID)
+		if err != nil {
 			return err
+		}
+		if project.Status == model.ProjectStatusArchived {
+			return failedPrecondition("项目已归档，无法更改视频线路")
 		}
 		old, err := tx.ProjectVideoRoute(projectID)
 		if err != nil {

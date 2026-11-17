@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,6 +52,12 @@ func TestSystemChannelVideoChainQuoteUploadSubmit(t *testing.T) {
 					if err != nil {
 						t.Error(err)
 					} else {
+						img, decodeErr := png.Decode(file)
+						if decodeErr != nil {
+							t.Error(decodeErr)
+						} else if red, _, _, _ := img.At(0, 0).RGBA(); red>>8 != uint32(len(paths)) {
+							t.Errorf("reference upload %d has source pixel %d", len(paths), red>>8)
+						}
 						_ = file.Close()
 					}
 					_, _ = fmt.Fprintf(w, `{"url":"https://uploaded.example/system-%d.png"}`, len(paths))
@@ -90,10 +99,15 @@ func TestSystemChannelVideoChainQuoteUploadSubmit(t *testing.T) {
 				segment.Verbatim = "生效参考素材\n@图1、@图2、@图3、@图4、@图5、@图6、@图7。\n镜头正文\n阿婆整理推车，林深站在左边。"
 				expectedEnding = 0
 			}
-			png := mediaTestPNG(t)
 			for i := range tc.images {
 				id := fmt.Sprintf("original-%d", i)
-				resource, err := f.s.UploadResourceFile("user-1", id+".png", int64(len(png)), "image", 2, 3, 0, bytes.NewReader(png))
+				img := image.NewRGBA(image.Rect(0, 0, 2, 3))
+				img.SetRGBA(0, 0, color.RGBA{R: uint8(i + 1), A: 255})
+				var file bytes.Buffer
+				if err := png.Encode(&file, img); err != nil {
+					t.Fatal(err)
+				}
+				resource, err := f.s.UploadResourceFile("user-1", id+".png", int64(file.Len()), "image", 2, 3, 0, bytes.NewReader(file.Bytes()))
 				if err != nil {
 					t.Fatal(err)
 				}

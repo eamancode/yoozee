@@ -154,9 +154,12 @@ func (r *Repository) DeferRunningTaskForProviderPoll(id string, owner string, st
 }
 
 // 人工恢复仅锁定失败任务；旧 worker 的租约可覆盖，但未过期的人工恢复租约不能并发抢占。
-func (r *Repository) ClaimFailedTaskProviderRecovery(id string, userID string, owner string, leaseDuration time.Duration) error {
+func (r *Repository) ClaimFailedTaskProviderRecovery(id string, userID string, owner string, leaseDuration time.Duration, expectedRun ...int) error {
 	var task model.Task
 	query := r.db.Select("id", "user_id", "project_id", "type", "input_json", "route_run").Where("id = ? AND status = ?", id, model.TaskStatusFailed)
+	if len(expectedRun) != 0 {
+		query = query.Where("COALESCE(route_run, 0) = ?", expectedRun[0])
+	}
 	if strings.TrimSpace(userID) != "" {
 		query = query.Where("user_id = ?", userID)
 	}

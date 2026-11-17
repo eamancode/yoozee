@@ -8,9 +8,16 @@ export function createEpisodeProject() {
     const ok = (data: unknown): FixtureResponse => ({ status: 200, body: { code: 0, msg: "ok", data } });
     const fail = (msg: string): FixtureResponse => ({ status: 409, body: { code: 409, msg, reason: "fixture_write_failed" } });
     const makeUnit = (id: string, title: string, position: number, kind = "episode", sourceText = `<p>${title}的独立正文</p>`): ProjectUnit => ({
-        id, projectId: FIXTURE_PROJECT_ID, kind, title, sourceText, position,
-        wordCount: sourceText.replace(/<[^>]*>/g, "").length, status: "draft",
-        createdAt: "2026-11-12T08:00:00Z", updatedAt: "2026-11-12T08:00:00Z",
+        id,
+        projectId: FIXTURE_PROJECT_ID,
+        kind,
+        title,
+        sourceText,
+        position,
+        wordCount: sourceText.replace(/<[^>]*>/g, "").length,
+        status: "draft",
+        createdAt: "2026-11-12T08:00:00Z",
+        updatedAt: "2026-11-12T08:00:00Z",
     });
     const source = makeUnit("source-only", "原文章节", 0, "chapter");
     const units = [source, makeUnit("ep-a", "雨棚", 1), makeUnit("ep-b", "渡口", 2), makeUnit("ep-c", "归家", 3)];
@@ -26,8 +33,12 @@ export function createEpisodeProject() {
             const template = api.state.segments[0];
             // 旧工作台的合法数据：原文章节也可以有镜头，项目进度会返回它。
             segments ??= units.map((unit) => ({
-                ...template, unitId: unit.id, shotId: `shot-${unit.id}`, title: `${unit.title}长镜头`,
-                revisionId: `stable-revision-${unit.id}`, spec: { ...template.spec, title: `${unit.title}长镜头` },
+                ...template,
+                unitId: unit.id,
+                shotId: `shot-${unit.id}`,
+                title: `${unit.title}长镜头`,
+                revisionId: `stable-revision-${unit.id}`,
+                spec: { ...template.spec, title: `${unit.title}长镜头` },
             }));
             api.state.segments = segments;
             const fallback = api.handle;
@@ -38,16 +49,34 @@ export function createEpisodeProject() {
                 if (verb !== "GET") writes.push({ method: verb, path, body });
                 if (verb === "GET" && path === collection) return ok({ units: units.map((unit) => ({ ...unit, sourceText: "" })), canvasCounts: { "ep-b": 1 } });
                 if (verb === "GET" && path === `${base}/drama/episodes`) {
-                    return ok({ episodes: episodes().map((unit) => ({
-                        unitId: unit.id, title: unit.title, position: unit.position, wordCount: unit.wordCount, sources: [],
-                        shots: api.state.segments.filter((shot) => shot.unitId === unit.id).length, hasShotlist: api.state.segments.some((shot) => shot.unitId === unit.id),
-                    })), adaptedChapterIds: [] });
+                    return ok({
+                        episodes: episodes().map((unit) => ({
+                            unitId: unit.id,
+                            title: unit.title,
+                            position: unit.position,
+                            wordCount: unit.wordCount,
+                            sources: [],
+                            shots: api.state.segments.filter((shot) => shot.unitId === unit.id).length,
+                            hasShotlist: api.state.segments.some((shot) => shot.unitId === unit.id),
+                        })),
+                        adaptedChapterIds: [],
+                    });
                 }
                 if (verb === "GET" && path === `${base}/drama/ontology`) {
-                    return ok({ mode: "sss", episodes: [], designs: [], handoffs: episodes().map((unit) => ({
-                        id: `handoff-${unit.id}`, projectId: FIXTURE_PROJECT_ID, unitId: unit.id, kind: "handoff", version: 1,
-                        content: `交接：${unit.title}中留下的纸条`, createdAt: unit.createdAt,
-                    })) });
+                    return ok({
+                        mode: "sss",
+                        episodes: [],
+                        designs: [],
+                        handoffs: episodes().map((unit) => ({
+                            id: `handoff-${unit.id}`,
+                            projectId: FIXTURE_PROJECT_ID,
+                            unitId: unit.id,
+                            kind: "handoff",
+                            version: 1,
+                            content: `交接：${unit.title}中留下的纸条`,
+                            createdAt: unit.createdAt,
+                        })),
+                    });
                 }
                 if (verb === "GET" && path === `${base}/drama/segments`) return ok({ segments: api.state.segments.filter((shot) => shot.unitId === url.searchParams.get("unitId")) });
                 if (fixture.rejectNext === verb && (path === collection || path.startsWith(`${collection}/`))) {

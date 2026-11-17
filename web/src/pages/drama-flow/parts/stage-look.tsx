@@ -242,25 +242,33 @@ function LookPalettes({ projectId, bible, palettes, episodes, textModel }: { pro
                 </div>
                 {master.length ? <div className="drama-flow-asset-grid">{master.map(card)}</div> : <p className="drama-flow-muted">锁定风格后自动生成。</p>}
             </div>
-            {scenes.filter((group) => group.assets.length).map((group) => (
-                <div key={group.key} className="drama-flow-panel">
-                    <div className="drama-flow-panel-head">
-                        <h3>{group.title}</h3>
-                        <span>{group.assets.length} 场</span>
+            {scenes
+                .filter((group) => group.assets.length)
+                .map((group) => (
+                    <div key={group.key} className="drama-flow-panel">
+                        <div className="drama-flow-panel-head">
+                            <h3>{group.title}</h3>
+                            <span>{group.assets.length} 场</span>
+                        </div>
+                        <div className="drama-flow-asset-grid">
+                            {group.assets.map((asset) => {
+                                const entry = asset.palette?.entry;
+                                const recorded = asset.palette?.code || (entry?.episode && entry.scene_no ? dramaSceneCode(entry.episode, entry.scene_no) : "");
+                                const current = group.number && entry?.scene_no ? dramaSceneCode(group.number, entry.scene_no) : "";
+                                return (
+                                    <div key={asset.id}>
+                                        {recorded && current !== recorded ? (
+                                            <p className="drama-flow-muted">
+                                                {current ? `${current} · ` : ""}记录编号 {recorded}
+                                            </p>
+                                        ) : null}
+                                        {card(asset)}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
-                    <div className="drama-flow-asset-grid">
-                        {group.assets.map((asset) => {
-                            const entry = asset.palette?.entry;
-                            const recorded = asset.palette?.code || (entry?.episode && entry.scene_no ? dramaSceneCode(entry.episode, entry.scene_no) : "");
-                            const current = group.number && entry?.scene_no ? dramaSceneCode(group.number, entry.scene_no) : "";
-                            return <div key={asset.id}>
-                                {recorded && current !== recorded ? <p className="drama-flow-muted">{current ? `${current} · ` : ""}记录编号 {recorded}</p> : null}
-                                {card(asset)}
-                            </div>;
-                        })}
-                    </div>
-                </div>
-            ))}
+                ))}
             {bible?.color_script?.length ? (
                 <details className="drama-flow-panel">
                     <summary className="drama-flow-panel-head">
@@ -278,20 +286,22 @@ function LookPalettes({ projectId, bible, palettes, episodes, textModel }: { pro
                             </tr>
                         </thead>
                         <tbody>
-                            {scenes.flatMap((group) => group.entries.map((entry) => (
-                                <tr key={`${entry.unit_id || "legacy"}-${entry.episode}-${entry.scene_no}`}>
-                                    <td>
-                                        {group.number ? dramaSceneCode(group.number, entry.scene_no) : group.title}
-                                        {group.number !== entry.episode ? <small className="block">记录编号 {dramaSceneCode(entry.episode, entry.scene_no)}</small> : null}
-                                    </td>
-                                    <td>{entry.scene}</td>
-                                    <td>{entry.inherits_from || "—"}</td>
-                                    <td>
-                                        <GroupedPaletteSwatches colors={[...entry.shared_colors, ...entry.new_colors]} />
-                                    </td>
-                                    <td>{entry.purpose || ""}</td>
-                                </tr>
-                            )))}
+                            {scenes.flatMap((group) =>
+                                group.entries.map((entry) => (
+                                    <tr key={`${entry.unit_id || "legacy"}-${entry.episode}-${entry.scene_no}`}>
+                                        <td>
+                                            {group.number ? dramaSceneCode(group.number, entry.scene_no) : group.title}
+                                            {group.number !== entry.episode ? <small className="block">记录编号 {dramaSceneCode(entry.episode, entry.scene_no)}</small> : null}
+                                        </td>
+                                        <td>{entry.scene}</td>
+                                        <td>{entry.inherits_from || "—"}</td>
+                                        <td>
+                                            <GroupedPaletteSwatches colors={[...entry.shared_colors, ...entry.new_colors]} />
+                                        </td>
+                                        <td>{entry.purpose || ""}</td>
+                                    </tr>
+                                )),
+                            )}
                         </tbody>
                     </table>
                 </details>

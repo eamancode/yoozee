@@ -19,13 +19,17 @@ export function EpisodePredecessor({ units, unitId, handoffs }: Props) {
     const handoff = handoffs.find((doc) => doc.unitId === previous.id);
     return (
         <section aria-label="前序剧集">
-            <h3 className="font-medium">当前前序 · 第 {index} 集《{previous.title}》</h3>
+            <h3 className="font-medium">
+                当前前序 · 第 {index} 集《{previous.title}》
+            </h3>
             {handoff?.content.trim() ? (
                 <details className="mt-2">
                     <summary className="cursor-pointer text-sm">查看前序交接卡（第 {handoff.version} 版）</summary>
                     <blockquote className="mt-2 whitespace-pre-wrap break-words border-l-2 border-border pl-3">{handoff.content}</blockquote>
                 </details>
-            ) : <p className="mt-1 text-sm">前序交接卡待更新</p>}
+            ) : (
+                <p className="mt-1 text-sm">前序交接卡待更新</p>
+            )}
         </section>
     );
 }

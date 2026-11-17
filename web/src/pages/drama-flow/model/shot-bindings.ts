@@ -22,10 +22,17 @@ export function boundAssetsOf(workspace: ProjectUnitWorkspace | undefined, segme
         if (!asset || rows.has(key)) return;
         const kind = role === "style" || asset.category === "palette" ? "palette" : asset.category === "character" ? "character" : asset.category === "prop" ? "prop" : asset.category === "environment" ? "scene" : "other";
         rows.set(key, {
-            id: key, asset, title: asset.title, kind, versionId, versionIds: [versionId],
+            id: key,
+            asset,
+            title: asset.title,
+            kind,
+            versionId,
+            versionIds: [versionId],
             version: reference?.referencedVersion?.version ?? (versionId === asset.character?.versionId ? asset.character.version : undefined),
-            preview: projectAssetReferenceImage(asset, reference)?.url || "", code: asset.palette?.code,
-            sampleResourceId: projectAssetVoiceSampleResourceId(asset, reference), reference,
+            preview: projectAssetReferenceImage(asset, reference)?.url || "",
+            code: asset.palette?.code,
+            sampleResourceId: projectAssetVoiceSampleResourceId(asset, reference),
+            reference,
         });
     }
     for (const ref of segment.spec.refs || []) add(ref.file, ordinary.get(ref.file));

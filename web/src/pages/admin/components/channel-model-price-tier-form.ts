@@ -173,8 +173,7 @@ export function priceTierPayloadFromForm(capability: ModelCapabilityChoice, tier
         resolution: priceTierResolutionFromForm(capability, tier),
         videoSeconds: priceTierVideoSecondsFromForm(capability, tier),
         providerModelKey: tier.providerModelKey?.trim() || upstreamModel,
-        upstreamRequestCostMicroCny: capability === "video" && tier.billingMode === "fixed_request" && tier.upstreamRequestCostCny != null
-            ? Math.round(tier.upstreamRequestCostCny * 1_000_000) : undefined,
+        upstreamRequestCostMicroCny: capability === "video" && tier.billingMode === "fixed_request" && tier.upstreamRequestCostCny != null ? Math.round(tier.upstreamRequestCostCny * 1_000_000) : undefined,
         billingMode: tier.billingMode,
         unitPriceMicrocredits: Math.round((tier.unitPrice || 0) * 1_000_000),
         inputTokenPriceMicrocredits: videoTokens ? 0 : Math.round((tier.inputTokenPrice || 0) * 1_000_000),
