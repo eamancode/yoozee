@@ -28,11 +28,11 @@ func TestToolsVisibilityTokensSeedAndReferences(t *testing.T) {
 		}
 	}
 	list, err := svc.List("alice", tools.ToolListRequest{PageSize: 80})
-	if err != nil || list.TotalCount != 87 || !list.HasMore {
+	if err != nil || list.TotalCount != 89 || !list.HasMore {
 		t.Fatalf("seed/pagination: %+v %v", list, err)
 	}
 	custom, err := svc.Create("alice", tools.ToolMutationRequest{Type: "style", Label: "private", Prompt: "private style"})
-	if err != nil || custom.ID <= 87 {
+	if err != nil || custom.ID <= 1000091 {
 		t.Fatalf("custom: %+v %v", custom, err)
 	}
 	if _, err := svc.Detail("bob", custom.ID); err == nil {
