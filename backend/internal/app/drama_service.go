@@ -826,10 +826,12 @@ func (s *Service) DeleteDrama(userID string, projectID string) error {
 	if _, _, err := s.dramaForUser(userID, projectID); err != nil {
 		return err
 	}
-	if err := s.DeleteProject(userID, projectID); err != nil {
-		return err
-	}
-	return s.repo.DeleteDramaProductionData(projectID)
+	return s.repo.Transaction(func(repo *repository.Repository) error {
+		if err := deleteOwnedProject(repo, userID, projectID); err != nil {
+			return err
+		}
+		return repo.DeleteDramaProductionData(projectID)
+	})
 }
 
 func decodeStringList(raw string) []string {

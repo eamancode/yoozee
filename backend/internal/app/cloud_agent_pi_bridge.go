@@ -73,10 +73,16 @@ func canonicalFromRuntimeMessages(messages []map[string]any, tools []map[string]
 		case "assistant":
 			text := ""
 			calls := []interface{}{}
+			var passback agentReasoningPassback
+			passbackText := ""
 			if parts, ok := message["content"].([]interface{}); ok {
 				for _, value := range parts {
 					part, _ := value.(map[string]interface{})
 					switch stringField(part, "type") {
+					case "thinking":
+						if decoded, ok := decodeAgentReasoningPassback(stringField(part, "thinkingSignature")); ok {
+							passback, passbackText = decoded, stringField(part, "thinking")
+						}
 					case "text":
 						text += stringField(part, "text")
 					case "toolCall":
@@ -115,6 +121,7 @@ func canonicalFromRuntimeMessages(messages []map[string]any, tools []map[string]
 			if len(calls) > 0 {
 				converted["tool_calls"] = calls
 			}
+			canonicalAssistantReasoning(converted, passbackText, passback.Wire, passback.Blocks)
 			canonical.Messages = append(canonical.Messages, converted)
 		case "toolResult", "tool":
 			id, err := strictRuntimeStringAliases(message, "Pi 工具结果 call id", "toolCallId", "tool_call_id", "call_id")

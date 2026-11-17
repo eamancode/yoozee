@@ -279,7 +279,16 @@ func (s *Service) ValidateTaskCapability(input map[string]any) error {
 		return BadAuthRequest("任务输入格式无效")
 	}
 	var taskInput canvasGenerationInput
-	if err := json.Unmarshal(encoded, &taskInput); err != nil || (taskInput.Mode != "image" && taskInput.Mode != "video" && taskInput.Mode != "audio") {
+	if err := json.Unmarshal(encoded, &taskInput); err != nil {
+		return nil
+	}
+	if taskInput.Mode == "text" {
+		if err := ValidateThinkingLevelRequest(taskInput.TextOptions.ThinkingLevel); err != nil {
+			return newModelCapabilityArgumentError("thinkingLevel", "unsupported_value", err)
+		}
+		return nil
+	}
+	if taskInput.Mode != "image" && taskInput.Mode != "video" && taskInput.Mode != "audio" {
 		return nil
 	}
 	if isWorkflowProviderInterface(taskInput.Config.InterfaceType) {
@@ -428,8 +437,11 @@ func validateVideoTask(profile *VideoCapabilityConfig, input canvasGenerationInp
 		}
 	}
 	seconds, err := strconv.Atoi(strings.TrimSpace(input.Config.VideoSeconds))
-	if err != nil || !videoDurationAllowed(profile.Duration, seconds) {
-		return newModelCapabilityArgumentError("durationSeconds", "unsupported_value", BadAuthRequest("视频时长不在当前模型支持范围内"))
+	if err != nil {
+		return newModelCapabilityArgumentError("durationSeconds", "unsupported_value", BadAuthRequest(fmt.Sprintf("视频时长不在当前模型支持范围内（%s）", videoDurationAllowedLabel(profile.Duration))))
+	}
+	if !videoDurationAllowed(profile.Duration, seconds) {
+		return newModelCapabilityArgumentError("durationSeconds", "unsupported_value", BadAuthRequest(fmt.Sprintf("视频时长 %d 秒不在当前模型支持范围内（%s）", seconds, videoDurationAllowedLabel(profile.Duration))))
 	}
 	if input.Config.Size != "" && !videoRatioAllowed(profile.Ratios, input.Config.Size) {
 		return newModelCapabilityArgumentError("size", "unsupported_value", BadAuthRequest("画面比例不在当前模型支持范围内"))

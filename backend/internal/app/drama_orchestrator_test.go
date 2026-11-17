@@ -660,7 +660,7 @@ func TestDramaPausedKeepsRecoverableCastImageJob(t *testing.T) {
 	if err := svc.repo.UpdateDramaProduction(project, map[string]any{"status": model.DramaStatusPaused}); err != nil {
 		t.Fatal(err)
 	}
-	productions, err := svc.repo.RunningDramaProductions(20)
+	productions, err := svc.repo.RunningDramaProductions(20, svc.dramaSchedulerStarted)
 	if err != nil {
 		t.Fatal(err)
 	}

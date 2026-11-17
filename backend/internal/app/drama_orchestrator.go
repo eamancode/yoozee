@@ -86,7 +86,7 @@ func (s *Service) tickDramaProductions(ctx context.Context) {
 	if s.IsDraining() {
 		return
 	}
-	productions, err := s.repo.RunningDramaProductions(dramaProjectsPerTick)
+	productions, err := s.repo.RunningDramaProductions(dramaProjectsPerTick, s.dramaSchedulerStarted)
 	if err != nil {
 		slog.Warn("drama scheduler load failed", "error", err)
 		return

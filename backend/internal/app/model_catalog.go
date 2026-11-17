@@ -75,6 +75,7 @@ type PublicChannelModel struct {
 	Icon             string                        `json:"icon"`
 	Capability       string                        `json:"capability"`
 	Protocol         model.ChannelInterfaceType    `json:"protocol"`
+	TextWire         string                        `json:"textWire,omitempty"`
 	CapabilityConfig map[string]any                `json:"capabilityConfig,omitempty"`
 	DefaultOptions   map[string]any                `json:"defaultOptions,omitempty"`
 	PriceTiers       []PublicChannelModelPriceTier `json:"priceTiers"`
@@ -261,6 +262,7 @@ func (s *Service) sanitizeChannelModel(cm *model.ChannelModel) (PublicChannelMod
 		Icon:             cm.Icon,
 		Capability:       cm.Capability,
 		Protocol:         cm.Protocol,
+		TextWire:         s.textModelWire(cm.Capability, cm.Protocol),
 		CapabilityConfig: capabilityConfig,
 		DefaultOptions:   defaultOptions,
 		PriceTiers:       publicTiers,

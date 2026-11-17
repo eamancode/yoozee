@@ -3,6 +3,7 @@ package app
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -252,7 +253,7 @@ func TestDramaFlow2GateStopsNewWork(t *testing.T) {
 }
 
 func TestDramaFlow2IgnoresHistoricalMediaFailures(t *testing.T) {
-	svc, _ := newDramaTestService(t)
+	svc, fake := newDramaTestService(t)
 	svc.dataDir = t.TempDir()
 	svc.dramaSchedulerStarted = time.Now()
 	checkpoint := mediaCheckpoint{Mode: "image", Items: []mediaCheckpointItem{{Reference: protocol.MediaReference{URL: "https://example.invalid/frame.png"}}}, StartedAt: time.Now()}
@@ -271,5 +272,31 @@ func TestDramaFlow2IgnoresHistoricalMediaFailures(t *testing.T) {
 	task.UpdatedAt = svc.dramaSchedulerStarted.Add(-time.Minute)
 	if svc.dramaTaskMediaRecoveryRetryable(task) {
 		t.Fatal("requeued a failed task from an earlier release")
+	}
+	project := createTestDrama(t, svc, DramaReviewAuto).Project.ID
+	if err := svc.repo.UpdateDramaProduction(project, map[string]any{"status": model.DramaStatusPaused}); err != nil {
+		t.Fatal(err)
+	}
+	task.ID, task.ProjectID, task.UserID, task.Type = newID(), project, "usr-drama", "canvas_image"
+	if err := fake.db.Create(task).Error; err != nil {
+		t.Fatal(err)
+	}
+	job := model.DramaJob{ID: newID(), ProjectID: project, Kind: model.DramaJobCastImage, TaskID: task.ID, Status: model.DramaJobFailed}
+	if err := fake.db.Create(&job).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows, err := svc.repo.RunningDramaProductions(1, svc.dramaSchedulerStarted)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("historical failure entered the scheduler's limited worklist: %v %v", rows, err)
+	}
+	svc.tickDramaProductions(context.Background())
+	runDramaTicks(t, svc, project, 1)
+	savedTask, err := svc.repo.Task(task.ID)
+	if err != nil || savedTask.Status != model.TaskStatusFailed || savedTask.MediaRecoveryJSON != secret {
+		t.Fatalf("historical task changed on startup: %+v %v", savedTask, err)
+	}
+	savedJob, err := svc.repo.DramaJob(project, job.ID)
+	if err != nil || savedJob.Status != model.DramaJobFailed || len(fake.requests) != 0 {
+		t.Fatalf("startup dispatched work from a historical failure: %+v %v", savedJob, err)
 	}
 }

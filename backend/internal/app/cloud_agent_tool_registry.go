@@ -97,7 +97,7 @@ func cloudAgentToolScope(req CloudAgentRequest, profile bool) agenttool.Scope {
 		Canvas: len(req.ContextScope) > 0, Skills: req.SkillsEnabled,
 		Vision: req.VisionEnabled, ReadOnly: req.PermissionMode == "read_only", IncludeProfile: profile,
 		Drama:            req.DramaLinked && len(req.ContextScope) > 0,
-		DramaPageContext: req.PageContext != nil,
+		DramaPageContext: req.PageContext != nil && req.CanvasID == "" && req.DramaProjectID == "" && validateCloudAgentPageContextShape(*req.PageContext) == nil,
 		ProjectDrama:     req.DramaProjectID != "" && len(req.ContextScope) > 0,
 		Memory:           req.MemoryMode == model.AgentMemoryDocumentModeAuto || req.MemoryMode == model.AgentMemoryDocumentModeReview,
 	}

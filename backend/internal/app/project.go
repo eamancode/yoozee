@@ -457,7 +457,11 @@ func (s *Service) DeleteProject(userID string, id string) error {
 	if _, err := s.repo.WorkbenchProjectForUser(userID, id); err != nil {
 		return err
 	}
-	canvases, err := s.repo.ProjectCanvasDocuments(userID, id)
+	return deleteOwnedProject(s.repo, userID, id)
+}
+
+func deleteOwnedProject(repo *repository.Repository, userID string, id string) error {
+	canvases, err := repo.ProjectCanvasDocuments(userID, id)
 	if err != nil {
 		return err
 	}
@@ -475,14 +479,14 @@ func (s *Service) DeleteProject(userID string, id string) error {
 		canvasUpdates = append(canvasUpdates, canvas)
 		projectScopeIDs = append(projectScopeIDs, canvas.ID)
 	}
-	activeTaskCount, err := s.repo.ActiveTaskCountForProjectIDs(userID, projectScopeIDs)
+	activeTaskCount, err := repo.ActiveTaskCountForProjectIDs(userID, projectScopeIDs)
 	if err != nil {
 		return err
 	}
 	if activeTaskCount > 0 {
 		return BadAuthRequest("项目仍有进行中的生成任务，请等待任务完成或取消后再删除")
 	}
-	if err := s.repo.DeleteProject(userID, id, canvasUpdates); err != nil {
+	if err := repo.DeleteProject(userID, id, canvasUpdates); err != nil {
 		if errors.Is(err, repository.ErrProjectHasActiveTasks) {
 			return BadAuthRequest("项目仍有进行中的生成任务，请等待任务完成或取消后再删除")
 		}
@@ -774,6 +778,9 @@ func (s *Service) ensureTaskProjectActive(userID string, canvasOrProjectID strin
 	}
 	if project.Status == model.ProjectStatusArchived {
 		return BadAuthRequest("项目已归档，无法创建生成任务")
+	}
+	if project.Type == "short-drama" {
+		return s.ensureDramaCanvasBudget(project.ID)
 	}
 	return nil
 }

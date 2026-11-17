@@ -86,12 +86,16 @@ func (p Policy) Allowed(scope Scope) bool {
 		(!p.RequiresCanvas || scope.Canvas) &&
 		(!p.RequiresSkills || scope.Skills || scope.ProjectDrama) &&
 		(!p.RequiresMemory || scope.Memory) &&
-		(!p.RequiresDrama || scope.Drama) &&
-		(!p.RequiresProjectDrama || scope.ProjectDrama) &&
-		(!p.RequiresDramaPageContext || scope.DramaPageContext) &&
+		p.allowedDramaScope(scope) &&
 		(!p.Vision || scope.Vision) &&
 		(!p.Write() && !p.RequiresWriteMode || !scope.ReadOnly) &&
 		(p.Name != AgentProfileRead || scope.IncludeProfile)
+}
+
+func (p Policy) allowedDramaScope(scope Scope) bool {
+	return (!p.RequiresDrama || scope.Drama) &&
+		(!p.RequiresProjectDrama || scope.ProjectDrama) &&
+		(!p.RequiresDramaPageContext || scope.DramaPageContext)
 }
 
 // Write 表示该工具会产生画布写入或收费任务。
