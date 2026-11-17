@@ -162,6 +162,12 @@ func TestVideoChainCancelledOriginalRequiresReconciliation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newVideoChainFixture(t, "A")
 			seedOnlySlotSystemVideo(t, f)
+			// The system fixture normally uses a placeholder hostname. This test
+			// also admits a child, so give it the existing loopback provider.
+			localURL := f.req.Model.Input["config"].(map[string]any)["baseUrl"]
+			if err := f.db.Model(&model.ModelChannel{}).Where("id = ?", "system-video").Update("base_url", localURL).Error; err != nil {
+				t.Fatal(err)
+			}
 			f.req.Model.Input = globalSixSecondsRequest("false")
 			chain := f.start(t)
 			id := f.untilTask(t, chain.ID, 0).Steps[0].TaskID
@@ -228,6 +234,9 @@ func TestVideoChainCancelledOriginalRequiresReconciliation(t *testing.T) {
 			var orders int64
 			if err := f.db.Model(&model.BillingOrder{}).Count(&orders).Error; err != nil || orders != 1 {
 				t.Fatal("unresolved cancellation generated another order", orders, err)
+			}
+			if uploads := f.uploads.Load(); uploads != 0 {
+				t.Fatalf("unresolved cancellation uploaded references: %d", uploads)
 			}
 		})
 	}

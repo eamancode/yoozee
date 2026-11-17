@@ -2049,6 +2049,38 @@ test("EP-01 三集项目经真实导航增集、编辑正文、删中间集和�
     }
 }, 30000);
 
+test("删除当前中间集后，索引先刷新也会选中下一集并清除旧段链接", async () => {
+    const server = createEpisodeProject();
+    const page = await mount(`/drama-flow/${P}/script?ep=ep-b&item=shot-ep-b`, { prepare: server.attach });
+    const adapter = apiClient.defaults.adapter;
+    const confirmation = Promise.withResolvers<void>();
+    try {
+        if (typeof adapter !== "function") throw new Error("缺少夹具 HTTP 适配器");
+        apiClient.defaults.adapter = async (config) => {
+            const response = await adapter(config);
+            if (config.method === "delete" && config.url === `/projects/${P}/units/ep-b`) await confirmation.promise;
+            return response;
+        };
+        checkEpisodeSelection("渡口", "ep-b");
+        await deleteEpisode(page, "渡口");
+        expect(server.writes).toMatchObject([{ method: "DELETE", path: `/projects/${P}/units/ep-b` }]);
+        // 服务端已经完成删除，列表查询可以先于本页的删除成功回调拿到新索引。
+        await act(async () => await page.client.invalidateQueries({ queryKey: ["project", P, "units"], exact: true }));
+        await flush();
+        checkEpisodeSelection("归家", "ep-c");
+        expect(routeParam("item")).toBeNull();
+        expect(selectEpisode("渡口")).toBeUndefined();
+        expect(document.querySelector(".drama-flow-script-text")?.textContent).toBe("归家的独立正文");
+        confirmation.resolve();
+        await flush();
+        checkEpisodeSelection("归家", "ep-c");
+    } finally {
+        confirmation.resolve();
+        apiClient.defaults.adapter = adapter;
+        await page.dispose();
+    }
+});
+
 test("EP-02 必填、取消和写入失败保留导航、未保存的剧本以及创建表单", async () => {
     const server = createEpisodeProject();
     const page = await mount(`/drama-flow/${P}/script?ep=ep-a`, { prepare: server.attach });

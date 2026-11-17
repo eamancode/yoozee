@@ -69,6 +69,9 @@ func TestProjectVideoManualOverrideFencesOldChildAdmissionAndPreservesReceipt(t 
 		if err := f.db.Model(&model.BillingOrder{}).Count(&orders).Error; err != nil || orders != 0 {
 			t.Fatalf("reserved %d old orders: %v", orders, err)
 		}
+		if uploads := f.uploads.Load(); uploads != 0 {
+			t.Fatalf("text-only stale admission uploaded %d assets", uploads)
+		}
 	})
 	t.Run("original accepted receipt after manual change", func(t *testing.T) {
 		f := newDelistedVideoFixture(t, "system")
@@ -89,6 +92,12 @@ func newProjectRoutingFixture(t *testing.T, followingScenes ...string) *videoCha
 	t.Helper()
 	f := newVideoChainFixture(t, append([]string{"A"}, followingScenes...)...)
 	seedOnlySlotSystemVideo(t, f)
+	// Preparing the controller validates the original channel URL even for
+	// text-only shots. Reuse this fixture's loopback media server.
+	localURL := f.req.Model.Input["config"].(map[string]any)["baseUrl"].(string)
+	if err := f.db.Model(&model.ModelChannel{}).Where("id = ?", "system-video").Update("base_url", localURL).Error; err != nil {
+		t.Fatal(err)
+	}
 	setShotSeconds(t, f, 21)
 	if err := f.db.Model(&model.Project{}).Where("id = ?", f.projectID).Update("type", "short-drama").Error; err != nil {
 		t.Fatal(err)
@@ -100,6 +109,11 @@ func newProjectRoutingFixture(t *testing.T, followingScenes ...string) *videoCha
 
 func addRoutingAlternative(t *testing.T, f *videoChainFixture, id string, credits int64, outcomes ...model.TaskStatus) {
 	t.Helper()
+	catalogOnly := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request to catalog-only alternative %s: %s %s", id, r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(catalogOnly.Close)
 	var item model.ChannelModel
 	if err := f.db.First(&item, "id = ?", "system-model").Error; err != nil {
 		t.Fatal(err)
@@ -109,7 +123,7 @@ func addRoutingAlternative(t *testing.T, f *videoChainFixture, id string, credit
 	cost := int64(4_000_000)
 	selector := `{"videoSeconds":"30"}`
 	tier := model.ChannelModelPriceTier{ID: id + "-30s", ChannelModelID: item.ID, ProviderModelKey: item.ProviderModelKey, SelectorJSON: selector, SelectorKey: selector, VideoSeconds: 30, UpstreamRequestCostMicroCNY: &cost, PriceConfigured: true, Enabled: true, BillingMode: "fixed_request", UnitPriceMicrocredits: credits}
-	for _, record := range []any{&model.ModelChannel{ID: id, Scope: model.ChannelScopeSystem, Enabled: true, BaseURL: "https://unused.invalid", APIKey: "fixture"}, &item, &tier} {
+	for _, record := range []any{&model.ModelChannel{ID: id, Scope: model.ChannelScopeSystem, Enabled: true, BaseURL: catalogOnly.URL, APIKey: "fixture"}, &item, &tier} {
 		if err := f.db.Create(record).Error; err != nil {
 			t.Fatal(err)
 		}

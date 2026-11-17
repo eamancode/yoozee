@@ -53,10 +53,6 @@ func (s *Service) videoReceiptOriginMAC(task *model.Task, channelID, origin stri
 }
 
 func (s *Service) stampVideoReceiptDestination(task *model.Task, input map[string]any) error {
-	delete(input, videoReceiptOriginKey)
-	if !isVideoTaskType(task.Type) {
-		return nil
-	}
 	config, _ := input["config"].(map[string]any)
 	id := stringValue(config["channelId"])
 	if id == "" {

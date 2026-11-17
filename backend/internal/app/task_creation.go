@@ -73,6 +73,7 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	if err != nil {
 		return nil, err
 	}
+	delete(normalizedInput, videoReceiptOriginKey)
 	if err := setServerDramaRun(normalizedInput, req.dramaRun); err != nil {
 		return nil, err
 	}
@@ -281,9 +282,6 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 			return nil, BadAuthRequest("Agent 暂不支持当前模型计费方式")
 		}
 	}
-	if err := s.stampVideoReceiptDestination(&task, normalizedInput); err != nil {
-		return nil, err
-	}
 	if req.creationPrepare != nil {
 		encoded, encodeErr := json.Marshal(normalizedInput)
 		if encodeErr != nil {
@@ -292,6 +290,12 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		task.InputJSON = string(encoded)
 		req.creationPrepare.Order = billingOrder
 		return &task, nil
+	}
+	// Only the video-chain controller can admit a child for original-order recovery.
+	if task.Type == "canvas_video" && task.ParentControllerID != "" {
+		if err := s.stampVideoReceiptDestination(&task, normalizedInput); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.protectTaskSecrets(normalizedInput); err != nil {
 		return nil, err
@@ -810,6 +814,9 @@ func applyChannelCapabilityDefaults(config map[string]any, capability string, pr
 		}
 		setDefault("size", profile.Video.DefaultRatio)
 		setDefault("vquality", profile.Video.DefaultResolution)
+		if len(profile.Video.Resolutions) == 1 && isAutomaticVideoResolution(stringValue(config["vquality"])) {
+			config["vquality"] = profile.Video.Resolutions[0]
+		}
 		setDefault("videoGenerateAudio", profile.Video.GenerateAudio.Default)
 		setDefault("videoWatermark", profile.Video.Watermark.Default)
 	}
