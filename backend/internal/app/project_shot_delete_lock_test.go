@@ -66,7 +66,7 @@ func TestStoryboardShotDeleteAndTaskAdmissionLock(t *testing.T) {
 
 func seedShotDeleteLockTest(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	if err := db.AutoMigrate(&model.Project{}, &model.ProjectUnit{}, &model.Shot{}, &model.ShotRevision{},
+	if err := db.AutoMigrate(&model.Project{}, &model.DramaProduction{}, &model.ProjectUnit{}, &model.Shot{}, &model.ShotRevision{},
 		&model.ShotArtifact{}, &model.ShotEvidence{}, &model.ShotAssetReference{}, &model.ProjectAssetCandidate{},
 		&model.ProductionTaskLink{}, &model.CanvasProject{}, &model.Task{}, &model.Asset{}, &model.AssetVersion{}, &model.Resource{}); err != nil {
 		t.Fatal(err)

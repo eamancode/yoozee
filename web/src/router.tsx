@@ -4,7 +4,21 @@ import { lazyAdminPage } from "@/pages/admin/admin-page-loader";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceternity/full-screen-loader";
-import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadDramaFlow2CreatePage, loadDramaFlow2DetailPage, loadDramaFlow2Page, loadDramaFlowCreatePage, loadDramaFlowDetailPage, loadDramaFlowPage, loadProjectDetailPage, loadProjectsPage, loadSkillWorkbenchPage } from "@/lib/workspace-route-modules";
+import {
+    loadAssetsPage,
+    loadCanvasPage,
+    loadCanvasProjectPage,
+    loadCreatePage,
+    loadDramaFlow2CreatePage,
+    loadDramaFlow2DetailPage,
+    loadDramaFlow2Page,
+    loadDramaFlowCreatePage,
+    loadDramaFlowDetailPage,
+    loadDramaFlowPage,
+    loadProjectDetailPage,
+    loadProjectsPage,
+    loadSkillWorkbenchPage,
+} from "@/lib/workspace-route-modules";
 import { projectWorkbenchRoutePaths } from "@/lib/project-workbench-routes";
 import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
 import { AuthScene } from "@/pages/auth/auth-scene";
