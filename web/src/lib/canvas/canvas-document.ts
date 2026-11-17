@@ -1,7 +1,7 @@
 const maxChapterHeadingLength = 120;
 const chineseChapterNumber = "[零〇○一二两三四五六七八九十百千万亿壹贰叁肆伍陆柒捌玖拾佰仟\\d]+";
 const englishChapterNumber = "(?:\\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
-const chapterTitleSuffix = "(?:\\s*[-—–:：·.]\\s*.*|\\s+.*)?";
+const chapterTitleSuffix = "(?:\\s*[-—–:：·.|]\\s*.*|\\s+.*)?";
 const chapterHeadingPatterns = [
     new RegExp(`^(?:正文\\s*)?第\\s*${chineseChapterNumber}\\s*[章节卷回部篇集季幕]${chapterTitleSuffix}$`, "i"),
     new RegExp(`^(?:卷|篇|部|集|季|幕)\\s*${chineseChapterNumber}${chapterTitleSuffix}$`, "i"),

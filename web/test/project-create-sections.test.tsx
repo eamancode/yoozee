@@ -196,4 +196,15 @@ describe("建项流程", () => {
         expect(ideaWordCount(60)).toBe("800");
         expect(ideaWordCount(30)).toBe("400");
     });
+
+    test("剧本按带竖线的集标题导入，保留标题原文和场次正文", () => {
+        const episodes = [
+            { title: "第1集｜雨棚下的热橙汁", plainText: "第一场｜后街\n阿婆：先暖暖手。" },
+            { title: "第2集|同一辆推车", plainText: "第一场｜市场\n林深：第1集｜那场雨，我记得。" },
+            { title: "第三集｜阿婆算的账", plainText: "第一场｜果汁摊\n阿婆：七十九块八。" },
+        ];
+        const text = episodes.map(({ title, plainText }) => title + "\n" + plainText).join("\r\n");
+        expect(importedUnits(text, "script", true)).toEqual(episodes);
+        expect(importedUnits(text, "script", false)).toHaveLength(1);
+    });
 });
