@@ -222,7 +222,7 @@ func (s *Service) materializeTaskMedia(ctx context.Context, task *model.Task, co
 				if err := s.saveMediaCheckpoint(task, checkpoint, "download"); err != nil {
 					return nil, err
 				}
-				config, err = s.resolveProviderConfig(config)
+				config, _, err = s.resolveVideoReceiptConfig(ctx, config, task.ProviderRequestID)
 				if err != nil {
 					return nil, &mediaRecoveryError{stage: "download", cause: err}
 				}

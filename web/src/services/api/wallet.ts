@@ -78,6 +78,7 @@ export type ChannelModel = {
 };
 
 export type ChannelModelPriceTier = {
+    upstreamRequestCostMicroCny?: number;
     /** 仅管理员模型编辑接口返回，不能复制到用户模型目录。 */
     costPricing?: CreditCostPricing;
     id: string;

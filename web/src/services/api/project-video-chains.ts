@@ -15,6 +15,23 @@ export interface VideoChainRequest {
     models?: Record<string, VideoChainModel>;
     previewHash?: string;
     requestId?: string;
+    resumeChainId?: string;
+}
+export interface VideoChainDiagnostic {
+    quoteId?: string;
+    category?: string;
+    countDecision?: string;
+    upstreamCode?: string;
+    attemptId?: string;
+    channelId?: string;
+    upstreamModel?: string;
+    submissionOutcome?: string;
+    billingStatus?: string;
+    terminalStatus?: string;
+    phase?: string;
+    safeToResubmit?: boolean;
+    canQueryProvider?: boolean;
+    canRecoverMedia?: boolean;
 }
 export interface VideoChainStep {
     shotId: string;
@@ -41,9 +58,11 @@ export interface VideoChainStep {
     sourceShotId?: string;
     referenceTag?: string;
     referenceCount: number;
+    referenceAudioCount?: number;
     freezeReference?: boolean;
     ending: boolean;
     quote?: LogicalModelQuote;
+    diagnostic?: VideoChainDiagnostic;
 }
 export interface VideoChain {
     whiteModelStoryboardEnabled: boolean;
@@ -52,6 +71,7 @@ export interface VideoChain {
     id?: string;
     projectId: string;
     unitId: string;
+    anchorShotId?: string;
     status: string;
     stage: string;
     error?: string;
@@ -78,5 +98,5 @@ export const videoChainsQuery = (projectId: string, unitId: string) => ({
 });
 export const previewVideoChain = (projectId: string, input: VideoChainRequest) => http.post<{ chain: VideoChain }>(`${base(projectId)}/preview`, input);
 export const createVideoChain = (projectId: string, input: VideoChainRequest) => http.post<{ chain: VideoChain }>(base(projectId), input);
-export const retryVideoChain = (projectId: string, id: string) => http.post<{ chain: VideoChain }>(`${base(projectId)}/${encodeURIComponent(id)}/retry`);
+export const retryVideoChain = (projectId: string, input: VideoChainRequest & { resumeChainId: string }) => http.post<{ chain: VideoChain }>(`${base(projectId)}/${encodeURIComponent(input.resumeChainId)}/retry`, input);
 export const cancelVideoChain = (projectId: string, id: string) => http.post<{ chain: VideoChain }>(`${base(projectId)}/${encodeURIComponent(id)}/cancel`);

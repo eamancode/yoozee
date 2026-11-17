@@ -210,6 +210,7 @@ func (s *Service) UpdateSystemChannel(actor *model.User, id string, req ChannelR
 	if err != nil {
 		return nil, err
 	}
+	storedAPIKey, storedSecretKey := channel.APIKey, channel.SecretKey
 	if err := s.decryptSystemChannelSecrets(channel); err != nil {
 		return nil, err
 	}
@@ -228,10 +229,19 @@ func (s *Service) UpdateSystemChannel(actor *model.User, id string, req ChannelR
 	if req.SecretKey == "" {
 		next.SecretKey = channel.SecretKey
 	}
+	sameAPIKey, sameSecretKey := next.APIKey == channel.APIKey, next.SecretKey == channel.SecretKey
+	credentialChanged := !sameAPIKey || !sameSecretKey || next.HeadersJSON != channel.HeadersJSON || next.BaseURL != channel.BaseURL
 	if err := s.encryptSystemChannelSecrets(&next); err != nil {
 		return nil, err
 	}
-	if err := s.repo.Save(&next); err != nil {
+	// Retain the sealed credential identity across unrelated channel edits.
+	if sameAPIKey && strings.HasPrefix(storedAPIKey, encryptedSettingPrefix) {
+		next.APIKey = storedAPIKey
+	}
+	if sameSecretKey && strings.HasPrefix(storedSecretKey, encryptedSettingPrefix) {
+		next.SecretKey = storedSecretKey
+	}
+	if err := s.repo.SaveChannelAndInvalidateSupplierCosts(&next, credentialChanged); err != nil {
 		return nil, err
 	}
 	if updateModels {

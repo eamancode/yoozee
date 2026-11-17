@@ -25,6 +25,13 @@ type taskAdmission struct {
 	NonBillable           bool
 }
 
+func storyboardTaskAdmissionError(err error) error {
+	if errors.Is(err, repository.ErrProjectUnitShotsChanged) {
+		return failedPrecondition("本次任务使用的分镜单元已删除或已变更，请刷新分镜后重新预览")
+	}
+	return err
+}
+
 // CreateTask 收敛任务进入系统前的 admission 流程：输入标准化、逻辑模型路由、
 // 能力/额度校验和持久化。执行阶段由 worker 与 provider 相关模块负责。
 // CreateTask 校验并创建一条生成任务。
@@ -127,9 +134,26 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	}
 
 	if !workflowProviderTask {
-		routed, normalizedInput, err = s.resolveTaskModelSelection(userID, normalizedInput, logicalModelID, taskType, req.Operation, frontendEnabled)
+		confirmed, _ := normalizedInput["config"].(map[string]any)
+		videoChain := req.admission != nil && req.admission.ParentControllerID != "" && taskType == "canvas_video"
+		if videoChain && logicalModelID != "" && frontendEnabled {
+			routed, err = s.videoChainPinnedLogicalModel(userID, logicalModelID, normalizedInput, req.Operation)
+			if err == nil {
+				normalizedInput = applyRoutedProviderSelection(normalizedInput, routed)
+			}
+		} else {
+			routed, normalizedInput, err = s.resolveTaskModelSelection(userID, normalizedInput, logicalModelID, taskType, req.Operation, frontendEnabled)
+		}
 		if err != nil {
 			return nil, err
+		}
+		if videoChain {
+			resolved, _ := normalizedInput["config"].(map[string]any)
+			for _, key := range []string{"channelId", "channelModelKey", "providerModelKey", "priceTierId"} {
+				if stringValue(confirmed[key]) != stringValue(resolved[key]) {
+					return nil, ModelCatalogMismatch("已确认的线路或价档变化，请重新报价")
+				}
+			}
 		}
 	}
 	var routedNames []string
@@ -239,6 +263,9 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		}
 	}
 	if req.admission != nil && req.admission.MaxCharge != nil && billingOrder != nil {
+		if req.admission.ParentControllerID != "" && taskType == "canvas_video" && billingOrder.AmountMicrocredits != *req.admission.MaxCharge {
+			return nil, BadAuthRequest("本段报价已变化，请重新预览并确认费用")
+		}
 		if billingOrder.AmountMicrocredits > *req.admission.MaxCharge {
 			return nil, BadAuthRequest("模型调用报价超过本轮 Agent 积分上限，尚未创建任务或扣费")
 		}
@@ -539,41 +566,47 @@ func (s *Service) requireCustomChannelsForTaskInput(input map[string]any) error 
 // resolveSystemChannelModelSelection 是系统渠道任务的 admission 边界。
 // 客户端只负责表达创作参数；模型协议、能力合同、价格档和上游模型标识必须从服务端记录重建，
 // 避免出现“按一个规格校验/计费，却按另一个规格执行”的跨阶段漂移。
+func (s *Service) selectableSystemChannelModel(access *userGroupAccess, config map[string]any) (*model.ModelChannel, *model.ChannelModel, error) {
+	channelID := strings.TrimSpace(stringValue(config["channelId"]))
+	modelKey := strings.TrimPrefix(strings.TrimSpace(stringValue(config["model"])), "models/")
+
+	if channelID == "" || modelKey == "" {
+		return nil, nil, InvalidModelSelection("必须指定系统渠道和模型")
+	}
+
+	channel, err := s.repo.SystemChannel(channelID)
+	if err != nil {
+		return nil, nil, InvalidModelSelection("指定的渠道不存在")
+	}
+	if !channel.Enabled || channel.Scope != model.ChannelScopeSystem {
+		return nil, nil, InvalidModelSelection("指定的渠道不可用")
+	}
+	if err := access.requireChannel(channelID); err != nil {
+		return nil, nil, err
+	}
+
+	channelModel, err := s.repo.ChannelModelByKey(channelID, modelKey)
+	if err != nil {
+		return nil, nil, InvalidModelSelection("指定的模型不存在")
+	}
+	if !channelModel.Enabled {
+		return nil, nil, InvalidModelSelection("指定的模型已停用")
+	}
+	if channelModel.Protocol == "" {
+		return nil, nil, InvalidModelSelection("指定的模型未配置请求协议")
+	}
+	return channel, channelModel, nil
+}
+
 func (s *Service) resolveSystemChannelModelSelection(access *userGroupAccess, input map[string]any, taskType string, operation string) (map[string]any, error) {
 	config, ok := input["config"].(map[string]any)
 	if !ok {
 		return input, InvalidModelSelection("缺少模型配置")
 	}
-
-	channelID := strings.TrimSpace(stringValue(config["channelId"]))
-	modelKey := strings.TrimPrefix(strings.TrimSpace(stringValue(config["model"])), "models/")
-
-	if channelID == "" || modelKey == "" {
-		return input, InvalidModelSelection("必须指定系统渠道和模型")
-	}
-
-	channel, err := s.repo.SystemChannel(channelID)
+	channel, channelModel, err := s.selectableSystemChannelModel(access, config)
 	if err != nil {
-		return input, InvalidModelSelection("指定的渠道不存在")
-	}
-	if !channel.Enabled || channel.Scope != model.ChannelScopeSystem {
-		return input, InvalidModelSelection("指定的渠道不可用")
-	}
-	if err := access.requireChannel(channelID); err != nil {
 		return input, err
 	}
-
-	channelModel, err := s.repo.ChannelModelByKey(channelID, modelKey)
-	if err != nil {
-		return input, InvalidModelSelection("指定的模型不存在")
-	}
-	if !channelModel.Enabled {
-		return input, InvalidModelSelection("指定的模型已停用")
-	}
-	if channelModel.Protocol == "" {
-		return input, InvalidModelSelection("指定的模型未配置请求协议")
-	}
-
 	nextConfig := make(map[string]any, len(config)+6)
 	for key, value := range config {
 		switch key {

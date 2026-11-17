@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,10 +17,18 @@ func TestSystemChannelVideoChainQuoteUploadSubmit(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		duration VideoDurationConfig
+		content  int
+		images   int
 		seconds  int
 	}{
-		{"range preserves 25 seconds", VideoDurationConfig{Selection: "range", Min: 1, Max: 30, Step: 1, Default: 15}, 25},
-		{"dual slot selects 30 seconds", VideoDurationConfig{Selection: "enum", Values: []int{15, 30}, Default: 15}, 30},
+		{"range preserves 25 seconds", VideoDurationConfig{Selection: "range", Min: 1, Max: 30, Step: 1, Default: 15}, 25, 8, 25},
+		{"dual slot selects 30 seconds", VideoDurationConfig{Selection: "enum", Values: []int{15, 30}, Default: 15}, 25, 8, 30},
+		{"dual 21", VideoDurationConfig{Selection: "enum", Values: []int{15, 30}, Default: 15}, 21, 7, 30},
+		{"dual 26", VideoDurationConfig{Selection: "enum", Values: []int{15, 30}, Default: 15}, 26, 7, 30},
+		{"fixed 21", VideoDurationConfig{Selection: "enum", Values: []int{30}, Default: 30}, 21, 7, 30},
+		{"fixed 26", VideoDurationConfig{Selection: "range", Min: 30, Max: 30, Step: 1, Default: 30}, 26, 7, 30},
+		{"continuous 21", VideoDurationConfig{Selection: "range", Min: 1, Max: 30, Step: 1, Default: 5}, 21, 7, 21},
+		{"continuous 26", VideoDurationConfig{Selection: "range", Min: 1, Max: 30, Step: 1, Default: 5}, 26, 7, 26},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newVideoChainFixture(t, "A", "A")
@@ -66,21 +75,34 @@ func TestSystemChannelVideoChainQuoteUploadSubmit(t *testing.T) {
 				&model.ModelChannel{ID: "system-video", Scope: model.ChannelScopeSystem, Enabled: true, Name: "Mock system video", BaseURL: server.URL, APIKey: "fixture-only"},
 				&model.ChannelModel{ID: "system-model", ChannelID: "system-video", ModelKey: "seedance-2.5-test", ProviderModelKey: "seedance-2.5-mock", Capability: "video", Protocol: model.ChannelInterfaceType("seedance-videos-compatible"), CapabilityConfigJSON: string(capability), Enabled: true, PriceConfigured: true, BillingMode: "fixed_request"},
 				&model.ChannelModelPriceTier{ID: "system-tier", ChannelModelID: "system-model", SelectorKey: selector, SelectorJSON: selector, ProviderModelKey: "seedance-2.5-mock", BillingMode: "fixed_request", UnitPriceMicrocredits: 5_000_000, Enabled: true, PriceConfigured: true},
-				&model.ChannelModelPriceTier{ID: "initial-tier", ChannelModelID: "system-model", SelectorKey: `{"videoSeconds":"15"}`, SelectorJSON: `{"videoSeconds":"15"}`, ProviderModelKey: "seedance-2.5-mock", BillingMode: "fixed_request", UnitPriceMicrocredits: 1_000_000, Enabled: true, PriceConfigured: true},
 				&model.CreditAccount{UserID: "user-1", AvailableMicrocredits: 50_000_000},
 			} {
 				if err := f.db.Create(row).Error; err != nil {
 					t.Fatal(err)
 				}
 			}
-			segment := drama.Segment{ID: "S01", Scene: "A", Dur: 25, Mode: drama.ModeLockIdentity, Shots: []drama.SubShot{{At: 0, Size: "中景", Text: "阿婆整理推车，林深站在左边"}}}
-			for i := range 8 {
+			segment := drama.Segment{ID: "S01", Scene: "A", Dur: float64(tc.content), Mode: drama.ModeLockIdentity, Shots: []drama.SubShot{{At: 0, Size: "中景", Text: "阿婆整理推车，林深站在左边"}}}
+			expectedEnding := 1
+			if tc.images == 7 {
+				if err := f.db.Model(&model.Project{}).Where("id = ?", f.projectID).Update("workflow_id", drama.WorkflowSSSDrama).Error; err != nil {
+					t.Fatal(err)
+				}
+				segment.Verbatim = "生效参考素材\n@图1、@图2、@图3、@图4、@图5、@图6、@图7。\n镜头正文\n阿婆整理推车，林深站在左边。"
+				expectedEnding = 0
+			}
+			png := mediaTestPNG(t)
+			for i := range tc.images {
 				id := fmt.Sprintf("original-%d", i)
+				resource, err := f.s.UploadResourceFile("user-1", id+".png", int64(len(png)), "image", 2, 3, 0, bytes.NewReader(png))
+				if err != nil {
+					t.Fatal(err)
+				}
 				for _, row := range []any{
 					&model.Asset{ID: id, UserID: "user-1", Kind: "image", Category: model.AssetCategoryProp, Title: id, PrimaryVersionID: id + "-v1", Status: model.AssetVersionStatusConfirmed, PayloadJSON: "{}"},
 					&model.AssetVersion{ID: id + "-v1", AssetID: id, Version: 1, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: "{}"},
 					&model.ProjectAssetLink{ID: newID(), ProjectID: f.projectID, AssetID: id},
-					&model.AssetRepresentation{ID: newID(), TaskID: id + "-image-task", AssetVersionID: id + "-v1", ResourceID: f.frameID, MediaType: "image", Role: "primary"},
+					&model.ShotAssetReference{ID: newID(), ShotID: "s0", AssetVersionID: id + "-v1", Role: "reference", Status: "linked", Source: "segment", Position: i},
+					&model.AssetRepresentation{ID: newID(), TaskID: id + "-image-task", AssetVersionID: id + "-v1", ResourceID: resource.ID, MediaType: "image", Role: "primary"},
 				} {
 					if err := f.db.Create(row).Error; err != nil {
 						t.Fatal(err)
@@ -92,13 +114,15 @@ func TestSystemChannelVideoChainQuoteUploadSubmit(t *testing.T) {
 			if err := f.db.Model(&model.ShotRevision{}).Where("id = ?", "rs0").Update("spec_json", string(raw)).Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := f.db.Model(&model.Shot{}).Where("id = ?", "s0").Update("duration_ms", 25000).Error; err != nil {
+			if err := f.db.Model(&model.Shot{}).Where("id = ?", "s0").Update("duration_ms", tc.content*1000).Error; err != nil {
 				t.Fatal(err)
 			}
 			f.req.Scope = "single"
-			f.req.Model.Input = map[string]any{"mode": "video", "config": map[string]any{"channelId": "system-video", "model": "seedance-2.5-test", "size": "9:16", "vquality": "720p", "videoSeconds": "15"}, "capabilityOptions": map[string]any{"videoSeconds": float64(15)}}
+			f.req.Model.Input = globalSixSecondsRequest("false")
+			f.req.Model.Input["capabilityOptions"] = map[string]any{"videoSeconds": float64(6)}
 			chain := f.start(t)
-			if len(paths) != 0 || chain.TotalMicrocredits != 5_000_000 || chain.Steps[0].GenerationSeconds != float64(tc.seconds) || chain.Steps[0].ContentSeconds != 25 || chain.Steps[0].ReferenceCount != 8 {
+			if len(paths) != 0 || chain.TotalMicrocredits != 5_000_000 || chain.Steps[0].GenerationSeconds != float64(tc.seconds) || chain.Steps[0].ContentSeconds != float64(tc.content) || chain.Steps[0].ReferenceCount != tc.images ||
+				chain.PreviewHash == "" || chain.Steps[0].Quote.BillingMode != "fixed_request" || chain.Steps[0].Quote.Quantity != 1 {
 				t.Fatalf("quote changed content/references or called provider: %+v paths=%v", chain, paths)
 			}
 			state := f.untilTask(t, chain.ID, 0)
@@ -122,7 +146,7 @@ func TestSystemChannelVideoChainQuoteUploadSubmit(t *testing.T) {
 			if err := json.Unmarshal([]byte(inputJSON), &input); err != nil {
 				t.Fatalf("persisted provider config not decodable: %v", err)
 			}
-			if input.Config.VideoSeconds != fmt.Sprint(tc.seconds) || input.Config.PriceTierID != "system-tier" || len(input.ReferenceImages) != 8 || strings.Count(child.Prompt, dramaSceneEnding) != 1 {
+			if input.Config.VideoSeconds != fmt.Sprint(tc.seconds) || input.Config.PriceTierID != "system-tier" || len(input.ReferenceImages) != tc.images || strings.Count(child.Prompt, dramaSceneEnding) != expectedEnding {
 				t.Fatalf("child config/prompt drift: %+v", input.Config)
 			}
 			// The normal worker submits and polls only the localhost mock; its result
@@ -135,11 +159,11 @@ func TestSystemChannelVideoChainQuoteUploadSubmit(t *testing.T) {
 				t.Fatalf("provider payload: %#v", submitted)
 			}
 			images, _ := submitted["images"].([]any)
-			if len(images) != 8 || len(paths) < 3 || paths[len(paths)-2] != "POST /v1/videos" || paths[len(paths)-1] != "GET /v1/videos/system-video-mock" {
+			if len(images) != tc.images || len(paths) != tc.images+2 || paths[len(paths)-2] != "POST /v1/videos" || paths[len(paths)-1] != "GET /v1/videos/system-video-mock" {
 				t.Fatalf("missing references/order: images=%v paths=%v", images, paths)
 			}
-			for _, ref := range images {
-				if !strings.HasPrefix(fmt.Sprint(ref), "https://uploaded.example/system-") {
+			for i, ref := range images {
+				if fmt.Sprint(ref) != fmt.Sprintf("https://uploaded.example/system-%d.png", i+1) {
 					t.Fatalf("unuploaded reference: %v", ref)
 				}
 			}
@@ -155,8 +179,30 @@ func TestSystemChannelVideoChainQuoteUploadSubmit(t *testing.T) {
 				t.Fatalf("duplicate submit/billing: creates=%d orders=%d", creates, orders)
 			}
 			var shot model.Shot
-			if err := f.db.First(&shot, "id = ?", "s0").Error; err != nil || shot.DurationMs != 25000 {
+			if err := f.db.First(&shot, "id = ?", "s0").Error; err != nil || shot.DurationMs != int64(tc.content*1000) {
 				t.Fatalf("content duration mutated: %v %+v", err, shot)
+			}
+			// New preview failures belong to the new action. The prior controller
+			// still returns its playable resource and the confirmed script duration.
+			if tc.name == "dual 26" {
+				history := f.tick(t, chain.ID)
+				f.tick(t, chain.ID)
+				resourceID := history.Steps[0].VideoResourceID
+				setShotSeconds(t, f, 31)
+				if _, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req); err == nil {
+					t.Fatal("accepted a new preview beyond the 30 second maximum")
+				}
+				views, err := f.s.ProjectVideoChains("user-1", f.projectID, f.req.UnitID)
+				if err != nil || len(views) != 1 || views[0].Status != "succeeded" || views[0].Error != "" ||
+					resourceID == "" || views[0].Steps[0].VideoResourceID != resourceID || views[0].Steps[0].ContentSeconds != 26 {
+					t.Fatalf("failed preview overwrote existing result: %v %+v", err, views)
+				}
+				if _, err := f.s.videoChainReadyResource("user-1", resourceID, "video/"); err != nil {
+					t.Fatal(err)
+				}
+				if len(paths) != tc.images+2 {
+					t.Fatalf("failed preview contacted provider: %v", paths)
+				}
 			}
 		})
 	}

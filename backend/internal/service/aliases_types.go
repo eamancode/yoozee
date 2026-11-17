@@ -148,6 +148,7 @@ type (
 	CreateProjectCharacterRequest          = app.CreateProjectCharacterRequest
 	CreateProjectRequest                   = app.CreateProjectRequest
 	CreateProjectShotRequest               = app.CreateProjectShotRequest
+	DeleteProjectShotRequest               = app.DeleteProjectShotRequest
 	UpdateProjectDramaDocumentRequest      = app.UpdateProjectDramaDocumentRequest
 	DramaSegmentsWriteRequest              = app.DramaSegmentsWriteRequest
 	DramaShotlistWriteRequest              = app.DramaShotlistWriteRequest

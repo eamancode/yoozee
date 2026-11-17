@@ -201,6 +201,10 @@ func (s *Service) ResolveLogicalModel(access *userGroupAccess, logicalModelID st
 	if !ok {
 		return nil, BadAuthRequest("所选模型不可用")
 	}
+	return s.resolveCatalogModel(access, cached, intent)
+}
+
+func (s *Service) resolveCatalogModel(access *userGroupAccess, cached cachedLogicalModel, intent ModelRequestIntent) (*RoutedModel, error) {
 	intent = resolveModelRequestIntent(cached.ProductSpec, intent, cached.Defaults)
 	if parameters := cached.ProductSpec.ImageParameters; parameters != nil {
 		if _, err := resolveImageParameterValues(parameters, intent.Options); err != nil {

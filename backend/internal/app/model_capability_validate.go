@@ -5,6 +5,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -359,6 +360,9 @@ func (s *Service) ValidateTaskCapability(input map[string]any) error {
 	if err != nil || profile == nil || profile.Video == nil {
 		return BadAuthRequest("当前视频模型尚未配置能力参数")
 	}
+	if err := s.checkSLLVideoInput(context.Background(), item.ID, taskInput); err != nil {
+		return err
+	}
 	normalized, normalizeErr := NormalizeModelCapabilityConfigForModel("video", string(item.Protocol), firstNonEmpty(item.ProviderModelKey, item.ModelKey), profile)
 	if normalizeErr != nil || normalized == nil || normalized.Video == nil {
 		return BadAuthRequest("当前视频模型能力参数无效")
@@ -396,6 +400,11 @@ func validateVideoTask(profile *VideoCapabilityConfig, input canvasGenerationInp
 	}
 	if err := validateModelPromptLength("视频", input.Prompt, profile.References.PromptMaxChars); err != nil {
 		return err
+	}
+	if profile.SLLWire != nil {
+		if err := validateSLLMedia(input, profile.SLLWire); err != nil {
+			return err
+		}
 	}
 	if len(input.ReferenceImages) > profile.References.MaxImages || len(input.ReferenceVideos) > profile.References.MaxVideos || len(input.ReferenceAudios) > profile.References.MaxAudios {
 		return newModelCapabilityArgumentError("referenceNodeIds", "item_count", BadAuthRequest("参考素材数量超过当前模型限制"))

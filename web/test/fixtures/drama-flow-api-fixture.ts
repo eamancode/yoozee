@@ -7,6 +7,7 @@
  */
 
 import { defaultModelCapabilityConfig } from "../../src/lib/model-capabilities";
+import type { ProjectVideoOverride, ProjectVideoRoute } from "../../src/services/api/project-video-routing";
 
 export const FIXTURE_PROJECT_ID = "p-flow-qa";
 export const FIXTURE_UNIT_ID = "u-flow-e1";
@@ -110,6 +111,7 @@ export function createDramaFlowFixture(
         revision: 2,
         saves: 0,
         previews: 0,
+        videoRoute: null as ProjectVideoRoute | null,
         /** 每次预览请求里真实发出的视频配置（含被拒的）。 */
         previewConfigs: [] as Array<Record<string, unknown>>,
         /** stopAtAssets 时「继续：角色场景资产」确认后真实发出的出图请求（只记不建任务）。 */
@@ -394,6 +396,7 @@ export function createDramaFlowFixture(
             if (path === `${base}/drama/progress`) return ok({ progress: progress() });
             if (path === `${base}/drama/bible`) return ok({ document: bibleFor(style) });
             if (path === `${base}/drama/brief`) return ok({ document: {} });
+            if (path === `${base}/drama/video-routing`) return ok({ route: state.videoRoute });
             if (path === `${base}/drama/ontology`) {
                 const doc = (kind: string, content: string, unitId = "") => ({ id: `doc-${kind}`, projectId: FIXTURE_PROJECT_ID, unitId, kind, version: 1, content, createdAt: now });
                 return ok({
@@ -453,10 +456,16 @@ export function createDramaFlowFixture(
             state.saves += 1;
             return ok({ segments: state.segments });
         }
+        if (call.method === "POST" && path === `${base}/drama/video-routing/override`) {
+            const input = body as ProjectVideoOverride;
+            if (!input.model || input.revision !== (state.videoRoute?.revision || 0)) return reject(409, "project_video_route_changed");
+            state.videoRoute = { status: "manual", fromModel: input.fromModel, model: input.model, reason: "用户手选", successRate: null, sampledAt: null, changedAt: now, revision: input.revision + 1 };
+            return ok({ route: state.videoRoute });
+        }
         // 出片花费预览只读：返回整链预估，不建任务、不扣费。真正提交（POST /video-chains）、重试、取消都落到下面的拦截。
         if (call.method === "POST" && path === `${base}/video-chains/preview`) {
             // 按权威能力校验真实发出的配置（记下来供测试断言）：同步音频必须是 false，时长必须是 15 或 30 秒档。
-            const input = body as { shotId?: string; model?: { input?: { config?: Record<string, unknown> } } };
+            const input = body as { shotId?: string; model?: { model?: string; input?: { config?: Record<string, unknown> } } };
             const config = input?.model?.input?.config || {};
             state.previewConfigs.push({ ...config });
             const issues = [
@@ -465,7 +474,7 @@ export function createDramaFlowFixture(
             ];
             if (issues.length) return capabilityReject(issues);
             state.previews += 1;
-            const steps = state.segments.filter((segment) => segment.shotId === input?.shotId || !input?.shotId).map((segment) => chainStep(segment.shotId, segment.spec.id, "waiting", { phase: "waiting", quote: { amountMicrocredits: 1_500_000 } }));
+            const steps = state.segments.filter((segment) => segment.shotId === input?.shotId || !input?.shotId).map((segment) => chainStep(segment.shotId, segment.spec.id, "waiting", { phase: "waiting", model: input.model?.model || FIXTURE_VIDEO_MODEL, quote: { amountMicrocredits: 1_500_000 } }));
             return ok({ chain: { ...chainOf("", "preview", steps), previewHash: `preview-${state.previews}`, totalMicrocredits: 1_500_000 * steps.length } });
         }
         // 编译提示词只读不扣费，按当前段给一个确定的结果。

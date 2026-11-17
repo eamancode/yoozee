@@ -94,9 +94,9 @@ func createTaskWithStorageQuotaRepository(repo *repository.Repository, task *mod
 		return err
 	}
 	if billingOrder != nil {
-		return repo.CreateTaskWithCreditReservation(task, billingOrder, policy.Task.ActiveTaskLimit)
+		return storyboardTaskAdmissionError(repo.CreateTaskWithCreditReservation(task, billingOrder, policy.Task.ActiveTaskLimit))
 	}
-	return repo.CreateTaskWithActiveLimit(task, policy.Task.ActiveTaskLimit)
+	return storyboardTaskAdmissionError(repo.CreateTaskWithActiveLimit(task, policy.Task.ActiveTaskLimit))
 }
 
 // saveTaskCompletionWithinStorageQuota 落库任务成功，之后（已离开存储临界区）跑落库后的后续：资产设计出图记状态和接着排下一个。

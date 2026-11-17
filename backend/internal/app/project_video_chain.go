@@ -32,6 +32,8 @@ type ProjectVideoChainRequest struct {
 	Models      map[string]ProjectVideoChainModel `json:"models,omitempty"`
 	PreviewHash string                            `json:"previewHash,omitempty"`
 	RequestID   string                            `json:"requestId,omitempty"`
+
+	ResumeChainID string `json:"resumeChainId,omitempty"`
 }
 
 type ProjectVideoChainStep struct {
@@ -49,6 +51,7 @@ type ProjectVideoChainStep struct {
 	ReferenceWarning      string             `json:"referenceWarning,omitempty"`
 	ReferenceSkipped      bool               `json:"referenceSkipped,omitempty"`
 	TaskID                string             `json:"taskId,omitempty"`
+	PreviousTaskIDs       []string           `json:"previousTaskIds,omitempty"`
 	VideoResourceID       string             `json:"videoResourceId,omitempty"`
 	FrameResourceID       string             `json:"frameResourceId,omitempty"`
 	SourceVideoResourceID string             `json:"sourceVideoResourceId,omitempty"`
@@ -60,8 +63,11 @@ type ProjectVideoChainStep struct {
 	SourceShotID          string             `json:"sourceShotId,omitempty"`
 	ReferenceTag          string             `json:"referenceTag,omitempty"`
 	ReferenceCount        int                `json:"referenceCount"`
+	ReferenceAudioCount   int                `json:"referenceAudioCount"`
 	Ending                bool               `json:"ending"`
 	Quote                 *LogicalModelQuote `json:"quote,omitempty"`
+
+	Diagnostic *videoChainAttemptDiagnostic `json:"diagnostic,omitempty"`
 }
 
 type ProjectVideoChainView struct {
@@ -71,6 +77,7 @@ type ProjectVideoChainView struct {
 	ID                          string                  `json:"id,omitempty"`
 	ProjectID                   string                  `json:"projectId"`
 	UnitID                      string                  `json:"unitId"`
+	AnchorShotID                string                  `json:"anchorShotId"`
 	Status                      string                  `json:"status"`
 	Stage                       string                  `json:"stage"`
 	Error                       string                  `json:"error,omitempty"`
@@ -81,21 +88,23 @@ type ProjectVideoChainView struct {
 
 type videoChainStepState struct {
 	ProjectVideoChainStep
+	CompiledModel  string            `json:"compiledModel,omitempty"`
 	Input          map[string]any    `json:"input"`
 	LogicalModelID string            `json:"logicalModelId,omitempty"`
 	Signature      string            `json:"signature"`
 	Uploads        map[string]string `json:"uploads,omitempty"`
 	UploadScope    string            `json:"uploadScope,omitempty"`
-	RetryRouteRun  int               `json:"retryRouteRun,omitempty"`
 }
 
 type videoChainState struct {
+	RouteRevision               int64                    `json:"routeRevision,omitempty"`
 	WhiteModelStoryboardEnabled *bool                    `json:"whiteModelStoryboardEnabled,omitempty"`
 	UnitID                      string                   `json:"unitId"`
 	AnchorShotID                string                   `json:"anchorShotId"`
 	Request                     ProjectVideoChainRequest `json:"request"`
 	PreviewHash                 string                   `json:"previewHash"`
 	Steps                       []videoChainStepState    `json:"steps"`
+	ResumeConfirmations         map[string]string        `json:"resumeConfirmations,omitempty"`
 }
 
 func videoChainHash(value any) string {
@@ -142,6 +151,7 @@ func (s *Service) videoChainState(task *model.Task) (videoChainState, error) {
 func videoChainView(projectID string, task *model.Task, state videoChainState) ProjectVideoChainView {
 	view := ProjectVideoChainView{Scope: state.Request.Scope, PrepareOnly: state.Request.PrepareOnly, ProjectID: projectID, UnitID: state.UnitID, Status: "preview", PreviewHash: state.PreviewHash, Steps: []ProjectVideoChainStep{}}
 	view.WhiteModelStoryboardEnabled = state.WhiteModelStoryboardEnabled == nil || *state.WhiteModelStoryboardEnabled
+	view.AnchorShotID = state.AnchorShotID
 	if task != nil {
 		view.ID = task.ID
 		view.Status = string(task.Status)
@@ -150,7 +160,7 @@ func videoChainView(projectID string, task *model.Task, state videoChainState) P
 	}
 	for _, step := range state.Steps {
 		view.Steps = append(view.Steps, step.ProjectVideoChainStep)
-		if step.Quote != nil && !state.Request.PrepareOnly {
+		if step.Quote != nil && !state.Request.PrepareOnly && !(task == nil && step.Status == "succeeded") {
 			view.TotalMicrocredits += step.Quote.AmountMicrocredits
 		}
 	}
@@ -158,8 +168,22 @@ func videoChainView(projectID string, task *model.Task, state videoChainState) P
 }
 
 func (s *Service) PreviewProjectVideoChain(userID, projectID string, req ProjectVideoChainRequest) (ProjectVideoChainView, error) {
+	if req.ResumeChainID != "" {
+		task, old, err := s.videoChainTaskForUser(userID, projectID, req.ResumeChainID)
+		if err != nil {
+			return ProjectVideoChainView{}, err
+		}
+		next, err := s.prepareVideoChainResume(task, old, req)
+		if err != nil {
+			return ProjectVideoChainView{}, err
+		}
+		return videoChainView(projectID, nil, next), nil
+	}
 	state, err := s.prepareProjectVideoChain(userID, projectID, req)
 	if err != nil {
+		return ProjectVideoChainView{}, err
+	}
+	if err := s.checkOriginalVideoChain(s.repo, userID, projectID, state); err != nil {
 		return ProjectVideoChainView{}, err
 	}
 	return videoChainView(projectID, nil, state), nil
@@ -185,6 +209,20 @@ func (s *Service) ProjectVideoChains(userID, projectID, unitID string) ([]Projec
 			return nil, err
 		}
 		states[i] = state
+		if tasks[i].Status == model.TaskStatusFailed {
+			for j := range states[i].Steps {
+				step := &states[i].Steps[j]
+				if step.Status == "succeeded" {
+					continue
+				}
+				if _, err := s.videoChainRecoveryChild(&tasks[i], step); err != nil {
+					// The admission path fails closed. A missing original receipt
+					// must not hide the rest of the chapter's existing results.
+					step.Diagnostic = &videoChainAttemptDiagnostic{Category: "unknown", Phase: step.Phase, TerminalStatus: "unknown", CountDecision: "ignore", SubmissionOutcome: "unknown", BillingStatus: "unknown"}
+				}
+				break
+			}
+		}
 		if tasks[i].Status == model.TaskStatusCancelled {
 			for _, step := range state.Steps {
 				if step.TaskID != "" && step.Status == "running" {
@@ -224,6 +262,9 @@ func (s *Service) ProjectVideoChains(userID, projectID, unitID string) ([]Projec
 }
 
 func (s *Service) CreateProjectVideoChain(userID, projectID string, req ProjectVideoChainRequest) (ProjectVideoChainView, error) {
+	if req.ResumeChainID != "" {
+		return ProjectVideoChainView{}, BadAuthRequest("请在原生成链确认继续出片")
+	}
 	if s.IsDraining() {
 		return ProjectVideoChainView{}, BadAuthRequest("服务正在维护，请稍后提交连续生成")
 	}
@@ -258,14 +299,21 @@ func (s *Service) CreateProjectVideoChain(userID, projectID string, req ProjectV
 	}
 	var saved *model.Task
 	if err == nil {
-		saved, err = s.repo.CreateProjectVideoChain(&task, policy.Task.ActiveTaskLimit, *state.WhiteModelStoryboardEnabled)
+		saved, err = s.repo.CreateProjectVideoChain(&task, policy.Task.ActiveTaskLimit, *state.WhiteModelStoryboardEnabled, func(tx *repository.Repository) error {
+			if !req.PrepareOnly {
+				if err := tx.ValidateProjectVideoRouteRevision(projectID, state.RouteRevision); err != nil {
+					return err
+				}
+			}
+			return s.checkOriginalVideoChain(tx, userID, projectID, state)
+		})
 	}
 	s.storageMu.Unlock()
 	if errors.Is(err, repository.ErrTaskStateConflict) {
-		return ProjectVideoChainView{}, BadAuthRequest("白模分镜设置已变化，请刷新预览后重新提交")
+		return ProjectVideoChainView{}, BadAuthRequest("项目线路或白模分镜设置已变化，请刷新预览后重新提交")
 	}
 	if err != nil {
-		return ProjectVideoChainView{}, err
+		return ProjectVideoChainView{}, storyboardTaskAdmissionError(err)
 	}
 	stored, err := s.videoChainState(saved)
 	if err != nil {
@@ -347,94 +395,6 @@ func (s *Service) CancelProjectVideoChain(userID, projectID, id string) (Project
 		return ProjectVideoChainView{}, err
 	}
 	return videoChainView(projectID, task, state), nil
-}
-
-func (s *Service) RetryProjectVideoChain(userID, projectID, id string) (ProjectVideoChainView, error) {
-	if s.IsDraining() {
-		return ProjectVideoChainView{}, BadAuthRequest("服务正在维护，请稍后重试")
-	}
-	task, old, err := s.videoChainTaskForUser(userID, projectID, id)
-	if err != nil {
-		return ProjectVideoChainView{}, err
-	}
-	if task.Status != model.TaskStatusFailed {
-		return ProjectVideoChainView{}, BadAuthRequest("只有已暂停失败的连续生成链可以重试")
-	}
-	chains, err := s.repo.ProjectVideoChains(userID, projectID, task.Operation)
-	if err != nil {
-		return ProjectVideoChainView{}, err
-	}
-	for _, other := range chains {
-		if other.ID != id && (other.Status == model.TaskStatusQueued || other.Status == model.TaskStatusRunning) {
-			return ProjectVideoChainView{}, videoChainActiveConflict(other.ID)
-		}
-	}
-	fresh, err := s.prepareProjectVideoChainWithWhiteModel(userID, projectID, old.Request, old.WhiteModelStoryboardEnabled)
-	if err != nil {
-		return ProjectVideoChainView{}, err
-	}
-	byID := map[string]videoChainStepState{}
-	for _, step := range old.Steps {
-		byID[step.ShotID] = step
-	}
-	for i := range fresh.Steps {
-		step := &fresh.Steps[i]
-		if previous, ok := byID[step.ShotID]; ok && previous.Signature == step.Signature {
-			quote := step.Quote
-			*step = previous
-			step.Quote = quote
-			step.Error = ""
-			if step.TaskID != "" {
-				if child, err := s.repo.TaskForUser(userID, step.TaskID); err == nil && child.Status == model.TaskStatusFailed {
-					step.RetryRouteRun = child.RouteRun + 1
-				}
-			}
-		} else {
-			step.TaskID = videoChainHash([]string{id, step.ShotID, step.Signature})[:32]
-		}
-		if step.Status == "failed" {
-			step.Status = "waiting"
-		}
-		if step.FrameResourceID != "" {
-			if _, err := s.videoChainReadyResource(userID, step.FrameResourceID, "image/"); err != nil {
-				step.FrameResourceID, step.FrameAssetID, step.FrameSelection = "", "", ""
-				step.FrameTimeSeconds = nil
-				step.Uploads = map[string]string{}
-				step.Phase = "waiting"
-			} else if step.FrameAssetID != "" {
-				refs, err := s.repo.ShotAssetReferencesForShot(step.ShotID)
-				if err != nil {
-					return ProjectVideoChainView{}, err
-				}
-				versionID := videoChainHash([]string{"frame-version", step.FrameAssetID})[:32]
-				linked := false
-				for _, ref := range refs {
-					if ref.AssetVersionID == versionID && ref.Role == "continuity" && ref.Status == "linked" {
-						linked = true
-					}
-				}
-				// Explicit resume re-establishes a removed required binding without
-				// re-extracting or duplicating its already successful frame.
-				if !linked {
-					step.FrameAssetID = ""
-					step.Phase = "waiting"
-				}
-			}
-		}
-	}
-	raw, err := s.encodeVideoChainState(fresh)
-	if err != nil {
-		return ProjectVideoChainView{}, err
-	}
-	if err = s.repo.ResumeProjectVideoChain(userID, id, task.InputJSON, raw); err != nil {
-		return ProjectVideoChainView{}, err
-	}
-	task, err = s.repo.TaskForUser(userID, id)
-	if err != nil {
-		return ProjectVideoChainView{}, err
-	}
-	s.wakeTaskDispatcher()
-	return videoChainView(projectID, task, fresh), nil
 }
 
 func videoChainPositionPrompt(tag string) string {

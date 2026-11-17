@@ -143,7 +143,11 @@ func (s *Service) normalizeChannelModelPriceTiers(req ChannelModelRequest, capab
 			return nil, idErr
 		}
 		enabled := input.Enabled == nil || *input.Enabled
+		if input.UpstreamRequestCostMicroCNY != nil && (capability != "video" || billingMode != "fixed_request" || *input.UpstreamRequestCostMicroCNY < 0) {
+			return nil, BadAuthRequest("上游每条人民币成本仅适用于按次视频价档，金额须为非负数")
+		}
 		result = append(result, model.ChannelModelPriceTier{
+			UpstreamRequestCostMicroCNY:  input.UpstreamRequestCostMicroCNY,
 			CostPricing:                  input.CostPricing,
 			ID:                           id,
 			SelectorKey:                  key,

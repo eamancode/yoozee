@@ -16,6 +16,10 @@ func (s *Service) prepareProjectVideoChain(userID, projectID string, req Project
 }
 
 func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID string, req ProjectVideoChainRequest, snapshot *bool) (videoChainState, error) {
+	return s.prepareVideoChainSteps(userID, projectID, req, snapshot, nil)
+}
+
+func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVideoChainRequest, snapshot *bool, completed []videoChainStepState) (videoChainState, error) {
 	state := videoChainState{UnitID: req.UnitID, AnchorShotID: req.ShotID, Request: req, Steps: []videoChainStepState{}}
 	if req.PrepareOnly && req.Scope != "single" {
 		return state, BadAuthRequest("仅准备站位参考必须指定单组范围，不会生成前序视频")
@@ -26,6 +30,17 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 	project, err := s.activeProjectForUser(userID, projectID)
 	if err != nil {
 		return state, err
+	}
+	var selectedRoute *model.ProjectVideoRoute
+	if !req.PrepareOnly {
+		selectedRoute, err = s.repo.ProjectVideoRoute(projectID)
+		if err != nil {
+			return state, err
+		}
+		state.RouteRevision = projectVideoRoutingRevision(selectedRoute)
+		if selectedRoute != nil && selectedRoute.Status == "unavailable" {
+			return state, failedPrecondition(selectedRoute.Reason + "。请先手动选择视频线路")
+		}
 	}
 	enabled := project.WhiteModelStoryboardEnabled
 	if snapshot != nil {
@@ -79,6 +94,9 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 	if req.Scope == "single" {
 		first, last = anchor, anchor
 	}
+	if len(completed) > last-first+1 {
+		return state, failedPrecondition("已完成段的分镜顺序已变化，请检查原链的镜头顺序")
+	}
 	feature, err := s.FeatureEnabled(FeatureFrontendModels)
 	if err != nil {
 		return state, err
@@ -86,6 +104,17 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 	previousSignature := ""
 	for i := first; i <= last; i++ {
 		shot := shots[i]
+		if index := i - first; index < len(completed) {
+			// Completed work is a checkpoint. Its original revision, model and
+			// output remain the dependency even when that route is now offline.
+			step := completed[index]
+			if step.ShotID != shot.ID {
+				return state, failedPrecondition("已完成段的分镜顺序已变化，请检查原链的镜头顺序")
+			}
+			state.Steps = append(state.Steps, step)
+			previousSignature = step.Signature
+			continue
+		}
 		revision := revisions[shot.ID]
 		choice := req.Model
 		if selected, ok := req.Models[shot.ID]; ok {
@@ -120,21 +149,16 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 		}
 		content := segmentSubmissionContent(shot, revision)
 		if !isPositiveVideoSeconds(content.Dur) {
-			return state, BadAuthRequest("镜头组时长必须大于 0")
+			return state, videoChainSpecError(BadAuthRequest("镜头组时长必须大于 0"), shot.ID, choice.Model, content.Dur, 0, -1, nil)
 		}
-		compiled, err := s.CompileProjectShot(userID, projectID, shot.ID, CompileProjectShotRequest{})
+		compiled, err := s.CompileProjectShot(userID, projectID, shot.ID, CompileProjectShotRequest{ChannelModel: choice.Model})
 		if err != nil {
-			return state, err
-		}
-		for _, issue := range compiled.Result.Issues {
-			if issue.Level == "error" {
-				return state, BadAuthRequest(fmt.Sprintf("%s 分段检查失败：%s", shot.Title, issue.Message))
-			}
+			return state, videoChainSpecError(err, shot.ID, choice.Model, content.Dur, 0, -1, nil)
 		}
 		input["prompt"] = compiled.Result.Prompt
-		images, videos, audios, err := s.videoChainCompiledReferences(userID, compiled.Result.Files)
+		images, videos, audios, err := s.videoChainCompiledReferences(userID, projectID, compiled.Result.Files)
 		if err != nil {
-			return state, err
+			return state, videoChainSpecError(err, shot.ID, choice.Model, content.Dur, 0, -1, nil)
 		}
 		input["referenceImages"], input["referenceVideos"], input["referenceAudios"] = images, videos, audios
 		operation := "text_to_video"
@@ -187,42 +211,45 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 		if err := s.enforceDramaPrevizGate(userID, input); err != nil {
 			return state, err
 		}
-		// Route resolution owns channel credentials and capabilities. The second
-		// resolution uses the normalized slot to keep routing and price tiers aligned.
-		// 第一次解析只用来找路由、读能力画像（时长档位）。客户端带来的 videoSeconds 是全局偏好，
-		// 不是这一组的生成时长；留着会在选档前按旧值做完整能力校验（例如只有 15/30 档的模型被 6 秒拒绝）。
-		// 这里先去掉，由渠道默认时长占位；按镜头正文时长选定最终档位后，第二次解析和
-		// ValidateTaskCapability 再按最终值完整校验，其他参数（如同步音频）照常校验，不放宽。
+		// Read the permitted route's profile before matching a price tier.
+		// The global preference and the catalog default can both be unsold SKUs.
 		delete(config, "videoSeconds")
 		if options, ok := input["capabilityOptions"].(map[string]any); ok {
 			delete(options, "videoSeconds")
 		}
-		_, input, err = s.resolveTaskModelSelection(userID, input, choice.LogicalModelID, "canvas_video", operation, feature)
-		if err != nil {
-			return state, err
+		profile, routed, err := s.videoChainRouteProfile(userID, input, choice, feature, shot.ID, operation, content.Dur, usePosition)
+		seconds, referenceCount := 0, len(images)
+		specError := func(err error) error {
+			return videoChainSpecError(videoChainBindingCapabilityError(err, len(audios)), shot.ID, choice.Model, content.Dur, seconds, referenceCount, profile)
 		}
-		profile, err := s.projectTaskVideoProfile(input)
 		if err != nil {
-			return state, err
+			if profile != nil {
+				seconds, _ = videoChainGenerationSeconds(profile.Duration, content.Dur)
+			}
+			return state, specError(err)
 		}
 		if profile == nil {
-			return state, BadAuthRequest("视频模型未声明参考图片能力，暂不能开始连续生成")
+			return state, specError(BadAuthRequest("视频模型未声明参考图片能力，暂不能开始连续生成"))
 		}
-		slots := projectVideoDurationSlots(profile.Duration)
-		seconds, err := projectVideoSubmissionSeconds(slots, content.Dur)
+		seconds, err = videoChainGenerationSeconds(profile.Duration, content.Dur)
 		if err != nil {
-			return state, err
+			return state, specError(err)
 		}
-		generation := content.Dur
-		if seconds > 0 {
-			generation = float64(seconds)
+		if len(audios) > profile.References.MaxAudios {
+			return state, specError(videoChainAudioLimit(len(audios), fmt.Sprintf("该线路最多支持 %d 条声音参考", profile.References.MaxAudios)))
 		}
+		for _, issue := range compiled.Result.Issues {
+			if issue.Level == "error" {
+				return state, specError(BadAuthRequest(fmt.Sprintf("%s 分段检查失败：%s", shot.Title, issue.Message)))
+			}
+		}
+		generation := float64(seconds)
 		config = input["config"].(map[string]any)
 		config["videoSeconds"] = fmt.Sprint(generation)
 		if options, ok := input["capabilityOptions"].(map[string]any); ok {
 			options["videoSeconds"] = generation
 		}
-		if usePosition && (!containsCapabilityString(profile.Operations, "reference_to_video") && operation != "video_to_video" || len(images)+1 > profile.References.MaxImages) {
+		if usePosition && !videoChainPositionFits(profile, len(images), operation) {
 			usePosition = false
 			referenceWarning = "所选模型不支持额外站位图或参考图容量已满，本次保留原参考图并跳过白模"
 		}
@@ -231,13 +258,14 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 		}
 		if usePosition {
 			images = append(images, map[string]any{"id": "pending-position", "role": "reference", "type": "image/png", "mimeType": "image/png"})
+			referenceCount = len(images)
 			input["referenceImages"] = images
 			if operation == "text_to_video" {
 				operation = "reference_to_video"
 			}
 			input["metadata"].(map[string]any)["videoEditOperation"] = operation
 		}
-		m, err := projectDramaModel(project)
+		m, err := drama.ResolveModel(compiled.Result.Model)
 		if err != nil {
 			return state, err
 		}
@@ -260,23 +288,42 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 			finalPrompt += "\n\n" + dramaSceneEnding
 		}
 		input["prompt"] = finalPrompt
-		_, input, err = s.resolveTaskModelSelection(userID, input, choice.LogicalModelID, "canvas_video", operation, feature)
-		if err != nil {
-			return state, err
+		if routed != nil {
+			metadata := input["metadata"].(map[string]any)
+			metadata["videoChainRouteId"], metadata["videoChainModelRevisionId"] = routed.Route.ID, routed.Revision.ID
+			input["capabilityOptions"] = routed.Intent.Options
+			input = applyRoutedProviderSelection(input, routed)
+		} else {
+			_, input, err = s.resolveTaskModelSelection(userID, input, choice.LogicalModelID, "canvas_video", operation, feature)
+			if err != nil {
+				return state, specError(err)
+			}
 		}
 		if err = s.enforceDramaModelFamily(userID, input); err != nil {
-			return state, err
+			return state, specError(err)
 		}
 		if err = s.ValidateTaskCapability(input); err != nil {
-			return state, err
+			return state, specError(err)
 		}
 		if err = s.requireCustomChannelsForTaskInput(input); err != nil {
 			return state, err
 		}
 		var quote *LogicalModelQuote
+		if !req.PrepareOnly {
+			actual, _ := input["config"].(map[string]any)
+			selected := stringValue(actual["channelId"]) + "::" + firstNonEmpty(stringValue(actual["channelModelKey"]), stringValue(actual["model"]))
+			if selectedRoute != nil && selectedRoute.Model != selected {
+				return state, failedPrecondition("本项目的视频线路已更换，请刷新并按当前线路重新报价")
+			}
+			input["metadata"].(map[string]any)["projectVideoRouteRevision"] = state.RouteRevision
+		}
 		intent := ModelRequestIntentFromTaskInput(input, "canvas_video", operation)
-		if choice.LogicalModelID != "" {
-			quote, err = s.QuoteLogicalModel(userID, choice.LogicalModelID, intent)
+		if routed != nil {
+			access, accessErr := s.userGroupAccess(userID)
+			if accessErr != nil {
+				return state, accessErr
+			}
+			quote, err = s.quoteRoutedModel(userID, access, routed, intent)
 		} else {
 			config = input["config"].(map[string]any)
 			channelID := stringValue(config["channelId"])
@@ -285,7 +332,7 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 			}
 		}
 		if err != nil {
-			return state, err
+			return state, specError(err)
 		}
 		// The placeholder participates only in capability/quote checks. Runtime
 		// adds the actual predecessor frame and compiles its real reference tag.
@@ -294,9 +341,11 @@ func (s *Service) prepareProjectVideoChainWithWhiteModel(userID, projectID strin
 		}
 		input["referenceImages"] = images
 		input["prompt"] = original
-		signature := videoChainHash([]any{shot.ID, shot.CurrentRevisionID, scene, content.Dur, ending, input, previousSignature})
+		signature := videoChainHash([]any{shot.ID, shot.CurrentRevisionID, scene, content.Dur, ending, input, previousSignature, quote, referenceCount})
 		step := videoChainStepState{ProjectVideoChainStep: ProjectVideoChainStep{ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Title: shot.Title, Scene: scene, ContentSeconds: content.Dur, GenerationSeconds: generation, Model: choice.Model, Status: "waiting", Phase: "waiting", ReferenceCount: len(images), ReferenceTag: tag, Ending: ending, Quote: quote}, Input: input, LogicalModelID: choice.LogicalModelID, Signature: signature, Uploads: map[string]string{}}
 		step.ReferenceSkipped, step.ReferenceWarning = hasPosition && !usePosition, referenceWarning
+		step.ReferenceAudioCount = len(audios)
+		step.CompiledModel = compiled.Result.Model
 		step.FreezeReference = freezeReference
 		if hasPosition {
 			step.SourceShotID = shots[i-1].ID
@@ -361,64 +410,4 @@ func (s *Service) videoChainExistingPredecessor(userID, projectID string, shot m
 		return nil, err
 	}
 	return selected, nil
-}
-
-func (s *Service) videoChainCompiledReferences(userID string, files []drama.CompiledFile) ([]any, []any, []any, error) {
-	images, videos, audios := []any{}, []any{}, []any{}
-	for _, file := range files {
-		var resource *model.Resource
-		direct, err := s.repo.ResourcesForUserIDs(userID, []string{file.File})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if len(direct) > 0 {
-			resource = &direct[0]
-		} else {
-			representations, err := s.repo.AssetRepresentationsByVersionIDs([]string{file.File})
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			for _, representation := range representations {
-				candidates, err := s.repo.ResourcesForUserIDs(userID, []string{representation.ResourceID})
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				if len(candidates) == 0 {
-					continue
-				}
-				candidate := candidates[0]
-				wanted := "image/"
-				if file.Role == "motion" {
-					wanted = "video/"
-				}
-				if file.Role == "voice" {
-					wanted = "audio/"
-				}
-				if strings.HasPrefix(candidate.MimeType, wanted) {
-					resource = &candidate
-					if representation.Role == "turnaround_sheet" || representation.Role == "primary" {
-						break
-					}
-				}
-			}
-		}
-		if resource == nil || resource.Status != model.ResourceStatusReady {
-			return nil, nil, nil, BadAuthRequest("镜头参考素材尚未就绪，不能省略后继续生成")
-		}
-		reference := map[string]any{"id": file.File, "name": file.Tag, "storageKey": "resource:" + resource.ID, "type": resource.MimeType, "mimeType": resource.MimeType, "bytes": resource.Size, "width": resource.Width, "height": resource.Height, "durationMs": resource.DurationMs, "role": "reference"}
-		if file.Role == "first_frame" || file.Role == "last_frame" {
-			reference["role"] = file.Role
-		}
-		switch {
-		case strings.HasPrefix(resource.MimeType, "image/"):
-			images = append(images, reference)
-		case strings.HasPrefix(resource.MimeType, "video/"):
-			videos = append(videos, reference)
-		case strings.HasPrefix(resource.MimeType, "audio/"):
-			audios = append(audios, reference)
-		default:
-			return nil, nil, nil, BadAuthRequest("镜头参考素材类型不受支持")
-		}
-	}
-	return images, videos, audios, nil
 }

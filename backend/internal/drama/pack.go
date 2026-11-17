@@ -1559,14 +1559,6 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 		seg.Warnings = warnings
 	}
 	if prev != nil {
-		prevEnd := ""
-		if n := len(prev.Shots); n > 0 {
-			prevEnd = prev.Shots[n-1].EndState
-		}
-		if prevEnd == "" {
-			prevEnd = prev.Rules
-		}
-		prevEnd = strings.TrimSpace(prevEnd)
 		var shared []string
 		for _, r := range prev.Refs {
 			if r.Role != "motion" {
@@ -1614,25 +1606,39 @@ func (p *packState) buildSegment(segID, sceneID string, scene *ScriptScene, shot
 			seg.Refs = nil
 			seg.Mode = ModeTextOnly
 		}
-		var frags []string
-		for _, sh := range prev.Shots {
-			for _, f := range strings.Split(sh.Sound, "；") {
-				if f = strings.TrimSpace(f); f != "" {
-					frags = append(frags, f)
-				}
-			}
-		}
-		bed, _ := mostCommonFirst(frags)
-		reanchor := cp.Segment.Reanchor
-		if prevEnd != "" {
-			reanchor = fill(cp.Segment.ReanchorWithPrev, "prev", prev.ID, "state", prevEnd)
-		}
-		if shared == nil {
-			shared = []string{}
-		}
-		seg.ContinuityBridge = &ContinuityBridge{PrevSegment: prev.ID, HandoffState: prevEnd, SharedRefs: shared, ReanchorText: reanchor, SharedBed: bed}
+		seg.ContinuityBridge = NewContinuityBridge(prev, shared, cp)
 	}
 	return seg
+}
+
+// NewContinuityBridge builds the handoff from the actual surviving predecessor.
+// Frame and clip references belong to one predecessor and are never inherited.
+func NewContinuityBridge(prev *Segment, shared []string, cp *CompileProfile) *ContinuityBridge {
+	prevEnd := ""
+	if n := len(prev.Shots); n > 0 {
+		prevEnd = prev.Shots[n-1].EndState
+	}
+	if prevEnd == "" {
+		prevEnd = prev.Rules
+	}
+	prevEnd = strings.TrimSpace(prevEnd)
+	var sounds []string
+	for _, sh := range prev.Shots {
+		for _, sound := range strings.Split(sh.Sound, "；") {
+			if sound = strings.TrimSpace(sound); sound != "" {
+				sounds = append(sounds, sound)
+			}
+		}
+	}
+	bed, _ := mostCommonFirst(sounds)
+	reanchor := cp.Segment.Reanchor
+	if prevEnd != "" {
+		reanchor = fill(cp.Segment.ReanchorWithPrev, "prev", prev.ID, "state", prevEnd)
+	}
+	if shared == nil {
+		shared = []string{}
+	}
+	return &ContinuityBridge{PrevSegment: prev.ID, HandoffState: prevEnd, SharedRefs: shared, ReanchorText: reanchor, SharedBed: bed}
 }
 
 // Pack 把镜头表装成段；problems 是找不到合法切点的场（这时整场装成一段，由用户改估时或并镜）。

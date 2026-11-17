@@ -18,6 +18,7 @@ import (
 
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/service"
+	"yingce/backend/internal/sllcatalog"
 
 	"github.com/gin-gonic/gin"
 )
@@ -175,6 +176,9 @@ func authorizeSystemProxy(channel *model.ModelChannel, protocol model.ChannelInt
 	}
 	if method == http.MethodGet && requestPath == "/models" {
 		return nil
+	}
+	if channel != nil && sllcatalog.IsSLLChannel(*channel) && protocol == sllcatalog.VideoProtocol {
+		return errors.New("SLL 视频模型请通过任务入口按已报价规格提交")
 	}
 	if protocol == model.ChannelInterfaceAgnesVideo {
 		if method == http.MethodGet && requestPath == "/agnesapi" {

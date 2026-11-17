@@ -47,10 +47,11 @@ type Segment struct {
 }
 
 type Ref struct {
-	File  string `json:"file"`
-	Role  string `json:"role"`
-	Note  string `json:"note,omitempty"`
-	State string `json:"state,omitempty"`
+	File    string `json:"file"`
+	Role    string `json:"role"`
+	Note    string `json:"note,omitempty"`
+	State   string `json:"state,omitempty"`
+	Speaker string `json:"speaker,omitempty"` // 更换人物绑定时保留这张图所扮演的剧本角色。
 }
 
 type Voice struct {
@@ -361,7 +362,11 @@ func Issues(seg Segment, m Model) []Issue {
 		cap  *int
 	}{{"参考图", images, m.Refs.Images}, {"参考视频", videos, m.Refs.Videos}, {"参考音频", audios, m.Refs.Audios}} {
 		if c.cap != nil && c.have > *c.cap {
-			out = append(out, Issue{"error", fmt.Sprintf("%s %s %d 个，超过 %s 的上限 %d", seg.ID, c.name, c.have, m.Label, *c.cap)})
+			message := fmt.Sprintf("%s %s %d 个，超过 %s 的上限 %d", seg.ID, c.name, c.have, m.Label, *c.cap)
+			if c.name == "参考音频" {
+				message += "，请换用支持本段声音参考的线路或调整人物绑定"
+			}
+			out = append(out, Issue{"error", message})
 		}
 	}
 	if m.Refs.Total != nil && images+videos+audios > *m.Refs.Total {

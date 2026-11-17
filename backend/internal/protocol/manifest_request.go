@@ -297,6 +297,10 @@ func manifestRequestValues(request GenerationRequest) map[string]any {
 	if providerOptionsValue == nil {
 		providerOptionsValue = map[string]any{}
 	}
+	var duration any = request.Duration
+	if request.OmitDuration {
+		duration = nil
+	}
 
 	return map[string]any{
 		"capability":      request.Capability,
@@ -309,7 +313,7 @@ func manifestRequestValues(request GenerationRequest) map[string]any {
 		"videos":          manifestMediaValues(request.Videos),
 		"audios":          manifestMediaValues(request.Audios),
 		"imageCount":      request.ImageCount,
-		"duration":        request.Duration,
+		"duration":        duration,
 		"aspectRatio":     request.AspectRatio,
 		"resolution":      request.Resolution,
 		"quality":         request.Quality,

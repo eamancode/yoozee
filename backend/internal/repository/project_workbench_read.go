@@ -132,6 +132,32 @@ func (r *Repository) AssetRepresentationsByVersionIDs(versionIDs []string) ([]mo
 	return representations, err
 }
 
+// CharacterVoiceSamples resolves the exact selected versions, including child cards.
+// The binding, active profile and ready audio must belong to the same project owner.
+func (r *Repository) CharacterVoiceSamples(userID, projectID string, versionIDs []string) (map[string]string, error) {
+	samples := make(map[string]string)
+	if len(versionIDs) == 0 {
+		return samples, nil
+	}
+	var rows []struct {
+		AssetVersionID   string
+		SampleResourceID string
+	}
+	err := r.db.Table("character_voice_bindings b").
+		Select("b.asset_version_id, vp.sample_resource_id").
+		Joins("JOIN asset_versions v ON v.id = b.asset_version_id").
+		Joins("JOIN assets a ON a.id = v.asset_id AND a.user_id = ? AND a.category = ?", userID, model.AssetCategoryCharacter).
+		Joins("JOIN project_asset_links pal ON pal.asset_id = a.id AND pal.project_id = ?", projectID).
+		Joins("JOIN voice_profiles vp ON vp.id = b.voice_profile_id AND vp.user_id = ? AND vp.status = ?", userID, "active").
+		Joins("JOIN resources res ON res.id = vp.sample_resource_id AND res.user_id = ?", userID).
+		Where("b.asset_version_id IN ? AND res.status = ? AND res.mime_type LIKE ?", versionIDs, model.ResourceStatusReady, "audio/%").
+		Scan(&rows).Error
+	for _, row := range rows {
+		samples[row.AssetVersionID] = row.SampleResourceID
+	}
+	return samples, err
+}
+
 func (r *Repository) ProjectUnitAssetCandidates(projectID string, unitID string) ([]model.ProjectAssetCandidate, error) {
 	var candidates []model.ProjectAssetCandidate
 	err := r.db.Where("project_id = ? AND (unit_id = ? OR unit_id = '')", projectID, unitID).Order("created_at asc").Find(&candidates).Error

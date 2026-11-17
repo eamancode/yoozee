@@ -218,3 +218,13 @@ func TestAuthorizeSystemProxyBlocksBackendOnlyVideoInterfaces(t *testing.T) {
 		}
 	}
 }
+
+func TestSLLVideoUsesTaskAdmission(t *testing.T) {
+	ch := &model.ModelChannel{Scope: model.ChannelScopeSystem, BaseURL: "https://api.lecapi.net/v1", ModelsJSON: `["seedance-2.5"]`}
+	if err := authorizeSystemProxy(ch, "seedance-videos-compatible", http.MethodPost, "/responses", "application/json", []byte(`{"model":"seedance-2.5"}`)); err == nil {
+		t.Fatal("raw relay accepted a managed video model")
+	}
+	if err := authorizeSystemProxy(ch, "seedance-videos-compatible", http.MethodGet, "/models", "", nil); err != nil {
+		t.Fatal(err)
+	}
+}

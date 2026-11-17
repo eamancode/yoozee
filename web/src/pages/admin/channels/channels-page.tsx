@@ -587,8 +587,8 @@ function ChannelHealthBadge({ stats }: { stats?: { requests: number; succeeded: 
     if (!stats || stats.requests === 0) return null;
     const rate = stats.succeeded / stats.requests;
     return (
-        <span className="admin-channel-item-health" data-tone={healthTone(rate, stats.requests)} title={`近 24 小时 ${stats.requests} 次生成请求，成功 ${stats.succeeded} 次`}>
-            {formatRate(rate)}
+        <span className="admin-channel-item-health" data-tone={healthTone(rate, stats.requests)} title={`近 24 小时 ${stats.requests} 次上游创建请求，成功 ${stats.succeeded} 次`}>
+            创建 {formatRate(rate)}
         </span>
     );
 }

@@ -206,7 +206,7 @@ func OntologyMaterialPackage(brief OntologyBrief, materials []OntologyMaterial, 
 		}
 		b.WriteString(line + "\n")
 	}
-	b.WriteString("参考音频、参考视频：无（粘贴提示词不得出现 @音频、@视频）\n")
+	b.WriteString("在镜头表的台词与声音栏标出每句对白的说话人。编译器按单元绑定的角色版本、镜头对白和已有声音样本分配音频编号；粘贴提示词草稿不得出现 @音频、@视频 等手工编号。\n")
 	b.WriteString("\n【世界圣经卡】\n" + firstNonBlank(strings.TrimSpace(bible), "无") + "\n")
 	b.WriteString("\n【集交接卡】\n" + firstNonBlank(strings.TrimSpace(handoff), "无") + "\n")
 	return b.String()
@@ -566,7 +566,8 @@ func ontologyParseShots(card OntologyUnitCard) ([]SubShot, error) {
 		if n := len(shots); n > 0 && at <= shots[n-1].At {
 			return nil, fmt.Errorf("镜头 %s 的开始秒不大于上一镜", m[1])
 		}
-		shots = append(shots, SubShot{At: math.Max(at, 0), Size: col("景别"), Camera: strings.Trim(col("机位")+" "+col("运镜"), " "), Text: text, Purpose: col("戏剧职责"), Composition: col("构图")})
+		sound := firstNonBlank(col("台词与声音"), col("台词/声音"), col("台词"))
+		shots = append(shots, SubShot{At: math.Max(at, 0), Size: col("景别"), Camera: strings.Trim(col("机位")+" "+col("运镜"), " "), Text: text, Purpose: col("戏剧职责"), Composition: col("构图"), Sound: sound})
 	}
 	if header != nil && !slices.Contains(header, "时间") {
 		return nil, errors.New("镜头表缺少「时间」列")
@@ -577,17 +578,42 @@ func ontologyParseShots(card OntologyUnitCard) ([]SubShot, error) {
 	return shots, nil
 }
 
-// CompileVerbatim 是本体论段的编译：提示词就是粘贴提示词原文，只把 @图k 换成模型的参考图编号写法；参考文件按 Refs 顺序。
+// CompileVerbatim keeps the director's prompt and binds the final numbered media to it.
 func CompileVerbatim(seg Segment, m Model) CompileResult {
+	mentioned := map[int]bool{}
+	issues := Issues(seg, m)
 	prompt := ontologyImageTag.ReplaceAllStringFunc(seg.Verbatim, func(tag string) string {
 		n, _ := strconv.Atoi(ontologyImageTag.FindStringSubmatch(tag)[1])
+		if !mentioned[n] && (n < 1 || n > len(seg.Refs)) {
+			issues = append(issues, Issue{"error", fmt.Sprintf("%s 的提示词引用了 %s，本段只有 %d 张绑定参考图，请调整绑定", seg.ID, tag, len(seg.Refs))})
+		}
+		mentioned[n] = true
 		return ReferenceImageTag(m, n)
 	})
-	files := make([]CompiledFile, 0, len(seg.Refs))
+	var declarations []string
+	files := make([]CompiledFile, 0, len(seg.Refs)+len(seg.Voices))
 	for i, r := range seg.Refs {
-		files = append(files, CompiledFile{File: r.File, Tag: ReferenceImageTag(m, i+1), Role: r.Role})
+		tag := ReferenceImageTag(m, i+1)
+		files = append(files, CompiledFile{File: r.File, Tag: tag, Role: r.Role})
+		if !mentioned[i+1] {
+			declarations = append(declarations, tag+" 为"+firstNonBlank(r.Note, "本段参考图")+"。")
+		}
 	}
-	issues := Issues(seg, m)
+	for i, voice := range seg.Voices {
+		tag := ReferenceAudioTag(m, i+1)
+		files = append(files, CompiledFile{File: voice.File, Tag: tag, Role: "voice"})
+		declarations = append(declarations, tag+" 为"+voice.Character+"的音色参考（只取音色，不复用样本中的台词）。")
+	}
+	if len(declarations) > 0 {
+		lines := strings.Split(prompt, "\n")
+		insert := slices.IndexFunc(lines, func(line string) bool {
+			return sssSectionName(line) == "生效参考素材" || strings.HasPrefix(strings.TrimSpace(line), "素材映射")
+		})
+		if insert < 0 {
+			insert = len(lines) - 1
+		}
+		prompt = strings.Join(slices.Insert(lines, insert+1, declarations...), "\n")
+	}
 	if issues == nil {
 		issues = []Issue{}
 	}

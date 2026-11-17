@@ -21,6 +21,7 @@ export type CapabilitySpec = {
 };
 
 export type ModelRequestIntent = {
+    longestVideoSeconds?: number;
     capability: CapabilitySpec["capability"];
     operation?: string;
     inputs?: Record<string, number>;
@@ -124,6 +125,7 @@ export type RouteSimulationResult = {
 };
 
 export type LogicalModelQuote = {
+    upstreamCost?: { currency: "CNY"; unit: "request"; amountMicros: number };
     logicalModelId: string;
     billingMode: PublicLogicalModel["billingMode"];
     quantity: number;

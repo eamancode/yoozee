@@ -42,8 +42,9 @@ type dramaOntologyMeta struct {
 	Setup     bool `json:"setup,omitempty"`
 	MaxImages int  `json:"maxImages,omitempty"`
 	// EstimatedTurns 是建任务时估的轮数（预授权、墙钟用）。
-	EstimatedTurns int                 `json:"estimatedTurns"`
-	Repair         *ontologyRepairMeta `json:"repair,omitempty"`
+	EstimatedTurns  int                 `json:"estimatedTurns"`
+	Repair          *ontologyRepairMeta `json:"repair,omitempty"`
+	UnitEditVersion int                 `json:"unitEditVersion,omitempty"`
 	// Discard 表示建任务时用户确认过整集替换会丢掉已有产物；Confirmed 是确认时各段（镜头 ID）已有产物的数量。
 	// 收尾只允许删掉确认过、且产物没有增加的段。
 	Discard   bool           `json:"discard,omitempty"`
@@ -180,6 +181,9 @@ func (s *Service) planOntologyShots(userID string, project *model.Project, unit 
 		kind = drama.OntologyTurnProject
 	}
 	if repair == nil {
+		if meta.UnitEditVersion, err = s.repo.DirectorUnitEditVersion(project.ID, unit.ID); err != nil {
+			return nil, err
+		}
 		meta.EstimatedTurns = ontologyEstimatedTurns(meta, maxSeconds)
 	}
 	skillCtx, uses, err := drama.OntologySkillContext(skill, kind)
@@ -273,6 +277,8 @@ func (s *Service) prepareOntologyRun(userID string, projectID string, unitID str
 		return BadAuthRequest("要继续的任务不是本体论导演分镜任务")
 	case prevStep.VersionID != plan.skill.VersionID:
 		return BadAuthRequest("本体论导演技能已更新，不能混用旧轮次，请重新生成本集分镜")
+	case prevMeta.UnitEditVersion != meta.UnitEditVersion:
+		return directorDocumentConflict("本集分镜单元已删除，不能用删除前的导演轮次重新装段")
 	case ontologyFingerprint(prevMeta) != ontologyFingerprint(meta):
 		return BadAuthRequest("上一次任务之后剧本、素材、世界圣经卡、上一集交接卡或画风改过了，不能接着旧轮次写，请重新生成本集分镜")
 	}
@@ -356,25 +362,28 @@ func (s *Service) ontologyMaterials(userID string, projectID string) ([]drama.On
 
 // previousOntologyHandoff 是同一项目里排在本集前面的那一集的最新交接卡；第一集或上一集还没生成时为空。
 func (s *Service) previousOntologyHandoff(projectID string, unit *model.ProjectUnit) (string, error) {
-	_, text, err := s.previousEpisodeHandoff(projectID, unit)
+	_, text, err := s.previousEpisodeHandoff(projectID, unit, false)
 	return text, err
 }
 
-func (s *Service) previousEpisodeHandoff(projectID string, unit *model.ProjectUnit, adjacentOnly ...bool) (*model.ProjectUnit, string, error) {
-	units, err := s.repo.ProjectUnits(projectID)
+func (s *Service) previousEpisodeHandoff(projectID string, unit *model.ProjectUnit, adjacentOnly bool) (*model.ProjectUnit, string, error) {
+	units, err := s.repo.ProjectUnitSummaries(projectID)
 	if err != nil {
 		return nil, "", err
 	}
-	sort.SliceStable(units, func(i, j int) bool { return units[i].Position < units[j].Position })
+	current := slices.IndexFunc(units, func(item model.ProjectUnit) bool { return item.ID == unit.ID })
+	if current < 0 {
+		return nil, "", gorm.ErrRecordNotFound
+	}
 	var previous *model.ProjectUnit
-	for i := range units {
-		if units[i].ID == unit.ID {
-			break
-		}
+	for i := current - 1; i >= 0; i-- {
 		if units[i].Kind == unit.Kind {
 			previous = &units[i]
-		} else if len(adjacentOnly) > 0 && adjacentOnly[0] {
-			previous = nil
+			break
+		}
+		// 剧集导航只排列剧集，中间的原文章节不打断交接。
+		if adjacentOnly && unit.Kind != model.ProjectUnitKindEpisode {
+			break
 		}
 	}
 	if previous == nil {
@@ -768,6 +777,9 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 	// 返修按写入时的其他段核对每集合计时长。
 	unlock := lockOntologyEpisode(target.UnitID)
 	defer unlock()
+	if err := s.checkDirectorUnitEditVersion(target.ProjectID, target.UnitID, meta.UnitEditVersion); err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
 	removed, err := s.ontologyRemovedShots(task.UserID, target.ProjectID, target.UnitID, order)
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
@@ -979,16 +991,29 @@ func (s *Service) applyOntologyRepair(task model.Task, target dramaStepTaskTarge
 	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
-	var docs []ontologyDocWrite
-	doc, err := s.repo.LatestOntologyDocument(target.ProjectID, target.UnitID, model.OntologyDocEpisode)
-	switch {
-	case err == nil:
-		updated := strings.Replace(doc.Content, strings.TrimSpace(repair.Card), card.Text, 1)
-		updated += fmt.Sprintf("\n\n## 返修记录 %s\n症状：%s\n\n%s\n", repair.Unit, repair.Symptom, ontologyRepairNotes(out.Repair))
-		docs = append(docs, ontologyDocWrite{target.UnitID, model.OntologyDocEpisode, updated})
-	case !errors.Is(err, gorm.ErrRecordNotFound):
+	outcome.Segments, outcome.Shots, outcome.Scenes = 1, len(seg.Shots), 1
+	written, err := s.repo.OntologyDocumentWrittenByTask(target.ProjectID, target.UnitID, model.OntologyDocEpisode, task.ID)
+	if err != nil || written {
+		return outcome, err
+	}
+	shot, err := s.repo.ShotForProject(target.ProjectID, repair.ShotID)
+	if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && shot.UnitID != target.UnitID) {
+		return DramaStepTaskOutcome{}, directorDocumentConflict("要返修的分镜单元已删除，无法写入这次返修")
+	}
+	if err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
+	doc, err := s.repo.LatestOntologyDocument(target.ProjectID, target.UnitID, model.OntologyDocEpisode)
+	if err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
+	original := strings.TrimSpace(repair.Card)
+	if original == "" || !strings.Contains(doc.Content, original) {
+		return DramaStepTaskOutcome{}, directorDocumentConflict("单元卡在返修期间已变更，请按最新版本重新返修")
+	}
+	updated := strings.Replace(doc.Content, original, card.Text, 1)
+	updated += fmt.Sprintf("\n\n## 返修记录 %s\n症状：%s\n\n%s\n", repair.Unit, repair.Symptom, ontologyRepairNotes(out.Repair))
+	docs := []ontologyDocWrite{{target.UnitID, model.OntologyDocEpisode, updated}}
 	// 返修过的单元从门禁里去掉（用户看过自检结果、写了症状重写，视为已处理）；其他单元的硬失败仍挡着。
 	gate, err := s.repo.LatestOntologyDocument(target.ProjectID, target.UnitID, model.OntologyDocGate)
 	switch {
@@ -1004,7 +1029,6 @@ func (s *Service) applyOntologyRepair(task model.Task, target dramaStepTaskTarge
 	if err := s.writeOntologyDocs(task, target.ProjectID, docs); err != nil {
 		return DramaStepTaskOutcome{}, fmt.Errorf("段已返修，七部分更新失败（可从中断处继续，只重新收尾）：%w", err)
 	}
-	outcome.Segments, outcome.Shots, outcome.Scenes = 1, len(seg.Shots), 1
 	return outcome, nil
 }
 
@@ -1187,12 +1211,8 @@ func (s *Service) RepairOntologySegment(userID string, projectID string, unitID 
 
 // compileOntologyShot 编译本体论单元：提示词就是粘贴提示词原文（只换参考图编号写法），不去掉无图参考、不加色卡和空间说明——
 // 那样会让 @图N 和实际上传的图错位，或改动原文。参考的资产没图时报 error，提交前拦下。
-func (s *Service) compileOntologyShot(userID string, projectID string, shot *model.Shot, seg drama.Segment, derived bool, m drama.Model) (DramaCompileResult, error) {
+func (s *Service) compileOntologyShot(shot *model.Shot, seg drama.Segment, derived bool, m drama.Model, lookup func(string) dramaRefAsset) (DramaCompileResult, error) {
 	result := drama.CompileVerbatim(seg, m)
-	lookup, err := s.dramaRefLookup(userID, projectID, seg)
-	if err != nil {
-		return DramaCompileResult{}, err
-	}
 	for i, r := range seg.Refs {
 		if info := lookup(r.File); !info.known || !info.hasImage {
 			result.Issues = append(result.Issues, drama.Issue{Level: "error", Message: fmt.Sprintf("%s 的参考图 %d（%s）没有可用图片：请先给这个资产出图或重新生成本集分镜", seg.ID, i+1, firstNonEmpty(r.Note, r.File))})

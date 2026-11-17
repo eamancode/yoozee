@@ -8,6 +8,7 @@ import (
 
 	"yingce/backend/internal/model"
 	protocolcontract "yingce/backend/internal/protocol"
+	"yingce/backend/internal/sllcatalog"
 )
 
 // ModelCapabilityConfig 是模型能力声明，不包含供应商字段名；协议适配器负责把统一参数映射到上游请求。
@@ -95,6 +96,8 @@ type ParameterSupport struct {
 }
 
 type VideoCapabilityConfig struct {
+	SLLWire *sllcatalog.WireOptions `json:"sllWire,omitempty"`
+
 	References        VideoReferenceConfig   `json:"references"`
 	Duration          VideoDurationConfig    `json:"duration"`
 	DurationSupported *bool                  `json:"durationSupported,omitempty"`

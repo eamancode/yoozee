@@ -63,6 +63,11 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		return fail(readErr)
 	}
 	if readErr == nil {
+		// Reconcile a terminal receipt if the child worker exited just after saving its result.
+		// A transient database failure leaves the controller available for its next poll.
+		if err := s.recordProjectVideoTerminal(child); err != nil {
+			return err
+		}
 		switch child.Status {
 		case model.TaskStatusSucceeded:
 			id, _ := taskOutputResource(child.ResultJSON, child.Type)
@@ -72,18 +77,11 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 			step.VideoResourceID, step.Status, step.Phase, step.Error = id, "succeeded", "completed", ""
 			return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" 已完成", "")
 		case model.TaskStatusFailed:
-			if step.RetryRouteRun > child.RouteRun {
-				if child.MediaRecoveryJSON != "" {
-					_, err = s.RecoverTaskMedia(task.UserID, child.ID)
-				} else {
-					_, err = s.taskLifecycle().retryTaskAdmitted(task.UserID, child.ID, &taskAdmission{ParentControllerID: task.ID, ParentControllerLease: task.LeaseOwner, ExpectedRouteRun: step.RetryRouteRun - 1})
-				}
-				if err != nil {
-					return fail(err)
-				}
-				step.Status, step.Phase = "running", "generating"
-				return s.saveVideoChain(task, state, model.TaskStatusRunning, step.Title+" 等待生成", "")
+			d, err := s.videoChainAttemptDiagnostic(child)
+			if err != nil {
+				return fail(err)
 			}
+			step.Diagnostic = &d
 			return fail(fmt.Errorf("视频生成失败：%s", child.Error))
 		case model.TaskStatusCancelled:
 			return fail(BadAuthRequest("当前镜头生成已取消，请停止本链后重新预览"))
@@ -94,11 +92,11 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 	}
 	// Re-read scene order and compilation before every new child. Changed plans
 	// pause before charging; explicit retry rebuilds from the current project state.
-	fresh, err := s.prepareProjectVideoChainWithWhiteModel(task.UserID, task.ProjectID, state.Request, state.WhiteModelStoryboardEnabled)
+	fresh, err := s.prepareVideoChainSteps(task.UserID, task.ProjectID, state.Request, state.WhiteModelStoryboardEnabled, state.Steps[:index])
 	if err != nil {
 		return fail(err)
 	}
-	if len(fresh.Steps) != len(state.Steps) || fresh.Steps[index].Signature != step.Signature {
+	if len(fresh.Steps) != len(state.Steps) || fresh.Steps[index].Signature != step.Signature || videoChainHash(fresh.Steps[index].Quote) != videoChainHash(step.Quote) {
 		return fail(BadAuthRequest("镜头内容、叙事顺序或模型已变化，点击重试以最新内容继续"))
 	}
 	if step.SourceShotID != "" && !step.ReferenceSkipped {
@@ -151,7 +149,10 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 	}
 	input, err := s.videoChainInput(task, step)
 	if err != nil {
-		return skipReference(err)
+		if !step.ReferenceSkipped && step.FrameResourceID != "" {
+			return skipReference(err)
+		}
+		return fail(err)
 	}
 	if step.Phase != "prepared" {
 		step.Phase = "uploading"
@@ -191,6 +192,15 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 	if step.Quote != nil {
 		maxCharge = step.Quote.AmountMicrocredits
 	}
+	// Keep the original authorization with the child even when a later
+	// confirmation replaces this step's model, quotation and task ID.
+	marker := input[videoChainMetadataKey].(map[string]any)
+	marker["previewHash"], marker["shotId"] = state.PreviewHash, step.ShotID
+	marker["contentSeconds"], marker["generationSeconds"] = step.ContentSeconds, step.GenerationSeconds
+	images, _ := input["referenceImages"].([]any)
+	videos, _ := input["referenceVideos"].([]any)
+	audios, _ := input["referenceAudios"].([]any)
+	marker["referenceCounts"] = map[string]int{"images": len(images), "videos": len(videos), "audios": len(audios)}
 	metadata, _ := input["metadata"].(map[string]any)
 	_, err = s.CreateTask(task.UserID, CreateTaskRequest{ProjectID: task.ProjectID, Type: "canvas_video", Operation: stringValue(metadata["videoEditOperation"]), Model: step.Model, LogicalModelID: step.LogicalModelID, Prompt: stringValue(input["prompt"]), Input: input, admission: &taskAdmission{ID: step.TaskID, MaxCharge: &maxCharge, ParentControllerID: task.ID, ParentControllerLease: task.LeaseOwner}})
 	if err != nil {

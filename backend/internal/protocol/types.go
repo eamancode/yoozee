@@ -76,6 +76,10 @@ type Message struct {
 // GenerationRequest is the platform contract shared by canvas, creation and agent.
 // Provider-specific fields belong in Extra and are never interpreted by the host.
 type GenerationRequest struct {
+	// OmitDuration is for fixed-duration SKUs whose create endpoint rejects
+	// the duration field, including an explicit zero.
+	OmitDuration bool `json:"-"`
+
 	Capability      Capability                `json:"capability,omitempty"`
 	Model           string                    `json:"model"`
 	Prompt          string                    `json:"prompt,omitempty"`

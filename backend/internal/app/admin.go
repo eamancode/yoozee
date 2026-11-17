@@ -7,6 +7,7 @@ import (
 
 	"yingce/backend/internal/kernel"
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/sllcatalog"
 )
 
 type CreateAdminUserRequest struct {
@@ -127,6 +128,7 @@ type PublicModelChannel struct {
 	HasAPIKey        bool                      `json:"hasApiKey"`
 	HasSecretKey     bool                      `json:"hasSecretKey"`
 	CatalogProvider  string                    `json:"catalogProviderId,omitempty"`
+	SLLCatalog       bool                      `json:"sllCatalogAvailable,omitempty"`
 	CreatedAt        time.Time                 `json:"createdAt"`
 	UpdatedAt        time.Time                 `json:"updatedAt"`
 }
@@ -293,6 +295,7 @@ func publicChannel(channel model.ModelChannel, admin bool, channelModels []model
 		HasAPIKey:        strings.TrimSpace(channel.APIKey) != "",
 		HasSecretKey:     strings.TrimSpace(channel.SecretKey) != "",
 		CatalogProvider:  catalogProviderForAdmin(channel, admin),
+		SLLCatalog:       admin && sllcatalog.IsSLLChannel(channel),
 		CreatedAt:        channel.CreatedAt,
 		UpdatedAt:        channel.UpdatedAt,
 	}

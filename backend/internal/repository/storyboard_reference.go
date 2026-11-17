@@ -17,6 +17,9 @@ func (r *Repository) StoryboardReferenceConsumers(projectID, versionID string) (
 // Registration shares the cancellation and lease fence with child admission.
 func (r *Repository) RegisterStoryboardReference(controller *model.Task, revisionID string, asset *model.Asset, version *model.AssetVersion, representation *model.AssetRepresentation, link *model.ProjectAssetLink, reference *model.ShotAssetReference, artifact *model.ShotArtifact, alreadyRegistered bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if _, err := New(tx).LockActiveStoryboardProject(controller.UserID, controller.ProjectID); err != nil {
+			return err
+		}
 		fence := &model.Task{UserID: controller.UserID, ProjectID: controller.ProjectID, ParentControllerID: controller.ID, ParentControllerLease: controller.LeaseOwner}
 		if err := requireVideoChainParent(tx, fence); err != nil {
 			return err

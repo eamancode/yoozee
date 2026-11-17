@@ -92,7 +92,7 @@ type CreateProjectUnitRequest struct {
 	Kind       string `json:"kind"`
 	Title      string `json:"title"`
 	SourceText string `json:"sourceText"`
-	Position   int    `json:"position"`
+	Position   *int   `json:"position,omitempty"`
 }
 
 type UpdateProjectUnitRequest struct {
@@ -475,14 +475,11 @@ func (s *Service) CreateProjectUnit(userID string, projectID string, req CreateP
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return model.ProjectUnit{}, err
 	}
-	unit, err := newProjectUnit(projectID, req, req.Position)
+	unit, err := newProjectUnit(projectID, req, 0)
 	if err != nil {
 		return model.ProjectUnit{}, err
 	}
-	if err := s.repo.CreateProjectUnit(&unit); err != nil {
-		return model.ProjectUnit{}, err
-	}
-	if err := s.repo.BumpProjectRevision(projectID); err != nil {
+	if err := s.repo.CreateProjectUnit(&unit, req.Position); err != nil {
 		return model.ProjectUnit{}, err
 	}
 	return unit, nil
@@ -557,9 +554,6 @@ func (s *Service) ReorderProjectUnits(userID string, projectID string, req Reord
 
 func (s *Service) DeleteProjectUnit(userID string, projectID string, unitID string) error {
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
-		return err
-	}
-	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
 		return err
 	}
 	return s.repo.DeleteProjectUnit(projectID, unitID)

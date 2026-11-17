@@ -342,6 +342,14 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task) error {
 	if projectID == "" {
 		return errors.New("任务未提供短剧项目 ID，无法登记产物")
 	}
+	// Reconciliation of a historical success must leave a deleted unit detached.
+	if input.ShotID != "" {
+		if _, err := s.repo.ShotForProject(projectID, input.ShotID); errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
 	if strings.TrimSpace(input.ResourceID) != "" && strings.TrimSpace(input.AssetVersionID) == "" && strings.TrimSpace(input.ShotID) != "" {
 		assetVersionID, assetErr := s.ensureGeneratedProjectAsset(task, projectID, input.ShotID, input.ResourceID, input.MediaType)
 		if assetErr != nil {

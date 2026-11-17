@@ -176,6 +176,9 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 	if err := json.Unmarshal([]byte(decrypted), &input); err != nil {
 		return nil, BadAuthRequest("任务输入格式无效，无法恢复模型服务")
 	}
+	if marker, _ := input[videoChainMetadataKey].(map[string]any); stringValue(marker["controllerId"]) != "" {
+		return nil, BadAuthRequest("本段已确认的线路不可用，请在出片页重新报价并确认")
+	}
 	logicalModel, err := s.repo.LogicalModel(task.LogicalModelID)
 	if err != nil {
 		return nil, err

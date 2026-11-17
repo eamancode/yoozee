@@ -27,7 +27,8 @@
         "properties": {
           "file": {"type": "string", "description": "素材路径或柚子资产 ID"},
           "role": {"type": "string", "enum": ["identity", "location", "plate", "prop", "frame", "motion"], "description": "identity 人物、location 场景、plate 某机位背景、prop 道具、frame 构图参考（里面不能有人）、motion 运镜参考视频"},
-          "note": {"type": "string", "description": "这张参考是谁、是什么；只写参考里真有的特征"}
+          "note": {"type": "string", "description": "这张参考是谁、是什么；只写参考里真有的特征"},
+          "speaker": {"type": "string", "description": "人物绑定所扮演的剧本角色，换角后仍按此角色的台词匹配声音样本"}
         }
       }
     },

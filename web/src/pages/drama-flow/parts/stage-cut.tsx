@@ -15,9 +15,9 @@ import { secondsText } from "./stage-shots";
  * 精剪仍在旧版剪辑页做，这里给入口。
  */
 export function StageCut({ data, stage, onGo }: { data: FlowData; stage?: FlowStageView; onGo: (stage: FlowStageKey, target?: { ep?: string; item?: string }) => void }) {
-    const { project, progress, segments, allUnits, pipelineQuery, stepModels, videoOffFamily } = data;
+    const { project, episodeCounts, segments, allUnits, pipelineQuery, stepModels, videoOffFamily } = data;
     // 进度没读到（或刷新失败）时不显示任何计数，避免把「没读到」看成「0 段缺片」。
-    const counts = pipelineQuery.isError ? undefined : progress?.counts;
+    const counts = pipelineQuery.isError ? undefined : episodeCounts;
     const unread = pipelineQuery.isError ? "没读到" : "…";
     const groups = useMemo(() => {
         const order = new Map(allUnits.map((unit, index) => [unit.id, index]));

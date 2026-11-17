@@ -53,9 +53,10 @@ type PickShotArtifactRequest struct {
 }
 
 type CompileProjectShotRequest struct {
-	Model  string  `json:"model"`
-	Style  *string `json:"style"`
-	Acting *string `json:"acting"`
+	ChannelModel string  `json:"channelModel,omitempty"`
+	Model        string  `json:"model"`
+	Style        *string `json:"style"`
+	Acting       *string `json:"acting"`
 	// MaxReferenceImages 是这次要用的视频模型最多带几张参考图（前端按渠道模型的能力配置传）；没给时取模型族的图片参考上限。
 	// 本场色卡图排在最后，放不下时不带图、色值写进提示词。
 	MaxReferenceImages int `json:"maxReferenceImages,omitempty"`
@@ -73,10 +74,11 @@ type DramaGateResult struct {
 }
 
 type DramaCompileResult struct {
-	ShotID  string              `json:"shotId"`
-	Spec    drama.Segment       `json:"spec"`
-	Derived bool                `json:"derived"`
-	Result  drama.CompileResult `json:"result"`
+	ShotID        string              `json:"shotId"`
+	Spec          drama.Segment       `json:"spec"`
+	Derived       bool                `json:"derived"`
+	Result        drama.CompileResult `json:"result"`
+	VoiceBindings []DramaVoiceBinding `json:"voiceBindings,omitempty"`
 	// CompileProfile 是这次编译用的编译档案（0 为内置默认）；段里的镜头画面句是装段时按当时的档案写的。
 	CompileProfile DramaCompileProfileRef `json:"compileProfile"`
 }
@@ -517,6 +519,15 @@ func (s *Service) segmentForShot(userID string, projectID string, shot *model.Sh
 	}
 	if revision != nil && strings.TrimSpace(revision.SpecJSON) != "" {
 		if seg, err := drama.ParseSegment([]byte(revision.SpecJSON)); err == nil {
+			if slices.ContainsFunc(seg.Refs, func(ref drama.Ref) bool { _, ok := assets[ref.File]; return ok }) {
+				refs, err := s.repo.ShotAssetReferencesForShot(shot.ID)
+				if err != nil {
+					return drama.Segment{}, nil, false, err
+				}
+				if err := s.pinStoredSegmentFiles(projectID, &seg, refs); err != nil {
+					return drama.Segment{}, nil, false, err
+				}
+			}
 			return seg, revision, false, nil
 		}
 	}
@@ -541,7 +552,7 @@ func (s *Service) segmentForShot(userID string, projectID string, shot *model.Sh
 		return drama.Segment{}, nil, false, err
 	}
 	for _, ref := range references {
-		if ref.Role == "continuity" || ref.Status != "linked" {
+		if ref.Role != "reference" || ref.Status != "linked" {
 			continue
 		}
 		version, err := s.repo.AssetVersionForProject(projectID, ref.AssetVersionID)
@@ -845,13 +856,30 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 	if err != nil {
 		return DramaCompileResult{}, err
 	}
-	modelID := firstNonEmpty(strings.TrimSpace(req.Model), project.GenerationModel)
+	modelID := strings.TrimSpace(req.Model)
+	if modelID == "" {
+		if selected, ok := drama.ModelByID(strings.TrimSpace(req.ChannelModel)); ok {
+			modelID = selected.ID
+		} else if selected, ok := drama.MatchChannelModel(req.ChannelModel); ok {
+			modelID = selected.ID
+		} else {
+			modelID = project.GenerationModel
+		}
+	}
 	m, err := drama.ResolveModel(modelID)
 	if err != nil {
 		return DramaCompileResult{}, BadAuthRequest(err.Error())
 	}
+	lookup, err := s.dramaRefLookup(userID, projectID, seg)
+	if err != nil {
+		return DramaCompileResult{}, err
+	}
+	sent := resolveSegmentVoices(&seg, project, derived, lookup)
+	voiceBindings := segmentVoiceBindings(seg.Refs, sent, lookup, m)
 	if strings.TrimSpace(seg.Verbatim) != "" {
-		return s.compileOntologyShot(userID, projectID, shot, seg, derived, m)
+		compiled, err := s.compileOntologyShot(shot, seg, derived, m, lookup)
+		compiled.VoiceBindings = voiceBindings
+		return compiled, err
 	}
 	// 2.1 段写了风格档案（由镜头表装出）：默认风格块和表演块取档案的，与本机 compile.py 一致。
 	var profile *drama.Profile
@@ -861,10 +889,6 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 		}
 	}
 	// 没图的资产不能编译成「@图片N」：人物改写外貌声明，场景、道具只靠镜头文字（存量段、前端装段、Agent 写的段都兜住）。
-	lookup, err := s.dramaRefLookup(userID, projectID, seg)
-	if err != nil {
-		return DramaCompileResult{}, err
-	}
 	phrases, err := s.activeCompileProfile()
 	if err != nil {
 		return DramaCompileResult{}, err
@@ -896,7 +920,7 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 		result.Paste += "\n\n" + spatialNote
 		result.Chars += len([]rune("\n\n" + spatialNote))
 	}
-	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result, CompileProfile: compileProfileRef(phrases)}, nil
+	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result, VoiceBindings: voiceBindings, CompileProfile: compileProfileRef(phrases)}, nil
 }
 
 // shotScenePalette 是这一段绑的本场色卡（role=style 引用的场次色卡版本）：版本有合成图时带上版本 ID 当参考图，没有图时只给色值；

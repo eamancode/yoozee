@@ -368,6 +368,26 @@ func publicTaskInputJSON(raw string) string {
 			public[key] = value
 		}
 	}
+	if marker, ok := input[videoChainMetadataKey].(map[string]any); ok && stringValue(marker["controllerId"]) != "" {
+		// This representation replaces InputJSON at completion. Retain the
+		// confirmed attempt and route identity for reconciliation without
+		// retaining credentials or upstream/upload URLs.
+		receipt := map[string]any{}
+		for _, key := range []string{"controllerId", "shotId", "previewHash", "contentSeconds", "generationSeconds", "referenceCounts"} {
+			if value, ok := marker[key]; ok {
+				receipt[key] = value
+			}
+		}
+		public[videoChainMetadataKey] = receipt
+		cfg, _ := input["config"].(map[string]any)
+		route := map[string]any{}
+		for _, key := range []string{"channelId", "channelModelKey", "model", "providerModelKey"} {
+			if v, ok := cfg[key].(string); ok && v != "" {
+				route[key] = v
+			}
+		}
+		public["config"] = route
+	}
 	if len(public) == 0 {
 		return ""
 	}

@@ -5,6 +5,7 @@ import { ArrowLeft, BookOpen, History, Inbox, Info, MoreHorizontal } from "lucid
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
+import { ModelPicker } from "@/components/model-picker";
 import { useDramaModelConfig } from "@/hooks/use-drama-model-config";
 import { hasDirectorDocuments, projectWorkflow } from "@/lib/project-workflow";
 import { navigateToSettings } from "@/lib/settings-navigation";
@@ -14,6 +15,7 @@ import { AssetImageRecovery } from "@/pages/projects/workbench/detail/asset-imag
 import { dramaProgressKey } from "@/pages/projects/workbench/detail/drama-panels";
 import { OntologyDocumentsDrawer } from "@/pages/projects/workbench/detail/ontology-documents-drawer";
 import { continueProjectPipeline } from "@/pages/projects/workbench/detail/project-chapter-ai";
+import { useSSSDocuments } from "@/pages/projects/workbench/detail/sss-project-panels";
 import { VideoChainPanel } from "@/pages/projects/workbench/detail/video-chain-panel";
 import { dramaRunModeLabel } from "@/pages/projects/workbench/drama-model";
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
@@ -29,6 +31,7 @@ import { assetImageQueueMessage, pendingAssetImages } from "./model/asset-images
 import { chainVideoConfig } from "./model/video-config";
 import { buildInbox, inboxCounts, readIgnoredSuggestions, writeIgnoredSuggestions, type InboxItem } from "./model/inbox";
 import { flowPrimaryAction, type FlowAction } from "./model/primary-action";
+import { queryReadState } from "./model/read-state";
 import { episodeCompletion, episodeFacts, episodeFactsLine, stageFacts } from "./model/stage-facts";
 import { defaultFlowStage, flowStageStates, isFlowStageKey, type FlowStageKey } from "./model/stages";
 import { ActionBar } from "./parts/action-bar";
@@ -42,6 +45,7 @@ import { StageScript } from "./parts/stage-script";
 import { StageShots } from "./parts/stage-shots";
 import { StageStrip } from "./parts/stage-strip";
 import { StageVideo } from "./parts/stage-video";
+import { VideoRouteNotice } from "./parts/video-route-notice";
 
 import "./drama-flow.css";
 
@@ -61,7 +65,7 @@ export default function DramaFlowDetailPage() {
     const effectiveConfig = useDramaModelConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
 
-    const data = useFlowData(projectId, search.get("ep") || "");
+    const data = useFlowData(projectId, search.get("ep") || "", !isFlowStageKey(stageParam) || stageParam === "video");
     const { project, progress, pipeline, pipelineQuery, coreQuery, rail, unit, unitId, segments, unitSegments, steps, activeChains, chainReadOf, assets, bible, episodes, videoModel, imageModel, refreshVideo } = data;
     const focusId = search.get("item") || undefined;
     const tab = search.get("tab") || undefined;
@@ -72,6 +76,7 @@ export default function DramaFlowDetailPage() {
     const stages = useMemo(() => flowStageStates(pipeline), [pipeline]);
     const stage: FlowStageKey = isFlowStageKey(stageParam) ? stageParam : defaultFlowStage(pipeline);
     const stageView = stages.find((item) => item.key === stage);
+    const episodeDesigns = useSSSDocuments(projectId, stage === "script" && projectWorkflow(project?.workflowId).storyboardMode === "sss");
 
     const go = useCallback(
         (nextStage: FlowStageKey, target: { ep?: string; item?: string; tab?: string } = {}, replace = false) => {
@@ -101,6 +106,20 @@ export default function DramaFlowDetailPage() {
         [setSearch],
     );
 
+    // 浏览器返回或打开旧链接时，等剧集索引读完再替换失效的集和段。
+    const requestedId = search.get("ep");
+    useEffect(() => {
+        if (!requestedId || requestedId === unitId || !data.unitsQuery.isSuccess || data.unitsQuery.isFetching) return;
+        setSearch((current) => {
+            if (current.get("ep") !== requestedId) return current;
+            const next = new URLSearchParams(current);
+            if (unitId) next.set("ep", unitId);
+            else next.delete("ep");
+            next.delete("item");
+            return next;
+        }, { replace: true });
+    }, [requestedId, unitId, data.unitsQuery.isSuccess, data.unitsQuery.isFetching, setSearch]);
+
     const [ignored, setIgnored] = useState<string[]>(() => readIgnoredSuggestions(userId, projectId));
     useEffect(() => {
         setIgnored(readIgnoredSuggestions(userId, projectId));
@@ -121,9 +140,9 @@ export default function DramaFlowDetailPage() {
     const runningVideos = useMemo(() => [...steps.values()].filter((step) => step.state === "running" || step.state === "waiting").length, [steps]);
     const flow = flowPrimaryAction({
         pipeline,
-        segments: progress?.counts.segments ?? 0,
-        generated: progress?.counts.generated ?? 0,
-        inCut: progress?.counts.inCut ?? 0,
+        segments: data.episodeCounts?.segments ?? 0,
+        generated: data.episodeCounts?.generated ?? 0,
+        inCut: data.episodeCounts?.inCut ?? 0,
         mustHandle: counts.must,
         toConfirm: counts.confirm,
         failedVideos: failedSteps.length,
@@ -137,21 +156,22 @@ export default function DramaFlowDetailPage() {
         const assetsRead = Boolean(data.assetsQuery.data) && !data.assetsQuery.isError;
         const progressRead = Boolean(progress) && !pipelineQuery.isError;
         return stageFacts({
-            episodes: episodes && !data.episodesQuery.isError ? episodes.episodes.length : undefined,
+            episodes: data.unitsQuery.data && !data.unitsQuery.isError ? rail.units.length : undefined,
             style: data.styleLock === "loading" || data.styleLock === "error" ? undefined : data.styleLock,
             palettes: assetsRead ? { ready: scenePalettes.filter((asset) => asset.palette?.imageStatus === "bound").length, total: scenePalettes.length } : undefined,
             assets: assetsRead ? { bound: visual.filter((asset) => dramaImageStatusOf(asset) === "bound").length, total: visual.length, failed: visual.filter((asset) => ["failed", "stale"].includes(dramaImageStatusOf(asset) || "")).length } : undefined,
-            counts: progressRead && progress ? progress.counts : undefined,
+            counts: progressRead ? data.episodeCounts : undefined,
             videos: data.videosRead === "ready" ? { failed: failedSteps.length, running: runningVideos } : undefined,
         });
-    }, [assets, data.assetsQuery.data, data.assetsQuery.isError, data.episodesQuery.isError, data.bibleQuery.isError, pipelineQuery.isError, episodes, bible, project?.bibleJson, progress, data.videosRead, failedSteps.length, runningVideos]);
+    }, [assets, data.assetsQuery.data, data.assetsQuery.isError, data.unitsQuery.data, data.unitsQuery.isError, rail.units.length, data.bibleQuery.isError, pipelineQuery.isError, data.episodeCounts, bible, project?.bibleJson, progress, data.videosRead, failedSteps.length, runningVideos]);
 
     // 按所选视频模型能力对齐（同步音频、水印、分辨率），只用于新工作流的出片请求，不写回全局偏好。
     const videoConfig = useMemo(() => chainVideoConfig(effectiveConfig, videoModel, { aspectRatio: project?.aspectRatio }), [effectiveConfig, videoModel, project?.aspectRatio]);
     const canGenerate = Boolean(videoModel) && isAiConfigReady(videoConfig, videoModel);
 
     const [inboxOpen, setInboxOpen] = useState(false);
-    const [chainTarget, setChainTarget] = useState<{ unitId: string; shotId: string } | undefined>(undefined);
+    const [chainTarget, setChainTarget] = useState<{ projectId: string; unitId: string; shotId: string } | undefined>(undefined);
+    useEffect(() => setChainTarget(undefined), [projectId]);
     const [busyAction, setBusyAction] = useState<FlowAction["kind"] | undefined>(undefined);
     // 「继续：角色场景资产」先给确认面板（选图片模型、看单价、排除不想出的资产），确认后才建出图任务；与旧工作台资产页同一个面板。
     const [imagePanelOpen, setImagePanelOpen] = useState(false);
@@ -240,15 +260,15 @@ export default function DramaFlowDetailPage() {
     };
 
     const openGenerate = (shotId: string, targetUnitId = unitId) => {
-        if (!canGenerate) {
+        const state = steps.get(shotId)?.state;
+        if (!canGenerate && state !== "failed" && state !== "paused") {
             message.warning("还没配好可用的视频模型，先到设置里配好");
             return;
         }
-        setChainTarget({ unitId: targetUnitId, shotId });
+        setChainTarget({ projectId, unitId: targetUnitId, shotId });
     };
 
     // 视频重试一律先开花费预览：预览里写明这次要出的范围（同场后面没出的段也可能一起出）和预估花费，确认后才提交。
-    // 不直接调用链重试接口，因为它会从失败步骤接着把整条链往后跑，而且不给花费。
     const retryFailedVideos = () => {
         const first = unitSegments.find((item) => steps.get(item.shotId)?.state === "failed") || segments.find((item) => steps.get(item.shotId)?.state === "failed");
         if (!first) return;
@@ -315,13 +335,26 @@ export default function DramaFlowDetailPage() {
     const railEpisodes: RailEpisode[] = useMemo(() => {
         const mustUnits = new Set(inbox.filter((item) => item.group === "must" && item.target.unitId).map((item) => item.target.unitId));
         const unread = pipelineQuery.isError || !progress;
+        const rows = new Map(episodes?.episodes.map((row) => [row.unitId, row]));
+        const designed = new Set(episodeDesigns.data?.designs?.map((doc) => doc.unitId));
         return rail.units.map((item, index) => {
+            if (stage === "script") {
+                const row = rows.get(item.id);
+                const summary = [
+                    `${(row?.wordCount ?? item.wordCount).toLocaleString("zh-CN")} 字`,
+                    row && `来源 ${row.sources.length} 处`,
+                    row && (row.shots ? `已分镜 ${row.shots} 个镜头` : row.hasShotlist ? "镜头表是草稿" : "还没分镜"),
+                    episodeDesigns.isEnabled && episodeDesigns.data && !designed.has(item.id) && "缺本集设计",
+                ].filter(Boolean).join(" · ");
+                return { id: item.id, title: item.title || `第 ${index + 1} 集`, summary, warn: mustUnits.has(item.id) };
+            }
             if (unread) return { id: item.id, title: item.title || `第 ${index + 1} ${rail.noun}`, summary: pipelineQuery.isError ? "进度没读到" : "正在读进度…", warn: false };
             const facts = episodeFacts(item.id, segments, steps);
             return { id: item.id, title: item.title || `第 ${index + 1} ${rail.noun}`, summary: episodeFactsLine(facts, chainReadOf(item.id)), warn: mustUnits.has(item.id), completion: episodeCompletion(facts) };
         });
-    }, [rail, segments, steps, inbox, pipelineQuery.isError, progress, chainReadOf]);
-    const showRail = rail.units.length > 1 && (stage === "shots" || stage === "video");
+    }, [rail, segments, steps, inbox, pipelineQuery.isError, progress, chainReadOf, stage, episodes, episodeDesigns.data, episodeDesigns.isEnabled]);
+    const showRail = stage !== "cut";
+    const needsEpisode = (stage === "shots" || stage === "video") && !unit;
 
     if (coreQuery.isError) return <WorkspaceErrorState title="项目没读出来" description={errorText(coreQuery.error, "请稍后再试")} onRetry={() => void coreQuery.refetch()} />;
     if (!project) return <WorkspaceLoadingState label="正在打开项目" />;
@@ -335,7 +368,7 @@ export default function DramaFlowDetailPage() {
                 </Link>
                 <h1 title={project.name}>{project.name}</h1>
                 <span className="drama-flow-top-meta">
-                    {[rail.units.length ? `${rail.units.length} ${rail.noun}` : "", progress ? `${progress.counts.segments} 段` : "", project.aspectRatio, pipeline ? dramaRunModeLabel(pipeline.runMode) : ""].filter(Boolean).join(" · ")}
+                    {[data.unitsQuery.data ? `${rail.units.length} 集` : "", data.episodeCounts ? `${data.episodeCounts.segments} 段` : "", project.aspectRatio, pipeline ? dramaRunModeLabel(pipeline.runMode) : ""].filter(Boolean).join(" · ")}
                 </span>
                 <div className="drama-flow-top-actions">
                     {hasDirectorDocuments(project.workflowId) && data.detail ? (
@@ -374,7 +407,11 @@ export default function DramaFlowDetailPage() {
             {hasDirectorDocuments(project.workflowId) && data.detail ? <OntologyDocumentsDrawer detail={data.detail} open={directorOpen} onClose={() => setDirectorOpen(false)} /> : null}
             <StageStrip stages={stages} facts={facts} active={stage} onSelect={(next) => go(next)} />
             <div className="drama-flow-main" data-rail={showRail ? undefined : "off"}>
-                {showRail ? <EpisodeRail label={rail.label} episodes={railEpisodes} activeId={unitId} onSelect={(id) => go(stage, { ep: id, tab })} /> : null}
+                {showRail ? (
+                    <EpisodeRail key={projectId} projectId={projectId} episodes={railEpisodes} activeId={unitId}
+                        readState={queryReadState(data.unitsQuery)} onRetry={() => void data.unitsQuery.refetch()}
+                        onSelect={(id, replace) => go(stage, { ep: id, tab }, replace)} />
+                ) : null}
                 <main className="drama-flow-work">
                     <div className="drama-flow-work-inner">
                         {pipelineQuery.isError ? (
@@ -389,8 +426,9 @@ export default function DramaFlowDetailPage() {
                         {stage === "look" ? (
                             <StageLook data={data} stage={stageView} tab={tab} selectedId={focusId} retrying={retryingImages} onTab={(next) => setParam("tab", next)} onSelect={(id) => setParam("item", id)} onRetry={(list) => retryImages.mutate(list)} />
                         ) : null}
-                        {stage === "shots" ? <StageShots key={unitId} data={data} stage={stageView} selectedId={focusId} onSelect={(shotId) => setParam("item", shotId)} /> : null}
-                        {stage === "video" ? (
+                        {needsEpisode ? <div className="drama-flow-empty"><strong>{data.unitsQuery.isError ? "剧集列表没读到" : data.unitsQuery.isLoading ? "正在读取剧集…" : "添加首集后即可开始分镜"}</strong></div> : null}
+                        {stage === "shots" && unit ? <StageShots key={unitId} data={data} stage={stageView} selectedId={focusId} onSelect={(shotId) => setParam("item", shotId)} /> : null}
+                        {stage === "video" && unit ? (
                             <StageVideo
                                 key={unitId}
                                 data={data}
@@ -431,9 +469,13 @@ export default function DramaFlowDetailPage() {
                     }}
                 />
             ) : null}
-            {chainTarget ? (
+            {chainTarget?.projectId === projectId ? (
                 <VideoChainPanel
-                    key={JSON.stringify([chainTarget.unitId, chainTarget.shotId, videoModel])}
+                    key={JSON.stringify([projectId, chainTarget.unitId, chainTarget.shotId, data.videoRouting.route?.revision, videoModel, project.aspectRatio,
+                        data.workspace?.shots.map((shot) => [shot.id, shot.currentRevisionId, shot.durationMs, shot.position]),
+                        data.workspace?.shotReferences.map((ref) => [ref.shotId, ref.assetVersionId, ref.role, ref.position, ref.status]),
+                        unitSegments.map((item) => [item.shotId, item.durationMs]),
+                    ])}
                     open
                     projectId={projectId}
                     whiteModelStoryboardEnabled={project.whiteModelStoryboardEnabled === true}
@@ -442,12 +484,24 @@ export default function DramaFlowDetailPage() {
                     shotId={chainTarget.shotId}
                     onClose={() => setChainTarget(undefined)}
                     onRefresh={refreshVideo}
-                    buildModel={async () => {
-                        if (!videoModel || data.stepModels.video.disabledReason(videoModel)) {
-                            throw new Error(data.stepModels.video.status("请选择可用的视频模型").text);
+                    rememberModel={false}
+                    modelPicker={<>
+                        <ModelPicker config={effectiveConfig} capability="video" value={videoModel}
+                            onChange={data.stepModels.video.select} modelDisabledReason={data.stepModels.video.disabledReason}
+                            triggerAriaLabel="更换本次报价的视频模型" showSelectedPrice={false} showPreferenceNotice={false} showOptionPrices />
+                        <VideoRouteNotice routing={data.videoRouting} />
+                    </>}
+                    onEditShot={(shotId) => {
+                        setChainTarget(undefined);
+                        go("shots", { ep: chainTarget.unitId, item: shotId });
+                    }}
+                    buildModel={async (quoteShotId) => {
+                        const reason = videoModel && data.stepModels.video.disabledReason(videoModel);
+                        if (!videoModel || reason) {
+                            throw new Error(reason || data.stepModels.video.status("请选择可用的视频模型").text);
                         }
                         // 费用预览和确认提交都走这里：时长按这一段的正文取模型能提交的档位，不用全局偏好里的秒数。
-                        const target = segments.find((item) => item.shotId === chainTarget.shotId);
+                        const target = segments.find((item) => item.shotId === (quoteShotId || chainTarget.shotId));
                         const config = chainVideoConfig(effectiveConfig, videoModel, { aspectRatio: project?.aspectRatio, contentSeconds: target ? target.durationMs / 1000 : undefined });
                         const task = await prepareBackendGenerationTask({ projectId, mode: "video", prompt: "连续生成预览", config });
                         return { model: task.model || videoModel, logicalModelId: task.logicalModelId, input: task.input || {} };

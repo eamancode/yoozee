@@ -69,10 +69,11 @@ type ProjectShotAssetReference struct {
 }
 
 type ProjectShotAssetReferenceVersion struct {
-	ID              string                           `json:"id"`
-	AssetID         string                           `json:"assetId"`
-	Version         int                              `json:"version"`
-	Representations []CharacterRepresentationSummary `json:"representations"`
+	ID               string                           `json:"id"`
+	AssetID          string                           `json:"assetId"`
+	Version          int                              `json:"version"`
+	Representations  []CharacterRepresentationSummary `json:"representations"`
+	SampleResourceID string                           `json:"sampleResourceId,omitempty"`
 }
 
 type ProjectCanvasPage struct {
@@ -292,8 +293,16 @@ func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID s
 		return ProjectUnitWorkspace{}, err
 	}
 	versionByID := make(map[string]model.AssetVersion, len(versions))
+	var characterVersions []string
 	for _, version := range versions {
 		versionByID[version.ID] = version
+		if assetByID[version.AssetID].Category == model.AssetCategoryCharacter {
+			characterVersions = append(characterVersions, version.ID)
+		}
+	}
+	samples, err := s.repo.CharacterVoiceSamples(userID, projectID, characterVersions)
+	if err != nil {
+		return ProjectUnitWorkspace{}, err
 	}
 	representationsByVersionID := make(map[string][]CharacterRepresentationSummary, len(versionIDs))
 	for _, representation := range storedRepresentations {
@@ -319,7 +328,7 @@ func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID s
 			ShotAssetReference: reference,
 			Asset:              asset,
 			ReferencedVersion: ProjectShotAssetReferenceVersion{
-				ID: version.ID, AssetID: version.AssetID, Version: version.Version, Representations: representations,
+				ID: version.ID, AssetID: version.AssetID, Version: version.Version, Representations: representations, SampleResourceID: samples[version.ID],
 			},
 		})
 	}

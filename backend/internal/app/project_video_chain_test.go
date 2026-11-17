@@ -471,26 +471,28 @@ func TestVideoChainReferencesAndPromptRemainIdempotent(t *testing.T) {
 	}
 }
 
-func TestVideoChainVideoFailureNeedsExplicitRetryAndKeepsTask(t *testing.T) {
+func TestVideoChainVideoFailureNeedsNewConfirmationAndPreservesOriginalTask(t *testing.T) {
 	f := newVideoChainFixture(t, "A", "A")
 	chain := f.start(t)
 	state := f.untilTask(t, chain.ID, 0)
 	id := state.Steps[0].TaskID
-	f.db.Model(&model.Task{}).Where("id = ?", id).Updates(map[string]any{"status": model.TaskStatusFailed, "error": "模拟生成失败"})
+	f.db.Model(&model.Task{}).Where("id = ?", id).Updates(map[string]any{"status": model.TaskStatusFailed, "error": "模拟本地预检失败", "execution_diagnostic_json": `{"phase":"preparation","submissionOutcome":"not_submitted"}`})
 	f.tick(t, chain.ID)
-	if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID); err != nil {
-		t.Fatal(err)
+	req := f.resumeQuote(t, chain.ID)
+	resumed, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID, req)
+	if err != nil || resumed.Steps[0].TaskID == id {
+		t.Fatal(resumed, err)
 	}
-	f.tick(t, chain.ID)
-	child, _ := f.s.repo.TaskForUser("user-1", id)
-	if child.Status != model.TaskStatusQueued || child.RouteRun != 2 || strings.Count(child.Prompt, dramaSceneEnding) != 1 {
-		t.Fatalf("retry state: %+v", child)
+	current := f.untilTask(t, chain.ID, 0)
+	child, _ := f.s.repo.TaskForUser("user-1", current.Steps[0].TaskID)
+	if child.Status != model.TaskStatusQueued || strings.Count(child.Prompt, dramaSceneEnding) != 1 {
+		t.Fatalf("resume state: %s / %s", child.Status, child.Prompt)
 	}
-	f.db.Model(&model.Task{}).Where("id = ?", id).Updates(map[string]any{"status": model.TaskStatusFailed, "error": "再次失败"})
+	f.db.Model(&model.Task{}).Where("id = ?", child.ID).Updates(map[string]any{"status": model.TaskStatusFailed, "error": "再次失败"})
 	f.tick(t, chain.ID)
 	f.tick(t, chain.ID)
 	child, _ = f.s.repo.TaskForUser("user-1", id)
-	if child.RouteRun != 2 || child.Status != model.TaskStatusFailed {
+	if child.RouteRun != 1 || child.Status != model.TaskStatusFailed {
 		t.Fatal("automatically regenerated failed video")
 	}
 }

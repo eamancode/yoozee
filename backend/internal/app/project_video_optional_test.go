@@ -21,7 +21,7 @@ func TestVideoChainFailedHistoryDoesNotBlockNewChainOrResumeAlongsideActive(t *t
 	if fresh.ID == old.ID {
 		t.Fatal("failed chain still occupies chapter")
 	}
-	if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, old.ID); err == nil {
+	if _, err := f.s.RetryProjectVideoChain("user-1", f.projectID, old.ID, f.resumeQuote(t, old.ID)); err == nil {
 		t.Fatal("failed retry bypassed active chain lock")
 	}
 	after, _ := f.s.repo.TaskForUser("user-1", old.ID)

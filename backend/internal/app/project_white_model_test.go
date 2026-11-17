@@ -128,11 +128,11 @@ func TestWhiteModelPreviewInvalidatesAndAcceptedChainKeepsSnapshot(t *testing.T)
 	if strings.Contains(child.Prompt, dramaSceneEnding) {
 		t.Fatal("running chain adopted changed project setting")
 	}
-	if err := f.db.Model(child).Update("status", model.TaskStatusFailed).Error; err != nil {
+	if err := f.db.Model(child).Updates(map[string]any{"status": model.TaskStatusFailed, "execution_diagnostic_json": `{"phase":"preparation","submissionOutcome":"not_submitted"}`}).Error; err != nil {
 		t.Fatal(err)
 	}
 	f.tick(t, chain.ID)
-	resumed, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID)
+	resumed, err := f.s.RetryProjectVideoChain("user-1", f.projectID, chain.ID, f.resumeQuote(t, chain.ID))
 	if err != nil || resumed.WhiteModelStoryboardEnabled {
 		t.Fatal("explicit resume changed snapshot", resumed, err)
 	}

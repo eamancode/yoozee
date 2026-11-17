@@ -192,7 +192,7 @@ export function AllChannelModelsPanel({
             ),
         },
         { title: "能力", dataIndex: "capability", width: 72, render: (value: string) => capabilityOptions.find((option) => option.value === value)?.label || "待配置" },
-        { title: "稳定性（24h）", key: "health", width: 150, render: (_, item) => <ChannelModelHealthCell health={health.get(channelModelHealthKey(item.channelId, item.modelKey))} loading={healthLoading} /> },
+        { title: "创建请求成功率（24h）", key: "health", width: 150, render: (_, item) => <ChannelModelHealthCell health={health.get(channelModelHealthKey(item.channelId, item.modelKey))} loading={healthLoading} /> },
         { title: "规格成本价 / 销售价 / 加价", width: 300, render: (_, item) => <ChannelModelCostSummary item={item} /> },
         {
             title: "状态",
@@ -244,7 +244,7 @@ export function AllChannelModelsPanel({
                                 { label: "全部状态", value: "all" },
                                 { label: "可用（模型与渠道均启用）", value: "enabled" },
                                 { label: "不可用", value: "disabled" },
-                                { label: "24h 成功率低于 80%", value: "unhealthy" },
+                                { label: "24h 创建请求成功率低于 80%", value: "unhealthy" },
                             ]}
                             onChange={(value) => updateFilter({ modelStatus: value })}
                         />

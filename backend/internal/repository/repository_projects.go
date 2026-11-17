@@ -199,18 +199,22 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 }
 
 func (r *Repository) BumpProjectRevision(projectID string) error {
-	return r.db.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error
+	result := r.db.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()})
+	if result.Error == nil && result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return result.Error
 }
 
 func (r *Repository) ProjectUnits(projectID string) ([]model.ProjectUnit, error) {
 	var units []model.ProjectUnit
-	err := r.db.Where("project_id = ?", projectID).Order("position asc, created_at asc").Find(&units).Error
+	err := r.db.Where("project_id = ?", projectID).Order("position asc, created_at asc, id asc").Find(&units).Error
 	return units, err
 }
 
 func (r *Repository) ProjectUnitSummaries(projectID string) ([]model.ProjectUnit, error) {
 	var units []model.ProjectUnit
-	err := r.db.Select("id", "project_id", "parent_id", "kind", "title", "word_count", "status", "position", "created_at", "updated_at").Where("project_id = ?", projectID).Order("position asc, created_at asc").Find(&units).Error
+	err := r.db.Select("id", "project_id", "parent_id", "kind", "title", "word_count", "status", "position", "created_at", "updated_at").Where("project_id = ?", projectID).Order("position asc, created_at asc, id asc").Find(&units).Error
 	return units, err
 }
 
@@ -220,8 +224,22 @@ func (r *Repository) ProjectAssetCount(projectID string) (int64, error) {
 	return count, err
 }
 
-func (r *Repository) CreateProjectUnit(unit *model.ProjectUnit) error {
-	return r.db.Create(unit).Error
+func (r *Repository) CreateProjectUnit(unit *model.ProjectUnit, position *int) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// 先更新项目行，串行化该项目的增删；失败时与单元写入一起回滚。
+		if err := (&Repository{db: tx}).BumpProjectRevision(unit.ProjectID); err != nil {
+			return err
+		}
+		if position != nil {
+			unit.Position = max(0, *position)
+		} else if unit.Kind == model.ProjectUnitKindEpisode {
+			if err := tx.Model(&model.ProjectUnit{}).Where("project_id = ?", unit.ProjectID).
+				Select("COALESCE(MAX(position), -1) + 1").Scan(&unit.Position).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(unit).Error
+	})
 }
 
 func (r *Repository) ImportProjectUnits(projectID string, units []model.ProjectUnit) error {
@@ -280,10 +298,19 @@ func (r *Repository) UpdateProjectUnit(unit *model.ProjectUnit, invalidateWorkfl
 
 func (r *Repository) DeleteProjectUnit(projectID string, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := (&Repository{db: tx}).BumpProjectRevision(projectID); err != nil {
+			return err
+		}
 		if err := deleteProjectUnitTx(tx, projectID, id); err != nil {
 			return err
 		}
-		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error
+		// 旧工作台可能留下跳号和相同位置；沿用列表的完整排序，避免后续原文或剧集互换。
+		return tx.Exec(`WITH ordered AS (
+			SELECT id, ROW_NUMBER() OVER (ORDER BY position, created_at, id) - 1 AS next_position
+			FROM project_units WHERE project_id = ?
+		)
+		UPDATE project_units SET position = ordered.next_position FROM ordered
+		WHERE project_units.id = ordered.id AND project_units.position <> ordered.next_position`, projectID).Error
 	})
 }
 
@@ -358,7 +385,7 @@ func (r *Repository) DramaShotlistUnitIDs(projectID string) ([]string, error) {
 
 // deleteProjectUnitTx 删除一个单元和挂在它上面的画布关联、镜头、产物、工作流、候选资产与镜头表（不动项目 revision）。
 func deleteProjectUnitTx(tx *gorm.DB, projectID string, id string) error {
-	if err := tx.Where("project_id = ? AND unit_id = ? AND kind = ?", projectID, id, model.OntologyDocDesign).Delete(&model.ProjectOntologyDocument{}).Error; err != nil {
+	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ProjectOntologyDocument{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.CanvasUnitLink{}).Error; err != nil {
@@ -369,6 +396,9 @@ func deleteProjectUnitTx(tx *gorm.DB, projectID string, id string) error {
 		return err
 	}
 	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ShotArtifact{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, id).Delete(&model.ShotEvidence{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Where("shot_id IN (?)", shotIDs).Delete(&model.ShotRevision{}).Error; err != nil {

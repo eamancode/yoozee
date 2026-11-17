@@ -129,7 +129,7 @@ func (r *Repository) ReplaceProjectUnitShots(projectID string, unitID string, sh
 func (r *Repository) ReplaceProjectUnitShotsWithShotlist(projectID string, unitID string, shots []model.Shot, revisions []model.ShotRevision, references []model.ShotAssetReference, expectedShotIDs []string, shotlist *model.DramaShotlist) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if shotlist != nil {
-			if err := upsertDramaShotlist(tx, shotlist); err != nil {
+			if err := upsertDramaShotlist(tx, shotlist, shotlist.Version); err != nil {
 				return err
 			}
 		}
@@ -183,13 +183,16 @@ func (r *Repository) ReplaceProjectUnitShotsWithShotlist(projectID string, unitI
 
 // SaveDramaShotlist 只写一章的镜头表记录（检查没过的草稿），不动本章镜头。
 func (r *Repository) SaveDramaShotlist(shotlist *model.DramaShotlist) error {
-	return r.db.Transaction(func(tx *gorm.DB) error { return upsertDramaShotlist(tx, shotlist) })
+	return r.db.Transaction(func(tx *gorm.DB) error { return upsertDramaShotlist(tx, shotlist, 0) })
 }
 
-func upsertDramaShotlist(tx *gorm.DB, shotlist *model.DramaShotlist) error {
+func upsertDramaShotlist(tx *gorm.DB, shotlist *model.DramaShotlist, expectedVersion int) error {
 	var existing model.DramaShotlist
 	err := tx.Where("project_id = ? AND unit_id = ?", shotlist.ProjectID, shotlist.UnitID).First(&existing).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if expectedVersion > 0 {
+			return ErrProjectUnitShotsChanged
+		}
 		shotlist.Version = 1
 		return tx.Create(shotlist).Error
 	}
@@ -199,11 +202,19 @@ func upsertDramaShotlist(tx *gorm.DB, shotlist *model.DramaShotlist) error {
 	shotlist.ID = existing.ID
 	shotlist.Version = existing.Version + 1
 	shotlist.CreatedAt = existing.CreatedAt
-	return tx.Model(&model.DramaShotlist{}).Where("id = ?", existing.ID).Updates(map[string]any{
+	q := tx.Model(&model.DramaShotlist{}).Where("id = ?", existing.ID)
+	if expectedVersion > 0 {
+		q = q.Where("version = ?", expectedVersion)
+	}
+	result := q.Updates(map[string]any{
 		"version": shotlist.Version, "shotlist_json": shotlist.ShotlistJSON, "script_json": shotlist.ScriptJSON,
 		"check_json": shotlist.CheckJSON, "rows_json": shotlist.RowsJSON, "sections_json": shotlist.SectionsJSON, "packed_sections_json": shotlist.PackedSectionsJSON, "compile_profile_version": shotlist.CompileProfileVersion,
 		"created_by": shotlist.CreatedBy, "updated_at": shotlist.UpdatedAt,
-	}).Error
+	})
+	if result.Error == nil && result.RowsAffected != 1 {
+		return ErrProjectUnitShotsChanged
+	}
+	return result.Error
 }
 
 // DramaShotlistForUnit 读一章的镜头表；没有返回 gorm.ErrRecordNotFound。
@@ -366,6 +377,13 @@ func (r *Repository) UpsertShotAssetReference(reference *model.ShotAssetReferenc
 
 func (r *Repository) UpsertShotAssetReferenceAndInvalidate(projectID string, reference *model.ShotAssetReference, updatedAt time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Use deletion's project -> shot order before inserting a new binding.
+		if err := tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": updatedAt}).Error; err != nil {
+			return err
+		}
+		if err := lockShotRow(tx.Where("project_id = ?", projectID), reference.ShotID); err != nil {
+			return err
+		}
 		result := tx.Model(&model.ShotAssetReference{}).Where("shot_id = ? AND asset_version_id = ? AND role = ?", reference.ShotID, reference.AssetVersionID, reference.Role).Updates(map[string]any{"status": reference.Status})
 		if result.Error != nil {
 			return result.Error
@@ -375,14 +393,7 @@ func (r *Repository) UpsertShotAssetReferenceAndInvalidate(projectID string, ref
 				return err
 			}
 		}
-		if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND status NOT IN ?", reference.ShotID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": updatedAt}).Error; err != nil {
-			return err
-		}
-		var shot model.Shot
-		if err := tx.First(&shot, "id = ? AND project_id = ?", reference.ShotID, projectID).Error; err != nil {
-			return err
-		}
-		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": updatedAt}).Error
+		return tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND status NOT IN ?", reference.ShotID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": updatedAt}).Error
 	})
 }
 
@@ -440,8 +451,18 @@ func (r *Repository) CreateProjectAssetCandidates(candidates []model.ProjectAsse
 }
 
 func (r *Repository) CreateProjectAssetCandidate(candidate *model.ProjectAssetCandidate) (bool, error) {
-	result := r.db.Clauses(clause.OnConflict{DoNothing: true}).Create(candidate)
-	return result.RowsAffected == 1, result.Error
+	inserted := false
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if candidate.ShotID != "" {
+			if err := lockShotRow(tx.Where("project_id = ?", candidate.ProjectID), candidate.ShotID); err != nil {
+				return err
+			}
+		}
+		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(candidate)
+		inserted = result.RowsAffected == 1
+		return result.Error
+	})
+	return inserted, err
 }
 
 // ConfirmProjectAssetCandidate 将正式资产身份、首版本、项目引用和候选状态放在同一事务中，避免出现半确认数据。
@@ -551,6 +572,26 @@ func (r *Repository) UpdateWorkflowStep(step *model.WorkflowStepInstance) error 
 // 旧六步流程已只读，这里不再推进任何步骤或流程实例。
 func (r *Repository) RegisterTaskOutputRecords(projectID string, representation *model.AssetRepresentation, productionLink *model.ProductionTaskLink, artifact *model.ShotArtifact) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Match deletion's project -> shot lock order. A task can be terminal
+		// before registration, including the production link without a resource.
+		projectResult := tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()})
+		if projectResult.Error != nil {
+			return projectResult.Error
+		}
+		if projectResult.RowsAffected != 1 {
+			return gorm.ErrInvalidData
+		}
+		var shotID string
+		if artifact != nil {
+			shotID = artifact.ShotID
+		} else if productionLink != nil {
+			shotID = productionLink.ShotID
+		}
+		if shotID != "" {
+			if err := lockShotRow(tx, shotID); err != nil {
+				return err
+			}
+		}
 		if representation != nil {
 			var existingRepresentation model.AssetRepresentation
 			if err := tx.Where("task_id = ? AND role = ?", representation.TaskID, representation.Role).First(&existingRepresentation).Error; errors.Is(err, gorm.ErrRecordNotFound) {
@@ -586,9 +627,6 @@ func (r *Repository) RegisterTaskOutputRecords(projectID string, representation 
 			}
 		}
 		if artifact != nil {
-			if err := lockShotRow(tx, artifact.ShotID); err != nil {
-				return err
-			}
 			var currentVersion int
 			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", artifact.ShotID, artifact.Type).Select("COALESCE(MAX(version), 0)").Scan(&currentVersion).Error; err != nil {
 				return err
@@ -603,20 +641,21 @@ func (r *Repository) RegisterTaskOutputRecords(projectID string, representation 
 				return err
 			}
 		}
-		projectResult := tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()})
-		if projectResult.Error != nil {
-			return projectResult.Error
-		}
-		if projectResult.RowsAffected != 1 {
-			return gorm.ErrInvalidData
-		}
 		return nil
 	})
 }
 
 // CreateShotEvidence 记一条证据。
 func (r *Repository) CreateShotEvidence(evidence *model.ShotEvidence) error {
-	return r.db.Create(evidence).Error
+	if evidence.ShotID == "" {
+		return r.db.Create(evidence).Error
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockShotRow(tx.Where("project_id = ?", evidence.ProjectID), evidence.ShotID); err != nil {
+			return err
+		}
+		return tx.Create(evidence).Error
+	})
 }
 
 // ProjectShotEvidence 返回项目的全部证据（按时间顺序）。
@@ -684,7 +723,7 @@ type UnitShotWrite struct {
 func (r *Repository) ReplaceProjectUnitShotsKeeping(projectID string, unitID string, writes []UnitShotWrite, deletes []string, shotlist *model.DramaShotlist, now time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if shotlist != nil {
-			if err := upsertDramaShotlist(tx, shotlist); err != nil {
+			if err := upsertDramaShotlist(tx, shotlist, shotlist.Version); err != nil {
 				return err
 			}
 		}

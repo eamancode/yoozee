@@ -150,10 +150,18 @@ paths:
     post:
       tags: [projects]
       summary: 从失败步骤继续连续生成
-      description: 重新读取镜头、顺序与模型能力，复用签名相同且仍有效的视频、末帧和上传结果；不重复叠加提示词或参考图。
+      description: 使用原链重新预览的规格、报价指纹和本次确认标识，从失败段继续。已完成段保留。已有受理或不明回执时须先核对原任务。
       parameters:
         - {in: path, name: id, required: true, schema: {type: string}}
         - {in: path, name: chainId, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - {$ref: "#/components/schemas/ProjectVideoChainRequest"}
+                - {type: object, required: [resumeChainId, previewHash, requestId]}
       responses:
         "200": {description: "成功信封 data={chain}"}
         "400": {$ref: "#/components/responses/Error"}
@@ -1922,6 +1930,62 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /admin/channels/{id}/sll-catalog:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [admin]
+      summary: 读取 SLL 渠道目录、公开成本、排除原因及模型级成功率
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /admin/channels/{id}/sll-catalog/sync:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [admin]
+      summary: 按此渠道凭据实际使用的分组导入 SLL 公开价目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group]
+              properties:
+                group: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+  /admin/channels/{id}/sll-catalog/metrics:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [admin]
+      summary: 手动采集本小时 SLL 官方近 24 小时成功率
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
   /admin/channels/{id}/models/batch-reprice:
     post:
       tags: [admin]
@@ -2620,6 +2684,40 @@ paths:
       responses:
         "200":
           description: text/event-stream
+  /projects/{id}/shots/{shotId}:
+    delete:
+      tags: [drama]
+      summary: 删除一个分镜单元及其子镜头
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: shotId
+          description: 分镜单元的稳定数据库 ID
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedRevisionId: { type: string }
+                expectedArtifactIds: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: "{ code: 0, data: { deleted: true } }"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          description: 任务仍在使用、确认快照过期或分镜来源不一致，保留单元
   /projects/{id}/units/{unitId}/drama/shotlist:
     parameters:
       - in: path
@@ -2639,6 +2737,35 @@ paths:
           description: "{ code: 0, data: { shotlist: DramaShotlistView | null } }"
         "404":
           $ref: "#/components/responses/Error"
+  /projects/{id}/drama/video-routing:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+    get:
+      tags: [drama]
+      summary: 读取当前项目的视频线路、切换原因、成功率与版本
+      responses:
+        "200": { description: "data.route 为项目线路；首次选择前为 null" }
+        "404": { $ref: "#/components/responses/Error" }
+  /projects/{id}/drama/video-routing/override:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+    post:
+      tags: [drama]
+      summary: 为当前项目手选可用的视频模型
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, revision]
+              properties:
+                model: { type: string, description: "渠道 ID 与模型键以 :: 分隔" }
+                fromModel: { type: string }
+                revision: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "200": { description: "data.route 为保存后的项目线路" }
+        "409": { description: 线路已被另一操作更新，需要重新读取 }
   /projects/{id}/drama/ontology:
     parameters:
       - in: path
@@ -2833,6 +2960,7 @@ components:
           additionalProperties: {$ref: "#/components/schemas/ProjectVideoChainModel"}
         previewHash: {type: string}
         requestId: {type: string, maxLength: 160}
+        resumeChainId: {type: string, description: 恢复预览与确认使用的原控制链 ID}
     DramaCheckReport:
       type: object
       properties:
@@ -2962,6 +3090,10 @@ components:
       type: object
       required: [capability]
       properties:
+        longestVideoSeconds:
+          type: number
+          minimum: 0
+          description: 本段最长参考视频秒数。有任一参考视频时长未知时留空；线路要求核实时不参与报价。
         capability:
           type: string
           enum: [text, image, video, audio]
@@ -2988,6 +3120,14 @@ components:
       type: object
       required: [logicalModelId, billingMode, quantity, amountMicrocredits, estimated]
       properties:
+        upstreamCost:
+          type: object
+          description: 受管 SLL 规格的上游每条人民币成本。用户费用由 amountMicrocredits 表示。
+          required: [currency, unit, amountMicros]
+          properties:
+            currency: {type: string, enum: [CNY]}
+            unit: {type: string, enum: [request]}
+            amountMicros: {type: integer, format: int64, minimum: 0}
         logicalModelId:
           type: string
           description: 前台逻辑模型 ID；直接查询系统渠道模型时为空字符串

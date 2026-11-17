@@ -55,6 +55,16 @@ func globalSixSecondsRequest(audio string) map[string]any {
 	return map[string]any{"mode": "video", "config": map[string]any{"channelId": "system-video", "model": "seedance-2.5-test", "size": "9:16", "vquality": "720", "videoSeconds": "6", "videoGenerateAudio": audio, "videoWatermark": "false"}}
 }
 
+func assertVideoChainPreflightOnly(t *testing.T, f *videoChainFixture) {
+	t.Helper()
+	for _, row := range []any{&model.Task{}, &model.RouteAttempt{}, &model.BillingOrder{}} {
+		var count int64
+		if err := f.db.Model(row).Count(&count).Error; err != nil || count != 0 {
+			t.Fatalf("preflight created %T: count=%d err=%v", row, count, err)
+		}
+	}
+}
+
 func TestVideoChainPreviewUsesFinalSlotNotGlobalSeconds(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -94,8 +104,108 @@ func TestVideoChainPreviewRejectsShotLongerThanLargestSlot(t *testing.T) {
 	setShotSeconds(t, f, 31)
 	f.req.Scope = "single"
 	f.req.Model.Input = globalSixSecondsRequest("false")
-	if _, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req); err == nil {
-		t.Fatal("a 31-second shot must be rejected when the largest slot is 30 seconds")
+	_, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req)
+	var appErr *AppError
+	if !errors.As(err, &appErr) || !strings.Contains(err.Error(), "拆段") || appErr.Details["contentSeconds"] != float64(31) ||
+		appErr.Details["generationSeconds"] != nil || appErr.Details["shotId"] != "s0" || fmt.Sprint(appErr.Details["allowedSeconds"]) != "[15 30]" {
+		t.Fatalf("missing split/slot diagnostics: %v %#v", err, appErr)
+	}
+	assertVideoChainPreflightOnly(t, f)
+}
+
+func TestVideoChainOtherDurationCapabilities(t *testing.T) {
+	for _, tc := range []struct {
+		duration VideoDurationConfig
+		content  float64
+		want     int
+	}{
+		{VideoDurationConfig{Selection: "enum", Values: []int{8, 21, 30}}, 21, 21},
+		{VideoDurationConfig{Selection: "enum", Values: []int{8, 21, 30}}, 26, 0},
+		{VideoDurationConfig{Selection: "range", Min: 4, Max: 30, Step: 2}, 21, 0},
+		{VideoDurationConfig{Selection: "range", Min: 4, Max: 30, Step: 2}, 26, 26},
+		{VideoDurationConfig{Selection: "range", Min: 4, Max: 30, Step: 2}, 31, 0},
+	} {
+		got, err := videoChainGenerationSeconds(tc.duration, tc.content)
+		if got != tc.want || (err != nil) != (tc.want == 0) {
+			t.Fatalf("%+v / %g: got %d, %v", tc.duration, tc.content, got, err)
+		}
+	}
+}
+
+func TestVideoChainRejectsStaleContentAndChangedPrice(t *testing.T) {
+	f := newVideoChainFixture(t, "A")
+	seedOnlySlotSystemVideo(t, f)
+	f.req.Scope = "single"
+	f.req.Model.Input = globalSixSecondsRequest("false")
+	setShotSeconds(t, f, 21)
+	preview, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.req.PreviewHash = preview.PreviewHash
+	setShotSeconds(t, f, 26)
+	if _, err := f.s.CreateProjectVideoChain("user-1", f.projectID, f.req); err == nil {
+		t.Fatal("changed script with same price reused old quote")
+	}
+	chain := f.start(t)
+	// A lower price still changes the approved quote; a ceiling alone would
+	// accept it silently between confirmation and child task admission.
+	if err := f.db.Model(&model.ChannelModelPriceTier{}).Where("id = ?", "tier-30").Update("unit_price_microcredits", 2_000_000).Error; err != nil {
+		t.Fatal(err)
+	}
+	paused := f.tick(t, chain.ID)
+	if paused.Steps[0].Status != "failed" {
+		t.Fatalf("price changed after confirmation: %+v", paused.Steps)
+	}
+	for _, row := range []any{&model.RouteAttempt{}, &model.BillingOrder{}} {
+		var count int64
+		if err := f.db.Model(row).Count(&count).Error; err != nil || count != 0 {
+			t.Fatalf("local preview failure wrote %T: count=%d err=%v", row, count, err)
+		}
+	}
+}
+
+func TestVideoChainLogicalRouteKeepsConfirmedQuote(t *testing.T) {
+	f := newVideoChainFixture(t, "A")
+	seedOnlySlotSystemVideo(t, f)
+	setShotSeconds(t, f, 26)
+	if _, err := f.s.UpdateFeatureAvailability(&model.User{ID: "admin", Role: "admin"}, FeatureAvailability{FrontendModelsEnabled: true, CreditsEnabled: true, TaskCenterEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	cm, err := f.s.repo.ChannelModel("system-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := channelModelCapabilitySpec(*cm, f.s.protocolRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(spec)
+	for _, row := range []any{
+		&model.LogicalModel{ID: "logical-video", Code: "logical-video", Capability: "video", Enabled: true, ActiveRevisionID: "revision", PricePolicy: "channel"},
+		&model.LogicalModelRevision{ID: "revision", LogicalModelID: "logical-video", Version: 1, CapabilitySpecJSON: string(raw), DefaultOptionsJSON: `{"videoSeconds":15}`},
+		&model.LogicalModelRoute{ID: "route", LogicalModelRevisionID: "revision", ChannelModelID: cm.ID, Enabled: true, Weight: 1},
+	} {
+		if err := f.db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.req.Scope = "single"
+	f.req.Model.LogicalModelID = "logical-video"
+	f.req.Model.Input = map[string]any{"mode": "video", "config": map[string]any{}, "capabilityOptions": map[string]any{"videoSeconds": 6, "videoGenerateAudio": false}}
+	chain := f.start(t)
+	step := f.untilTask(t, chain.ID, 0).Steps[0]
+	child, err := f.s.repo.TaskForUser("user-1", step.TaskID)
+	if err != nil || child.RouteID != "route" || child.LogicalModelID != "logical-video" || child.ChannelModelID != cm.ID {
+		t.Fatalf("confirmed route mismatch: %v %+v", err, child)
+	}
+	var order model.BillingOrder
+	if err := f.db.First(&order, "task_id = ?", child.ID).Error; err != nil || order.PriceTierID != "tier-30" ||
+		order.AmountMicrocredits != chain.TotalMicrocredits || chain.TotalMicrocredits != 3_000_000 {
+		t.Fatalf("confirmed price mismatch: %v %+v", err, order)
+	}
+	if _, err := f.s.switchTaskToNextRoute(child, nil); err == nil {
+		t.Fatal("confirmed chain silently selected a replacement route")
 	}
 }
 
@@ -107,11 +217,15 @@ func TestVideoChainPreviewStillRejectsUnsupportedAudioWithDetails(t *testing.T) 
 	f.req.Model.Input = globalSixSecondsRequest("true")
 	_, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req)
 	// handler 也是先按 ModelError 取，再投影它嵌入的 AppError。
+	assertVideoChainPreflightOnly(t, f)
 	var modelErr *ModelError
 	if !errors.As(err, &modelErr) || modelErr.AppError == nil || modelErr.Reason != ErrorReason(ErrCodeModelCapabilityNotSupported) {
 		t.Fatalf("unsupported audio must still be rejected as model_capability_not_supported, got %v", err)
 	}
 	appErr := modelErr.AppError
+	if appErr.Details["generationSeconds"] != 30 || appErr.Details["contentSeconds"] != float64(15) || appErr.Details["operation"] != "video_chain_preview" {
+		t.Fatalf("audio rejection missing current preview details: %#v", appErr.Details)
+	}
 	// R8-02：详情要在 HTTP 投影读的那一份（AppError.Details）里，指出是哪个参数。
 	issues, _ := json.Marshal(appErr.Details["capabilityIssues"])
 	if appErr.Details["field"] != "videoGenerateAudio" || !strings.Contains(string(issues), "videoGenerateAudio") {
@@ -164,6 +278,7 @@ func TestVideoChainPreviewReferenceMinimum(t *testing.T) {
 			f.req.Scope = "single"
 			f.req.Model.Input = globalSixSecondsRequest("false")
 			preview, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, f.req)
+			assertVideoChainPreflightOnly(t, f)
 			if tc.minImages == 0 {
 				if err != nil || preview.Steps[0].ReferenceCount != 0 {
 					t.Fatalf("text-only shot should preview without references: %v %+v", err, preview)

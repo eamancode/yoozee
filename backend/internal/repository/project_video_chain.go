@@ -11,6 +11,23 @@ import (
 
 var ErrVideoChainStopped = errors.New("连续生成链已停止，未提交后续镜头")
 
+func (r *Repository) RecordVideoChainProviderTerminal(task *model.Task, status, providerID, message string) error {
+	reason := task.Error
+	if task.PollStage != "provider_"+status && message != "" {
+		reason += " · 原任务查询：" + message
+	}
+	result := taskLeaseWriter(r.db.Model(&model.Task{}), task.LeaseOwner).
+		Where("id = ? AND user_id = ? AND status = ? AND route_run = ?", task.ID, task.UserID, model.TaskStatusFailed, task.RouteRun).
+		Updates(map[string]any{"poll_stage": "provider_" + status, "provider_request_id": providerID, "error": reason})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrTaskStateConflict
+	}
+	return nil
+}
+
 func (r *Repository) VideoChainChildTasks(userID string, ids []string) ([]model.Task, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -49,14 +66,14 @@ func (r *Repository) ProjectVideoChains(userID, projectID, operation string) ([]
 
 // The project lock serializes controller creation. Child admission and cancellation
 // share the parent-task lock; its lease fences stale controllers before charging.
-func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int, expectedWhiteModel bool) (*model.Task, error) {
+func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int, expectedWhiteModel bool, originalCheck ...func(*Repository) error) (*model.Task, error) {
 	var existing model.Task
 	err := r.db.Transaction(func(tx *gorm.DB) error {
-		var project model.Project
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", task.ProjectID, task.UserID).First(&project).Error; err != nil {
+		project, err := New(tx).LockActiveStoryboardProject(task.UserID, task.ProjectID)
+		if err != nil {
 			return err
 		}
-		err := tx.Where("user_id = ? AND project_id = ? AND type = ? AND id = ?", task.UserID, task.ProjectID, model.TaskTypeProjectVideoChain, task.ID).First(&existing).Error
+		err = tx.Where("user_id = ? AND project_id = ? AND type = ? AND id = ?", task.UserID, task.ProjectID, model.TaskTypeProjectVideoChain, task.ID).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = tx.Where("user_id = ? AND project_id = ? AND type = ? AND operation = ? AND status IN ?", task.UserID, task.ProjectID, model.TaskTypeProjectVideoChain, task.Operation, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).First(&existing).Error
 		}
@@ -68,6 +85,18 @@ func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int, expect
 		}
 		if project.WhiteModelStoryboardEnabled != expectedWhiteModel {
 			return ErrTaskStateConflict
+		}
+		for _, check := range originalCheck {
+			if err := check(New(tx)); err != nil {
+				return err
+			}
+		}
+		scope, err := storyboardScope(task)
+		if err != nil {
+			return err
+		}
+		if err := scope.requireShots(tx); err != nil {
+			return err
 		}
 		var count int64
 		if err := tx.Model(&model.Task{}).Where("user_id = ? AND type = ? AND status IN ?", task.UserID, model.TaskTypeProjectVideoChain, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).Count(&count).Error; err != nil {
@@ -83,6 +112,18 @@ func (r *Repository) CreateProjectVideoChain(task *model.Task, limit int, expect
 		return nil
 	})
 	return &existing, err
+}
+
+// Unlike the recent-history UI, admission must cover every unresolved chain
+// in this chapter, including a controller stopped while its child was running.
+func (r *Repository) InactiveVideoChains(userID, projectID, operation string) ([]model.Task, error) {
+	var tasks []model.Task
+	err := r.db.Select("id", "input_json", "status").Where(
+		"user_id = ? AND project_id = ? AND type = ? AND operation = ? AND status IN ?",
+		userID, projectID, model.TaskTypeProjectVideoChain, operation,
+		[]model.TaskStatus{model.TaskStatusFailed, model.TaskStatusCancelled},
+	).Find(&tasks).Error
+	return tasks, err
 }
 
 func (r *Repository) SaveProjectVideoChain(task *model.Task, input string, status model.TaskStatus, stage, reason string, progress int) error {
@@ -115,14 +156,14 @@ func (r *Repository) CheckpointProjectVideoChain(task *model.Task, input string)
 	return nil
 }
 
-func (r *Repository) ResumeProjectVideoChain(userID, id, expectedInput, nextInput string) error {
+func (r *Repository) ResumeProjectVideoChain(task model.Task, nextInput string, check func(*Repository) error) error {
+	userID, id, expectedInput := task.UserID, task.ID, task.InputJSON
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		var task model.Task
-		if err := tx.Where("id = ? AND user_id = ? AND type = ?", id, userID, model.TaskTypeProjectVideoChain).First(&task).Error; err != nil {
-			return err
-		}
-		var project model.Project
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", task.ProjectID, userID).First(&project).Error; err != nil {
+		// Acquire the project write lock before reading any rows. A deferred
+		// SQLite transaction cannot upgrade a stale snapshot after a concurrent
+		// confirmation commits.
+		task.InputJSON = nextInput
+		if err := requireStoryboardTaskTarget(tx, &task); err != nil {
 			return err
 		}
 		var count int64
@@ -132,7 +173,10 @@ func (r *Repository) ResumeProjectVideoChain(userID, id, expectedInput, nextInpu
 		if count > 0 {
 			return ErrTaskStateConflict
 		}
-		result := tx.Model(&model.Task{}).Where("id = ? AND user_id = ? AND status = ? AND input_json = ?", id, userID, model.TaskStatusFailed, expectedInput).Updates(map[string]any{"input_json": nextInput, "status": model.TaskStatusQueued, "stage": "等待继续连续生成", "error": "", "next_poll_at": nil, "completed_at": nil, "lease_owner": "", "lease_expires_at": nil, "updated_at": time.Now()})
+		if err := check(New(tx)); err != nil {
+			return err
+		}
+		result := tx.Model(&model.Task{}).Where("id = ? AND user_id = ? AND project_id = ? AND type = ? AND status = ? AND input_json = ?", id, userID, task.ProjectID, model.TaskTypeProjectVideoChain, model.TaskStatusFailed, expectedInput).Updates(map[string]any{"input_json": nextInput, "status": model.TaskStatusQueued, "stage": "等待继续连续生成", "error": "", "next_poll_at": nil, "completed_at": nil, "lease_owner": "", "lease_expires_at": nil, "updated_at": time.Now()})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -141,6 +185,13 @@ func (r *Repository) ResumeProjectVideoChain(userID, id, expectedInput, nextInpu
 		}
 		return nil
 	})
+}
+
+func (r *Repository) LockOriginalVideoChainChild(userID, projectID, id string) (*model.Task, error) {
+	var child model.Task
+	err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ? AND project_id = ? AND id = ? AND type = ?", userID, projectID, id, "canvas_video").First(&child).Error
+	return &child, err
 }
 
 func (r *Repository) CancelProjectVideoChain(userID, id string) error {

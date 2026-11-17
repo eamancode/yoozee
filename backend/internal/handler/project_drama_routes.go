@@ -17,6 +17,42 @@ import (
 
 func registerProjectDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 	registerProjectVideoChainRoutes(r, svc)
+	r.GET("/projects/:id/drama/video-routing", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		route, err := svc.ProjectVideoRouting(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"route": route})
+	})
+	r.POST("/projects/:id/drama/video-routing/override", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<10)
+		var req struct {
+			Model     string `json:"model"`
+			FromModel string `json:"fromModel"`
+			Revision  *int64 `json:"revision"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Revision == nil {
+			failService(c, service.BadAuthRequest("线路选择或版本无效"))
+			return
+		}
+		route, err := svc.OverrideProjectVideoRouting(user.ID, c.Param("id"), req.Model, req.FromModel, *req.Revision)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"route": route})
+	})
 	r.GET("/drama/models", func(c *gin.Context) {
 		if _, err := currentUser(c, svc); err != nil {
 			failService(c, err)

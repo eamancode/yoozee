@@ -468,6 +468,7 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 		apiFormat = "gemini"
 	}
 	callLog := model.ApiCallLog{
+		VideoProviderModelKey: metadata.VideoProviderModelKey,
 		UserID: metadata.UserID, TraceID: metadata.TraceID, RequestID: metadata.RequestID, ChannelID: metadata.ChannelID, TaskID: metadata.TaskID, BillingOrderID: metadata.BillingOrderID,
 		Source: "backend-task", Capability: metadata.Capability, Operation: metadata.Operation,
 		RequestKind: requestKind, Billable: providerRequestIsBillable(req.Method, requestKind),

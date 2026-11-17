@@ -451,11 +451,12 @@ function EvidenceRow({ label, evidence, pending, detail, children }: { label: st
  * 编译只读、不花钱；估价沿用工作台底部按渠道报出的积分。段没有人物/场景参考时明确提示，并给「选择资产」入口。
  * 编号一律按项目编号显示（第 2 集写 E02S01-P1），存下的数据仍是单元内编号。
  */
-export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJson, estimate, durationRule, genreRule, takeCounts, busyShotIds, episode = 0, boundAssets = [], onEdited, onPickAssets }: {
+export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, channelModel, specJson, estimate, durationRule, genreRule, takeCounts, busyShotIds, episode = 0, boundAssets = [], onEdited, onPickAssets }: {
     projectId: string;
     unitId: string;
     shotId: string;
     revisionId?: string;
+    channelModel?: string;
     specJson: string;
     estimate?: string;
     /** 段长规则（项目生成模型 + 当前视频渠道）；拆合、改时长后按它取合法段长。没有时只能看。 */
@@ -490,8 +491,8 @@ export function DramaSegmentCard({ projectId, unitId, shotId, revisionId, specJs
         }
     }, [specJson]);
     const compileQuery = useQuery({
-        queryKey: ["project", projectId, "drama", "compile", shotId, revisionId || ""],
-        queryFn: async () => (await compileProjectShot(projectId, shotId)).compiled,
+        queryKey: ["project", projectId, "drama", "compile", shotId, revisionId || "", channelModel || ""],
+        queryFn: async () => (await compileProjectShot(projectId, shotId, { channelModel })).compiled,
         enabled: open,
         staleTime: 30_000,
     });

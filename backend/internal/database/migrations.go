@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const CurrentSchemaVersion int64 = 100
+const CurrentSchemaVersion int64 = 102
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -344,6 +344,28 @@ var schemaMigrations = []migration{
 	{version: 98, name: "project_ontology_documents", checksum: "sha256:project-ontology-documents-v98", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.ProjectOntologyDocument{}) }},
 	{version: 99, name: "segment_asset_bindings", checksum: "sha256:segment-asset-bindings-v99", apply: migrateSegmentAssetBindings},
 	{version: 100, name: "sss_workflow_renumber", checksum: "sha256:sss-workflow-renumber-v100", apply: migrateSSSWorkflowRenumber},
+	{version: 101, name: "sll_video_catalog", checksum: "sha256:sll-video-catalog-v101", apply: func(tx *gorm.DB) error {
+		if err := tx.AutoMigrate(&model.SLLCatalogImport{}, &model.SLLCatalogLine{}, &model.SLLMetricHour{}); err != nil {
+			return err
+		}
+		for _, field := range []struct {
+			table any
+			name  string
+		}{
+			{&model.ChannelModelPriceTier{}, "UpstreamRequestCostMicroCNY"},
+			{&model.ApiCallLog{}, "VideoProviderModelKey"},
+		} {
+			if !tx.Migrator().HasColumn(field.table, field.name) {
+				if err := tx.Migrator().AddColumn(field.table, field.name); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}},
+	{version: 102, name: "project_video_routing", checksum: "sha256:project-video-routing-v102", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.ProjectVideoRoute{}, &model.ProjectVideoRouteStreak{}, &model.ProjectVideoRouteEvent{})
+	}},
 }
 
 // Freeze v96's default: a pre-workflow project must become the old original workflow

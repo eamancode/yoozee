@@ -7,6 +7,14 @@ const intent: ModelRequestIntent = { capability: "video", operation: "text_to_vi
 const quote: LogicalModelQuote = { logicalModelId: "", billingMode: "token", quantity: 1, amountMicrocredits: 500_000, estimated: true };
 
 describe("model quote API targets", () => {
+    test("SLL quote labels platform credits separately from the supplier's per-video RMB cost", () => {
+        const label = modelQuoteDescription({
+            ...quote, billingMode: "fixed_request", estimated: false, amountMicrocredits: 8_000_000,
+            upstreamCost: { currency: "CNY", unit: "request", amountMicros: 4_700_000 },
+        });
+        expect(label).toContain("消耗 8 积分");
+        expect(label).toContain("上游成本 ¥4.7/条");
+    });
     test("direct system videos send the actual options and cancellation signal to the catalog quote", async () => {
         const original = apiClient.request;
         const calls: unknown[] = [];

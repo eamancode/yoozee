@@ -24,6 +24,7 @@
           "file": {"type": "string"},
           "role": {"type": "string", "enum": ["identity", "location", "plate", "prop", "frame", "motion"]},
           "note": {"type": "string"},
+          "speaker": {"type": "string", "description": "人物绑定所扮演的剧本角色，换角后仍按此角色的台词匹配声音样本"},
           "state": {"type": "string", "description": "镜头层的演出状态（湿、血、破损），编译时拼在身份后面"}
         }
       }

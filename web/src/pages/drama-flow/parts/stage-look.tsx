@@ -10,10 +10,11 @@ import { StyleBibleEditor } from "@/pages/projects/workbench/detail/drama-style-
 import { DramaAssetChecklist, dramaBibleKey } from "@/pages/projects/workbench/detail/drama-panels";
 import { dramaImageStatusOf } from "@/pages/projects/workbench/detail/drama-image-summary";
 import { GroupedPaletteSwatches, MASTER_PALETTE_SOURCE_LABELS, ProjectPaletteCard } from "@/pages/projects/workbench/detail/project-palette-card";
-import { dramaScenesKey, getDramaScenes, putDramaBible, resynthesizeDramaPalettes, type DramaBible } from "@/services/api/project-drama";
-import { unlinkProjectAsset, type ProjectAsset } from "@/services/api/projects";
+import { dramaSceneCode, dramaScenesKey, getDramaScenes, putDramaBible, resynthesizeDramaPalettes, type DramaBible } from "@/services/api/project-drama";
+import { unlinkProjectAsset, type ProjectAsset, type ProjectUnit } from "@/services/api/projects";
 
 import type { FlowData } from "../hooks/use-flow-data";
+import { paletteSceneGroups } from "../model/palette-episodes";
 import type { FlowStageView } from "../model/stages";
 import { STYLE_LOCK_TEXT, type StyleLockState } from "../model/style-lock";
 import { LookAssets } from "./look-assets";
@@ -46,7 +47,7 @@ export function StageLook({
     onSelect: (id?: string) => void;
     onRetry: (assets: ProjectAsset[]) => void;
 }) {
-    const { project, detail, assets, assetsQuery, bible, bibleQuery, projectTasks, chapters, episodeUnits, unit, allUnits, rail, dramaRule, stepModels } = data;
+    const { project, detail, assets, assetsQuery, bible, bibleQuery, projectTasks, episodeUnits, unit, dramaRule, stepModels } = data;
     const active: LookTab = LOOK_TABS.includes(tab as LookTab) ? (tab as LookTab) : "style";
     const scenesQuery = useQuery({
         queryKey: [...dramaScenesKey(project?.id || "", unit?.id), unit?.updatedAt || "", dramaRule?.maxSeconds ?? 0, dramaRule?.minSeconds ?? 0],
@@ -78,9 +79,9 @@ export function StageLook({
                 </div>
                 <div className="drama-flow-work-actions">
                     <StyleLockControl detail={detail} stepModels={stepModels} tasks={projectTasks} />
-                    <ScenePaletteControl detail={detail} stepModels={stepModels} chapters={chapters} episodes={episodeUnits} tasks={projectTasks} />
+                    <ScenePaletteControl detail={detail} stepModels={stepModels} chapters={[]} episodes={episodeUnits} tasks={projectTasks} />
                     {unit ? (
-                        <AssetsExtractControl detail={detail} stepModels={stepModels} unit={unit} units={allUnits} paletteReady={scenesQuery.data?.unitId === unit.id ? scenesQuery.data.paletteReady : undefined} unitNoun={rail.noun} tasks={projectTasks} />
+                        <AssetsExtractControl detail={detail} stepModels={stepModels} unit={unit} units={episodeUnits} paletteReady={scenesQuery.data?.unitId === unit.id ? scenesQuery.data.paletteReady : undefined} unitNoun="集" tasks={projectTasks} />
                     ) : null}
                 </div>
             </div>
@@ -96,7 +97,7 @@ export function StageLook({
             ) : (active === "palette" || assetsTab) && !assetsQuery.data ? (
                 <p className="drama-flow-muted">正在读资产…</p>
             ) : active === "palette" ? (
-                <LookPalettes projectId={project.id} bible={bible} palettes={palettes} textModel={stepModels.text} />
+                <LookPalettes projectId={project.id} bible={bible} palettes={palettes} episodes={data.unitsQuery.isSuccess ? episodeUnits : undefined} textModel={stepModels.text} />
             ) : assetsTab ? (
                 <LookAssets project={project} category={active} assets={assets} imageModel={stepModels.image} selectedId={selectedId} retrying={retrying} onSelect={onSelect} onRetry={onRetry} />
             ) : (
@@ -185,7 +186,7 @@ function LookStyle({ projectId, bible, lock, textModel, imageModel }: { projectI
     );
 }
 
-function LookPalettes({ projectId, bible, palettes, textModel }: { projectId: string; bible?: DramaBible; palettes: ProjectAsset[]; textModel: StepModel }) {
+function LookPalettes({ projectId, bible, palettes, episodes, textModel }: { projectId: string; bible?: DramaBible; palettes: ProjectAsset[]; episodes?: ProjectUnit[]; textModel: StepModel }) {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["project", projectId] });
@@ -207,15 +208,7 @@ function LookPalettes({ projectId, bible, palettes, textModel }: { projectId: st
         onError: (error) => message.error(error instanceof Error ? error.message : "移出没成功"),
     });
     const master = palettes.filter((asset) => asset.palette?.master);
-    const scenes = useMemo(() => {
-        const byEpisode = new Map<number, ProjectAsset[]>();
-        for (const asset of palettes) {
-            if (asset.palette?.master) continue;
-            const episode = asset.palette?.entry?.episode ?? 0;
-            byEpisode.set(episode, [...(byEpisode.get(episode) || []), asset]);
-        }
-        return [...byEpisode.entries()].sort((left, right) => left[0] - right[0]);
-    }, [palettes]);
+    const scenes = useMemo(() => paletteSceneGroups(episodes, palettes, bible?.color_script || []), [episodes, palettes, bible?.color_script]);
     const card = (asset: ProjectAsset) => (
         <ProjectPaletteCard
             key={asset.id}
@@ -249,13 +242,23 @@ function LookPalettes({ projectId, bible, palettes, textModel }: { projectId: st
                 </div>
                 {master.length ? <div className="drama-flow-asset-grid">{master.map(card)}</div> : <p className="drama-flow-muted">锁定风格后自动生成。</p>}
             </div>
-            {scenes.map(([episode, list]) => (
-                <div key={episode} className="drama-flow-panel">
+            {scenes.filter((group) => group.assets.length).map((group) => (
+                <div key={group.key} className="drama-flow-panel">
                     <div className="drama-flow-panel-head">
-                        <h3>{episode ? `第 ${episode} 集场次色卡` : "旧版色卡"}</h3>
-                        <span>{list.length} 场</span>
+                        <h3>{group.title}</h3>
+                        <span>{group.assets.length} 场</span>
                     </div>
-                    <div className="drama-flow-asset-grid">{list.map(card)}</div>
+                    <div className="drama-flow-asset-grid">
+                        {group.assets.map((asset) => {
+                            const entry = asset.palette?.entry;
+                            const recorded = asset.palette?.code || (entry?.episode && entry.scene_no ? dramaSceneCode(entry.episode, entry.scene_no) : "");
+                            const current = group.number && entry?.scene_no ? dramaSceneCode(group.number, entry.scene_no) : "";
+                            return <div key={asset.id}>
+                                {recorded && current !== recorded ? <p className="drama-flow-muted">{current ? `${current} · ` : ""}记录编号 {recorded}</p> : null}
+                                {card(asset)}
+                            </div>;
+                        })}
+                    </div>
                 </div>
             ))}
             {bible?.color_script?.length ? (
@@ -269,16 +272,17 @@ function LookPalettes({ projectId, bible, palettes, textModel }: { projectId: st
                             <tr>
                                 <th>场</th>
                                 <th>场次</th>
-                                <th>承接</th>
+                                <th>记录时的承接</th>
                                 <th>颜色</th>
                                 <th>用途</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {bible.color_script.map((entry) => (
-                                <tr key={`${entry.episode}-${entry.scene_no}`}>
+                            {scenes.flatMap((group) => group.entries.map((entry) => (
+                                <tr key={`${entry.unit_id || "legacy"}-${entry.episode}-${entry.scene_no}`}>
                                     <td>
-                                        E{String(entry.episode).padStart(2, "0")}S{String(entry.scene_no).padStart(2, "0")}
+                                        {group.number ? dramaSceneCode(group.number, entry.scene_no) : group.title}
+                                        {group.number !== entry.episode ? <small className="block">记录编号 {dramaSceneCode(entry.episode, entry.scene_no)}</small> : null}
                                     </td>
                                     <td>{entry.scene}</td>
                                     <td>{entry.inherits_from || "—"}</td>
@@ -287,7 +291,7 @@ function LookPalettes({ projectId, bible, palettes, textModel }: { projectId: st
                                     </td>
                                     <td>{entry.purpose || ""}</td>
                                 </tr>
-                            ))}
+                            )))}
                         </tbody>
                     </table>
                 </details>

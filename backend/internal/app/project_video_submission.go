@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -52,12 +53,38 @@ func projectVideoSubmissionSeconds(slots []int, content float64) (int, error) {
 	}
 	max := slots[len(slots)-1]
 	if content > float64(max) {
-		return 0, BadAuthRequest(fmt.Sprintf("镜头组超过 %d 秒，不能使用该时长档位模型", max))
+		return 0, BadAuthRequest(fmt.Sprintf("本段正文 %g 秒，超过线路上限 %d 秒，请先拆段", content, max))
 	}
 	if len(slots) == 2 && content >= 15 {
 		return 30, nil
 	}
 	return slots[0], nil
+}
+
+// The special 15/30-second contract pads short scripts. Other routes must
+// explicitly support the script duration, including a range's declared step.
+func videoChainGenerationSeconds(duration VideoDurationConfig, content float64) (int, error) {
+	if slots := projectVideoDurationSlots(duration); len(slots) > 0 {
+		return projectVideoSubmissionSeconds(slots, content)
+	}
+	if !isPositiveVideoSeconds(content) {
+		return 0, BadAuthRequest("镜头组时长必须大于 0")
+	}
+	maxSeconds := duration.Max
+	if duration.Selection == "enum" && len(duration.Values) > 0 {
+		maxSeconds = slices.Max(duration.Values)
+	}
+	if maxSeconds > 0 && content > float64(maxSeconds) {
+		return 0, BadAuthRequest(fmt.Sprintf("本段正文 %g 秒，超过线路上限 %d 秒，请先拆段", content, maxSeconds))
+	}
+	seconds := int(content)
+	if float64(seconds) != content || !videoDurationAllowed(duration, seconds) {
+		if duration.Selection == "enum" {
+			return 0, BadAuthRequest(fmt.Sprintf("本段正文 %g 秒，线路支持 %v 秒档，请调整分段或更换线路", content, duration.Values))
+		}
+		return 0, BadAuthRequest(fmt.Sprintf("本段正文 %g 秒，线路支持 %d 至 %d 秒（步长 %d 秒），请调整分段或更换线路", content, duration.Min, duration.Max, duration.Step))
+	}
+	return seconds, nil
 }
 
 // System channel capabilities come from the current catalog, never from client metadata.
@@ -173,11 +200,24 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 	if !isPositiveVideoSeconds(segment.Dur) {
 		return "", BadAuthRequest("镜头组时长必须大于 0")
 	}
-	slots, err := s.projectTaskVideoDurationSlots(input)
+	profile, err := s.projectTaskVideoProfile(input)
 	if err != nil {
 		return "", err
 	}
-	seconds, err := projectVideoSubmissionSeconds(slots, segment.Dur)
+	var slots []int
+	if profile != nil {
+		slots = projectVideoDurationSlots(profile.Duration)
+	}
+	chain := stringValue(marker["controllerId"]) != ""
+	var seconds int
+	if chain {
+		if profile == nil {
+			return "", BadAuthRequest("当前线路缺少视频时长规格，请重新报价")
+		}
+		seconds, err = videoChainGenerationSeconds(profile.Duration, segment.Dur)
+	} else {
+		seconds, err = projectVideoSubmissionSeconds(slots, segment.Dur)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -185,7 +225,7 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		config, _ := input["config"].(map[string]any)
 		// A stale client may have quoted the 15-second tier at the new boundary.
 		// Reject that request before billing rather than silently charging a new tier.
-		if len(slots) == 2 {
+		if chain || len(slots) == 2 {
 			intentOptions, _ := input["capabilityOptions"].(map[string]any)
 			for _, options := range []map[string]any{config, intentOptions} {
 				if value, ok := options["videoSeconds"]; ok {
@@ -262,11 +302,7 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 			if index < 0 {
 				return "", BadAuthRequest("站位参考提醒缺少实际发送的截帧图片")
 			}
-			project, err := s.repo.ProjectForUser(userID, projectID)
-			if err != nil {
-				return "", err
-			}
-			m, err := projectDramaModel(project)
+			m, err := drama.ResolveModel(firstNonEmpty(stringValue(marker["compiledModel"]), project.GenerationModel))
 			if err != nil {
 				return "", err
 			}

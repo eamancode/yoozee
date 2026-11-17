@@ -11,12 +11,13 @@ import type { AiConfig } from "@/stores/use-config-store";
  * - 画幅用项目的；模型是空的时只带上模型字段，交给调用方判断「还没配好」。
  */
 export function chainVideoConfig(config: AiConfig, model: string, input: { aspectRatio?: string; contentSeconds?: number }): AiConfig {
-    const base = { ...config, model, videoModel: model, size: input.aspectRatio || config.size };
+    const base: AiConfig = { ...config, taskWorkflowProvider: "model", model, videoModel: model, size: input.aspectRatio || config.size };
     if (!model) return base;
     const profile = modelCapabilityConfigFor(config, model).video;
     if (!profile) return base;
     const booleans = resolveModelVideoBooleanOptions(config, model, {}, { videoGenerateAudio: config.videoGenerateAudio, videoWatermark: config.videoWatermark });
-    const seconds = input.contentSeconds !== undefined ? modelVideoSubmissionSeconds(config, model, input.contentSeconds) : undefined;
+    // 无可用档时保留本段时长，让服务端按本段报出具体能力差异。
+    const seconds = input.contentSeconds !== undefined ? modelVideoSubmissionSeconds(config, model, input.contentSeconds) ?? input.contentSeconds : undefined;
     const resolution = resolveVideoResolutionValue(profile, config.vquality).replace(/p$/i, "");
     return { ...base, ...booleans, ...(resolution ? { vquality: resolution } : {}), ...(seconds !== undefined ? { videoSeconds: String(seconds) } : {}) };
 }

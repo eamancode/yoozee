@@ -155,26 +155,33 @@ func (r *Repository) DeferRunningTaskForProviderPoll(id string, owner string, st
 
 // 人工恢复仅锁定失败任务；旧 worker 的租约可覆盖，但未过期的人工恢复租约不能并发抢占。
 func (r *Repository) ClaimFailedTaskProviderRecovery(id string, userID string, owner string, leaseDuration time.Duration) error {
-	now := time.Now()
-	query := r.db.Model(&model.Task{}).Where(
-		"id = ? AND status = ? AND (lease_owner = '' OR lease_owner NOT LIKE ? OR lease_expires_at IS NULL OR lease_expires_at <= ?)",
-		id, model.TaskStatusFailed, "manual-recovery:%", now,
-	)
+	var task model.Task
+	query := r.db.Select("id", "user_id", "project_id", "type", "input_json", "route_run").Where("id = ? AND status = ?", id, model.TaskStatusFailed)
 	if strings.TrimSpace(userID) != "" {
 		query = query.Where("user_id = ?", userID)
 	}
-	result := query.Updates(map[string]any{
-		"lease_owner":      owner,
-		"lease_expires_at": now.Add(leaseDuration),
-		"updated_at":       now,
-	})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
+	if err := query.First(&task).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrTaskProviderRecoveryConflict
+	} else if err != nil {
+		return err
 	}
-	return nil
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if _, err := lockStoryboardTaskProject(tx, &task); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		now := time.Now()
+		result := tx.Model(&model.Task{}).
+			Where("id = ? AND user_id = ? AND status = ? AND COALESCE(route_run, 0) = ?", id, task.UserID, model.TaskStatusFailed, task.RouteRun).
+			Where("(lease_owner = '' OR lease_owner NOT LIKE ? OR lease_expires_at IS NULL OR lease_expires_at <= ?)", "manual-recovery:%", now).
+			Updates(map[string]any{"lease_owner": owner, "lease_expires_at": now.Add(leaseDuration), "updated_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrTaskProviderRecoveryConflict
+		}
+		return nil
+	})
 }
 
 func (r *Repository) ReleaseTaskProviderRecovery(id string, owner string) error {

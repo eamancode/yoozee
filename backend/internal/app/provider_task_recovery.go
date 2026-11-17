@@ -319,6 +319,18 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	if task == nil || task.ID == "" {
 		return nil, BadAuthRequest("任务不存在")
 	}
+	var original struct {
+		Chain struct {
+			ControllerID string `json:"controllerId"`
+		} `json:"_projectVideoChain"`
+	}
+	_ = json.Unmarshal([]byte(task.InputJSON), &original)
+	if task.Status == model.TaskStatusSucceeded && original.Chain.ControllerID != "" && task.Type == "canvas_video" {
+		if err := s.recordProjectVideoTerminal(task); err != nil {
+			return nil, err
+		}
+		return &ProviderTaskQueryResult{Task: taskForOutput(*task), ProviderStatus: "succeeded", Recovered: true, BillingSettled: s.billingSettled(task)}, nil
+	}
 	if task.Status != model.TaskStatusFailed {
 		return nil, BadAuthRequest("只能人工查询状态为失败的任务")
 	}
@@ -329,7 +341,15 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 		return nil, BadAuthRequest("该任务不是视频生成任务")
 	}
 
-	s.hydrateTaskProviderRequestID(task)
+	if original.Chain.ControllerID != "" && claimUserID != "" {
+		diagnostic, err := s.videoChainAttemptDiagnostic(task)
+		if err != nil {
+			return nil, err
+		}
+		task.ProviderRequestID = diagnostic.originalRequestID
+	} else {
+		s.hydrateTaskProviderRequestID(task)
+	}
 	providerRequestID := strings.TrimSpace(task.ProviderRequestID)
 	if providerRequestID == "" {
 		return nil, BadAuthRequest("该任务没有可恢复的上游任务 ID")
@@ -352,7 +372,7 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	if err := json.Unmarshal([]byte(decryptedInput), &input); err != nil {
 		return nil, fmt.Errorf("任务输入解析失败：%w", err)
 	}
-	config, err := s.resolveProviderConfig(input.Config)
+	config, _, err := s.resolveVideoReceiptConfig(ctx, input.Config, providerRequestID)
 	if err != nil {
 		return nil, err
 	}
@@ -389,6 +409,24 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	var providerStatus string
 	result, providerStatus, err = queryProtocolAdapterVideoTask(queryCtx, input, adapter, providerRequestID)
 	if err != nil {
+		if original.Chain.ControllerID != "" && (providerStatus == "failed" || providerStatus == "cancelled") {
+			// The adapter parsed a terminal response for this exact upstream
+			// job. Network/HTTP/parse errors have no terminal status.
+			cause, known := providerPayloadErrorCategory(err.Error())
+			if !known {
+				cause = "上游已确认原任务生成失败"
+				if providerStatus == "cancelled" {
+					cause = "上游已确认原任务取消"
+				}
+			}
+			if saveErr := s.repo.RecordVideoChainProviderTerminal(task, providerStatus, providerRequestID, cause); saveErr != nil {
+				return nil, saveErr
+			}
+			if recordErr := s.recordQueriedVideoChainTerminal(task); recordErr != nil {
+				return nil, recordErr
+			}
+			err = failedPrecondition(cause + "，请刷新原链并核对费用后继续")
+		}
 		_ = s.log(task.UserID, task.ID, "error", "人工查询上游视频任务失败", err.Error())
 		return nil, err
 	}
@@ -433,8 +471,21 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 		_ = s.log(task.UserID, task.ID, "error", "任务恢复成功但项目产物登记失败", err.Error())
 		return nil, fmt.Errorf("任务已恢复并完成扣费，但项目素材登记失败：%w", err)
 	}
+	if original.Chain.ControllerID != "" {
+		if recordErr := s.recordQueriedVideoChainTerminal(task); recordErr != nil {
+			return nil, recordErr
+		}
+	}
 	_ = s.log(task.UserID, task.ID, "info", "人工查询确认生成成功，任务已恢复、完成结算并登记项目产物", providerStatus)
 	return &ProviderTaskQueryResult{Task: taskForOutput(*task), ProviderStatus: providerStatus, Recovered: true, BillingSettled: billingSettled}, nil
+}
+
+func (s *Service) recordQueriedVideoChainTerminal(task *model.Task) error {
+	latest, err := s.repo.TaskForUser(task.UserID, task.ID)
+	if err != nil {
+		return err
+	}
+	return s.recordProjectVideoTerminal(latest)
 }
 
 func providerTaskRecoveryContext(parent context.Context) (context.Context, context.CancelFunc) {

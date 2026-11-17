@@ -74,12 +74,12 @@ export function ChannelModelHealthCell({ health, loading }: { health?: AdminChan
                     {health.lastErrorCode ? ` · ${health.lastErrorCode}` : ""}
                 </div>
             ) : null}
-            <div className="opacity-70">只统计模型生成请求；方块从左到右为最近 10 次，最右为最新。</div>
+            <div className="opacity-70">按上游创建请求统计。方块从左到右为最近 10 次请求，最右为最新。</div>
         </div>
     );
     return (
         <AdminTooltip title={detail}>
-            <div className="admin-model-health" data-tone={tone} tabIndex={0} aria-label={`近 24 小时成功率 ${formatRate(rate)}，共 ${health.requests24h} 次调用`}>
+            <div className="admin-model-health" data-tone={tone} tabIndex={0} aria-label={`近 24 小时创建请求成功率 ${formatRate(rate)}，共 ${health.requests24h} 次调用`}>
                 <div className="admin-model-health-head">
                     <strong>{health.requests24h ? formatRate(rate) : "24h 无调用"}</strong>
                     <span>{health.requests24h ? `${health.requests24h} 次` : `7 天 ${formatRate(health.successRate7d)}`}</span>

@@ -138,7 +138,7 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 		return model.Shot{}, err
 	}
 	shot := model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, CurrentRevisionID: revision.ID, Title: title, Description: revision.PlotDescription, Position: req.Position, DurationMs: revision.DurationMs, Status: status, CreatedAt: now, UpdatedAt: updatedAt}
-	plans, err := s.segmentReferencePlan(userID, projectID, shotID, expectedRevisionID, revision.SpecJSON, updatedAt)
+	plans, err := s.segmentReferencePlan(userID, projectID, shotID, expectedRevisionID, &revision, updatedAt)
 	if err != nil {
 		return model.Shot{}, err
 	}
@@ -261,7 +261,7 @@ func (s *Service) CreateShotRevision(userID string, projectID string, shotID str
 	shot.DurationMs = revision.DurationMs
 	shot.Status = "draft"
 	shot.UpdatedAt = now
-	plans, err := s.segmentReferencePlan(userID, projectID, shot.ID, shot.CurrentRevisionID, revision.SpecJSON, now)
+	plans, err := s.segmentReferencePlan(userID, projectID, shot.ID, shot.CurrentRevisionID, &revision, now)
 	if err != nil {
 		return model.Shot{}, model.ShotRevision{}, err
 	}
@@ -272,17 +272,7 @@ func (s *Service) CreateShotRevision(userID string, projectID string, shotID str
 }
 
 func (s *Service) DeleteProjectShot(userID string, projectID string, shotID string) error {
-	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
-		return err
-	}
-	shotID = strings.TrimSpace(shotID)
-	if shotID == "" {
-		return BadAuthRequest("镜头不能为空")
-	}
-	if _, err := s.repo.ShotForProject(projectID, shotID); err != nil {
-		return err
-	}
-	return s.repo.DeleteProjectShot(projectID, shotID, time.Now())
+	return s.DeleteProjectShotChecked(userID, projectID, shotID, DeleteProjectShotRequest{})
 }
 
 func newShotRevision(userID string, shotID string, input ShotRevisionInput, fallbackDescription string, fallbackDuration int64, now time.Time) (model.ShotRevision, error) {
@@ -347,8 +337,9 @@ func (s *Service) linkShotAsset(userID string, projectID string, shotID string, 
 		return model.ShotAssetReference{}, err
 	}
 	versionID := strings.TrimSpace(req.AssetVersionID)
-	if _, err := s.repo.AssetVersionForProject(projectID, versionID); err != nil {
-		return model.ShotAssetReference{}, err
+	version, err := s.repo.ProjectReferenceVersion(userID, projectID, versionID)
+	if err != nil || version.ID != versionID {
+		return model.ShotAssetReference{}, BadAuthRequest("待绑定的版本不属于本项目")
 	}
 	role := strings.TrimSpace(req.Role)
 	if !validShotAssetRole(role) {
@@ -372,12 +363,47 @@ func (s *Service) linkShotAsset(userID string, projectID string, shotID string, 
 			return model.ShotAssetReference{}, NotFound("镜头资产关联未建立")
 		}
 	}
+	reference := model.ShotAssetReference{ID: newID(), ShotID: shotID, AssetVersionID: versionID, Role: role, Status: "linked", CreatedAt: now}
 	if req.ReplaceReferenceID != "" {
+		refs, err := s.repo.ShotAssetReferencesForShot(shotID)
+		if err != nil {
+			return model.ShotAssetReference{}, err
+		}
+		var previous *model.ShotAssetReference
+		for i := range refs {
+			if refs[i].ID == req.ReplaceReferenceID {
+				previous = &refs[i]
+			} else if refs[i].AssetVersionID == versionID && refs[i].Role == role {
+				return model.ShotAssetReference{}, BadAuthRequest("该版本已绑定，请选择其他版本")
+			}
+		}
+		if previous == nil {
+			return model.ShotAssetReference{}, NotFound("镜头资产引用不存在")
+		}
+		if previous.Role != role {
+			return model.ShotAssetReference{}, BadAuthRequest("只能替换相同用途的绑定")
+		}
+		before, err := s.repo.ProjectReferenceVersion(userID, projectID, previous.AssetVersionID)
+		if err != nil {
+			return model.ShotAssetReference{}, err
+		}
+		oldAsset, err := s.repo.AssetForUser(userID, before.AssetID)
+		if err != nil {
+			return model.ShotAssetReference{}, err
+		}
+		nextAsset, err := s.repo.AssetForUser(userID, version.AssetID)
+		if err != nil {
+			return model.ShotAssetReference{}, err
+		}
+		if oldAsset.Category != nextAsset.Category {
+			return model.ShotAssetReference{}, BadAuthRequest("请使用同类型资产更换当前引用")
+		}
+		// Manual shots order their slots by creation time and ID.
+		reference.ID, reference.CreatedAt, reference.Position = previous.ID, previous.CreatedAt, previous.Position
 		if err := s.unlinkShotAsset(userID, projectID, shotID, req.ReplaceReferenceID); err != nil {
 			return model.ShotAssetReference{}, err
 		}
 	}
-	reference := model.ShotAssetReference{ID: newID(), ShotID: shotID, AssetVersionID: versionID, Role: role, Status: "linked", CreatedAt: now}
 	if err := s.repo.UpsertShotAssetReferenceAndInvalidate(projectID, &reference, now); err != nil {
 		return model.ShotAssetReference{}, err
 	}

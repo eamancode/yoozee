@@ -13,8 +13,10 @@ import { useDramaModelAvailability } from "@/pages/projects/drama-model-picker";
 import { findDramaModel, useDramaModels } from "@/pages/projects/workbench/drama-model";
 import { dramaEpisodesKey, getDramaBible, getDramaBrief, getDramaEpisodes } from "@/services/api/project-drama";
 import { videoChainsQuery, type VideoChain, type VideoChainList } from "@/services/api/project-video-chains";
+import { projectVideoRoutingKey } from "@/services/api/project-video-routing";
 import { getProjectCore, getProjectUnitWorkspace, listProjectAssets, listProjectUnits, type ProjectDetail } from "@/services/api/projects";
 import { listGenerationTasks } from "@/services/api/task-center";
+import { configuredModelMatchesCapability } from "@/stores/use-config-store";
 import { useDramaModelPreferencesStore, type DramaModelCapability } from "@/stores/use-drama-model-preferences-store";
 
 import { flowImageModel, flowTextModel, flowVideoModel, stepModelStatus, videoFamilyMismatch } from "../model/step-models";
@@ -22,6 +24,7 @@ import { styleLockState } from "../model/style-lock";
 import { combineReadStates, queryReadState, videoStateRead, type ReadState } from "../model/read-state";
 import { activeChainIds, latestVideoSteps, type ShotVideoStep } from "../model/video-steps";
 import { useModelNames, type ModelName } from "./use-model-names";
+import { useProjectVideoRouting } from "./use-project-video-routing";
 
 export const unitWorkspaceKey = (projectId: string, unitId: string) => ["project", projectId, "unit-workspace", unitId] as const;
 /** 和旧章节页同一个 key：剧本优化、定画风、色卡、提取资产的控件都从这里认自己的任务。 */
@@ -34,6 +37,7 @@ export type StepModel = {
     capability: DramaModelCapability;
     chosen: string;
     effective: string;
+    select?: (model: string) => void;
     /** 这一步不能用这个模型的原因（个人渠道、平台不可用、画幅不支持）；能用为空串。 */
     disabledReason: (model: string) => string;
     /** 给人看的状态：unset 是既没原选择也没有可用模型时写的话。 */
@@ -48,13 +52,14 @@ export type StepModel = {
  * 主页面要的全部数据：项目、单元、资产、进度、出片链、当前集工作区、项目任务、风格档案、剧集表。
  * 并按旧工作台的方式拼出 ProjectDetail，好让旧的剧本优化、定画风、色卡、提取资产控件直接用。
  */
-export function useFlowData(projectId: string, requestedUnitId: string) {
+export function useFlowData(projectId: string, requestedUnitId: string, watchVideoRouting = false) {
     const queryClient = useQueryClient();
     const effectiveConfig = useDramaModelConfig();
     const recentModels = useDramaModelPreferencesStore((state) => state.models);
+    const videoRouting = useProjectVideoRouting(projectId, watchVideoRouting);
 
     const coreQuery = useQuery({ queryKey: ["project", projectId, "core"], queryFn: () => getProjectCore(projectId), enabled: Boolean(projectId), refetchOnMount: "always" });
-    const unitsQuery = useQuery({ queryKey: ["project", projectId, "units"], queryFn: () => listProjectUnits(projectId), enabled: Boolean(projectId) });
+    const unitsQuery = useQuery({ queryKey: ["project", projectId, "units"], queryFn: () => listProjectUnits(projectId), enabled: Boolean(projectId), refetchOnMount: "always" });
     const assetsQuery = useQuery({
         queryKey: ["project", projectId, "assets"],
         queryFn: () => listProjectAssets(projectId),
@@ -87,11 +92,8 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
 
     const allUnits = useMemo(() => (unitsQuery.data?.units || []).slice().sort((left, right) => left.position - right.position), [unitsQuery.data]);
     const chapters = useMemo(() => allUnits.filter((unit) => unit.kind !== "episode"), [allUnits]);
-    const episodeUnits = useMemo(() => allUnits.filter((unit) => unit.kind === "episode"), [allUnits]);
-    const rail = useMemo(() => {
-        const episodes = unitsOfKind(allUnits, "episode");
-        return episodes.units.length ? episodes : unitsOfKind(allUnits, "chapter");
-    }, [allUnits]);
+    const rail = useMemo(() => unitsOfKind(allUnits, "episode"), [allUnits]);
+    const episodeUnits = rail.units;
     const unit = rail.units.find((item) => item.id === requestedUnitId) || rail.units[0];
     const unitId = unit?.id || "";
 
@@ -105,7 +107,23 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
     /** 单元列表接口只给摘要（不带正文）；当前集的完整单元只能从 workspace 拿，没拿到之前不显示也不保存正文。 */
     const fullUnit = workspace?.unit && workspace.unit.id === unitId ? workspace.unit : undefined;
 
-    const segments = useMemo(() => progress?.segments || [], [progress]);
+    const segments = useMemo(() => {
+        const episodeIds = new Set(episodeUnits.map((episode) => episode.id));
+        return (progress?.segments || []).filter((segment) => episodeIds.has(segment.unitId));
+    }, [progress, episodeUnits]);
+    // 旧工作台的全项目进度也含原文章节上的镜头。新页的总数与实际可选、可出片的段使用同一范围。
+    const episodeCounts = useMemo(() => {
+        if (!progress || !unitsQuery.data) return undefined;
+        if (segments.length === (progress.segments || []).length) return progress.counts;
+        return {
+            segments: segments.length,
+            generated: segments.filter((segment) => segment.generated).length,
+            inCut: segments.filter((segment) => segment.inCut).length,
+            accepted: segments.filter((segment) => segment.accepted).length,
+            overLimit: segments.filter((segment) => segment.overLimit).length,
+            issues: segments.filter((segment) => (segment.issues ?? 0) > 0).length,
+        };
+    }, [segments, progress, unitsQuery.data]);
     const unitSegments = useMemo(() => segments.filter((item) => item.unitId === unitId), [segments, unitId]);
     const chainUnitIds = useMemo(() => [...new Set(segments.map((item) => item.unitId))], [segments]);
     const chainQueries = useQueries({
@@ -142,10 +160,11 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
         return { steps: merged, activeChains: active, chainsByUnit: byUnit };
         // chainQueries 每次渲染都是新数组，用各查询的更新时间做依赖。
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chainsState]);
+    }, [chainsState, chainUnitIds]);
     // 视频出完一条，进度和挑片数据要跟上。
     useEffect(() => {
         if (!projectId || !chainsState) return;
+        void queryClient.invalidateQueries({ queryKey: projectVideoRoutingKey(projectId) });
         void queryClient.invalidateQueries({ queryKey: dramaProgressKey(projectId) });
         if (unitId) void queryClient.invalidateQueries({ queryKey: unitWorkspaceKey(projectId, unitId) });
     }, [projectId, unitId, chainsState, queryClient]);
@@ -187,12 +206,22 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
                     : undefined,
         };
     }
+    const route = videoRouting.route;
+    const videoStep = resolveStep("video", route?.model || recentModels.video?.trim() || project?.defaultVideoModel?.trim() || "", videoAvailability, (accepts) => {
+        if (videoRouting.issue || !project) return "";
+        if (route) return configuredModelMatchesCapability(effectiveConfig, route.model, "video") && accepts(route.model) ? route.model : "";
+        return dramaModel ? flowVideoModel(effectiveConfig, recentModels, project.defaultVideoModel, dramaModels.data, dramaModel, accepts) : "";
+    });
     const stepModels = {
         text: resolveStep("text", recentModels.text?.trim() || "", textAvailability, (accepts) => flowTextModel(effectiveConfig, recentModels, accepts)),
         image: resolveStep("image", recentModels.image?.trim() || project?.defaultImageModel?.trim() || "", imageAvailability, (accepts) => (project ? flowImageModel(effectiveConfig, recentModels, project.defaultImageModel, accepts) : "")),
-        video: resolveStep("video", recentModels.video?.trim() || project?.defaultVideoModel?.trim() || "", videoAvailability, (accepts) =>
-            project && dramaModel ? flowVideoModel(effectiveConfig, recentModels, project.defaultVideoModel, dramaModels.data, dramaModel, accepts) : "",
-        ),
+        video: {
+            ...videoStep,
+            select: (model: string) => videoRouting.select(model, route?.model || videoStep.effective),
+            disabledReason: (model: string) => videoRouting.issue || videoStep.disabledReason(model),
+            status: (unset: string) => videoRouting.issue ? { text: videoRouting.issue, tone: "warn" as const } : videoStep.status(unset),
+            retryCatalog: videoRouting.retry || videoStep.retryCatalog,
+        },
     };
     const {
         text: { effective: textModel },
@@ -236,6 +265,7 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
     const refreshVideo = useCallback(
         () =>
             Promise.all([
+                queryClient.invalidateQueries({ queryKey: projectVideoRoutingKey(projectId) }),
                 queryClient.invalidateQueries({ queryKey: ["project-video-chains", projectId] }),
                 queryClient.invalidateQueries({ queryKey: dramaProgressKey(projectId) }),
                 queryClient.invalidateQueries({ queryKey: ["project", projectId, "unit-workspace"] }),
@@ -259,6 +289,7 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
         workspaceQuery,
         project,
         progress,
+        episodeCounts,
         pipeline,
         allUnits,
         chapters,
@@ -289,6 +320,7 @@ export function useFlowData(projectId: string, requestedUnitId: string) {
         dramaModel,
         /** 各步骤的模型卡、信息面板读这里（原选择、实际提交、状态）。 */
         stepModels,
+        videoRouting,
         videoModel,
         /** 视频模型不属于项目生成模型那一族时是它所属的族（认不出为 null）；同族为 undefined。 */
         videoOffFamily,

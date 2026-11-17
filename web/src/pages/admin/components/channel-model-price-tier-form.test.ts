@@ -5,7 +5,7 @@ import type { ChannelModel, ChannelModelPriceTier } from "@/services/api/wallet"
 
 // Node 原生 TypeScript 测试运行器要求保留扩展名，项目编译器不允许该写法。
 // @ts-expect-error -- Node 原生 TypeScript 测试运行器需要保留扩展名。
-import { defaultPriceTier, legacyPriceTierToForm, priceTierToForm } from "./channel-model-price-tier-form.ts";
+import { defaultPriceTier, legacyPriceTierToForm, priceTierToForm, priceTierPayloadFromForm } from "./channel-model-price-tier-form.ts";
 
 test("编辑无价格档的旧模型时不再把顶层上游键固化进统一价格档", () => {
     const legacy: ChannelModel = {
@@ -46,4 +46,13 @@ test("已存档位键在回显时保持原值，清除与否交给管理端告�
 test("新建默认价格档不携带上游键", () => {
     assert.equal(defaultPriceTier().providerModelKey, "");
     assert.equal(defaultPriceTier("advanced").providerModelKey, "");
+});
+
+test("按条人民币成本按微元往返，切换按秒计价清除该字段", () => {
+    const tier = { ...defaultPriceTier(), upstreamRequestCostCny: 5.95, unitPrice: 17 };
+    const payload = priceTierPayloadFromForm("video", tier, "seedance-2.5");
+    assert.equal(payload.upstreamRequestCostMicroCny, 5_950_000);
+    assert.equal(payload.unitPriceMicrocredits, 17_000_000);
+    assert.equal(priceTierToForm(payload as ChannelModelPriceTier).upstreamRequestCostCny, 5.95);
+    assert.equal(priceTierPayloadFromForm("video", { ...tier, billingMode: "per_second" }, "seedance-2.5").upstreamRequestCostMicroCny, undefined);
 });

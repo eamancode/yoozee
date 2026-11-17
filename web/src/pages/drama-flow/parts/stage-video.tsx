@@ -4,9 +4,10 @@ import { App, Button } from "antd";
 import { Copy, RotateCw } from "lucide-react";
 
 import { DramaTakeCompare, useInvalidateDrama } from "@/pages/projects/workbench/detail/drama-panels";
-import { assetPreviewUrl } from "@/pages/projects/workbench/detail/workflow-shot-references";
+import { projectAssetReferenceImage, projectAssetVoiceSampleResourceId } from "@/pages/projects/workbench/detail/workflow-shot-references";
+import { videoChainFailureLabel } from "@/pages/projects/workbench/detail/video-chain-diagnostics";
 import { compileProjectShot, pickShotArtifact, type DramaSegmentProgress } from "@/services/api/project-drama";
-import type { ProjectAsset, ShotArtifact } from "@/services/api/projects";
+import type { ProjectAsset, ShotArtifact, ShotAssetReference } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
 import type { GenerationTask } from "@/services/api/task-center";
 import { getWallet } from "@/services/api/wallet";
@@ -21,6 +22,7 @@ import type { ShotVideoStep } from "../model/video-steps";
 import { DetailPane, PaneSection, ReadError, StageLayout, SummaryRow } from "./layout";
 import { modelSummaryItem } from "./model-card";
 import { secondsText } from "./stage-shots";
+import { VideoRouteNotice } from "./video-route-notice";
 
 type Chip = { text: string; tone?: "ok" | "run" | "bad" | "warn" };
 
@@ -29,6 +31,7 @@ export function videoChipOf(segment: DramaSegmentProgress, step: ShotVideoStep |
     if (videoRead !== "ready" && !segment.generated) return videoRead === "loading" ? { text: "正在读出片状态…" } : { text: "出片状态没读到", tone: "warn" };
     if (step?.state === "running") return { text: "生成中", tone: "run" };
     if (step?.state === "waiting") return { text: "排队中", tone: "run" };
+    if (step?.state === "paused") return { text: "前序失败，已暂停", tone: "warn" };
     if (step?.state === "failed") return { text: "失败", tone: "bad" };
     if (segment.generated) return { text: segment.takes > 1 ? `已出 ${segment.takes} 条` : "已出片", tone: "ok" };
     if (step?.state === "cancelled") return { text: "已停止", tone: "warn" };
@@ -116,6 +119,8 @@ export function StageVideo({
             takes={takesByShot.get(selected.shotId) || []}
             tasks={videoTasks.filter((task) => task.clientContext?.shotId === selected.shotId)}
             assets={workspace?.assets || []}
+            videoModel={videoModel}
+            references={(workspace?.shotReferences || []).filter((item) => item.shotId === selected.shotId && item.status === "linked")}
             onRefresh={() => workspaceQuery.refetch()}
             onClose={() => onSelect(undefined)}
         />
@@ -150,6 +155,7 @@ export function StageVideo({
                     modelSummaryItem(stepModels.video, videoOffFamily !== undefined ? "warn" : undefined),
                 ]}
             />
+            <VideoRouteNotice routing={data.videoRouting} />
             {running + waiting + failed ? (
                 <div className="drama-flow-queue" role="list" aria-label="出片队列">
                     {progress.map((segment, index) => {
@@ -157,7 +163,7 @@ export function StageVideo({
                         if (!state || state === "succeeded" || state === "cancelled") return null;
                         return (
                             <button key={segment.shotId} type="button" role="listitem" data-state={state} onClick={() => onSelect(segment.shotId)}>
-                                {segment.segmentId} · {state === "failed" ? "失败" : state === "running" ? "生成中" : "排队"}
+                                {segment.segmentId} · {state === "failed" ? "失败" : state === "paused" ? "已暂停" : state === "running" ? "生成中" : "排队"}
                             </button>
                         );
                     })}
@@ -177,7 +183,7 @@ export function StageVideo({
                     {segmentRule.problem}
                 </div>
             ) : null}
-            {!canGenerate && progress.length ? (
+            {!canGenerate && !data.videoRouting.issue && progress.length ? (
                 <div className="drama-flow-note" data-tone="warn">
                     还没配好可用的视频模型，先到设置里配好再出片。
                 </div>
@@ -213,10 +219,10 @@ export function StageVideo({
                                     <span className="drama-flow-muted">
                                         {secondsText(segment.durationMs)}
                                         {segment.hasDialogue ? " · 有台词" : ""}
-                                        {step ? ` · 参考 ${step.step.referenceCount} 张` : ""}
+                                        {step ? ` · 参考图 ${step.step.referenceCount} 张${step.step.referenceAudioCount ? ` · 声音参考 ${step.step.referenceAudioCount} 条` : ""}` : ""}
                                         {` · 首帧：${firstFrameText(step)}`}
                                     </span>
-                                    {isFailed && chosen ? <span className="drama-flow-asset-error">最近一次失败：{step?.error || "没写原因"}</span> : null}
+                                    {isFailed ? <span className="drama-flow-asset-error">最近一次生成失败：{videoChainFailureLabel(step?.step.diagnostic) || step?.error || "原因待核对"}</span> : null}
                                     {blocked ? <span className="drama-flow-asset-error">分镜有问题没改完，先去「分镜」里改</span> : null}
                                     {step?.step.referenceWarning ? <span className="drama-flow-muted">{step.step.referenceWarning}</span> : null}
                                     {step?.step.frameResourceId && !step.step.referenceSkipped ? (
@@ -228,9 +234,11 @@ export function StageVideo({
                                     {/* 操作放在中间这一列、左对齐：右侧那一列贴着页面右下角，默认位置的柚智浮层（含透明热区）会截走点击。 */}
                                     <div className="drama-flow-vcard-actions">
                                         {isFailed ? (
-                                            <Button size="small" type="primary" icon={<RotateCw className="size-3.5" />} disabled={!canGenerate || blocked} onClick={() => onGenerate(segment.shotId)}>
+                                            <Button size="small" type="primary" icon={<RotateCw className="size-3.5" />} disabled={videoRead !== "ready"} onClick={() => onGenerate(segment.shotId)}>
                                                 重新出
                                             </Button>
+                                        ) : step?.state === "paused" ? (
+                                            <Button size="small" disabled={videoRead !== "ready"} onClick={() => onGenerate(segment.shotId)}>查看前序失败</Button>
                                         ) : active && step ? (
                                             <Button size="small" loading={stoppingChainId === step.chainId} onClick={() => onStopChain(step.chainId)}>
                                                 停止
@@ -250,7 +258,10 @@ export function StageVideo({
                                     <span className="drama-flow-chip" data-tone={chip.tone}>
                                         {chip.text}
                                     </span>
-                                    <span className="drama-flow-muted">{step?.step.model ? models.nameOf(step.step.model, "").text : videoModelName.text}</span>
+                                    <span className="drama-flow-muted">{step?.step.model ? `${data.videoRouting.route ? "已有任务 · " : ""}${models.nameOf(step.step.model, "").text}` : videoModelName.text}</span>
+                                    {data.videoRouting.route && !active && step?.step.model && step.step.model !== videoModel && videoModel ? (
+                                        <span className="drama-flow-muted">下次报价 · {videoModelName.text}</span>
+                                    ) : null}
                                     {step ? <span className="drama-flow-muted">生成 {step.step.generationSeconds} 秒档</span> : null}
                                     <span className="drama-flow-muted">
                                         候选 {readValue(workspaceRead, takes.length)}
@@ -279,6 +290,8 @@ function VideoPane({
     takes,
     tasks,
     assets,
+    videoModel,
+    references,
     onRefresh,
     onClose,
 }: {
@@ -288,6 +301,8 @@ function VideoPane({
     takes: ShotArtifact[];
     tasks: GenerationTask[];
     assets: ProjectAsset[];
+    videoModel: string;
+    references: ShotAssetReference[];
     onRefresh: () => Promise<unknown>;
     onClose: () => void;
 }) {
@@ -297,8 +312,8 @@ function VideoPane({
     const [viewing, setViewing] = useState<string | undefined>(chosen?.id || takes[0]?.id);
     const shown = takes.find((item) => item.id === viewing) || chosen || takes[0];
     const compileQuery = useQuery({
-        queryKey: ["project", projectId, "drama", "compile", segment.shotId, "flow"],
-        queryFn: async () => (await compileProjectShot(projectId, segment.shotId)).compiled,
+        queryKey: ["project", projectId, "drama", "compile", segment.shotId, "flow", videoModel],
+        queryFn: async () => (await compileProjectShot(projectId, segment.shotId, { channelModel: videoModel })).compiled,
         staleTime: 30_000,
     });
     const compiled = compileQuery.data?.result;
@@ -358,14 +373,23 @@ function VideoPane({
                     </>
                 ) : undefined}
             </PaneSection>
-            <PaneSection label={`当前编译的参考（${compiled?.files.length ?? 0}）`} empty={compiled ? "这一段不带参考图" : compileQuery.isError ? "参考没读到" : "…"}>
+            <PaneSection label={`当前编译的参考（${compiled?.files.length ?? 0}）`} empty={compiled ? "这一段不带参考素材" : compileQuery.isError ? "参考没读到" : "…"}>
                 {compiled?.files.length ? (
                     <div className="drama-flow-seg-assets">
                         {compiled.files.map((file) => {
-                            const asset = assets.find((item) => item.primaryVersionId === file.file);
-                            const preview = asset ? assetPreviewUrl(asset) : "";
+                            const reference = references.find((item) => item.assetVersionId === file.file);
+                            const asset = reference?.asset || assets.find((item) => item.primaryVersionId === file.file);
+                            if (file.role === "voice") {
+                                const voices = compileQuery.data?.voiceBindings?.filter((item) => item.tag === file.tag) || [];
+                                const titles = voices.map((item) => references.find((ref) => ref.assetVersionId === item.versionId)?.asset?.title).filter(Boolean);
+                                const sample = voices[0]?.sampleResourceId || (asset && reference ? projectAssetVoiceSampleResourceId(asset, reference) : "");
+                                return <span key={file.tag} title={file.file}>{file.tag} · {titles.join("、") || asset?.title || "声音参考"}
+                                    {sample ? <audio className="h-8 max-w-full" controls preload="none" aria-label={`试听 ${file.tag}`} src={resourceFileUrl(sample)} /> : null}
+                                </span>;
+                            }
+                            const preview = asset ? projectAssetReferenceImage(asset, reference)?.url : "";
                             return (
-                                <span key={`${file.tag}-${file.file}`} title={`${file.tag} · ${file.role}`}>
+                                <span key={`${file.tag}-${file.file}`} title={`${file.tag} · ${file.role} · ${file.file}`}>
                                     {preview ? <img src={preview} alt="" loading="lazy" /> : null}
                                     {file.tag} · {asset?.title || file.role}
                                 </span>

@@ -146,6 +146,20 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 			delete(request.ProviderOptions, input.Config.InterfaceType)
 		}
 	}
+	if input.Mode == "video" && input.VideoCapability != nil && input.VideoCapability.SLLWire != nil {
+		wire := input.VideoCapability.SLLWire
+		delete(request.ProviderOptions, input.Config.InterfaceType)
+		if input.VideoCapability.GenerateAudio.Supported {
+			request.ProviderOptions[input.Config.InterfaceType] = map[string]any{"body": map[string]any{"generate_audio": request.GenerateAudio}}
+		}
+		if !wire.SendDuration {
+			request.OmitDuration = true
+			request.Duration, request.Output.Duration = 0, 0
+		}
+		if !wire.SendResolution {
+			request.Resolution, request.Output.Resolution = "", ""
+		}
+	}
 	return request
 }
 

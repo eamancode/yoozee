@@ -21,7 +21,7 @@ func newProjectWorkbenchReadTestService(t *testing.T) (*Service, *gorm.DB) {
 	if err := db.AutoMigrate(
 		&model.Project{}, &model.ProjectUnit{}, &model.CanvasProject{}, &model.CanvasUnitLink{},
 		&model.Asset{}, &model.AssetVersion{}, &model.AssetRepresentation{}, &model.ProjectAssetLink{}, &model.ProjectAssetCandidate{},
-		&model.CharacterVoiceBinding{}, &model.VoiceProfile{},
+		&model.CharacterVoiceBinding{}, &model.VoiceProfile{}, &model.Resource{},
 		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotEvidence{}, &model.ShotAssetReference{},
 		&model.WorkflowInstance{}, &model.WorkflowStepInstance{}, &model.Task{},
 	); err != nil {
@@ -73,6 +73,9 @@ func TestProjectUnitWorkspaceResolvesHistoricalVisualAndCurrentCharacterVoice(t 
 	}
 	if reference.Asset.Character.Voice.Profile.SampleResourceID != "voice-sample-1" || reference.Asset.Character.Voice.Instructions != "内心独白语气" {
 		t.Fatalf("current character voice not resolved: %+v", reference.Asset.Character.Voice)
+	}
+	if reference.ReferencedVersion.SampleResourceID != "" {
+		t.Fatalf("historical version inherited the current sample: %+v", reference.ReferencedVersion)
 	}
 }
 

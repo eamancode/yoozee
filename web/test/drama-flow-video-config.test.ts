@@ -51,13 +51,21 @@ test("模型支持同步音频时保留用户的合法选择", () => {
     expect(request.videoGenerateAudio).toBe("true");
 });
 
+test("项目视频报价使用当前模型，画布工作流配置不改写项目线路", () => {
+    const config: AiConfig = { ...configWith({ audio: false }), taskWorkflowProvider: "runninghub" };
+    const request = chainVideoConfig(config, MODEL, {});
+    expect(request.taskWorkflowProvider).toBe("model");
+    expect(request.model).toBe(MODEL);
+    expect(config.taskWorkflowProvider).toBe("runninghub");
+});
+
 test("时长按这一段的正文取档：全局 6 秒、20 秒镜头、只有 15/30 档 → 30；10 秒 → 15；超过 30 不给档", () => {
     const global = configWith({ audio: false, slots: [15, 30] });
     expect(chainVideoConfig(global, MODEL, { contentSeconds: 20 }).videoSeconds).toBe("30");
     expect(chainVideoConfig(global, MODEL, { contentSeconds: 30 }).videoSeconds).toBe("30");
     expect(chainVideoConfig(global, MODEL, { contentSeconds: 10 }).videoSeconds).toBe("15");
     // 超过最大档时前端不编一个档位出来，留给后端按权威能力拒绝。
-    expect(chainVideoConfig(global, MODEL, { contentSeconds: 31 }).videoSeconds).toBe("6");
+    expect(chainVideoConfig(global, MODEL, { contentSeconds: 31 }).videoSeconds).toBe("31");
     // 没有目标段（只用来判断能不能出片）时不改时长。
     expect(chainVideoConfig(global, MODEL, {}).videoSeconds).toBe("6");
 });

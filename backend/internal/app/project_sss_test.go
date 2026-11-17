@@ -292,11 +292,16 @@ func TestSSSFlow2DirectorEpisode(t *testing.T) {
 	if err := db.Create(&p).Error; err != nil {
 		t.Fatal(err)
 	}
-	units := []model.ProjectUnit{{ID: "ep-a", ProjectID: p.ID, Kind: model.ProjectUnitKindEpisode, Title: "第一集", Position: 0, SourceText: "上一集正文"}, {ID: "ep-b", ProjectID: p.ID, Kind: model.ProjectUnitKindEpisode, Title: "第二集", Position: 1, SourceText: "林夏：当了。"}}
+	units := []model.ProjectUnit{
+		{ID: "ep-a", ProjectID: p.ID, Kind: model.ProjectUnitKindEpisode, Title: "第一集", Position: 0, SourceText: "上一集正文"},
+		{ID: "cut", ProjectID: p.ID, Kind: model.ProjectUnitKindEpisode, Title: "删减集", Position: 1},
+		{ID: "source", ProjectID: p.ID, Kind: model.ProjectUnitKindChapter, Title: "原文章节", Position: 2},
+		{ID: "ep-b", ProjectID: p.ID, Kind: model.ProjectUnitKindEpisode, Title: "第二集", Position: 3, SourceText: "林夏：当了。"},
+	}
 	if err := db.Create(&units).Error; err != nil {
 		t.Fatal(err)
 	}
-	u := &units[1]
+	u := &units[3]
 	usage, skill, err := svc.sssStepSkill(&p, mustWorkflow(t, p.WorkflowID), mustStep(t, drama.StepChapterShots))
 	if err != nil {
 		t.Fatal(err)
@@ -324,6 +329,14 @@ func TestSSSFlow2DirectorEpisode(t *testing.T) {
 		concept += fmt.Sprintf("| %d | 结构行[%02d] |\n", i, i)
 	}
 	write(model.OntologyDocConcept, "", concept)
+	write(model.OntologyDocHandoff, "cut", "删减集的交接")
+	beforeDelete, err := planEpisode(false)
+	if err != nil || beforeDelete.sss.Docs.Handoff != "删减集的交接" {
+		t.Fatalf("分镜材料必须读取紧邻的剧集交接卡：%v", err)
+	}
+	if err := svc.DeleteProjectUnit(p.UserID, p.ID, "cut"); err != nil {
+		t.Fatal(err)
+	}
 	_, blocked := svc.RunDramaStep(p.UserID, p.ID, u.ID, drama.StepChapterShots, DramaStepRunRequest{})
 	var problem *AppError
 	if !errors.As(blocked, &problem) || problem.Status != 409 || problem.Reason != ReasonPreviousHandoffRequired || problem.Details["previousUnitId"] != units[0].ID {

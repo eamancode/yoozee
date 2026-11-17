@@ -74,6 +74,13 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 		if err := uploadProtocolMedia(ctx, input, adapter, &request); err != nil {
 			return nil, err
 		}
+		// Reference uploads may take minutes. Recheck a managed supplier tier
+		// before issuing its paid create, without affecting existing job polls.
+		if input.authorizeCreate != nil {
+			if err := input.authorizeCreate(ctx); err != nil {
+				return nil, err
+			}
+		}
 		spec, err := adapter.BuildCreate(ctx, protocol.RequestContext{BaseURL: input.Config.BaseURL, Request: request})
 		if err != nil {
 			return nil, err

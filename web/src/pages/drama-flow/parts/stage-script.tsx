@@ -6,7 +6,7 @@ import { Pencil } from "lucide-react";
 import { plainTextToHtml } from "@/lib/project-source";
 import { briefEpisodeSeconds } from "@/pages/projects/workbench/detail/drama-brief";
 import { ScriptAdaptControl } from "@/pages/projects/workbench/detail/chapter-script-adapt";
-import { EpisodeDesign, useSSSDocuments } from "@/pages/projects/workbench/detail/sss-project-panels";
+import { EpisodeDesign } from "@/pages/projects/workbench/detail/sss-project-panels";
 import { projectWorkflow } from "@/lib/project-workflow";
 import { followChainedScenePalette } from "@/pages/projects/workbench/detail/chapter-scene-palette";
 import { withEpisodeSourcesComment } from "@/pages/projects/workbench/detail/episode-sources";
@@ -49,10 +49,9 @@ export function sourceParagraphs(chapterText: string, from: number, to: number) 
 type ScriptTab = "episodes" | "source" | "check";
 
 export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots }: { data: FlowData; stage?: FlowStageView; tab?: string; onTab: (tab: ScriptTab) => void; onSelectUnit: (unitId: string) => void; onRedoShots: (unitId: string) => void }) {
-    const { detail, unit, fullUnit, workspaceQuery, unitsQuery, rail, episodes, episodesQuery, brief, projectTasks, chapters, episodeUnits, allUnits, project, dramaRule, stepModels } = data;
+    const { detail, unit, fullUnit, workspaceQuery, unitsQuery, episodes, episodesQuery, brief, projectTasks, chapters, episodeUnits, allUnits, project, dramaRule, stepModels } = data;
     const active: ScriptTab = tab === "source" || tab === "check" ? tab : "episodes";
     const sss = Boolean(project && projectWorkflow(project.workflowId).storyboardMode === "sss");
-    const designs = useSSSDocuments(project?.id || "", sss);
     const adaptTasks = useMemo(() => projectTasks.filter(isScriptAdaptTask), [projectTasks]);
     const lastOutcome = useMemo(() => {
         for (const task of adaptTasks) {
@@ -61,9 +60,13 @@ export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots
         }
         return undefined;
     }, [adaptTasks]);
-    const episodeRows = episodes?.episodes || [];
-    const totalWords = episodeRows.reduce((sum, row) => sum + row.wordCount, 0);
+    const episodeRows = useMemo(() => {
+        const ids = new Set(episodeUnits.map((item) => item.id));
+        return (episodes?.episodes || []).filter((row) => ids.has(row.unitId));
+    }, [episodes, episodeUnits]);
+    const totalWords = episodeUnits.reduce((sum, item) => sum + item.wordCount, 0);
     const withShots = episodeRows.filter((row) => row.shots > 0).length;
+    const unitsUnread = unitsQuery.isError ? "没读到" : unitsQuery.data ? undefined : "…";
     const perEpisode = briefEpisodeSeconds(brief);
     const checkItems = lastOutcome?.items || [];
 
@@ -91,18 +94,18 @@ export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots
             {unitsQuery.isError ? <ReadError what="剧集列表" onRetry={() => void unitsQuery.refetch()} /> : null}
             <SummaryRow
                 items={[
-                    { label: "剧集", value: episodes ? episodeRows.length : episodesQuery.isError ? "没读到" : "…" },
-                    { label: "总字数", value: episodes ? totalWords.toLocaleString("zh-CN") : episodesQuery.isError ? "没读到" : "…" },
+                    { label: "剧集", value: unitsUnread ?? episodeUnits.length },
+                    { label: "总字数", value: unitsUnread ?? totalWords.toLocaleString("zh-CN") },
                     { label: "每集时长", value: perEpisode ? `${perEpisode} 秒` : "没设" },
-                    { label: "原文章节", value: unitsQuery.isError ? "没读到" : chapters.length },
-                    { label: "已有分镜", value: episodes ? `${withShots}/${episodeRows.length} 集` : episodesQuery.isError ? "没读到" : "…" },
+                    { label: "原文章节", value: unitsUnread ?? chapters.length },
+                    { label: "已有分镜", value: unitsUnread ?? (episodesQuery.isError ? "没读到" : episodes && episodeRows.length === episodeUnits.length ? `${withShots}/${episodeUnits.length} 集` : "…") },
                     { label: "检查提醒", value: lastOutcome ? lastOutcome.errors + lastOutcome.warnings : "—", tone: lastOutcome && lastOutcome.errors ? "bad" : lastOutcome?.warnings ? "warn" : undefined },
                     modelSummaryItem(stepModels.text),
                 ]}
             />
             <StageTabs<ScriptTab>
                 tabs={[
-                    { key: "episodes", label: "剧集", count: episodeRows.length || undefined },
+                    { key: "episodes", label: "剧集", count: episodeUnits.length || undefined },
                     { key: "source", label: "原文对照" },
                     { key: "check", label: "检查", count: checkItems.length || undefined, warn: Boolean(lastOutcome?.errors) },
                 ]}
@@ -111,41 +114,24 @@ export function StageScript({ data, stage, tab, onTab, onSelectUnit, onRedoShots
             />
             {!unit && unitsQuery.isError ? null : !unit ? (
                 <div className="drama-flow-empty">
-                    <strong>{stage?.state === "running" ? "正在把原文改写成剧本" : "还没有剧本"}</strong>
-                    <span>{stage?.state === "running" ? "写好一集出现一集，不用守着；点右上角可以看流式输出。" : "点右上角「剧本优化」把原文改成剧集，或者直接贴剧本。"}</span>
+                    <strong>{unitsQuery.isLoading ? "正在读取剧集…" : stage?.state === "running" ? "正在把原文改写成剧本" : "还没有剧集"}</strong>
+                    {!unitsQuery.isLoading ? <span>{stage?.state === "running" ? "写好一集出现一集，不用守着；点右上角可以看流式输出。" : "点「添加首集」填写剧集标题和正文，也可以在「剧本优化」中改编原文。"}</span> : null}
                 </div>
             ) : active === "episodes" ? (
-                <div className="drama-flow-split">
-                    <div className="drama-flow-cards" role="list" aria-label="剧集">
-                        {rail.units.map((item, index) => {
-                            const row = episodeRows.find((candidate) => candidate.unitId === item.id);
-                            return (
-                                <button key={item.id} type="button" role="listitem" className="drama-flow-card" aria-pressed={item.id === unit.id} onClick={() => onSelectUnit(item.id)}>
-                                    <strong>{item.title || `第 ${index + 1} ${rail.noun}`}</strong>
-                                    <span>
-                                        {(row?.wordCount ?? item.wordCount).toLocaleString("zh-CN")} 字{row ? ` · 来源 ${row.sources.length} 处` : ""}
-                                    </span>
-                                    <span data-tone={row?.shots ? "ok" : undefined}>{row ? (row.shots ? `已分镜 ${row.shots} 个镜头` : row.hasShotlist ? "镜头表是草稿" : "还没分镜") : ""}</span>
-                                    {sss && row && designs.data && !designs.data.designs?.some((d) => d.unitId === item.id) ? <span>缺本集设计</span> : null}
-                                </button>
-                            );
-                        })}
-                    </div>
-                    <div className="min-w-0">
-                        <EpisodeScript
-                            key={unit.id}
-                            projectId={project.id}
-                            unit={unit}
-                            full={fullUnit}
-                            loadError={workspaceQuery.isError}
-                            onReload={() => void workspaceQuery.refetch()}
-                            episode={unitEpisodeNumber(allUnits, unit.id)}
-                            hasShots={Boolean(episodeRows.find((row) => row.unitId === unit.id)?.shots)}
-                            rule={dramaRule}
-                            onRedoShots={() => onRedoShots(unit.id)}
-                        />
-                        {sss && unit.kind === "episode" ? <EpisodeDesign projectId={project.id} unitId={unit.id} /> : null}
-                    </div>
+                <div className="min-w-0">
+                    <EpisodeScript
+                        key={unit.id}
+                        projectId={project.id}
+                        unit={unit}
+                        full={fullUnit}
+                        loadError={workspaceQuery.isError}
+                        onReload={() => void workspaceQuery.refetch()}
+                        episode={unitEpisodeNumber(allUnits, unit.id)}
+                        hasShots={Boolean(episodeRows.find((row) => row.unitId === unit.id)?.shots)}
+                        rule={dramaRule}
+                        onRedoShots={() => onRedoShots(unit.id)}
+                    />
+                    {sss ? <EpisodeDesign projectId={project.id} unitId={unit.id} /> : null}
                 </div>
             ) : active === "source" ? (
                 <SourceCompare

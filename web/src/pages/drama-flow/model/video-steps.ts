@@ -1,6 +1,6 @@
 import type { VideoChain, VideoChainStep } from "@/services/api/project-video-chains";
 
-export type ShotVideoState = "running" | "waiting" | "failed" | "succeeded" | "cancelled";
+export type ShotVideoState = "running" | "waiting" | "paused" | "failed" | "succeeded" | "cancelled";
 
 export type ShotVideoStep = { chainId: string; unitId: string; shotId: string; title: string; state: ShotVideoState; error?: string; chainActive: boolean; step: VideoChainStep };
 
@@ -18,7 +18,7 @@ export function latestVideoSteps(chains: VideoChain[]): Map<string, ShotVideoSte
         for (const step of chain.steps) {
             if (byShot.has(step.shotId)) continue;
             const state: ShotVideoState =
-                step.status === "succeeded" ? "succeeded" : step.status === "failed" ? "failed" : active ? (step.status === "running" || step.status === "queued" ? "running" : "waiting") : chain.status === "failed" ? "failed" : "cancelled";
+                step.status === "succeeded" ? "succeeded" : step.status === "failed" ? "failed" : active ? (step.status === "running" || step.status === "queued" ? "running" : "waiting") : chain.status === "failed" ? "paused" : "cancelled";
             byShot.set(step.shotId, { chainId: chain.id, unitId: chain.unitId, shotId: step.shotId, title: step.title, state, error: step.error || (state === "failed" ? chain.error : undefined), chainActive: active, step });
         }
     }

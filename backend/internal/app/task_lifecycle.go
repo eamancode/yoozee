@@ -143,7 +143,7 @@ func (w *taskLifecycleCoordinator) retryTaskAdmitted(userID string, id string, a
 		return nil, BadAuthRequest("任务已被其他请求重新入队，请勿重复重试")
 	}
 	if err != nil {
-		return nil, err
+		return nil, storyboardTaskAdmissionError(err)
 	}
 	_ = s.log(userID, task.ID, "info", "任务已重新入队", "")
 	return taskForOutput(*task), nil

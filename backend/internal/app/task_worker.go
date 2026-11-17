@@ -132,8 +132,15 @@ func (w *taskWorkerCoordinator) processNextTask() error {
 func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot *platform.SlotLease) error {
 	s := w.service
 	defer func() {
-		if latest, err := s.repo.Task(task.ID); err == nil && latest.Type == "canvas_image" && latest.Status == model.TaskStatusFailed {
-			s.afterDramaImageTaskEnded(*latest)
+		if latest, err := s.repo.Task(task.ID); err == nil {
+			if latest.Type == "canvas_image" && latest.Status == model.TaskStatusFailed {
+				s.afterDramaImageTaskEnded(*latest)
+			}
+			if latest.Type == "canvas_video" {
+				if err := s.recordProjectVideoTerminal(latest); err != nil {
+					log.Printf("project video route receipt pending task=%s: %v", latest.ID, err)
+				}
+			}
 		}
 	}()
 	terminal := s.terminalCoordinator()
@@ -488,7 +495,7 @@ func (s *Service) shouldDeferProviderTask(task model.Task, decryptedInput string
 	if json.Unmarshal([]byte(decryptedInput), &input) != nil {
 		return false
 	}
-	resolved, resolveErr := s.resolveProviderConfig(input.Config)
+	resolved, _, resolveErr := s.resolveVideoReceiptConfig(context.Background(), input.Config, providerRequestID)
 	if resolveErr != nil {
 		return false
 	}

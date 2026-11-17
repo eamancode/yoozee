@@ -19,6 +19,8 @@ import (
 var sseFrameBoundaryPattern = regexp.MustCompile(`\r?\n\r?\n`)
 
 type canvasGenerationInput struct {
+	authorizeCreate func(context.Context) error
+
 	Mode             string                 `json:"mode"`
 	Prompt           string                 `json:"prompt"`
 	Config           providerConfig         `json:"config"`
@@ -62,6 +64,8 @@ type providerTextMessage struct {
 }
 
 type providerConfig struct {
+	resolvedChannelModelID string
+
 	ChannelID             string                 `json:"channelId"`
 	ChannelModelKey       string                 `json:"channelModelKey,omitempty"`
 	PriceTierID           string                 `json:"priceTierId,omitempty"`
@@ -163,11 +167,20 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 		return nil, err
 	}
 	input.Prompt = resolved
-	config, err := s.resolveProviderConfig(input.Config)
+	config, receiptOnly, err := s.resolveVideoReceiptConfig(ctx, input.Config, resumedProviderRequestID(ctx))
 	if err != nil {
 		return nil, err
 	}
 	input.Config = config
+	if input.Mode == "video" && config.resolvedChannelModelID != "" && resumedProviderRequestID(ctx) == "" {
+		if err := s.checkSLLVideoInput(ctx, config.resolvedChannelModelID, input); err != nil {
+			return nil, err
+		}
+	}
+	if metadata, ok := ctx.Value(providerAnalyticsKey{}).(providerAnalyticsContext); ok && input.Mode == "video" {
+		metadata.VideoProviderModelKey = config.Model
+		ctx = context.WithValue(ctx, providerAnalyticsKey{}, metadata)
+	}
 	if input.Mode == "text" {
 		s.ensureTextCapabilityConfig(&input)
 	}
@@ -237,7 +250,7 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 			return nil, err
 		}
 	}
-	if input.Mode == "video" {
+	if input.Mode == "video" && !receiptOnly {
 		if err := s.validateResolvedVideoCapability(&input); err != nil {
 			return nil, err
 		}
@@ -254,6 +267,11 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 	if input.Mode == "video" && input.VideoCapability != nil {
 		if err := validateVideoTask(input.VideoCapability, input); err != nil {
 			return nil, err
+		}
+		if config.resolvedChannelModelID != "" && input.VideoCapability.SLLWire != nil {
+			input.authorizeCreate = func(ctx context.Context) error {
+				return s.checkSLLVideoInput(ctx, config.resolvedChannelModelID, input)
+			}
 		}
 	}
 	switch input.Mode {
@@ -424,6 +442,7 @@ func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, 
 		return providerConfig{}, err
 	}
 	config.ChannelModelKey = modelKey
+	config.resolvedChannelModelID = channelModel.ID
 	config.ProviderModelKey = providerModelKey
 	config.Model = firstNonEmpty(providerModelKey, channelModel.ProviderModelKey, modelKey)
 	return config, nil

@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -41,5 +42,34 @@ func TestSeedanceUsesHostUpload(t *testing.T) {
 	body, err := json.Marshal(created.Body)
 	if err != nil || !strings.Contains(string(body), id) || strings.Contains(string(body), media.DataURL) {
 		t.Fatalf("create did not use uploaded URL: %s %v", body, err)
+	}
+}
+
+func TestSeedanceFixedDurationOmitsWireField(t *testing.T) {
+	raw, err := os.ReadFile("../../../plugin-packages/seedance-videos-compatible/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := LoadManifest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		seconds int
+		fixed   bool
+	}{{0, true}, {26, false}} {
+		request := GenerationRequest{Capability: CapabilityVideo, Model: "fixture", Prompt: "test", Duration: tc.seconds, OmitDuration: tc.fixed}
+		spec, err := adapter.BuildCreate(t.Context(), RequestContext{BaseURL: "https://provider.example", Request: request})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, ok := spec.Body.(map[string]any)
+		if !ok {
+			t.Fatalf("unexpected body: %T", spec.Body)
+		}
+		seconds, exists := body["duration"]
+		if (tc.fixed && exists) || (!tc.fixed && fmt.Sprint(seconds) != fmt.Sprint(tc.seconds)) {
+			t.Fatalf("fixed=%t duration=%v present=%t", tc.fixed, seconds, exists)
+		}
 	}
 }

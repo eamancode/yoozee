@@ -233,7 +233,7 @@ func SSSMaterialPackage(brief SSSBrief, materials []SSSMaterial, docs SSSDocs) s
 	if brief.MaxImages > 0 {
 		fmt.Fprintf(&b, "一个单元最多带 %d 张参考图；", brief.MaxImages)
 	}
-	b.WriteString("本平台没有参考视频和参考音频，提示词里不写 @视频、@音频、@某某声音。只有本轮任务指定「本单元要写 @站位参考」时，在生效参考素材中单独写一行「@站位参考：上一段最后一秒的全景定格画面；人物位置、朝向和持物以此为准」。其他单元不写该行。提示词按即梦十五段输出。\n")
+	b.WriteString("镜头表的台词/声音栏用「说话人（本句表演）：\"台词\"」标出实际对白。编译器按本段绑定的人物版本和这些对白自动关联已有声音样本、分配音频编号。草稿不自行填写 @音频、@某某声音 或 @视频。只有本轮任务指定「本单元要写 @站位参考」时，在生效参考素材中单独写一行「@站位参考：上一段最后一秒的全景定格画面；人物位置、朝向和持物以此为准」。其他单元不写该行。提示词按即梦十五段输出。\n")
 	b.WriteString("6. 用户手里有：本集剧本（见【本集剧本】）、拆剧本写好的立意页与全集结构表、导演定画风写好的世界基准段与视听总谱、资产出图的参考图（见【素材清单】）。\n")
 	if brief.EpisodeSeconds > 0 {
 		fmt.Fprintf(&b, "每集目标时长：约 %d 秒。\n", brief.EpisodeSeconds)
@@ -734,11 +734,11 @@ type sssTagMatch struct {
 	start, end int // 字节区间，含 @
 	material   int // 素材清单下标；-1 表示对不上或是保留标签
 	raw        string
-	// reserved 是平台不支持的保留标签：media（@视频、@音频、@站位参考）或 voice（@某某声音）；先于素材名判断，同名素材也不能绕过。
+	// 草稿保留标签由服务端分配，先于素材名判断。
 	reserved string
 }
 
-// SSSReservedTag 判断 @ 后面这一串是不是平台不支持的参考写法：@视频N、@音频N、@站位参考，或以「声音」结尾的 @某某声音。
+// SSSReservedTag 标识不能当作图片名称的媒体标签。
 func SSSReservedTag(token string) string {
 	switch {
 	case sssReservedMedia.MatchString(token):
@@ -822,9 +822,9 @@ func SSSPasteTags(paste string, materials []SSSMaterial) (used []int, problems [
 		problem := ""
 		switch {
 		case m.reserved == "media":
-			problem = fmt.Sprintf("标签 %s 不可用：本平台没有参考视频、参考音频和定格截图", m.raw)
+			problem = fmt.Sprintf("标签 %s 不可用：草稿只引用清单中的图片或指定的站位图；音频编号由编译器按绑定与台词分配", m.raw)
 		case m.reserved == "voice":
-			problem = fmt.Sprintf("标签 %s 不可用：本平台没有参考音频，声线串照写、前面不加 @", m.raw)
+			problem = fmt.Sprintf("标签 %s 不可用：请在台词栏写说话人；绑定版本的声音样本由编译器关联", m.raw)
 		case m.material < 0:
 			problem = fmt.Sprintf("标签 %s 不在素材清单里（只能用素材清单里的名称）", m.raw)
 		}

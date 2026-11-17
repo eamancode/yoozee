@@ -38,7 +38,7 @@ test("shot generation fits skill context into the model prompt limit and validat
     expect(source).toContain("if (promptLengthError) throw new Error(promptLengthError);");
 });
 
-test("shot generation submits historical character image, current voice and asset prompt", async () => {
+test("shot generation submits the pinned character image, pinned voice and asset prompt", async () => {
     const detail = {
         assets: [
             {
@@ -51,7 +51,7 @@ test("shot generation submits historical character image, current voice and asse
                     versionId: "character-version-2",
                     definition: { voiceLanguage: "普通话", voiceAge: "青年男性", voiceTimbre: "略带疲惫和震惊" },
                     representations: [{ id: "representation-1", resourceId: "character-image-1", mediaType: "image/png", role: "primary" }],
-                    voice: { profile: { sampleResourceId: "character-audio-1", language: "普通话", timbre: "沉稳" }, instructions: "内心独白语气" },
+                    voice: { profile: { sampleResourceId: "character-audio-2", language: "普通话", timbre: "沉稳" }, instructions: "内心独白语气" },
                 },
             },
             {
@@ -78,10 +78,11 @@ test("shot generation submits historical character image, current voice and asse
                         versionId: "character-version-2",
                         definition: { voiceLanguage: "普通话", voiceAge: "青年男性", voiceTimbre: "略带疲惫和震惊" },
                         representations: [{ id: "representation-2", resourceId: "character-image-2", mediaType: "image/png", role: "primary" }],
-                        voice: { profile: { sampleResourceId: "character-audio-1", language: "普通话", timbre: "沉稳" }, instructions: "内心独白语气" },
+                        voice: { profile: { sampleResourceId: "character-audio-2", language: "普通话", timbre: "沉稳" }, instructions: "内心独白语气" },
                     },
                 },
                 referencedVersion: {
+                    sampleResourceId: "character-audio-1",
                     id: "character-version-1",
                     assetId: "character-1",
                     version: 1,

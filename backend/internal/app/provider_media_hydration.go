@@ -19,6 +19,12 @@ func (s *Service) hydrateGenerationMedia(userID string, input *canvasGenerationI
 	groups := [][]providerMedia{input.ReferenceImages, input.ReferenceVideos, input.ReferenceAudios}
 	for groupIndex, group := range groups {
 		mediaPolicy := policy
+		// The Seedance adapter uploads images. SLL's video and audio arrays
+		// require provider-accessible HTTPS URLs, including for local assets.
+		sllURL := groupIndex > 0 && input.VideoCapability != nil && input.VideoCapability.SLLWire != nil
+		if sllURL {
+			mediaPolicy.requireURL = true
+		}
 		// 识图规划与 Agent 看图都发送归属校验后的实际像素，避免供应商无法读取签名 URL。
 		// 视频、音频及其他普通生成任务保留原来的协议策略。
 		inlineVision := input.Mode == "text" && ((input.AgentRequests != nil && input.AgentRequests.Canonical != nil) || metadataString(input.Metadata, "edit") == "layer-planning")
@@ -35,6 +41,9 @@ func (s *Service) hydrateGenerationMedia(userID string, input *canvasGenerationI
 		for index := range group {
 			if err := s.hydrateProviderMedia(userID, &group[index], mediaPolicy); err != nil {
 				return err
+			}
+			if sllURL && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(group[index].URL)), "https://") {
+				return errors.New("SLL 参考视频和音频需要可访问的 HTTPS 素材地址")
 			}
 		}
 	}

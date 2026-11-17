@@ -27,6 +27,11 @@ export function CreditCostFields({ index, form, billingMode, isVideo }: { index:
                     <Switch aria-label="配置积分成本价" />
                 </Form.Item>
             </header>
+            {isVideo && billingMode === "fixed_request" && (
+                <Form.Item name={[index, "upstreamRequestCostCny"]} label="上游人民币成本（元/条）" extra="按此渠道凭据的实际分组填写。未核实请留空。SLL 线路以同步的公开价档为准。">
+                    <InputNumber min={0} precision={6} step={0.1} />
+                </Form.Item>
+            )}
             {configured ? (
                 <div className={billingMode === "token" && !isVideo ? "admin-price-tier-cost-grid admin-price-tier-cost-token-grid" : "admin-price-tier-cost-grid"}>
                     {fields.map(([field, label]) => (

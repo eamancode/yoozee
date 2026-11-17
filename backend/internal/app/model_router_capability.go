@@ -50,6 +50,8 @@ type OptionConstraint struct {
 }
 
 type ModelRequestIntent struct {
+	LongestVideoSeconds float64 `json:"longestVideoSeconds,omitempty"`
+
 	Capability string         `json:"capability"`
 	Operation  string         `json:"operation,omitempty"`
 	Inputs     map[string]int `json:"inputs,omitempty"`
@@ -66,6 +68,17 @@ func ModelRequestIntentFromTaskInput(input map[string]any, taskType string, oper
 	for inputType, key := range map[string]string{"image": "referenceImages", "video": "referenceVideos", "audio": "referenceAudios"} {
 		if values, ok := input[key].([]any); ok {
 			intent.Inputs[inputType] = len(values)
+			if inputType == "video" {
+				for _, raw := range values {
+					media, _ := raw.(map[string]any)
+					millis, ok := numericScalar(media["durationMs"])
+					if !ok || millis <= 0 {
+						intent.LongestVideoSeconds = 0
+						break
+					}
+					intent.LongestVideoSeconds = max(intent.LongestVideoSeconds, millis/1000)
+				}
+			}
 		}
 	}
 	if mask, exists := input["mask"]; exists && mask != nil {

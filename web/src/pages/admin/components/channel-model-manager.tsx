@@ -20,6 +20,7 @@ import { ChannelModelRepriceDialog } from "./channel-model-reprice-dialog";
 import { deselectVisibleModels, filterImportModels, normalizeFetchModelKey, selectExistingImportModels, selectVisibleModels } from "./channel-model-import-selection";
 import { duplicateChannelModelValues, type ChannelModelFormValues } from "./channel-model-editor-form";
 import { Select } from "@/components/ui/base/select";
+import { SLLCatalogDialog } from "../channels/sll-catalog-dialog";
 
 export function ChannelModelManager({ channel, onChanged, health, healthLoading }: { channel: ModelChannel; onChanged: () => void | Promise<void>; health?: Map<string, AdminChannelModelHealth>; healthLoading?: boolean }) {
     const { message, modal } = App.useApp();
@@ -39,6 +40,7 @@ export function ChannelModelManager({ channel, onChanged, health, healthLoading 
     const [fetchKeyword, setFetchKeyword] = useState("");
     const [importing, setImporting] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
+    const [sllCatalogOpen, setSLLCatalogOpen] = useState(false);
     const [keyword, setKeyword] = useState("");
     const [capability, setCapability] = useState<ChannelModel["capability"] | "all">("all");
     const [status, setStatus] = useState<"all" | "enabled" | "disabled" | "unhealthy">("all");
@@ -246,7 +248,7 @@ export function ChannelModelManager({ channel, onChanged, health, healthLoading 
             ),
         },
         { title: "能力", dataIndex: "capability", width: 80, render: capabilityLabel },
-        { title: "稳定性（24h）", key: "health", width: 150, render: (_, item) => <ChannelModelHealthCell health={health?.get(channelModelHealthKey(channel.id, item.modelKey))} loading={healthLoading} /> },
+        { title: "创建请求成功率（24h）", key: "health", width: 150, render: (_, item) => <ChannelModelHealthCell health={health?.get(channelModelHealthKey(channel.id, item.modelKey))} loading={healthLoading} /> },
         {
             title: "请求协议",
             dataIndex: "protocol",
@@ -319,9 +321,10 @@ export function ChannelModelManager({ channel, onChanged, health, healthLoading 
                     <h3 className="admin-channel-model-heading">
                         模型管理 <span className="admin-channel-count">{items.length}</span>
                     </h3>
-                    <p className="admin-channel-model-hint">稳定性只统计模型生成请求；勾选模型可统一调价或批量删除</p>
+                    <p className="admin-channel-model-hint">勾选模型可统一调价或批量删除</p>
                 </div>
                 <Space wrap>
+                    {channel.sllCatalogAvailable && <Button onClick={() => setSLLCatalogOpen(true)}>SLL 视频线路目录</Button>}
                     <ChannelOrderDialog
                         channelId={channel.id}
                         onSaved={async () => {
@@ -337,6 +340,7 @@ export function ChannelModelManager({ channel, onChanged, health, healthLoading 
                     </Button>
                 </Space>
             </div>
+            {sllCatalogOpen && <SLLCatalogDialog channelId={channel.id} onClose={() => setSLLCatalogOpen(false)} onImported={async () => { await reload(); await onChanged(); }} />}
             {loadError ? (
                 <div className="admin-channel-load-error" role="alert">
                     <span>{loadError}</span>
@@ -387,7 +391,7 @@ export function ChannelModelManager({ channel, onChanged, health, healthLoading 
                         ) : null}
                         {status !== "all" ? (
                             <AdminFilterChip
-                                label={`状态：${status === "enabled" ? "已启用" : status === "disabled" ? "已停用" : "成功率低于 80%"}`}
+                                label={`状态：${status === "enabled" ? "已启用" : status === "disabled" ? "已停用" : "创建请求成功率低于 80%"}`}
                                 onRemove={() => {
                                     setStatus("all");
                                     setPage(1);
@@ -426,7 +430,7 @@ export function ChannelModelManager({ channel, onChanged, health, healthLoading 
                                 { label: "全部状态", value: "all" },
                                 { label: "已启用", value: "enabled" },
                                 { label: "已停用", value: "disabled" },
-                                { label: "24h 成功率低于 80%", value: "unhealthy" },
+                                { label: "24h 创建请求成功率低于 80%", value: "unhealthy" },
                             ]}
                         />
                     </>

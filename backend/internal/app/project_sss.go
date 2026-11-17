@@ -42,8 +42,9 @@ type dramaSSSMeta struct {
 	// Setup 表示项目还没有全剧圣经，这次运行先跑立项轮。
 	Setup bool `json:"setup,omitempty"`
 	// EstimatedTurns 是建任务时估的轮数（预授权、墙钟用）。
-	EstimatedTurns int            `json:"estimatedTurns"`
-	Repair         *sssRepairMeta `json:"repair,omitempty"`
+	EstimatedTurns  int            `json:"estimatedTurns"`
+	Repair          *sssRepairMeta `json:"repair,omitempty"`
+	UnitEditVersion int            `json:"unitEditVersion,omitempty"`
 	// Discard / Confirmed 同本体论：整集替换时用户确认过会丢掉的产物。
 	Discard   bool           `json:"discard,omitempty"`
 	Confirmed map[string]int `json:"confirmed,omitempty"`
@@ -218,6 +219,9 @@ func (s *Service) planSSSShots(userID string, project *model.Project, unit *mode
 		priors = sssTurnPriors(first, meta, sssOutputs{})
 	}
 	if repair == nil {
+		if meta.UnitEditVersion, err = s.repo.DirectorUnitEditVersion(project.ID, unit.ID); err != nil {
+			return nil, err
+		}
 		meta.EstimatedTurns = sssEstimatedTurns(meta, maxSeconds)
 	}
 	skillCtx, uses, err := drama.SSSSkillContext(skill, first, nil)
@@ -354,6 +358,8 @@ func (s *Service) prepareSSSRun(userID string, projectID string, unitID string, 
 		return BadAuthRequest("要继续的任务不是 SSS 导演分镜任务")
 	case prevStep.VersionID != plan.skill.VersionID:
 		return BadAuthRequest("SSS 导演技能已更新，不能混用旧轮次，请重新生成本集分镜")
+	case prevMeta.UnitEditVersion != meta.UnitEditVersion:
+		return directorDocumentConflict("本集分镜单元已删除，不能用删除前的导演轮次重新装段")
 	case sssFingerprint(prevMeta) != sssFingerprint(meta):
 		return BadAuthRequest("上一次任务之后剧本、素材、立意与结构、世界与总谱、全剧圣经、上一集交接卡或画风改过了，不能接着旧轮次写，请重新生成本集分镜")
 	}
@@ -916,6 +922,9 @@ func (s *Service) applySSSShotsTask(task model.Task, meta *dramaSSSMeta, result 
 	}
 	unlock := lockOntologyEpisode(target.UnitID)
 	defer unlock()
+	if err := s.checkDirectorUnitEditVersion(target.ProjectID, target.UnitID, meta.UnitEditVersion); err != nil {
+		return DramaStepTaskOutcome{}, err
+	}
 	removed, err := s.ontologyRemovedShots(task.UserID, target.ProjectID, target.UnitID, order)
 	if err != nil {
 		return DramaStepTaskOutcome{}, err

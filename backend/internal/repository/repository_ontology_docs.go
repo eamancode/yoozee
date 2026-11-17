@@ -18,6 +18,16 @@ func (r *Repository) LatestOntologyDocument(projectID string, unitID string, kin
 	return &doc, nil
 }
 
+// Episode documents generated or repaired by a task retain their task ID.
+// Manual card edits append a version without one.
+func (r *Repository) DirectorUnitEditVersion(projectID, unitID string) (int, error) {
+	var version int
+	err := r.db.Model(&model.ProjectOntologyDocument{}).Select("COALESCE(MAX(version), 0)").
+		Where("project_id = ? AND unit_id = ? AND kind = ? AND task_id = ?", projectID, unitID, model.OntologyDocEpisode, "").
+		Scan(&version).Error
+	return version, err
+}
+
 // OntologyDocumentsForProject 是项目各文档的最新版本（项目级和每集），按单元、种类排好。
 func (r *Repository) OntologyDocumentsForProject(projectID string) ([]model.ProjectOntologyDocument, error) {
 	var docs []model.ProjectOntologyDocument

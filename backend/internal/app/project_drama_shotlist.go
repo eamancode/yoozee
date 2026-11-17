@@ -45,6 +45,8 @@ type DramaShotlistWriteRequest struct {
 	Rows            []json.RawMessage  `json:"rows"`
 	Rule            *DramaShotlistRule `json:"rule,omitempty"`
 	ExpectedShotIDs []string           `json:"expectedShotIds,omitempty"`
+	// Repack pins the version whose rows it read, including for section-preserving writes.
+	sourceVersion int
 	// KeepDraft 为 true 时检查有 error 也不拒绝：分镜行、镜头表和检查结果照样写进镜头表记录（草稿），
 	// 但不装段、不动本章已有的段；用户处理完问题后用 repack 重新装段。生成分段的收尾用它。
 	KeepDraft bool `json:"-"`
@@ -694,7 +696,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 	shotlistJSON, _ := json.Marshal(shotlist)
 	checkJSON, _ := json.Marshal(report)
 	rowsJSON, _ := json.Marshal(req.Rows)
-	record := &model.DramaShotlist{ShotlistJSON: string(shotlistJSON), CheckJSON: string(checkJSON), RowsJSON: string(rowsJSON), SectionsJSON: sectionsJSON(sections), CompileProfileVersion: phrases.Version()}
+	record := &model.DramaShotlist{Version: req.sourceVersion, ShotlistJSON: string(shotlistJSON), CheckJSON: string(checkJSON), RowsJSON: string(rowsJSON), SectionsJSON: sectionsJSON(sections), CompileProfileVersion: phrases.Version()}
 	if script != nil {
 		scriptJSON, _ := json.Marshal(script)
 		record.ScriptJSON = string(scriptJSON)
@@ -1126,6 +1128,9 @@ func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID st
 	if err := json.Unmarshal([]byte(record.RowsJSON), &rows); err != nil {
 		return DramaShotlistWriteResult{}, fmt.Errorf("镜头表分镜行原文损坏: %w", err)
 	}
+	if len(rows) == 0 {
+		return DramaShotlistWriteResult{}, BadAuthRequest("本集镜头表已无分镜可装，请先添加分镜")
+	}
 	views, err := s.DramaSegments(userID, projectID, unitID)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
@@ -1153,7 +1158,7 @@ func (s *Service) RepackDramaShotlist(userID string, projectID string, unitID st
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
-	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, Parse: previous.Parse, LegacyScenes: legacy, AcceptIssues: accept, KeepSegments: keep, GuardDiscard: !req.Discard})
+	return s.WriteDramaShotlist(userID, projectID, unitID, DramaShotlistWriteRequest{Rows: rows, Rule: req.Rule, ExpectedShotIDs: expected, sourceVersion: record.Version, Parse: previous.Parse, LegacyScenes: legacy, AcceptIssues: accept, KeepSegments: keep, GuardDiscard: !req.Discard})
 }
 
 // DramaShotlist 读一章的镜头表、台词表与最近一次检查结果；这一章还没有镜头表时返回 nil。
@@ -1209,9 +1214,12 @@ func (s *Service) DramaShotlist(userID string, projectID string, unitID string) 
 
 // dramaRefAsset 是段参考文件对应的项目资产：known=false 表示认不出（Agent 手写的文件名等），这种参考原样保留。
 type dramaRefAsset struct {
-	asset    ProjectAssetSummary
-	known    bool
-	hasImage bool
+	asset     ProjectAssetSummary
+	known     bool
+	hasImage  bool
+	versionID string
+	sampleID  string
+	canSpeak  *bool
 }
 
 // dropImagelessRefs 去掉段里指向没图资产的参考：编译成「@图片N」却没有文件，提交时会缺图或错号。
@@ -1256,24 +1264,28 @@ func dropImagelessRefs(seg drama.Segment, lookup func(file string) dramaRefAsset
 
 // dramaRefLookup 按资产 ID、主版本 ID 或人物卡版本 ID 认出段参考指向的项目资产，并判断这个版本有没有图。
 func (s *Service) dramaRefLookup(userID string, projectID string, seg drama.Segment) (func(string) dramaRefAsset, error) {
+	if len(seg.Refs) == 0 {
+		return func(string) dramaRefAsset { return dramaRefAsset{} }, nil
+	}
 	assets, err := s.ProjectAssets(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
-	byFile := map[string]ProjectAssetSummary{}
-	versions := []string{}
+	byID := make(map[string]ProjectAssetSummary, len(assets))
 	for _, a := range assets {
-		byFile[a.ID] = a
-		if a.PrimaryVersionID != "" {
-			byFile[a.PrimaryVersionID] = a
-			versions = append(versions, a.PrimaryVersionID)
-		}
-		if a.Character != nil && a.Character.VersionID != "" {
-			byFile[a.Character.VersionID] = a
+		byID[a.ID] = a
+	}
+	var versions []string
+	for _, r := range seg.Refs {
+		if asset, ok := byID[r.File]; ok {
+			versions = append(versions, asset.PrimaryVersionID)
+		} else {
+			versions = append(versions, r.File)
 		}
 	}
-	for _, r := range seg.Refs {
-		versions = append(versions, r.File)
+	pinned, err := s.repo.ProjectAssetVersionsByIDs(projectID, versions)
+	if err != nil {
+		return nil, err
 	}
 	representations, err := s.repo.AssetRepresentationsByVersionIDs(versions)
 	if err != nil {
@@ -1285,11 +1297,35 @@ func (s *Service) dramaRefLookup(userID string, projectID string, seg drama.Segm
 			imagedVersions[r.AssetVersionID] = true
 		}
 	}
-	return func(file string) dramaRefAsset {
-		a, ok := byFile[file]
-		if !ok {
-			return dramaRefAsset{}
+	var characterVersions []string
+	for _, v := range pinned {
+		if byID[v.AssetID].Category == model.AssetCategoryCharacter {
+			characterVersions = append(characterVersions, v.ID)
 		}
-		return dramaRefAsset{asset: a, known: true, hasImage: imagedVersions[file] || dramaAssetHasImage(a, imagedVersions[a.PrimaryVersionID])}
-	}, nil
+	}
+	samples, err := s.repo.CharacterVoiceSamples(userID, projectID, characterVersions)
+	if err != nil {
+		return nil, err
+	}
+	byFile := make(map[string]dramaRefAsset, len(pinned))
+	for _, version := range pinned {
+		a, ok := byID[version.AssetID]
+		if !ok {
+			continue
+		}
+		info := dramaRefAsset{asset: a, known: true, versionID: version.ID, hasImage: imagedVersions[version.ID], sampleID: samples[version.ID]}
+		if info.sampleID != "" {
+			var definition struct {
+				Speaks *bool `json:"speaks"`
+			}
+			_ = json.Unmarshal([]byte(version.DefinitionJSON), &definition)
+			info.canSpeak = definition.Speaks
+		}
+		if version.ID == a.PrimaryVersionID {
+			info.hasImage = dramaAssetHasImage(a, info.hasImage)
+			byFile[a.ID] = info
+		}
+		byFile[version.ID] = info
+	}
+	return func(file string) dramaRefAsset { return byFile[file] }, nil
 }

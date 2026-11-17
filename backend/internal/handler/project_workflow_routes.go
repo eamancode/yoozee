@@ -133,7 +133,15 @@ func registerProjectWorkflowRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		if err := svc.DeleteProjectShot(user.ID, c.Param("id"), c.Param("shotId")); err != nil {
+		var req service.DeleteProjectShotRequest
+		if c.Request.ContentLength != 0 {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+			if err := c.ShouldBindJSON(&req); err != nil {
+				fail(c, http.StatusBadRequest, err)
+				return
+			}
+		}
+		if err := svc.DeleteProjectShotChecked(user.ID, c.Param("id"), c.Param("shotId"), req); err != nil {
 			failService(c, err)
 			return
 		}

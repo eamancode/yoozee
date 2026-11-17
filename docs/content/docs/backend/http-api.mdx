@@ -17,6 +17,8 @@ description: 信封、错误码与 OpenAPI
 
 ## 项目流水线
 
+新工作流与旧工作台用同一套项目单元接口管理剧集。`POST /api/projects/:id/units` 传 `kind: "episode"`、必填的 `title` 和可选的 `sourceText`。省略 `position` 会把新剧集追加到末尾，成功响应中的 `unit.id` 可用来定位新集。`DELETE /api/projects/:id/units/:unitId` 按稳定 ID 删除本集正文、镜头表、段及本集导演文档，解除本集的画布关联，保留画布与其他剧集。读取 `GET /api/projects/:id/units` 后按当前顺序展示；剧集的前序取同项目中排在它之前的最近一集。增删剧集本身不创建生成任务。
+
 `POST /api/projects` 接受 `workflowId=pipeline-1|…|pipeline-5`，依次为「流水线一 SSS 电影导演」「流水线二 SSS 短剧导演」「流水线三 本体论导演」「流水线四 资产一体化」「流水线五 原流程」，省略时选择流水线二。迁移 100 把原一、二、三顺延为三、四、五（下文本段其余描述沿用顺延前的编号，即原一＝现三、原二＝现四、原三＝现五）。流水线一、二的工作流定义含 `storyboardMode=sss`、`storyboardSkill=yz-sss-film-director|yz-sss-drama-director`、`scriptSkill`、`styleSkill`：拆剧本（`script.adapt`）、导演定画风（`style.lock`）、分镜（`chapter.shots`）用这三个技能，不走风格档案绑定表；资产与原二相同。见下文「SSS 导演分镜（流水线一、二）」。原有说明：`workflowId` 省略时选择原流水线一；非法值以 `project_production_invalid` 返回。项目读取返回 `workflowId`、`workflowVersion`，已创建项目不支持通过更新接口切换工作流。迁移 97 将旧流水线一、二顺延为二、三，空 ID 按三读取。流水线一、二共用资产一体化技能、四宫格和空间母版；二、三保持原分镜行为。步骤用法响应的 `workflow` 含 `id`、`label`、资产契约及版式，流水线一定义另含 `storyboardSkill=yz-ontology-director`、`storyboardMode=ontology`；流水线一的「生成分段」（`POST /api/projects/:id/units/:unitId/drama/steps/chapter.shots/run`）改用本体论导演分镜，用法查询返回契约 `ontology.director@1`、技能 `yz-ontology-director`，不会退回旧分镜。工作流不改变生成模式的停点、视频时长、声音流程或白模开关。
 
 流水线一的 `assets.extract` 返回 `assets.extract@2` 契约及固定技能版本。JSON Lines 新增 `generation_prompt`，人物子卡也携带完整提示词；旧摘要字段继续使用原语义。普通图片任务仍通过任务接口创建，服务端根据项目解析四宫格、空间母版或道具配方，不信任客户端指定的三视图模板来覆盖项目输出规格。
@@ -60,7 +62,11 @@ description: 信封、错误码与 OpenAPI
 
 `POST /api/projects/:id/video-chains/preview` 接收 `{unitId,shotId,model:{model,logicalModelId?,input},models?}`，以当前镜头顺序和场景归属扩展为连续同场景链，重新编译提示词并校验全部参考图、模型能力、时长、预演闸门和报价。`models` 可按镜头 ID 覆盖模型模板。返回 `data.chain`，含逐组内容/生成时长、原参考图数量、站位编号、结束段适用性、报价与 `previewHash`。
 
-`POST /api/projects/:id/video-chains` 额外要求 `requestId` 与最新 `previewHash`。重复请求不会新增控制链或重复扣费。`GET /api/projects/:id/video-chains?unitId=...` 返回 `data.chains`；`POST .../:chainId/retry` 从失败步骤继续，保留有效结果；`POST .../:chainId/cancel` 停止后续生成，已提交视频继续保存。所有接口校验登录、项目与章节归属。
+`POST /api/projects/:id/video-chains` 额外要求 `requestId` 与最新 `previewHash`。`GET /api/projects/:id/video-chains?unitId=...` 返回 `data.chains`。`POST .../:chainId/cancel` 停止后续生成并保留已提交的任务。所有接口校验登录、项目与章节归属。
+
+链失败后，先在同一预览接口传 `resumeChainId` 和选定的模型。恢复预览保留已完成段，费用合计仅含仍待生成的段。用户确认后，向 `POST .../:chainId/retry` 提交同一规格、`resumeChainId`、新预览的 `previewHash` 与本次 `requestId`。重复确认复用同一次提交。线路、正文或报价变化后须重新预览。
+
+失败段的 `diagnostic` 包含原尝试、受理状态、故障类别、账务状态以及可用操作。有上游任务 ID 的执行超时可通过 `POST /api/tasks/:taskId/query-provider` 查询已发出的请求。原请求明确未受理或已查询到失败终态，且账务已核清时，可重新报价。无可用路由的 503 与原因不明的 503 分别显示。仅有通用 503 且缺少上游任务 ID 时，继续保留原尝试，等待回执核对。
 
 控制链持久化在后端，后续镜头等待前组视频可读、截帧保存及参考上传成功后才提交。提示词开头引用实际新增图片编号，片末段改为最后 1 秒硬切至 45° 俯视白模大全景；最后一组不附结束段。正文保持完整，最后 1 秒包含在生成总时长内。失败记录阶段及原因，超限或不支持参考图片时不忽略站位图。镜头、顺序或模型变化会暂停旧计划，重试重新编译最新内容；不静默沿用过期引用或报价。任务 API 禁止客户端伪造控制链或预上传标识。
 
@@ -683,9 +689,23 @@ Agent 已不再注入、召回或写入下列经验条目，记忆设置页只�
 
 ## 管理员系统渠道
 
+连接 SLL 的系统渠道在管理员投影中带有 `sllCatalogAvailable: true`。在「渠道与模型」选择该渠道，打开「SLL 视频线路目录」，填写凭据实际使用的供应商分组后同步。每个档位显示上游人民币成本，面向用户的积分售价沿用渠道模型定价入口。
+
+系统模型和逻辑模型的报价均返回 `amountMicrocredits` 作为用户的平台积分费用。命中受管 SLL 规格时，另返回 `upstreamCost`，其中 `currency=CNY`、`unit=request`、`amountMicros` 以百万分之一人民币元表示每条视频的上游成本。线路限制参考视频时长时，报价请求的 `intent.longestVideoSeconds` 应提供本段最长参考视频的秒数。实际出片从本段素材读取时长。
+
+| 接口 | 功能 |
+| --- | --- |
+| `GET /api/admin/channels/:id/sll-catalog` | 读取最近已导入的目录、排除原因、按上游 ID 对应的能力和模型级成功率。成本字段 `costMicroCny` 以百万分之一元/条表示。 |
+| `POST /api/admin/channels/:id/sll-catalog/sync` | 传入 `{ group }`，读取 SLL 公开价目并更新此系统渠道，返回本次目录和新增、更新、排除结果。 |
+| `POST /api/admin/channels/:id/sll-catalog/metrics` | 手动刷新已导入 SLL 线路的当小时快照，采集失败时保留可查的上次采集时间。 |
+
+后台 worker 每小时从公开接口读取近 24 小时模型级成功率。统计里的 `rate` 使用 0–100 百分值，`sampleCount` 仅在来源提供时有值。界面区分零成功率、无统计、采集失败和过期。渠道管理表的「创建请求成功率」另按影策自己的上游请求日志计算。
+
 `POST /api/admin/channels/:id/duplicate` 需要管理员权限，会复制指定系统渠道的连接配置、加密凭证、请求头、模型和价格档，生成新的渠道与模型 ID；复制渠道名称自动追加“ - 副本”。原渠道及其前台供应线路不受影响。
 
 ## 短剧制作线（yoozee 1.0 skills）
+
+分镜卡通过 `DELETE /projects/:id/shots/:shotId` 删除一个单元。路径使用稳定的镜头记录 ID。新卡头提交 `{expectedRevisionId, expectedArtifactIds}`，无产物时传空数组。服务端核对项目归属、当前版本、产物及占用任务后，在同一事务中删除本单元关联、同步本集镜头表或导演文档，并更新同场衔接。项目资产、共享文件和历史任务回执保留。成功返回 `{deleted: true}`。重复删除或目标不属于本项目返回 404，任务占用或确认过期返回 409。
 
 「段」是生成单位：一个镜头记录（Shot）就是一段，一段 = 一次视频生成，段内可以有多个镜头。单段上限由项目的生成模型决定，数据来自 `backend/builtin/kb-dialects/models.json`（与 `yoozee-skills/` 源同步，测试校验两份一致）。
 
@@ -764,7 +784,7 @@ Agent 已不再注入、召回或写入下列经验条目，记忆设置页只�
   - 项目：`POST /projects`、`PUT /projects/:id` 增加 `styleProfile`（五选一；新建不传按画风对照推荐，更新传了就必须是内置档案）。M8 起建项目对话框不再传它（不显示风格档案），项目风格在建完项目后用风格锁定或风格库定（见上）。
 - `POST /projects/:id/units/:unitId/drama/shotlist/repack`：用这一章已存的分镜行原文（`drama_shotlists.rows_json`）按当前生效的编译档案重新检查、装段，不调模型；body 可带 `rule`（渠道段长只能收紧；需求文档 `brief_json.segment_seconds` 同样生效）。镜头表是检查没过的草稿时重装仍要过检查：还有 error 返回 400 `shotlist_check_failed`，草稿不变；过了就装段并整章替换。body 带 `acceptIssues: true` 是「先装段，到分镜制作再改」（M8 卡 H）：检查有 error 也装段写库，`check_json` 记 `accepted: true`，返回的 `accepted` 为 `true`，`notes` 说明带着几个问题，问题按镜头挂到段上（`GET .../drama/segments` 的 `issues`、镜头表的 `issues`），进度 `GET .../drama/progress` 每段带 `issues`（条数）、`counts.issues`（带问题的段数），进度行后面接「带问题的段 N」。会让装段本身做不成的问题仍返回 400 `shotlist_check_failed`、草稿不变，`details.blocked` 写明原因：镜头时长（`spec.est`）不是正数；一场找不到合法切点、整场装成一段又超过单段上限。已经带着问题装过段的镜头表，之后重装（改了时长、资产、编译档案）不用再给 `acceptIssues`。按小节生成的镜头表（存了 `sections_json`，含草稿上的「先装段」）走保留装段，与「重新生成问题小节」、改戏类同一规则：节没变的段沿用原段 ID，内容和引用都没变时产物原样留着，内容变了加版本、按指纹过期；对不上任何节的旧段才删（连同候选视频与证据）。按场生成的旧镜头表仍整章替换。要删的段上有分镜图、预演或视频时，不带 `discard: true` 返回 409 `drama_segments_discard_required`（`details.discards: [{ shotId, segment, section?, label, artifacts: { storyboard?, action_board?, video? } }]`），什么都不写；带了才删。镜头表版本加一。生成分段收尾时上一版镜头表是已接受（`accepted`）的：只重写几节（部分重跑、改戏类）后检查出的 error 若都是之前接受过的（同一规则、同一句台词、所在小节没重写——场、正文行、戏类、台词、原样输出都一样），照常带着问题装段（`accepted` 保持，`notes` 写明），不再落成草稿；有新出现的 error 照常存草稿。M5 之前保存的镜头表没有原文，返回 400，需要重新生成分段。
 - 评测重跑（M5，管理员）：`POST /admin/drama/eval` `{ stage: "compile", projectId, unitIds?, candidateVersion, baselineVersion?, model? }`。`stage` 为流程步骤 ID（如 `chapter.shots`）时评测技能包版本：`{ stage, skillVersionId, skillId?, model, logicalModelId?, config }`，与 `POST /admin/drama/packages/:id/versions/:vid/eval` 相同，返回 `{ eval }`。视频提示词阶段：已存镜头表 → 检查 → 装段 → 编译，候选与基线（默认当前生效）两份编译档案各跑一遍，不调模型、不改项目；章节默认取有镜头表的第一章，`model` 默认项目生成模型（渠道段长规则没有存，不叠加）。资产有没有图按项目现状判断（与写镜头表相同：没图的不成参考，人物写外貌声明，场景、道具写进镜头描述）。镜头表有 `rows_json` 时按原文重放；老镜头表用已存镜头表反推每镜绑定（段参考、段的人物声明、镜头描述里的「场景·X：」「道具·X：」），已存段的参考已经按一镜一个场景收过，不再收。返回 `{ run }`：`rows` 每个版本 × 每章一行（检查 error / warn、spec 写出率、镜头数、段数、总时长与段时长范围、提示词字数合计 / 平均 / 最长、超模型上限段数、超软预算段数、编译 warn、装段问题），`markdown` 是同一张表，`segments` 是逐段候选 / 基线提示词；结果写入 `drama_eval_runs`。`GET /admin/drama/eval-runs` 返回最近的视频提示词阶段评测（不含逐段提示词；技能包评测在版本列表里看）。离线同一套逻辑：`go run ./cmd/drama-eval -fixture <夹具目录> -chapter <正文> -model <模型> -candidate <档案 JSON> [-baseline <档案 JSON>] [-imaged all|<资产 id,…>] [-json <输出>]（`-imaged` 不给表示资产都没图）`。
-- `POST /projects/:id/shots/:shotId/compile`：body `{ model?, style?, acting?, maxReferenceImages? }`。本场色卡（M8 卡 B）：这一段以 `role=style` 绑了场次色卡（`kind=scene`、场次还在）且这一版有合成图时，色卡图排在角色 / 场景 / 道具之后作最后一张参考图（`files` 末尾 `{ file: 色卡版本 ID, tag: "@图片N"（H3 是 `<Picture N>`）, role: "palette" }`，提示词末尾加一句它是本场色卡、画面用色以它为准）；参考图名额（`maxReferenceImages`，前端按所选视频渠道模型的能力配置传；没给时取模型族的图片参考上限）已满、首尾帧模式或色卡还没有合成图时不带图，提示词末尾加一行「本场色值：中文名 HEX、…」，`issues` 记一条 warn——色卡优先级最低，不挤掉别的参考图。分镜图和黑白预演不走编译、不带色卡。编译前去掉段里指向没图资产的参考（存量段、前端装段、Agent 写的段同样处理）：人物改写 `cast` 外貌声明，场景、道具不挂，一张都不剩时按 `text_only` 编译，并在 `issues` 里各记一条 warn；认不出的参考文件原样保留。按生成模型的方言编译提示词，返回 `prompt`、`paste`（即梦网页粘贴版：提示词 + 上传清单 + 时长）、参考清单（`files[].file/tag/role`）、`warnings`（风险 ⚠️）和 `issues`；风格段：请求给了 `style` 用请求的；否则项目选了画风（`projects.style_profile_json` 的执行规范）就按编译档案 `blocks.project_style` 写成风格段，档案的 `style_block` 只在项目没选画风（或只存了预设 ID、没有执行规范快照的老项目）时兜底；表演块和段写了 `profile` 时一样取该档案的（2.1 段，与本机 `compile.py` 一致），台词三元齐全时写成「音色 + 语速 + 语调 + 情感」四元；没有分段 JSON 的旧镜头按单镜头段推导（`derived: true`）。段内镜头可带 `sound`（这一镜的声音）和 `end_state`（这一镜结束时的状态）：段没写 `sound` 时按镜头顺序接各镜头的声音，没写 `rules` 时取最后一镜的 `end_state`，拆段、合段、移镜头后声音和结尾约束跟着镜头走。与 `yoozee-skills` 的 `compile.py` 共用 `tests/fixtures` 对照用例。
+- `POST /projects/:id/shots/:shotId/compile`：body `{ model?, channelModel?, style?, acting?, maxReferenceImages? }`。选定线路时，`channelModel` 的已知模型族决定图片和声音编号所用的方言，无法识别时沿用项目模型。显式 `model` 优先。本场色卡（M8 卡 B）：这一段以 `role=style` 绑了场次色卡（`kind=scene`、场次还在）且这一版有合成图时，色卡图排在角色 / 场景 / 道具之后作最后一张参考图（`files` 末尾 `{ file: 色卡版本 ID, tag: "@图片N"（H3 是 `<Picture N>`）, role: "palette" }`，提示词末尾加一句它是本场色卡、画面用色以它为准）；参考图名额（`maxReferenceImages`，前端按所选视频渠道模型的能力配置传；没给时取模型族的图片参考上限）已满、首尾帧模式或色卡还没有合成图时不带图，提示词末尾加一行「本场色值：中文名 HEX、…」，`issues` 记一条 warn——色卡优先级最低，不挤掉别的参考图。分镜图和黑白预演不走编译、不带色卡。编译前去掉段里指向没图资产的参考（存量段、前端装段、Agent 写的段同样处理）：人物改写 `cast` 外貌声明，场景、道具不挂，一张都不剩时按 `text_only` 编译，并在 `issues` 里各记一条 warn；认不出的参考文件原样保留。按生成模型的方言编译提示词，返回 `prompt`、`paste`（即梦网页粘贴版：提示词 + 上传清单 + 时长）、参考清单（`files[].file/tag/role`）、`warnings`（风险 ⚠️）和 `issues`；风格段：请求给了 `style` 用请求的；否则项目选了画风（`projects.style_profile_json` 的执行规范）就按编译档案 `blocks.project_style` 写成风格段，档案的 `style_block` 只在项目没选画风（或只存了预设 ID、没有执行规范快照的老项目）时兜底；表演块和段写了 `profile` 时一样取该档案的（2.1 段，与本机 `compile.py` 一致），台词三元齐全时写成「音色 + 语速 + 语调 + 情感」四元；没有分段 JSON 的旧镜头按单镜头段推导（`derived: true`）。段内镜头可带 `sound`（这一镜的声音）和 `end_state`（这一镜结束时的状态）：段没写 `sound` 时按镜头顺序接各镜头的声音，没写 `rules` 时取最后一镜的 `end_state`，拆段、合段、移镜头后声音和结尾约束跟着镜头走。与 `yoozee-skills` 的 `compile.py` 共用 `tests/fixtures` 对照用例。
 - `GET|POST /projects/:id/drama/evidence`：证据。`transcript` 必须带成功的转写任务 `taskId`，字错率由服务端计算（阈值 5%）。
 - `POST /projects/:id/artifacts/:artifactId/transcribe`：对候选创建本地转写任务；`/frames`：生成抽帧拼图并记一条待人判的 `frames` 证据；`/pick`：`{ reason }` 选定候选，证据不齐返回 `evidence_missing`。
 - `POST /projects/:id/drama/gate`：成片门禁（同步、黑场 / 静音、响度 ±1 LUFS、真峰值 ≤ -1.5 dBTP）。不传 `resourceId` / `artifactId` 时检查最近一次剪辑导出的成片；传 `artifactId` 只记响度量数。
@@ -1071,5 +1091,9 @@ install 的 Base URL、协议、能力和成本全部从服务端快照读取，
 `POST /api/projects/:id/shots/:shotId/assets` 继续接受 `{ assetVersionId, role }`，并可携带 `replaceReferenceId` 原子更换该镜头已有的同类型参考。人物主卡与子卡均使用各自实际版本 ID。`DELETE /api/projects/:id/shots/:shotId/assets/:referenceId` 取消引用。有分段 Spec 时，这两个入口在一次事务内同步 `spec.refs`、图片引用编号和镜头关联；失败不部分提交，不再由前端追加第二次写段请求。并发保存冲突返回 HTTP 409、`reason=conflict`。
 
 章节工作区的 `shotReferences` 返回固定版本的 `referencedVersion.representations`，以及 `source`、`position`；`source=segment` 是分段引用的投影，顺序与图片编号一致。资源预览和生成前媒体解析使用固定版本图片，不能用资产当前主图替代。迁移 99 补齐已有有效引用，无效或越权引用不补齐、不触发重新生成。
+
+已绑定的角色版本有可用声音样本时，工作区返回 `referencedVersion.sampleResourceId` 供试听。结构化单元按该角色在镜头里的台词和说话资格选用样本。没有结构化分段的旧镜头按带图的绑定角色版本选样。换演员时，人物引用的可选 `speaker` 保留剧本里的说话人。子卡独立取样，切换版本、换角色和解除都会重新计算声音编号。
+
+分段编译响应的 `compiled.voiceBindings[]` 给出参与声音参考的版本 `versionId`、样本 `sampleResourceId` 和模型方言编号 `tag`。共用同一资源的绑定共享编号。`compiled.result.files[]` 中 `role=voice` 的 `file` 为样本资源 ID。出片链用这份清单组装 `referenceAudios`，每步预览的 `referenceAudioCount` 是去重后的数量。线路无法接收所需音频时，报价和提交会返回调整绑定或换线的原因。
 
 批量编辑已有分段时省略 `refs` 表示保留已有参考；拆合段声明 `inherit` 时，缺省参考同时继承来源段的分段参考。显式 `refs:[]` 清空该段的自动投影，独立色卡和其他用途关联保持不变。

@@ -189,7 +189,7 @@ func compileSeedance(seg Segment, m Model, style, acting string, cp *CompileProf
 			files = append(files, CompiledFile{bridge.BridgeClip, ref, "motion"})
 		}
 		for k, v := range seg.Voices {
-			ref := fmt.Sprintf("@音频%d", k+1)
+			ref := ReferenceAudioTag(m, k+1)
 			decl = append(decl, fill(sp.RoleVoice, "ref", ref, "name", v.Character))
 			files = append(files, CompiledFile{v.File, ref, "voice"})
 		}
@@ -332,7 +332,8 @@ func compileH3(seg Segment, m Model, style, acting string, cp *CompileProfile) (
 	}
 	var body strings.Builder
 	body.WriteString("integrated_multimodal_description:\n")
-	var speakers []string
+	speakerSlots := map[string]int{}
+	voiceCount := 0
 	switch seg.Mode {
 	case ModeLockFirstFrame:
 		files = append(files, CompiledFile{seg.FirstFrame, "first_frame", "first_frame"})
@@ -363,14 +364,17 @@ func compileH3(seg Segment, m Model, style, acting string, cp *CompileProfile) (
 			roles = append(roles, fmt.Sprintf("<Picture %d> ", i+1)+strings.TrimSpace(fill(tpl, "note", note)))
 		}
 		for k, v := range seg.Voices {
-			speakers = append(speakers, v.Character)
-			ref := fmt.Sprintf("<Audio %d>", k+1)
+			for _, name := range strings.Split(v.Character, "、") {
+				speakerSlots[name] = k + 1
+			}
+			voiceCount = k + 1
+			ref := ReferenceAudioTag(m, k+1)
 			files = append(files, CompiledFile{v.File, ref, "voice"})
 			roles = append(roles, fill(hp.RoleVoice, "ref", ref, "name", v.Character, "speaker", fmt.Sprintf("S%d", k+1)))
 		}
 		if len(roles) > 0 {
 			body.WriteString("Reference roles: " + joinNonEmpty(roles, "; ") + ".")
-			if len(speakers) > 0 {
+			if voiceCount > 0 {
 				body.WriteString(hp.DeliveryNote)
 			}
 			body.WriteString("\n")
@@ -380,6 +384,7 @@ func compileH3(seg Segment, m Model, style, acting string, cp *CompileProfile) (
 	if lang == "" {
 		lang = cp.Line.Language
 	}
+	nextSpeaker := voiceCount + 1
 	for k, sh := range seg.Shots {
 		line := ""
 		if k == 0 {
@@ -387,11 +392,14 @@ func compileH3(seg Segment, m Model, style, acting string, cp *CompileProfile) (
 		}
 		line += strings.TrimSpace(sh.Text)
 		for _, ln := range sh.Lines {
-			idx := 1
-			for i, s := range speakers {
-				if s == ln.Speaker {
-					idx = i + 1
-					break
+			idx := speakerSlots[ln.Speaker]
+			if idx == 0 {
+				idx = 1
+				if voiceCount > 0 {
+					// A speaker without a sample must not inherit another speaker's timbre.
+					idx = nextSpeaker
+					nextSpeaker++
+					speakerSlots[ln.Speaker] = idx
 				}
 			}
 			vo := ""
@@ -648,4 +656,11 @@ func ReferenceImageTag(m Model, index int) string {
 		return fmt.Sprintf("@图片%d", index)
 	}
 	return fmt.Sprintf("<Picture %d>", index)
+}
+
+func ReferenceAudioTag(m Model, index int) string {
+	if m.Dialect() == "seedance" {
+		return fmt.Sprintf("@音频%d", index)
+	}
+	return fmt.Sprintf("<Audio %d>", index)
 }

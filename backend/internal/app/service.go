@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -103,6 +104,7 @@ type Service struct {
 	approvedMediaClosed      bool
 	providerCatalogOnce      sync.Once
 	providerCatalog          *providercatalog.Source
+	sllPublicClient          *http.Client
 	creditPolicyMu           sync.RWMutex
 	creditPolicyCache        *CreditPolicy
 	creditPolicyAt           time.Time
@@ -203,6 +205,7 @@ func (s *Service) StartWorker() {
 	s.startSkillSyncWorker(ctx)
 	s.startPaymentWorker(ctx)
 	s.startBillingAutoRefundWorker()
+	s.startSLLMetricsWorker()
 	s.startDramaScheduler()
 	go s.syncAgentSessionLimit()
 	s.runWorkerLoop(func(ctx context.Context) {

@@ -24,24 +24,87 @@ func segmentReferenceWriteError(err error) error {
 	return err
 }
 
-func (s *Service) segmentReferencePlan(userID, projectID, shotID, expected string, spec string, now time.Time) ([]repository.SegmentReferenceSync, error) {
+func (s *Service) segmentReferencePlan(userID, projectID, shotID, expected string, revision *model.ShotRevision, now time.Time) ([]repository.SegmentReferenceSync, error) {
 	var seg drama.Segment
-	if json.Unmarshal([]byte(spec), &seg) != nil || seg.ID == "" {
+	if json.Unmarshal([]byte(revision.SpecJSON), &seg) != nil || seg.ID == "" {
 		return nil, nil
 	}
 	plan := repository.SegmentReferenceSync{ExpectedRevisionID: expected}
 	seen := map[string]bool{}
+	pinned := map[string]string{}
 	for _, ref := range seg.Refs {
 		version, err := s.repo.ProjectReferenceVersion(userID, projectID, ref.File)
 		if err != nil {
 			return nil, BadAuthRequest(fmt.Sprintf("分段参考 %s 不属于本项目或版本不可用", ref.File))
+		}
+		if ref.File != version.ID {
+			pinned[ref.File] = version.ID
 		}
 		if !seen[version.ID] {
 			plan.References = append(plan.References, model.ShotAssetReference{ID: newID(), ShotID: shotID, AssetVersionID: version.ID, CreatedAt: now})
 			seen[version.ID] = true
 		}
 	}
+	if len(pinned) > 0 {
+		remapSegmentFiles(&seg, pinned)
+		raw, err := json.Marshal(seg)
+		if err != nil {
+			return nil, err
+		}
+		revision.SpecJSON = string(raw)
+	}
 	return []repository.SegmentReferenceSync{plan}, nil
+}
+
+func remapSegmentFiles(seg *drama.Segment, pinned map[string]string) {
+	for i := range seg.Refs {
+		if version := pinned[seg.Refs[i].File]; version != "" {
+			seg.Refs[i].File = version
+		}
+	}
+	remap := func(files []string) {
+		for i, file := range files {
+			if version := pinned[file]; version != "" {
+				files[i] = version
+			}
+		}
+	}
+	for i := range seg.Shots {
+		remap(seg.Shots[i].Refs)
+	}
+	if seg.ContinuityBridge != nil {
+		remap(seg.ContinuityBridge.SharedRefs)
+	}
+}
+
+// Older specs can contain an asset ID even though the association stored the exact version.
+func (s *Service) pinStoredSegmentFiles(projectID string, seg *drama.Segment, refs []model.ShotAssetReference) error {
+	var ids []string
+	for _, ref := range refs {
+		if ref.Role == "reference" && ref.Status == "linked" {
+			ids = append(ids, ref.AssetVersionID)
+		}
+	}
+	versions, err := s.repo.ProjectAssetVersionsByIDs(projectID, ids)
+	if err != nil {
+		return err
+	}
+	pinned := map[string]string{}
+	for _, version := range versions {
+		if _, exists := pinned[version.AssetID]; exists {
+			// With multiple versions bound, a historical asset ID alone is ambiguous.
+			pinned[version.AssetID] = ""
+		} else {
+			pinned[version.AssetID] = version.ID
+		}
+	}
+	for _, ref := range seg.Refs {
+		if id, exists := pinned[ref.File]; exists && id == "" {
+			return BadAuthRequest("分段中的旧资产编号对应多个版本，请明确指定版本")
+		}
+	}
+	remapSegmentFiles(seg, pinned)
+	return nil
 }
 
 // Called inside the link/unlink transaction; the spec and its association rows
@@ -69,6 +132,9 @@ func (s *Service) changeSegmentAsset(userID, projectID, shotID, addVersion, repl
 	if err != nil {
 		return true, err
 	}
+	if err := s.pinStoredSegmentFiles(projectID, &seg, refs); err != nil {
+		return true, err
+	}
 	removeVersion := ""
 	if id := firstNonEmpty(removeID, replaceID); id != "" {
 		i := slices.IndexFunc(refs, func(r model.ShotAssetReference) bool { return r.ID == id })
@@ -76,6 +142,9 @@ func (s *Service) changeSegmentAsset(userID, projectID, shotID, addVersion, repl
 			return true, NotFound("镜头资产引用不存在")
 		}
 		if refs[i].Role != "reference" {
+			if replaceID != "" {
+				return true, BadAuthRequest("只能更换普通资产绑定，风格与连续性引用独立维护")
+			}
 			return false, nil
 		}
 		removeVersion = refs[i].AssetVersionID
@@ -116,6 +185,17 @@ func (s *Service) changeSegmentAsset(userID, projectID, shotID, addVersion, repl
 			if previousAsset.Category != asset.Category {
 				return true, BadAuthRequest("请使用同类型资产更换当前引用")
 			}
+			if index >= 0 && asset.Category == model.AssetCategoryCharacter && seg.Refs[index].Speaker == "" {
+				speaker := previousAsset.Title
+				if previousAsset.ParentAssetID != "" {
+					parent, err := s.repo.AssetForUser(userID, previousAsset.ParentAssetID)
+					if err != nil {
+						return true, err
+					}
+					speaker = parent.Title
+				}
+				seg.Refs[index].Speaker = speaker
+			}
 		}
 		if index >= 0 && slices.ContainsFunc(seg.Refs, func(r drama.Ref) bool { return r.File == version.ID && r.File != seg.Refs[index].File }) {
 			return true, BadAuthRequest("该资产已在本段参考中，请选择其他资产")
@@ -129,6 +209,7 @@ func (s *Service) changeSegmentAsset(userID, projectID, shotID, addVersion, repl
 		}
 		if index >= 0 {
 			seg.Refs[index].File = version.ID
+			seg.Refs[index].Note = asset.Title
 		} else {
 			if !slices.ContainsFunc(seg.Refs, func(r drama.Ref) bool { return r.File == version.ID }) {
 				seg.Refs = append(seg.Refs, drama.Ref{File: version.ID, Role: role, Note: asset.Title})
@@ -139,6 +220,10 @@ func (s *Service) changeSegmentAsset(userID, projectID, shotID, addVersion, repl
 		seg.Verbatim = remapRemovedReference(seg.Verbatim, oldRefs, index)
 	}
 	if removeVersion != "" {
+		if bridge := seg.ContinuityBridge; bridge != nil && removeVersion != addVersion {
+			// A replaced version is no longer the version shared with the preceding segment.
+			bridge.SharedRefs = slices.DeleteFunc(bridge.SharedRefs, func(file string) bool { return file == removeVersion })
+		}
 		for i := range seg.Shots {
 			var kept []string
 			for _, file := range seg.Shots[i].Refs {
@@ -159,6 +244,15 @@ func (s *Service) changeSegmentAsset(userID, projectID, shotID, addVersion, repl
 	if seg.Mode == "lock_identity" && len(seg.Refs) == 0 {
 		seg.Mode = "text_only"
 	}
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
+		return true, err
+	}
+	lookup, err := s.dramaRefLookup(userID, projectID, seg)
+	if err != nil {
+		return true, err
+	}
+	resolveSegmentVoices(&seg, project, false, lookup)
 	raw, err := json.Marshal(seg)
 	if err != nil {
 		return true, err

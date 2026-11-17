@@ -83,6 +83,10 @@ export function formatPriceRange(values: number[], suffix: string) {
 export function modelQuoteDescription(quote: LogicalModelQuote) {
     const amount = (quote.amountMicrocredits / 1_000_000).toLocaleString("zh-CN", { maximumFractionDigits: 6 });
     const descriptions = [`${quote.estimated ? "预计" : "本次"}消耗 ${amount} 积分`];
+    if (quote.upstreamCost) {
+        const cost = (quote.upstreamCost.amountMicros / 1_000_000).toLocaleString("zh-CN", { maximumFractionDigits: 6 });
+        descriptions.push(`上游成本 ¥${cost}/条（公开基价）`);
+    }
     const estimate = quote.videoTokenEstimate;
     if (estimate) {
         descriptions.push(`公式预估 ${estimate.formulaTokens.toLocaleString("zh-CN")} 视频 Token，平台额外预留 ${estimate.reservationMarginPercent}%（共 ${estimate.reservedTokens.toLocaleString("zh-CN")} Token）`);

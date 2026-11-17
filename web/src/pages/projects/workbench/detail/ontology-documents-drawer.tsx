@@ -14,6 +14,7 @@ import type { ProjectDetail } from "@/services/api/projects";
 import { useConfigStore } from "@/stores/use-config-store";
 
 import { repairOntologyUnit } from "./project-chapter-ai";
+import { EpisodePredecessor } from "./episode-predecessor";
 
 type Props = { detail: ProjectDetail; open: boolean; onClose: () => void };
 
@@ -35,7 +36,8 @@ export function OntologyDocumentsDrawer({ detail, open, onClose }: Props) {
     const units = useMemo(() => detail.units.slice().sort((a, b) => a.position - b.position), [detail.units]);
     const mode = docs.data?.mode || projectWorkflow(detail.project.workflowId).storyboardMode;
     const terms = directorTerms(mode);
-    const generated = units.filter((unit) => docs.data?.episodes.some((doc) => doc.unitId === unit.id));
+    const generated = new Set(docs.data?.episodes.map((doc) => doc.unitId));
+    const visibleUnits = units.filter((unit) => unit.kind === "episode" || generated.has(unit.id));
     const items = [
         { key: "bible", label: terms.bible, children: <BiblePanel projectId={projectId} docs={docs.data} mode={mode} /> },
         ...(mode === "sss"
@@ -44,7 +46,7 @@ export function OntologyDocumentsDrawer({ detail, open, onClose }: Props) {
                   { key: "world", label: "世界与总谱", children: docs.data?.world ? <DocumentText text={docs.data.world.content} /> : <EmptyState size="compact" title="还没有世界基准段与视听总谱" description="「导演定画风」锁定风格时一起写出世界基准段、视觉总谱和声音总谱。" /> },
               ]
             : []),
-        ...generated.map((unit) => ({ key: unit.id, label: unit.title, children: <EpisodePanel detail={detail} unitId={unit.id} docs={docs.data} mode={mode} /> })),
+        ...visibleUnits.map((unit) => ({ key: unit.id, label: unit.title, children: <EpisodePanel detail={detail} unitId={unit.id} docs={docs.data} mode={mode} /> })),
     ];
     return (
         <AppDrawer open={open} onClose={onClose} title={`${terms.director}文档`} size={880}>
@@ -106,9 +108,9 @@ function BiblePanel({ projectId, docs, mode }: { projectId: string; docs?: Ontol
 type EpisodeView = "segments" | "episode" | "handoff" | "pending";
 
 function EpisodePanel({ detail, unitId, docs, mode }: { detail: ProjectDetail; unitId: string; docs?: OntologyDocuments; mode: string }) {
-    const [view, setView] = useState<EpisodeView>("segments");
     const terms = directorTerms(mode);
     const episode = docs?.episodes.find((doc) => doc.unitId === unitId);
+    const [view, setView] = useState<EpisodeView>(episode ? "segments" : "handoff");
     const handoff = docs?.handoffs.find((doc) => doc.unitId === unitId);
     // SSS 的复看记录与待确认在第八部分；本体论在第七部分「自检结果与待确认清单」。
     const pending = episode ? episodePart(episode.content, mode === "sss" ? "第八部分" : "七、自检结果") : "";
@@ -123,7 +125,12 @@ function EpisodePanel({ detail, unitId, docs, mode }: { detail: ProjectDetail; u
             <Segmented value={view} onChange={(value) => setView(value as EpisodeView)} options={options} />
             {view === "segments" ? <SegmentList detail={detail} unitId={unitId} episode={episode?.content || ""} mode={mode} /> : null}
             {view === "episode" ? (episode ? <DocumentText text={episode.content} /> : <EmptyState size="compact" title={`本集还没有${terms.parts}`} />) : null}
-            {view === "handoff" ? (handoff ? <DocumentText text={handoff.content} /> : <EmptyState size="compact" title="本集还没有交接卡" />) : null}
+            {view === "handoff" ? (
+                <>
+                    <EpisodePredecessor units={detail.units} unitId={unitId} handoffs={docs?.handoffs || []} />
+                    {handoff ? <section><h3 className="mb-2 font-medium">本集交接卡</h3><DocumentText text={handoff.content} /></section> : <EmptyState size="compact" title="本集还没有交接卡" />}
+                </>
+            ) : null}
             {view === "pending" ? (pending ? <DocumentText text={pending} /> : <EmptyState size="compact" title="本集没有待确认事项" />) : null}
         </div>
     );

@@ -32,6 +32,7 @@ export type PriceTierFormValues = {
     outputTokenPrice: number;
     cachedTokenPrice: number;
     costConfigured: boolean;
+    upstreamRequestCostCny?: number;
     costUnitPrice: number;
     costInputTokenPrice: number;
     costOutputTokenPrice: number;
@@ -100,6 +101,7 @@ export function priceTierToForm(tier: ChannelModelPriceTier, image?: ImageCapabi
         outputTokenPrice: tier.outputTokenPriceMicrocredits / 1_000_000,
         cachedTokenPrice: tier.cachedTokenPriceMicrocredits / 1_000_000,
         costConfigured: tier.costPricing?.configured === true,
+        upstreamRequestCostCny: tier.upstreamRequestCostMicroCny == null ? undefined : tier.upstreamRequestCostMicroCny / 1_000_000,
         costUnitPrice: (tier.costPricing?.unitPriceMicrocredits ?? 0) / 1_000_000,
         costInputTokenPrice: (tier.costPricing?.inputTokenPriceMicrocredits ?? 0) / 1_000_000,
         costOutputTokenPrice: (tier.costPricing?.outputTokenPriceMicrocredits ?? 0) / 1_000_000,
@@ -171,6 +173,8 @@ export function priceTierPayloadFromForm(capability: ModelCapabilityChoice, tier
         resolution: priceTierResolutionFromForm(capability, tier),
         videoSeconds: priceTierVideoSecondsFromForm(capability, tier),
         providerModelKey: tier.providerModelKey?.trim() || upstreamModel,
+        upstreamRequestCostMicroCny: capability === "video" && tier.billingMode === "fixed_request" && tier.upstreamRequestCostCny != null
+            ? Math.round(tier.upstreamRequestCostCny * 1_000_000) : undefined,
         billingMode: tier.billingMode,
         unitPriceMicrocredits: Math.round((tier.unitPrice || 0) * 1_000_000),
         inputTokenPriceMicrocredits: videoTokens ? 0 : Math.round((tier.inputTokenPrice || 0) * 1_000_000),

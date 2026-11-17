@@ -118,6 +118,9 @@ func (r *Repository) CreditLedgerReferenceExists(referenceKey string) (bool, err
 func (r *Repository) CreateTaskWithCreditReservation(task *model.Task, order *model.BillingOrder, activeTaskLimit int) error {
 	return r.Transaction(func(repo *Repository) error {
 		tx := repo.db
+		if err := requireStoryboardTaskTarget(tx, task); err != nil {
+			return err
+		}
 		if err := repo.requireCurrentCloudAgentParent(task); err != nil {
 			return err
 		}
@@ -149,6 +152,9 @@ func (r *Repository) CreateTaskWithCreditReservation(task *model.Task, order *mo
 func (r *Repository) CreateTaskWithActiveLimit(task *model.Task, activeTaskLimit int) error {
 	return r.Transaction(func(repo *Repository) error {
 		tx := repo.db
+		if err := requireStoryboardTaskTarget(tx, task); err != nil {
+			return err
+		}
 		if err := repo.requireCurrentCloudAgentParent(task); err != nil {
 			return err
 		}
@@ -178,6 +184,9 @@ func (r *Repository) RetryTaskWithBilling(userID string, prepared *model.Task, o
 	var task model.Task
 	taskID := prepared.ID
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := requireStoryboardTaskTarget(tx, prepared); err != nil {
+			return err
+		}
 		if err := requireVideoChainParent(tx, prepared); err != nil {
 			return err
 		}

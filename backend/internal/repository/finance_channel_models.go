@@ -71,6 +71,21 @@ func (r *Repository) CreateDuplicatedSystemChannel(channel *model.ModelChannel, 
 	})
 }
 
+// Per-request upstream prices are confirmed for the credential's actual supplier group.
+func (r *Repository) SaveChannelAndInvalidateSupplierCosts(channel *model.ModelChannel, credentialChanged bool) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(channel).Error; err != nil {
+			return err
+		}
+		if !credentialChanged {
+			return nil
+		}
+		modelIDs := tx.Model(&model.ChannelModel{}).Select("id").Where("channel_id = ?", channel.ID)
+		return tx.Model(&model.ChannelModelPriceTier{}).Where("channel_model_id IN (?) AND upstream_request_cost_micro_cny IS NOT NULL", modelIDs).
+			Update("upstream_request_cost_micro_cny", nil).Error
+	})
+}
+
 func (r *Repository) ChannelModelByID(channelID string, id string) (*model.ChannelModel, error) {
 	var item model.ChannelModel
 	if err := r.db.First(&item, "id = ? AND channel_id = ?", id, channelID).Error; err != nil {

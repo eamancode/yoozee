@@ -6,10 +6,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/sllcatalog"
 )
 
 func (s *Service) TestAdminChannelModel(ctx context.Context, actor *model.User, channelID string, req ChannelModelRequest) (*AdminChannelModelTestResult, error) {
@@ -114,6 +116,32 @@ func (s *Service) TestAdminChannelModel(ctx context.Context, actor *model.User, 
 	}
 	if capability == "video" {
 		input.VideoCapability = videoProfile
+		if sllcatalog.IsSLLChannel(*channel) {
+			managed, err := s.repo.SLLCatalog().ManagedTestTarget(ctx, channelID, modelKey, providerModelKey)
+			if err != nil {
+				return nil, err
+			}
+			if managed {
+				item, err := s.repo.ChannelModelByKey(channelID, modelKey)
+				if err != nil {
+					return nil, InvalidModelSelection("请先同步并启用此 SLL 线路")
+				}
+				saved, err := normalizedChannelModelCapability(item, s.protocolRegistry())
+				if err != nil || saved == nil || saved.Video == nil {
+					return nil, InvalidModelSelection("SLL 线路缺少已核实的能力")
+				}
+				input.VideoCapability = saved.Video
+				input.Config.Size, input.Config.VQuality = videoTestDefaults(saved.Video)
+				videoSecondsValue = saved.Video.Duration.Default
+				input.Config.VideoSeconds = strconv.Itoa(videoSecondsValue)
+				if err := s.checkSLLVideoInput(ctx, item.ID, input); err != nil {
+					return nil, err
+				}
+				if err := validateVideoTask(saved.Video, input); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
 
 	// 测试复用真实生成协议、运行时并发和熔断策略，但不创建用户任务或计费订单。

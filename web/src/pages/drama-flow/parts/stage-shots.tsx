@@ -1,48 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Segmented } from "antd";
 
 import { dramaSegmentsKey, DramaSegmentCard, useInvalidateDrama } from "@/pages/projects/workbench/detail/drama-panels";
-import type { SegmentAsset } from "@/pages/projects/workbench/detail/shot-card-layout";
 import { unitEpisodeNumber } from "@/pages/projects/workbench/detail/unit-numbering";
 import { projectWorkflow } from "@/lib/project-workflow";
 import { DirectorSetup } from "@/pages/projects/workbench/detail/sss-project-panels";
-import { assetPreviewUrl } from "@/pages/projects/workbench/detail/workflow-shot-references";
 import { listDramaSegments, type DramaSegmentProgress, type DramaSegmentView, type DramaSubShot } from "@/services/api/project-drama";
-import type { ProjectAsset, ProjectUnitWorkspace } from "@/services/api/projects";
 
 import type { FlowData } from "../hooks/use-flow-data";
 import { useStoryboardRun, type StoryboardRun } from "../hooks/use-storyboard-run";
 import { directorPhaseText, directorRoundsText, directorRunView } from "../model/director-run";
 import { durationText } from "../model/runs";
+import { boundAssetsOf, type UnitBinding } from "../model/shot-bindings";
 import type { FlowStageView } from "../model/stages";
 import { DetailPane, ReadError, StageLayout, SummaryRow } from "./layout";
 import { modelSummaryItem } from "./model-card";
+import { ShotBindingEditor } from "./shot-binding-editor";
+import { DeleteSegmentButton } from "./delete-segment-button";
 
 export { unitWorkspaceKey } from "../hooks/use-flow-data";
 
 export const secondsText = (ms: number) => `${Math.round(ms / 100) / 10} 秒`;
 const DENSITY_KEY = "drama-flow:shots-density";
 
-/** 这一段绑了哪些资产：段的资产引用 + 段 refs 里写的资产版本，都对回资产（和旧工作台同一套口径）。 */
-export function boundAssetsOf(workspace: ProjectUnitWorkspace | undefined, segment: DramaSegmentView): SegmentAsset[] {
-    if (!workspace) return [];
-    const byVersion = new Map(workspace.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
-    const byId = new Map<string, SegmentAsset>();
-    const add = (asset: ProjectAsset | undefined, versionId: string, style = false) => {
-        if (!asset || !versionId) return;
-        const kind: SegmentAsset["kind"] = style || asset.category === "palette" ? "palette" : asset.category === "character" ? "character" : asset.category === "prop" ? "prop" : asset.category === "environment" ? "scene" : "other";
-        const current = byId.get(asset.id) || { id: asset.id, title: asset.title, kind, versionIds: [], preview: assetPreviewUrl(asset), code: asset.palette?.code };
-        if (!current.versionIds.includes(versionId)) current.versionIds.push(versionId);
-        byId.set(asset.id, current);
-    };
-    for (const reference of workspace.shotReferences || []) {
-        if (reference.shotId !== segment.shotId || reference.status !== "linked") continue;
-        add(reference.asset || byVersion.get(reference.assetVersionId), reference.assetVersionId, reference.role === "style");
-    }
-    for (const ref of segment.spec.refs || []) add(byVersion.get(ref.file), ref.file);
-    return Array.from(byId.values());
-}
+export { boundAssetsOf };
 
 /** 镜头时长：下一镜的起点减这一镜的起点，最后一镜用段长收尾。 */
 export function shotSeconds(shots: DramaSubShot[], index: number, segmentSeconds: number) {
@@ -61,6 +43,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
     const invalidateDrama = useInvalidateDrama(projectId);
     const segmentsQuery = useQuery({ queryKey: dramaSegmentsKey(projectId, unitId), queryFn: async ({ signal }) => (await listDramaSegments(projectId, unitId, signal)).segments, enabled: Boolean(projectId && unitId) });
     const [density, setDensity] = useState<"full" | "compact">(() => (localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "full"));
+    const [editing, setEditing] = useState<{ unitId: string; shotId: string }>();
     const episode = useMemo(() => unitEpisodeNumber(allUnits, unitId), [allUnits, unitId]);
     const progressByShot = useMemo(() => new Map(unitSegments.map((item) => [item.shotId, item])), [unitSegments]);
     const staleShots = useMemo(() => new Set((workspace?.shotArtifacts || []).filter((artifact) => artifact.type === "video" && artifact.status === "stale").map((artifact) => artifact.shotId)), [workspace?.shotArtifacts]);
@@ -78,6 +61,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
 
     const segments = segmentsQuery.data || [];
     const selected = segments.find((segment) => segment.shotId === selectedId);
+    const bindingSegment = editing?.unitId === unitId ? segments.find((item) => item.shotId === editing.shotId) : undefined;
     const totalMs = segments.reduce((sum, item) => sum + item.durationMs, 0);
     const shotCount = segments.reduce((sum, item) => sum + item.spec.shots.length, 0);
     const overLimit = unitSegments.filter((item) => item.overLimit).length;
@@ -96,6 +80,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                 unitId={unitId}
                 shotId={selected.shotId}
                 revisionId={selected.revisionId}
+                channelModel={data.videoModel}
                 specJson={JSON.stringify(selected.spec)}
                 durationRule={segmentRule}
                 genreRule={genreRule}
@@ -103,6 +88,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                 busyShotIds={busyShotIds}
                 episode={episode}
                 boundAssets={boundAssetsOf(workspace, selected)}
+                onPickAssets={workspace && !workspaceQuery.isError ? () => setEditing({ unitId, shotId: selected.shotId }) : undefined}
                 onEdited={async (selectShotId) => {
                     if (selectShotId && selectShotId !== selected.shotId) onSelect(selectShotId);
                     await Promise.all([workspaceQuery.refetch(), invalidateDrama(), segmentsQuery.refetch()]);
@@ -113,6 +99,16 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
 
     return (
         <StageLayout pane={pane}>
+            {bindingSegment && workspace ? <ShotBindingEditor
+                key={bindingSegment.shotId}
+                projectId={projectId}
+                segment={bindingSegment}
+                bindings={boundAssetsOf(workspace, bindingSegment)}
+                assets={data.assets}
+                assetsQuery={data.assetsQuery}
+                videoModel={data.videoModel}
+                onClose={() => setEditing((current) => current === editing ? undefined : current)}
+            /> : null}
             <div className="drama-flow-work-head">
                 <div>
                     <h2>分镜{unit?.title ? ` · ${unit.title}` : ""}</h2>
@@ -160,11 +156,21 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                             segment={segment}
                             info={progressByShot.get(segment.shotId)}
                             assets={boundAssetsOf(workspace, segment)}
+                            onEditBindings={workspace && !workspaceQuery.isError ? () => setEditing({ unitId, shotId: segment.shotId }) : undefined}
                             stale={staleShots.has(segment.shotId)}
                             busy={busyShotIds.has(segment.shotId)}
                             compact={density === "compact"}
                             selected={segment.shotId === selectedId}
                             onSelect={() => onSelect(segment.shotId === selectedId ? undefined : segment.shotId)}
+                            deleteAction={
+                                <DeleteSegmentButton
+                                    projectId={projectId}
+                                    segment={segment}
+                                    episode={episode}
+                                    unitTitle={unit?.title}
+                                    onDeleted={() => { if (segment.shotId === selectedId) onSelect(undefined); }}
+                                />
+                            }
                         />
                     ))}
                 </div>
@@ -293,22 +299,26 @@ function SegmentBlock({
     segment,
     info,
     assets,
+    onEditBindings,
     stale,
     busy,
     compact,
     selected,
     onSelect,
+    deleteAction,
 }: {
     ref?: (node: HTMLElement | null) => void;
     index: number;
     segment: DramaSegmentView;
     info?: DramaSegmentProgress;
-    assets: SegmentAsset[];
+    assets: UnitBinding[];
+    onEditBindings?: () => void;
     stale: boolean;
     busy: boolean;
     compact: boolean;
     selected: boolean;
     onSelect: () => void;
+    deleteAction: ReactNode;
 }) {
     const issues = info?.issues ?? segment.issues?.length ?? 0;
     const bad = Boolean(info?.overLimit) || issues > 0;
@@ -317,44 +327,47 @@ function SegmentBlock({
     const shown = compact ? shots.slice(0, 1) : shots;
     return (
         <article ref={ref} className="drama-flow-seg" data-bad={bad || undefined} aria-current={selected || undefined}>
-            <button type="button" className="drama-flow-seg-head" aria-expanded={selected} onClick={onSelect}>
-                <span className="drama-flow-seg-no">{segment.spec.id || `第 ${index + 1} 段`}</span>
-                <strong>{segment.title || segment.spec.title || `第 ${index + 1} 段`}</strong>
-                <span className="drama-flow-seg-meta">
-                    {secondsText(segment.durationMs)} · {shots.length} 镜 · 场 {segment.spec.scene}
-                </span>
-                <span className="drama-flow-seg-tags">
-                    {info?.overLimit ? (
-                        <span className="drama-flow-chip" data-tone="bad">
-                            超时长
-                        </span>
-                    ) : null}
-                    {issues ? (
-                        <span className="drama-flow-chip" data-tone="bad">
-                            {issues} 处问题
-                        </span>
-                    ) : null}
-                    {info && !info.refs ? (
-                        <span className="drama-flow-chip" data-tone="warn">
-                            没参考
-                        </span>
-                    ) : null}
-                    {stale ? (
-                        <span className="drama-flow-chip" data-tone="warn">
-                            出片后改过
-                        </span>
-                    ) : null}
-                    {busy ? (
-                        <span className="drama-flow-chip" data-tone="run">
-                            生成中
-                        </span>
-                    ) : info?.generated ? (
-                        <span className="drama-flow-chip" data-tone="ok">
-                            已出片
-                        </span>
-                    ) : null}
-                </span>
-            </button>
+            <header className="drama-flow-seg-header">
+                <button type="button" className="drama-flow-seg-head" aria-expanded={selected} onClick={onSelect}>
+                    <span className="drama-flow-seg-no">{segment.spec.id || `第 ${index + 1} 段`}</span>
+                    <strong>{segment.title || segment.spec.title || `第 ${index + 1} 段`}</strong>
+                    <span className="drama-flow-seg-meta">
+                        {secondsText(segment.durationMs)} · {shots.length} 镜 · 场 {segment.spec.scene}
+                    </span>
+                    <span className="drama-flow-seg-tags">
+                        {info?.overLimit ? (
+                            <span className="drama-flow-chip" data-tone="bad">
+                                超时长
+                            </span>
+                        ) : null}
+                        {issues ? (
+                            <span className="drama-flow-chip" data-tone="bad">
+                                {issues} 处问题
+                            </span>
+                        ) : null}
+                        {info && !info.refs ? (
+                            <span className="drama-flow-chip" data-tone="warn">
+                                没参考
+                            </span>
+                        ) : null}
+                        {stale ? (
+                            <span className="drama-flow-chip" data-tone="warn">
+                                出片后改过
+                            </span>
+                        ) : null}
+                        {busy ? (
+                            <span className="drama-flow-chip" data-tone="run">
+                                生成中
+                            </span>
+                        ) : info?.generated ? (
+                            <span className="drama-flow-chip" data-tone="ok">
+                                已出片
+                            </span>
+                        ) : null}
+                    </span>
+                </button>
+                {deleteAction}
+            </header>
             <table className="drama-flow-shot-table">
                 <tbody>
                     {shown.map((shot, shotIndex) => (
@@ -392,16 +405,17 @@ function SegmentBlock({
                     ) : null}
                 </tbody>
             </table>
-            {assets.length ? (
-                <div className="drama-flow-seg-assets" aria-label="绑定的资产">
-                    {assets.map((asset) => (
-                        <span key={asset.id} title={asset.title} data-kind={asset.kind}>
-                            {asset.preview ? <img src={asset.preview} alt="" loading="lazy" /> : null}
-                            {asset.code || asset.title}
-                        </span>
-                    ))}
-                </div>
-            ) : null}
+            <div className="drama-flow-seg-assets items-center" aria-label="绑定的资产">
+                {assets.map((asset) => (
+                    <span key={asset.id} title={`${asset.title} · ${asset.versionId}`} data-kind={asset.kind}>
+                        {asset.preview ? <img src={asset.preview} alt="" loading="lazy" /> : null}
+                        {asset.code || asset.title}{asset.version ? ` · v${asset.version}` : ""}{asset.sampleResourceId ? " · 有音样" : ""}
+                    </span>
+                ))}
+                <Button size="small" disabled={!onEditBindings} className="ml-auto" aria-label={`编辑绑定 ${segment.spec.id || segment.title}`} onClick={onEditBindings}>
+                    编辑绑定
+                </Button>
+            </div>
         </article>
     );
 }

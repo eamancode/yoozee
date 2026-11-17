@@ -315,6 +315,13 @@
     border-right: 1px solid var(--workspace-border);
 }
 
+.drama-flow-ep-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 2px;
+}
+
 .drama-flow-ep {
     display: grid;
     gap: 2px;
@@ -1033,54 +1040,6 @@
 
 /* 剧本 */
 
-.drama-flow-split {
-    display: grid;
-    grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
-    gap: var(--space-4);
-    align-items: start;
-}
-
-.drama-flow-cards {
-    display: grid;
-    gap: var(--space-2);
-}
-
-.drama-flow-card {
-    display: grid;
-    gap: 2px;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--workspace-border);
-    border-radius: var(--radius-lg);
-    background: var(--workspace-surface);
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-
-.drama-flow-card:focus-visible {
-    outline: 2px solid var(--control-focus-ring);
-    outline-offset: 1px;
-}
-
-.drama-flow-card[aria-pressed="true"] {
-    border-color: var(--control-selected-border);
-    background: var(--control-selected-bg);
-}
-
-.drama-flow-card strong {
-    font-size: var(--fs-label);
-}
-
-.drama-flow-card span {
-    color: var(--workspace-text-muted);
-    font-size: var(--fs-caption);
-}
-
-.drama-flow-card span[data-tone="ok"] {
-    color: var(--status-success);
-}
-
 .drama-flow-compare {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1204,15 +1163,23 @@
     border-color: color-mix(in srgb, var(--status-error) 55%, var(--workspace-border));
 }
 
+.drama-flow-seg-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding-right: var(--space-2);
+    border-bottom: 1px solid var(--workspace-border);
+}
+
 .drama-flow-seg-head {
     display: flex;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-1) var(--space-3);
     padding: var(--space-2) var(--space-3);
     border: 0;
-    border-bottom: 1px solid var(--workspace-border);
     background: transparent;
     color: inherit;
     font: inherit;
@@ -1547,11 +1514,11 @@
 
 .drama-flow-matrix {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
     gap: 4px;
 }
 
-.drama-flow-matrix button {
+.drama-flow-ep-cell {
     height: 30px;
     border: 1px solid var(--workspace-border);
     border-radius: var(--radius-sm);
@@ -1563,16 +1530,16 @@
     cursor: pointer;
 }
 
-.drama-flow-matrix button[data-empty="true"] {
+.drama-flow-ep-cell[data-empty="true"] {
     background: var(--workspace-page);
     color: var(--workspace-text-faint);
 }
 
-.drama-flow-matrix button[data-warn="true"] {
+.drama-flow-ep-cell[data-warn="true"] {
     border-color: var(--status-error);
 }
 
-.drama-flow-matrix button[aria-pressed="true"] {
+.drama-flow-ep-cell[aria-pressed="true"] {
     outline: 2px solid var(--control-selected-border);
     outline-offset: 1px;
 }
@@ -1743,13 +1710,21 @@
 
     .drama-flow-rail {
         flex-direction: row;
+        align-items: center;
         border-right: 0;
         border-bottom: 1px solid var(--workspace-border);
         overflow-x: auto;
     }
 
-    .drama-flow-ep {
+    .drama-flow-ep-row {
         flex: none;
+        max-width: 220px;
+    }
+
+    .drama-flow-matrix {
+        grid-auto-columns: 64px;
+        grid-template-columns: none;
+        grid-auto-flow: column;
     }
 
     .drama-flow-step-text span,
@@ -1757,7 +1732,6 @@
         display: none;
     }
 
-    .drama-flow-split,
     .drama-flow-compare,
     .drama-flow-vcard {
         grid-template-columns: minmax(0, 1fr);

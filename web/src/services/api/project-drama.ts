@@ -120,6 +120,7 @@ export type DramaCompileResult = {
     shotId: string;
     spec: DramaSegment;
     derived: boolean;
+    voiceBindings?: Array<{ versionId: string; sampleResourceId: string; tag: string }>;
     result: { segment: string; model: string; duration: number; prompt: string; paste?: string; files: Array<{ file: string; tag: string; role: string }>; chars: number; warnings?: string[]; issues: DramaIssue[] };
     /** 这次编译用的编译档案（version 0 为内置默认）。 */
     compileProfile?: DramaCompileProfileRef;
@@ -462,7 +463,7 @@ export function repackDramaShotlist(projectId: string, unitId: string, input: { 
  * 把一段编译成项目生成模型的提示词。maxReferenceImages 是这次要用的视频模型最多带几张参考图（按渠道模型能力配置）：本场色卡图排在
  * 角色 / 场景 / 道具之后，放不下时不带图、色值写进提示词（结果 issues 里有一条 warn）。
  */
-export function compileProjectShot(projectId: string, shotId: string, input: { model?: string; maxReferenceImages?: number } = {}) {
+export function compileProjectShot(projectId: string, shotId: string, input: { model?: string; channelModel?: string; maxReferenceImages?: number } = {}) {
     return http.post<{ compiled: DramaCompileResult }>(`/projects/${projectId}/shots/${shotId}/compile`, input);
 }
 

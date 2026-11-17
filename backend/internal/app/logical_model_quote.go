@@ -15,6 +15,7 @@ type LogicalModelQuote struct {
 	AmountMicrocredits int64               `json:"amountMicrocredits"`
 	Estimated          bool                `json:"estimated"`
 	VideoTokenEstimate *VideoTokenEstimate `json:"videoTokenEstimate,omitempty"`
+	UpstreamCost       *VideoUpstreamCost  `json:"upstreamCost,omitempty"`
 }
 
 type ChannelModelQuoteRequest struct {
@@ -50,7 +51,19 @@ func (s *Service) QuoteChannelModel(userID string, req ChannelModelQuoteRequest)
 	if err != nil {
 		return nil, err
 	}
-	return quoteFromOrder("", order, estimate), nil
+	quote := quoteFromOrder("", order, estimate)
+	if req.Intent.Capability == "video" {
+		item, err := s.repo.ChannelModelByKey(req.ChannelID, req.ModelKey)
+		if err != nil {
+			return nil, err
+		}
+		intent.LongestVideoSeconds = req.Intent.LongestVideoSeconds
+		quote.UpstreamCost, err = s.videoUpstreamQuote(item.ID, stringValue(config["providerModelKey"]), stringValue(config["priceTierId"]), intent)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return quote, nil
 }
 
 func validateQuoteIntent(intent ModelRequestIntent) error {
@@ -85,6 +98,11 @@ func (s *Service) QuoteLogicalModel(userID string, logicalModelID string, intent
 	if err != nil {
 		return nil, err
 	}
+	return s.quoteRoutedModel(userID, access, routed, intent)
+}
+
+func (s *Service) quoteRoutedModel(userID string, access *userGroupAccess, routed *RoutedModel, intent ModelRequestIntent) (*LogicalModelQuote, error) {
+	var err error
 	capability := normalizeCapability(intent.Capability)
 	if capability == "" {
 		return nil, BadAuthRequest("报价请求缺少模型能力类型")
@@ -98,6 +116,17 @@ func (s *Service) QuoteLogicalModel(userID string, logicalModelID string, intent
 	}
 	input["config"].(map[string]any)["providerModelKey"] = providerModelKey
 	config, _ := input["config"].(map[string]any)
+	var upstreamCost *VideoUpstreamCost
+	if capability == "video" {
+		tierID := ""
+		if routed.PriceTier != nil {
+			tierID = routed.PriceTier.ID
+		}
+		upstreamCost, err = s.videoUpstreamQuote(routed.ChannelModel.ID, providerModelKey, tierID, resolvedIntent)
+		if err != nil {
+			return nil, err
+		}
+	}
 	quantity := requestedBillingQuantity(capability, config)
 	if capability != "video" && capability != "audio" {
 		quantity = 1
@@ -113,7 +142,9 @@ func (s *Service) QuoteLogicalModel(userID string, logicalModelID string, intent
 		if billingErr != nil {
 			return nil, billingErr
 		}
-		return quoteFromOrder(routed.LogicalModel.ID, order, tokenEstimate), nil
+		quote := quoteFromOrder(routed.LogicalModel.ID, order, tokenEstimate)
+		quote.UpstreamCost = upstreamCost
+		return quote, nil
 	}
 
 	if routed.LogicalModel.PricePolicy != "unified" {
@@ -158,6 +189,7 @@ func (s *Service) QuoteLogicalModel(userID string, logicalModelID string, intent
 		return nil, BadAuthRequest("当前模型尚未配置有效的用户价格")
 	}
 	quote := &LogicalModelQuote{
+		UpstreamCost:       upstreamCost,
 		LogicalModelID:     routed.LogicalModel.ID,
 		BillingMode:        routed.LogicalModel.BillingMode,
 		Quantity:           quantity,

@@ -164,3 +164,59 @@ func TestSegmentAssetBindingsRollbackAndOwnership(t *testing.T) {
 		t.Fatal("invalid segment partially saved")
 	}
 }
+
+func TestSegmentReadsPinnedVersionForOlderAssetIDs(t *testing.T) {
+	s, db, p, u, shot := seedSegmentBindings(t)
+	rev, err := s.repo.ShotRevisionForShot(shot.ID, shot.CurrentRevisionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seg, err := drama.ParseSegment([]byte(rev.SpecJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const assetID = "binding-asset-0"
+	const oldVersion = assetID + "-v1"
+	seg.Refs[0].File = assetID
+	seg.Shots[0].Refs = []string{assetID}
+	seg.ContinuityBridge = &drama.ContinuityBridge{PrevSegment: "S00", SharedRefs: []string{assetID}}
+	if err := db.Model(rev).Update("spec_json", seg.Canonical()).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Asset{}).Where("id = ?", assetID).Update("primary_version_id", assetID+"-v2").Error; err != nil {
+		t.Fatal(err)
+	}
+	views, err := s.DramaSegments(p.UserID, p.ID, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := views[0].Spec
+	if saved.Refs[0].File != oldVersion || saved.Shots[0].Refs[0] != oldVersion || saved.ContinuityBridge.SharedRefs[0] != oldVersion {
+		t.Fatalf("read silently switched versions: %+v", saved)
+	}
+	style := model.ShotAssetReference{ID: "style", ShotID: shot.ID, AssetVersionID: oldVersion, Role: "style", Status: "linked"}
+	if err := db.Create(&style).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LinkShotAsset(p.UserID, p.ID, shot.ID, LinkShotAssetRequest{AssetVersionID: assetID + "-v2", Role: "reference", ReplaceReferenceID: style.ID}); err == nil {
+		t.Fatal("ordinary replacement overwrote a style slot")
+	}
+	refs, err := s.repo.ShotAssetReferencesForShot(shot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range refs {
+		if ref.Role != "reference" || ref.AssetVersionID != oldVersion {
+			continue
+		}
+		if err := s.UnlinkShotAsset(p.UserID, p.ID, shot.ID, ref.ID); err != nil {
+			t.Fatal(err)
+		}
+		after, err := s.DramaSegments(p.UserID, p.ID, u.ID)
+		if err != nil || len(after[0].Spec.Refs) != 3 || len(after[0].Spec.Shots[0].Refs) != 0 || len(after[0].Spec.ContinuityBridge.SharedRefs) != 0 {
+			t.Fatalf("removing the historical slot left a dangling version: %+v, %v", after, err)
+		}
+		return
+	}
+	t.Fatal("historical slot missing")
+}

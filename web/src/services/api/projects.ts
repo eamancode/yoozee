@@ -311,6 +311,7 @@ export type ShotAssetReference = {
         assetId: string;
         version: number;
         representations: CharacterRepresentation[];
+        sampleResourceId?: string;
     };
 };
 
@@ -731,8 +732,8 @@ export function saveProjectShot(projectId: string, input: { id?: string; unitId?
     return http.post<{ shot: ProjectShot }>(`/projects/${encodeURIComponent(projectId)}/shots`, input);
 }
 
-export function deleteProjectShot(projectId: string, shotId: string) {
-    return http.delete<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}`);
+export function deleteProjectShot(projectId: string, shotId: string, confirmed?: { expectedRevisionId: string; expectedArtifactIds: string[] }) {
+    return http.delete<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}`, { data: confirmed });
 }
 
 export function replaceProjectUnitShots(projectId: string, unitId: string, shots: Array<{ title: string; description: string; durationMs: number; revision?: Partial<ShotRevisionInput>; assetVersionIds?: string[] }>, expectedShotIds?: string[]) {

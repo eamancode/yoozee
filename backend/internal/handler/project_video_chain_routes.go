@@ -61,7 +61,12 @@ func registerProjectVideoChainRoutes(r *gin.RouterGroup, svc *service.Service) {
 				return
 			}
 			if action == "retry" {
-				chain, err := svc.RetryProjectVideoChain(user.ID, c.Param("id"), c.Param("chainId"))
+				var req service.ProjectVideoChainRequest
+				if err := c.ShouldBindJSON(&req); err != nil {
+					failService(c, service.BadAuthRequest("请先重新报价并确认从失败段继续"))
+					return
+				}
+				chain, err := svc.RetryProjectVideoChain(user.ID, c.Param("id"), c.Param("chainId"), req)
 				if err != nil {
 					failService(c, err)
 					return

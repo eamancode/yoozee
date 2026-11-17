@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "pricing_version": "fixture-pricing-1",
+  "usable_group": {"default": "普通分组", "vip": "VIP 分组"},
+  "group_ratio": {"default": 1, "vip": 1.5},
+  "data": [
+    {
+      "model_name": "lec-hc-seedance-2-5-3010",
+      "display_name": "Seedance 2.5 3010（HC）",
+      "description": "4–30 秒整数，最多 30 张图片和 10 段音频，不支持视频参考。",
+      "quota_type": 1, "model_price": 4, "enable_groups": ["default", "vip"],
+      "supported_endpoint_types": ["openai-video"],
+      "price_tiers": [
+        {"model_name": "lec-hc-seedance-2-5-3010", "label": "480p", "tier_type": "resolution", "resolution": "480p", "billing_unit": "request", "model_price": 4},
+        {"model_name": "lec-hc-seedance-2-5-3010", "label": "720p", "tier_type": "resolution", "resolution": "720p", "billing_unit": "request", "model_price": 6}
+      ]
+    },
+    {
+      "model_name": "lec-seedance-2-5-301010", "display_name": "Seedance 2.5 301010（渠道1）",
+      "description": "固定 720p、固定 30 秒，必须提供参考图。",
+      "quota_type": 1, "model_price": 4.7, "enable_groups": ["default"],
+      "supported_endpoint_types": ["openai-video"],
+      "price_tiers": [
+        {"model_name": "lec-seedance-2-5-301010", "label": "固定按次", "tier_type": "request", "resolution": "720p", "billing_unit": "request", "model_price": 4.7}
+      ]
+    }
+  ]
+}
