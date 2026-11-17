@@ -75,10 +75,10 @@ function longSegmentSpec(id: string, firstText: string, count: number) {
 }
 
 /**
- * 出片链列表夹具：none 没有链；history 一条已完成的历史链；failed S01 出片失败；running S01 正在出。
+ * 出片链列表夹具：none 没有链；history 已完成；failed S01 出片失败；unresolved 原单受理与结算未决；running S01 正在出。
  * 都只读：查看、预览可以，创建、重试、取消一律被拦下判失败。
  */
-export type FixtureChains = "none" | "history" | "failed" | "running";
+export type FixtureChains = "none" | "history" | "failed" | "unresolved" | "running";
 
 /** workflowId：项目的流水线（不给时按流水线五原流程）；SSS 电影 / 短剧时导演文档接口返回 sss 模式的文档。 */
 export function createDramaFlowFixture(
@@ -111,6 +111,7 @@ export function createDramaFlowFixture(
         revision: 2,
         saves: 0,
         previews: 0,
+        previewRequests: [] as Array<{ shotId?: string; resumeChainId?: string }>,
         videoRoute: null as ProjectVideoRoute | null,
         /** 每次预览请求里真实发出的视频配置（含被拒的）。 */
         previewConfigs: [] as Array<Record<string, unknown>>,
@@ -283,6 +284,26 @@ export function createDramaFlowFixture(
         steps,
         ...(error ? { error } : {}),
     });
+    const unresolvedChainId = "chain-unresolved";
+    const unresolvedReceipt = {
+        taskId: "original-video-s01",
+        diagnostic: {
+            attemptId: "original-attempt-s01",
+            quoteId: "original-quote-s01",
+            channelId: "CHANNEL_000001",
+            upstreamModel: "lec-vp-seedance-2-5-f",
+            phase: "execution",
+            terminalStatus: "failed",
+            submissionOutcome: "unknown",
+            billingStatus: "uncertain",
+            category: "upstream_service",
+            upstreamCode: "HTTP 503",
+            countDecision: "ignore",
+            safeToResubmit: false,
+            canQueryProvider: false,
+            canRecoverMedia: false,
+        },
+    };
     const chainList = () => {
         if (options.freezeRelay)
             return [
@@ -300,6 +321,7 @@ export function createDramaFlowFixture(
         const mode = options.chains ?? "none";
         if (mode === "history") return [chainOf("chain-history", "succeeded", [chainStep(FIXTURE_SHOT_ID, "S01", "succeeded")])];
         if (mode === "failed") return [chainOf("chain-failed", "failed", [chainStep(FIXTURE_SHOT_ID, "S01", "failed", { error: "上游超时" })], "上游超时")];
+        if (mode === "unresolved") return [chainOf(unresolvedChainId, "failed", [chainStep(FIXTURE_SHOT_ID, "S01", "failed", { ...unresolvedReceipt, phase: "generating", error: "上游服务暂时不可用" })], "上游服务暂时不可用")];
         if (mode === "running") return [chainOf("chain-running", "running", [chainStep(FIXTURE_SHOT_ID, "S01", "running")])];
         return [];
     };
@@ -362,6 +384,10 @@ export function createDramaFlowFixture(
         const path = url.pathname.replace(/^\/api(?=\/)/, "");
         const call = { method: method.toUpperCase(), path: `${path}${url.search}` };
         calls.push(call);
+        if (call.method === "POST" && path === `${base}/video-chains/preview`) {
+            const input = body as { shotId?: string; resumeChainId?: string };
+            state.previewRequests.push({ shotId: input?.shotId, resumeChainId: input?.resumeChainId });
+        }
         const override = overrides.get(path);
         if (options.handoffGate && method.toUpperCase() === "POST" && path === `${base}/units/${FIXTURE_UNIT_ID}/drama/steps/chapter.shots/run`) {
             const independent = (body as { allowMissingHandoff?: boolean })?.allowMissingHandoff === true;
@@ -465,7 +491,7 @@ export function createDramaFlowFixture(
         // 出片花费预览只读：返回整链预估，不建任务、不扣费。真正提交（POST /video-chains）、重试、取消都落到下面的拦截。
         if (call.method === "POST" && path === `${base}/video-chains/preview`) {
             // 按权威能力校验真实发出的配置（记下来供测试断言）：同步音频必须是 false，时长必须是 15 或 30 秒档。
-            const input = body as { shotId?: string; model?: { model?: string; input?: { config?: Record<string, unknown> } } };
+            const input = body as { shotId?: string; resumeChainId?: string; model?: { model?: string; input?: { config?: Record<string, unknown> } } };
             const config = input?.model?.input?.config || {};
             state.previewConfigs.push({ ...config });
             const issues = [
@@ -474,10 +500,11 @@ export function createDramaFlowFixture(
             ];
             if (issues.length) return capabilityReject(issues);
             state.previews += 1;
+            const unresolved = options.chains === "unresolved" && input.shotId === FIXTURE_SHOT_ID && input.resumeChainId === unresolvedChainId;
             const steps = state.segments
                 .filter((segment) => segment.shotId === input?.shotId || !input?.shotId)
-                .map((segment) => chainStep(segment.shotId, segment.spec.id, "waiting", { phase: "waiting", model: input.model?.model || FIXTURE_VIDEO_MODEL, quote: { amountMicrocredits: 1_500_000 } }));
-            return ok({ chain: { ...chainOf("", "preview", steps), previewHash: `preview-${state.previews}`, totalMicrocredits: 1_500_000 * steps.length } });
+                .map((segment) => chainStep(segment.shotId, segment.spec.id, "waiting", { ...(unresolved ? unresolvedReceipt : {}), phase: "waiting", model: input.model?.model || FIXTURE_VIDEO_MODEL, quote: { amountMicrocredits: 1_500_000 } }));
+            return ok({ chain: { ...chainOf("", "preview", steps), ...(unresolved ? { confirmationBlockedReason: "原单受理与结算尚待核实" } : {}), previewHash: `preview-${state.previews}`, totalMicrocredits: 1_500_000 * steps.length } });
         }
         // 编译提示词只读不扣费，按当前段给一个确定的结果。
         if (call.method === "POST" && /^\/projects\/[^/]+\/shots\/[^/]+\/compile$/.test(path)) {
