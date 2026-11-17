@@ -45,7 +45,13 @@ export const fixtureWindow = {
 };
 const remoteFor = id => id === "canvas" ? fixture.remoteState?.project ?? fixture.remote : fixture.remoteById.get(id);
 const setRemote = (id, project) => { if (id === "canvas") { fixture.remote = project; if (fixture.remoteState) fixture.remoteState.project = project; } fixture.remoteById.set(id, project); };
-export const useCanvasStore = createStore((set, get) => ({ projects: [], openProject: id => get().projects.find(project => project.id === id) }));
+// These fixtures are persisted canvases; draft behavior is covered by canvas-draft-persistence.test.ts.
+export const useCanvasStore = createStore((set, get) => ({
+    projects: [],
+    openProject: id => get().projects.find(project => project.id === id),
+    getDraftProject: () => null,
+    materializeDraft: () => {},
+}));
 export const useAssetStore = createStore(() => ({ assets: [] }));
 export const getActiveUserScope = () => fixture.scope;
 export const localForageStorageForScope = () => ({ getItem: async key => fixture.data.get(key) ?? null, setItem: async (key, value) => { await fixture.saveHook?.(key, value); if (fixture.setError) throw fixture.setError; fixture.data.set(key, value); }, removeItem: async key => { fixture.data.delete(key); } });

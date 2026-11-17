@@ -71,6 +71,9 @@ export type WorkflowGraphPreview = {
 export const PUBLIC_MODEL_CATALOG_ID = "managed";
 
 export type ModelChannel = {
+    websiteId?: string;
+    updatedAt?: string;
+    mediaTransport?: import("@/lib/media-transport").ReferenceMediaTransport;
     id: string;
     name: string;
     sortOrder?: number;
@@ -81,6 +84,8 @@ export type ModelChannel = {
     apiFormat: ApiCallFormat;
     interfaceType?: ChannelInterfaceType;
     models: string[];
+    // 管理端分类包含已停用与未定价模型；不代表前台可调用能力。
+    capabilities?: ModelCapability[];
     // 仅平台目录使用：将已保存的旧 SKU 选择重定向到当前模型家族。
     modelAliases?: Record<string, string>;
     scope?: "system" | "user";
@@ -107,6 +112,7 @@ export type ModelChannel = {
         inputTokenPriceMicrocredits?: number;
         outputTokenPriceMicrocredits?: number;
         cachedTokenPriceMicrocredits?: number;
+        cacheWriteTokenPriceMicrocredits?: number;
         capabilityConfig?: ModelCapabilityConfig;
         logicalModelId?: string;
         logicalCapabilitySpec?: CapabilitySpec;
@@ -115,6 +121,12 @@ export type ModelChannel = {
         defaultOptions?: Record<string, unknown>;
         availability?: PublicChannelModelAvailability;
         available?: boolean;
+        /** 仅视频模型：挂参考视频的请求是否另计费；用于报价与费用明细。 */
+        referenceVideoBilling?: boolean;
+        /** 系统目录里的渠道模型行 ID 与路由键：后台按行 ID 保存配置，前台据此找回对应的可选模型。 */
+        channelModelId?: string;
+        channelId?: string;
+        modelKey?: string;
     }>;
 };
 
@@ -132,6 +144,7 @@ export type AiConfig = {
     videoModel: string;
     textModel: string;
     audioModel: string;
+    audioMode?: string;
     audioVoice: string;
     audioFormat: string;
     audioSpeed: string;
@@ -542,7 +555,8 @@ export function channelConnectionSignature(channel: ModelChannel) {
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
     const channel = resolveModelChannel(config, value);
     const model = modelOptionName(value || config.model);
-    const modelProtocol = channel.modelCosts?.find((item) => item.model === model)?.protocol;
+    const modelCost = channel.modelCosts?.find((item) => item.model === model);
+    const modelProtocol = modelCost?.protocol;
     const interfaceType = modelProtocol || channel.interfaceType;
     return {
         ...config,

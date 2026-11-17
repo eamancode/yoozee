@@ -1,9 +1,9 @@
-export const ASSET_CATEGORIES = ["character", "environment", "prop", "material", "other", "palette", "storyboard_reference"] as const;
+export const ASSET_CATEGORIES = ["character", "environment", "prop", "material", "other", "palette", "storyboard_reference", "ark"] as const;
 
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
 
 /** 用户能手选的分类：色卡（palette）只由风格锁定（主基调色卡）和场次色卡生成，不出现在分类选择里。 */
-export const EDITABLE_ASSET_CATEGORIES = ASSET_CATEGORIES.filter((category) => category !== "palette" && category !== "storyboard_reference");
+export const EDITABLE_ASSET_CATEGORIES = ASSET_CATEGORIES.filter((category) => category !== "palette" && category !== "storyboard_reference" && category !== "ark");
 
 export const ASSET_CATEGORY_LABELS: Record<AssetCategory, string> = {
     character: "角色",
@@ -13,12 +13,21 @@ export const ASSET_CATEGORY_LABELS: Record<AssetCategory, string> = {
     other: "其他",
     palette: "色卡",
     storyboard_reference: "分镜参考",
+    ark: "方舟认证",
 };
 
-export const ASSET_CATEGORY_OPTIONS = EDITABLE_ASSET_CATEGORIES.map((value) => ({
+/** 方舟认证分类只由认证结果写入（服务端同样拒绝手动设置），不出现在手动选择列表里。 */
+export const ARK_ASSET_CATEGORY: AssetCategory = "ark";
+
+/** 全部业务分类，用于筛选与展示。 */
+export const ASSET_FILTER_CATEGORY_OPTIONS = ASSET_CATEGORIES.map((value) => ({
     value,
     label: ASSET_CATEGORY_LABELS[value],
 }));
+
+/** 用户可以手动选择的业务分类（不含方舟认证）。 */
+export const ASSET_ASSIGNABLE_CATEGORY_OPTIONS = EDITABLE_ASSET_CATEGORIES.map((value) => ({ value, label: ASSET_CATEGORY_LABELS[value] }));
+export const ASSET_CATEGORY_OPTIONS = ASSET_ASSIGNABLE_CATEGORY_OPTIONS;
 
 const LEGACY_ASSET_CATEGORY_MAP: Record<string, AssetCategory> = {
     wardrobe: "prop",

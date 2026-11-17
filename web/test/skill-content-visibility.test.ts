@@ -18,5 +18,5 @@ test("hidden skill display removes the detail and agent skill entry points", asy
     expect(agentPanel).toContain("onSkillsOpenChange={skillContentVisible ? setSkillsOpen : undefined}");
     expect(agentPanel).toContain("slashSkills={skillContentVisible ? installedSkills : []}");
     expect(agentPanel).toContain("open={skillsOpen && skillContentVisible}");
-    expect(agentSettings).toContain('sectionState === "skills" && !props.skillsVisible ? "home" : sectionState');
+    expect(agentSettings).toContain('(!canUseSkills || !props.skillsVisible) && selectedSection === "skills" ? "home" : selectedSection');
 });

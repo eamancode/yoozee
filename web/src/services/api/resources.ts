@@ -85,6 +85,8 @@ export type ResourceUploadMeta = {
     durationMs?: number;
     fileName?: string;
     idempotencyKey?: string;
+    expectedUserId?: string;
+    signal?: AbortSignal;
 };
 
 /**
@@ -111,7 +113,7 @@ export class ResourceUploadError extends Error {
 const resourceCache = new Map<string, RemoteResource>();
 const resourceRequests = new Map<string, Promise<RemoteResource>>();
 const missingResourceIds = new Set<string>();
-export type ResourceAccessPurpose = "display" | "copy" | "download" | "browser-process" | "provider-input";
+export type ResourceAccessPurpose = "display" | "copy" | "download" | "browser-process" | "provider-input" | "ecommerce-export";
 export type ResourceAccessVariant = "original" | "playback" | "thumbnail";
 export type ResourceAccess = {
     resourceId: string;
@@ -248,8 +250,12 @@ export async function syncResourceToArkPrivateAsset(id: string) {
     return data.sync;
 }
 
+const BARE_RESOURCE_ID_PATTERN = /^[0-9a-f]{32}$/i;
+
 export function resourceIdFromStorageKey(storageKey?: string) {
-    return storageKey?.startsWith("resource:") ? storageKey.slice("resource:".length) : "";
+    const trimmed = storageKey?.trim() || "";
+    if (trimmed.startsWith("resource:")) return trimmed.slice("resource:".length).trim();
+    return BARE_RESOURCE_ID_PATTERN.test(trimmed) ? trimmed.toLowerCase() : "";
 }
 
 export function isResourceUrl(url?: string) {
@@ -263,6 +269,8 @@ const CHUNK_UPLOAD_THRESHOLD = 50 << 20;
 const CHUNK_UPLOAD_RETRIES = 2;
 
 export async function uploadResourceFile(file: Blob, kind: "image" | "video" | "audio" | "file", meta?: ResourceUploadMeta, onProgress?: (uploadedBytes: number, totalBytes: number) => void, signal?: AbortSignal): Promise<RemoteResource> {
+    signal = signal && meta?.signal && signal !== meta.signal ? AbortSignal.any([signal, meta.signal]) : signal || meta?.signal;
+    if (signal) meta = { ...meta, signal };
     signal?.throwIfAborted();
     const name = meta?.fileName || (file instanceof File ? file.name : `${kind}.${extensionFromMime(file.type, kind)}`);
     // 分片与 multipart 两条路径的失败都要归一成 ResourceUploadError，
@@ -281,8 +289,7 @@ export async function uploadResourceFile(file: Blob, kind: "image" | "video" | "
         if (meta?.height) formData.append("height", String(Math.round(meta.height)));
         if (meta?.durationMs) formData.append("durationMs", String(Math.round(meta.durationMs)));
         const data = await http.post<{ resource: RemoteResource }>("/resources", formData, {
-            ...uploadRequestConfig(meta?.idempotencyKey, file.size),
-            ...(signal ? { signal } : {}),
+            ...scopedUploadConfig(meta, uploadRequestConfig(meta?.idempotencyKey, file.size)),
             onUploadProgress: onProgress
                 ? ({ loaded, total }) => {
                       if (total && total > 0) onProgress(Math.min(file.size, (file.size * loaded) / total), file.size);
@@ -308,6 +315,7 @@ async function uploadFileInChunks(file: Blob, name: string, kind: "image" | "vid
             return await runChunkedUpload(file, name, kind, meta, onProgress, signal);
         } catch (error) {
             signal?.throwIfAborted();
+            if (meta?.expectedUserId && meta.expectedUserId !== getActiveUserScope()) throw error;
             if (attempt === CHUNK_UPLOAD_RETRIES - 1) throw error;
         }
     }
@@ -318,7 +326,7 @@ async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video
     const session = await http.post<{ uploadId: string; chunkSize: number; chunkCount: number }>(
         "/resources/uploads",
         { fileName: name, kind, size: file.size, width: meta?.width, height: meta?.height, durationMs: meta?.durationMs },
-        { ...uploadRequestConfig(meta?.idempotencyKey), ...(signal ? { signal } : {}) },
+        scopedUploadConfig(meta, uploadRequestConfig(meta?.idempotencyKey)),
     );
     for (let index = 0; index < session.chunkCount; index++) {
         signal?.throwIfAborted();
@@ -327,16 +335,16 @@ async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video
         const blob = file.slice(start, end);
         // raw 二进制直传，与后端按裸 body 逐片落盘对齐。
         await http.put<{ index: number }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/chunks/${index}`, blob, {
+            ...scopedUploadConfig(meta),
             timeout: uploadTimeoutMs(blob.size),
-            ...(signal ? { signal } : {}),
-            headers: { "Content-Type": "application/octet-stream" },
+            headers: { ...scopedUploadConfig(meta).headers, "Content-Type": "application/octet-stream" },
             onUploadProgress: onProgress ? ({ loaded }) => onProgress(start + Math.min(loaded, blob.size), file.size) : undefined,
         });
         onProgress?.(Math.min(end, file.size), file.size);
     }
     // 合并时后端要把整份文件写入存储（对象存储为同步上传），超时按整份大小计算。
     signal?.throwIfAborted();
-    const complete = await http.post<{ resource: RemoteResource }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/complete`, undefined, { timeout: uploadTimeoutMs(file.size), ...(signal ? { signal } : {}) });
+    const complete = await http.post<{ resource: RemoteResource }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/complete`, undefined, { ...scopedUploadConfig(meta), timeout: uploadTimeoutMs(file.size) });
     signal?.throwIfAborted();
     return complete.resource;
 }
@@ -382,6 +390,11 @@ export function uploadTimeoutMs(bytes = 0) {
 function uploadRequestConfig(idempotencyKey?: string, bytes?: number) {
     const value = idempotencyKey?.trim();
     return { timeout: uploadTimeoutMs(bytes), ...(value ? { headers: { "X-Idempotency-Key": value } } : {}) };
+}
+
+function scopedUploadConfig(meta?: ResourceUploadMeta, config?: ReturnType<typeof uploadRequestConfig>) {
+    if (meta?.signal?.aborted || (meta?.expectedUserId && meta.expectedUserId !== getActiveUserScope())) throw new DOMException("账号已切换", "AbortError");
+    return { ...config, signal: meta?.signal, headers: { ...config?.headers, ...(meta?.expectedUserId ? { "X-Canvas-Expected-User": meta.expectedUserId } : {}) } };
 }
 
 export function getResource(id: string): Promise<RemoteResource> {
@@ -595,6 +608,11 @@ export function resolveResourceUrl(storageKey?: string, fallback = "") {
     return id ? resourceFileUrl(id) : fallback;
 }
 
+export function resolveResourceVariantUrl(storageKey: string | undefined, variant: ResourceAccessVariant, fallback = "") {
+    const id = resourceIdFromStorageKey(storageKey);
+    return id ? `${resourceFileUrl(id)}?variant=${encodeURIComponent(variant)}` : fallback;
+}
+
 // playbackVariantUrl 返回浏览器兼容播放副本 URL（H.265→H.264 转码结果）。
 // 副本就绪前由后端回退原件，调用方再按需降级。
 export function playbackVariantUrl(id: string) {
@@ -602,16 +620,17 @@ export function playbackVariantUrl(id: string) {
     return `${base}/resources/${encodeURIComponent(id)}/file?variant=playback`;
 }
 
-export async function getResourceBlob(storageKey: string) {
+export async function getResourceBlob(storageKey: string, purpose: ResourceAccessPurpose = "browser-process") {
     const id = resourceIdFromStorageKey(storageKey);
     if (!id) return null;
-    const access = await getResourceAccess(storageKey, "browser-process");
+    const access = await getResourceAccess(storageKey, purpose);
     // CDN/origin URLs carry their own authorization and must not receive the
     // application session cookie. Local/proxy delivery is intentionally
     // session-bound, so a Blob read must include it even when the URL is
     // relative to the platform origin.
     const credentials = access.delivery === "platform-local" || access.delivery === "platform-proxy" ? "include" : "omit";
-    const response = await fetch(resolveResourceAccessURL(access.url), { credentials, mode: "cors", signal: AbortSignal.timeout(60_000) });
+    // 同一签名地址可能已被 <img> 缓存为无 CORS 头的响应，读取原图时跳过 HTTP 缓存。
+    const response = await fetch(resolveResourceAccessURL(access.url), { credentials, mode: "cors", cache: "no-store", signal: AbortSignal.timeout(60_000) });
     if (!response.ok) throw new Error(`资源读取失败（${response.status}）`);
     return response.blob();
 }
