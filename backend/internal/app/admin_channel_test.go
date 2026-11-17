@@ -611,6 +611,9 @@ func TestValidateTaskCapabilityFixesSingleResolutionSKU(t *testing.T) {
 		ID: "model-480p", ChannelID: "channel-1", ModelKey: "doubao-seedance-2-5-480p", ProviderModelKey: "doubao-seedance-2-5",
 		Capability: "video", Protocol: model.ChannelInterfaceVolcengineArkVideo, Enabled: true, CapabilityConfigJSON: string(encoded),
 	}
+	if err := db.Create(&model.ModelChannel{ID: channelModel.ChannelID, Scope: model.ChannelScopeSystem, Enabled: true, BaseURL: "https://capability.example.invalid"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Create(&channelModel).Error; err != nil {
 		t.Fatal(err)
 	}
