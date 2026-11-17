@@ -24,6 +24,14 @@ import (
 func CheckUnknownVideoChainHTTP(t *testing.T, routerFor func(*Service) http.Handler) {
 	t.Helper()
 	f := newVideoChainFixture(t, "A", "A")
+	features, err := f.s.FeatureAvailability()
+	if err != nil {
+		t.Fatal(err)
+	}
+	features.ShortDramaEnabled = true
+	if _, err := f.s.UpdateFeatureAvailability(&model.User{ID: "admin", Role: model.UserRoleAdmin}, features.FeatureAvailability); err != nil {
+		t.Fatal(err)
+	}
 	seedOnlySlotSystemVideo(t, f)
 	const script = "生效参考素材\n@图1、@图2、@图3、@图4、@图5、@图6、@图7。\n镜头正文\n阿婆整理推车，林深站在左边。"
 	segmentJSON := addHTTPRecoveryShot(t, f, script)
