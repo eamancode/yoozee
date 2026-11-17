@@ -77,7 +77,8 @@ export function ModelPicker({
     const [open, setOpen] = useState(false);
     const popoverRef = usePopoverAnchorAlign(open);
     const [availableHeight, setAvailableHeight] = useState(0);
-    const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
+    const [groupKey, setActiveGroupKey] = useState<string | null>(null);
+    const [focusCandidate, setFocusCandidate] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
     // 画布编辑器里的弹窗要和节点面板同色；其余入口跟随工作台浮层表面。
@@ -156,6 +157,13 @@ export function ModelPicker({
         return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
     }, [open]);
 
+    const usableModels = (models: string[]) => modelDisabledReason ? models.filter((model) => !modelDisabledReason(model)) : models;
+    const hasSelectableOption = (group: ModelPickerGroup) => group.models.some(({ models }) => compatibleModelInGroup(config, usableModels(models), selectionRequirements));
+    const keyboardGroup = open && focusCandidate
+        ? optionGroups.find((group) => group.models.some((item) => item.models.includes(current)) && hasSelectableOption(group)) ?? optionGroups.find(hasSelectableOption)
+        : undefined;
+    const activeGroupKey = keyboardGroup?.key ?? groupKey;
+
     const setPickerOpen = (nextOpen: boolean) => {
         if (nextOpen && !options.length) onMissingConfig?.();
         if (nextOpen) window.dispatchEvent(new CustomEvent("model-picker-open", { detail: pickerId }));
@@ -164,17 +172,34 @@ export function ModelPicker({
         }
         setOpen(nextOpen);
     };
-    const focusMenuOption = (last = false, preferSelected = false) => {
+    // Portal 显示和目录加载可以先后完成，直到可选模型真正取得焦点才结束这次键盘打开。
+    const focusEntryOption = (pane: HTMLElement | null) => {
+        if (!pane || !keyboardGroup) return;
+        const target = pane.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]:not(:disabled)')
+            ?? pane.querySelector<HTMLButtonElement>('[role="option"]:not(:disabled)');
+        if (!target) return;
+        focusPickerOption(target);
+        if (document.activeElement === target) {
+            setActiveGroupKey(keyboardGroup.key);
+            setFocusCandidate(false);
+        }
+    };
+    const focusMenuOption = (last = false) => {
         window.requestAnimationFrame(() => {
             const buttons = menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-model-picker-item]:not(:disabled)');
-            const selected = preferSelected && menuRef.current?.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]:not(:disabled)');
-            const target = selected || (last ? buttons?.item((buttons?.length || 1) - 1) : buttons?.item(0));
-            focusPickerOption(target);
+            focusPickerOption(last ? buttons?.item((buttons?.length || 1) - 1) : buttons?.item(0));
         });
     };
     const handleTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+        if (event.key === "Escape" && open) {
+            event.preventDefault();
+            setOpen(false);
+            return;
+        }
+        if (event.key === "Tab") setFocusCandidate(false);
         if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
         event.preventDefault();
+        setFocusCandidate(false);
         setPickerOpen(true);
         focusMenuOption(event.key === "ArrowUp");
     };
@@ -212,7 +237,7 @@ export function ModelPicker({
             aria-label={placeholder}
             onKeyDown={handleMenuKeyDown}
             onMouseDown={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => { setFocusCandidate(false); event.stopPropagation(); }}
         >
             {optionGroups.length ? (
                 activeGroupKey === null ? (
@@ -262,11 +287,11 @@ export function ModelPicker({
                             </button>;
                         })}
                     </div>
-                    {optionGroups.filter((group) => group.key === activeGroupKey).map((group) => <section key={group.key} className="canvas-model-picker-group canvas-model-picker-model-pane min-w-0">
+                    {optionGroups.filter((group) => group.key === activeGroupKey).map((group) => <section key={group.key} ref={keyboardGroup ? focusEntryOption : undefined} className="canvas-model-picker-group canvas-model-picker-model-pane min-w-0">
                         <div className="grid min-w-0 gap-1">
                             {group.models.map((modelGroup) => {
                                 const selected = modelGroup.models.includes(current);
-                                const usable = modelDisabledReason ? modelGroup.models.filter((item) => !modelDisabledReason(item)) : modelGroup.models;
+                                const usable = usableModels(modelGroup.models);
                                 const model = usable.length ? compatibleModelInGroup(config, usable, selectionRequirements, selected ? current : undefined) : undefined;
                                 const displayModel = model || (selected ? current : modelGroup.models[0]);
                                 const disabledReason = model ? "" : usable.length ? modelCompatibilityError(config, usable[0], selectionRequirements) || "当前输入不符合该模型能力" : modelDisabledReason?.(modelGroup.models[0]) || "该模型不可用";
@@ -322,6 +347,7 @@ export function ModelPicker({
                 ref={popoverRef}
                 open={open}
                 onOpenChange={setPickerOpen}
+                afterOpenChange={(visible) => { if (visible) focusEntryOption(menuRef.current); }}
                 trigger="click"
                 placement="bottomLeft"
                 align={{ overflow: { adjustY: true, shiftX: true } }}
@@ -351,9 +377,7 @@ export function ModelPicker({
                     aria-label={triggerAriaLabel || placeholder}
                     title={triggerAriaLabel || (current ? pickerModelOptionLabel(config, current, showConfiguredModelName) : placeholder)}
                     onKeyDown={handleTriggerKeyDown}
-                    onClick={(event) => {
-                        if (event.detail === 0 && triggerContent !== undefined && !open) focusMenuOption(false, true);
-                    }}
+                    onClickCapture={(event) => setFocusCandidate(!open && event.detail === 0 && triggerContent !== undefined)}
                 >
                     {triggerContent !== undefined ? triggerContent : <span className="canvas-model-picker-label flex min-w-0 items-center gap-2">
                         <span className="canvas-model-picker-trigger-icon">
