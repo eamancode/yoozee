@@ -26,14 +26,30 @@ type VariantForm = { label: string; kind: DramaAssetVariantKind; look: string; p
 function variantForm(asset?: ProjectAsset): VariantForm {
     if (!asset?.variant) return { label: "", kind: "costume", look: "", promptEn: "", generationPrompt: "", ageStage: "", scenes: [], image: true, startAfter: "" };
     const fullPrompt = asset.character?.definition.generationPrompt;
-    return { label: asset.variant.label, kind: asset.variant.kind, look: asset.variant.look, promptEn: asset.variant.promptEn, generationPrompt: typeof fullPrompt === "string" ? fullPrompt : "", ageStage: asset.variant.visualDelta?.age_stage || "", scenes: asset.variant.scenes, image: false, startAfter: asset.variant.startAfter || "" };
+    return {
+        label: asset.variant.label,
+        kind: asset.variant.kind,
+        look: asset.variant.look,
+        promptEn: asset.variant.promptEn,
+        generationPrompt: typeof fullPrompt === "string" ? fullPrompt : "",
+        ageStage: asset.variant.visualDelta?.age_stage || "",
+        scenes: asset.variant.scenes,
+        image: false,
+        startAfter: asset.variant.startAfter || "",
+    };
 }
 
 function lookKey(asset: ProjectAsset) {
     const changed = asset.variant?.visualDelta;
     if (!changed) return "";
     return [changed.age_stage, changed.clothing, changed.hair, changed.visible_state]
-        .map((value) => (value || "").normalize("NFKC").trim().toLocaleLowerCase().replace(/[\s\p{P}]+/gu, ""))
+        .map((value) =>
+            (value || "")
+                .normalize("NFKC")
+                .trim()
+                .toLocaleLowerCase()
+                .replace(/[\s\p{P}]+/gu, ""),
+        )
         .join("|");
 }
 
@@ -66,10 +82,11 @@ export function ProjectCharacterVariants({ projectId, parent, currentUnit, defau
     const withoutScenes = variants.filter((variant) => !variant.variant?.scenes.length && !variant.variant?.occurrences?.length);
     const legacy = variants.filter((variant) => !lookKey(variant));
     const episodePrefix = currentUnit?.episode ? `E${String(currentUnit.episode).padStart(2, "0")}S` : "";
-    const currentVariants = currentUnit ? variants.filter(({ variant }) => {
-        return variant?.occurrences?.some((use) => use.unitId === currentUnit.id) ||
-            Boolean(episodePrefix && variant?.scenes.some((scene) => scene.startsWith(episodePrefix)));
-    }) : [];
+    const currentVariants = currentUnit
+        ? variants.filter(({ variant }) => {
+              return variant?.occurrences?.some((use) => use.unitId === currentUnit.id) || Boolean(episodePrefix && variant?.scenes.some((scene) => scene.startsWith(episodePrefix)));
+          })
+        : [];
     const visibleVariants = onlyCurrent && currentUnit ? currentVariants : variants;
 
     const imageTask = async (): Promise<DramaImageTaskTemplate> => {
@@ -162,12 +179,18 @@ export function ProjectCharacterVariants({ projectId, parent, currentUnit, defau
             </div>
             {variants.length ? (
                 <div className="my-1 flex items-center justify-between gap-2 text-xs text-foreground/60">
-                    <span>{variants.filter((variant) => variant.character?.visualStatus === "ready").length} 张已有图 · {withoutScenes.length} 张待补适用场次</span>
-                    <Button size="small" type="text" onClick={() => setReviewing(true)}>整理预览</Button>
+                    <span>
+                        {variants.filter((variant) => variant.character?.visualStatus === "ready").length} 张已有图 · {withoutScenes.length} 张待补适用场次
+                    </span>
+                    <Button size="small" type="text" onClick={() => setReviewing(true)}>
+                        整理预览
+                    </Button>
                 </div>
             ) : null}
             {expanded && currentUnit && variants.length ? (
-                <Checkbox checked={onlyCurrent} onChange={(event) => setOnlyCurrent(event.target.checked)}>仅本集造型（{currentVariants.length}）</Checkbox>
+                <Checkbox checked={onlyCurrent} onChange={(event) => setOnlyCurrent(event.target.checked)}>
+                    仅本集造型（{currentVariants.length}）
+                </Checkbox>
             ) : null}
             {expanded && onlyCurrent && !visibleVariants.length ? <p className="mt-2 text-xs text-foreground/60">本集暂无已登记的子卡造型。</p> : null}
             {expanded && visibleVariants.length ? (
@@ -210,11 +233,17 @@ export function ProjectCharacterVariants({ projectId, parent, currentUnit, defau
                                         {variant.variant?.occurrences?.some((use) => use.startAfter) ? (
                                             <details className="mt-1 text-xs text-foreground/60">
                                                 <summary>场中生效动作</summary>
-                                                {variant.variant.occurrences.filter((use) => use.startAfter).map((use) => (
-                                                    <p key={`${use.unitId}-${use.scene}-${use.startAfter}`}>第 {use.scene} 场，{use.startAfter}</p>
-                                                ))}
+                                                {variant.variant.occurrences
+                                                    .filter((use) => use.startAfter)
+                                                    .map((use) => (
+                                                        <p key={`${use.unitId}-${use.scene}-${use.startAfter}`}>
+                                                            第 {use.scene} 场，{use.startAfter}
+                                                        </p>
+                                                    ))}
                                             </details>
-                                        ) : variant.variant?.startAfter ? <p className="mt-1 text-xs text-foreground/60">动作后生效：{variant.variant.startAfter}。需按镜头选择。</p> : null}
+                                        ) : variant.variant?.startAfter ? (
+                                            <p className="mt-1 text-xs text-foreground/60">动作后生效：{variant.variant.startAfter}。需按镜头选择。</p>
+                                        ) : null}
                                         {variant.settingsImageOutdated ? <span className="text-xs text-foreground/60">图片沿用旧设定</span> : null}
                                     </div>
                                 </div>
@@ -289,10 +318,24 @@ export function ProjectCharacterVariants({ projectId, parent, currentUnit, defau
                     <p>核对造型差异、现有图片和镜头引用后，再选择要保留的版本。</p>
                     <div>
                         <strong>外观字段相同的候选（{duplicates.length} 组）</strong>
-                        {duplicates.length ? <ul>{duplicates.map((items) => <li key={items[0].id}>{items.map((item) => item.variant?.label || item.title).join("、")}</li>)}</ul> : <p>未找到候选</p>}
+                        {duplicates.length ? (
+                            <ul>
+                                {duplicates.map((items) => (
+                                    <li key={items[0].id}>{items.map((item) => item.variant?.label || item.title).join("、")}</li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p>未找到候选</p>
+                        )}
                     </div>
-                    <div><strong>缺少适用场次（{withoutScenes.length} 张）</strong><p>{withoutScenes.map((item) => item.variant?.label || item.title).join("、") || "无"}</p></div>
-                    <div><strong>需按原描述核对的历史造型（{legacy.length} 张）</strong><p>{legacy.map((item) => item.variant?.label || item.title).join("、") || "无"}</p></div>
+                    <div>
+                        <strong>缺少适用场次（{withoutScenes.length} 张）</strong>
+                        <p>{withoutScenes.map((item) => item.variant?.label || item.title).join("、") || "无"}</p>
+                    </div>
+                    <div>
+                        <strong>需按原描述核对的历史造型（{legacy.length} 张）</strong>
+                        <p>{legacy.map((item) => item.variant?.label || item.title).join("、") || "无"}</p>
+                    </div>
                 </div>
             </Modal>
             <Modal

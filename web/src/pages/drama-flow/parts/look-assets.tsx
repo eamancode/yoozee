@@ -158,7 +158,23 @@ export function LookAssets({
     );
 }
 
-function AssetPane({ project, asset, currentUnit, fourPanel, retrying, onRetry, onClose }: { project: Project; asset: ProjectAsset; currentUnit?: { id: string; episode?: number }; fourPanel: boolean; retrying: boolean; onRetry: () => void; onClose: () => void }) {
+function AssetPane({
+    project,
+    asset,
+    currentUnit,
+    fourPanel,
+    retrying,
+    onRetry,
+    onClose,
+}: {
+    project: Project;
+    asset: ProjectAsset;
+    currentUnit?: { id: string; episode?: number };
+    fourPanel: boolean;
+    retrying: boolean;
+    onRetry: () => void;
+    onClose: () => void;
+}) {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const [picking, setPicking] = useState(false);
@@ -195,10 +211,15 @@ function AssetPane({ project, asset, currentUnit, fourPanel, retrying, onRetry, 
                 if (!asset.primaryVersionId) throw new Error("资产版本没读到，请刷新");
                 return bindProjectAssetImage(project.id, asset.id, { resourceId, expectedVersionId: asset.primaryVersionId, keepShotVersions: true });
             }
-            return replaceProjectCharacterRepresentations(project.id, asset.id, [
-                { role: "turnaround_sheet", resourceId, metadata: { sourceAssetId } },
-                { role: "primary", resourceId, metadata: { source: "turnaround_sheet", sourceAssetId } },
-            ], { keepShotVersions: true });
+            return replaceProjectCharacterRepresentations(
+                project.id,
+                asset.id,
+                [
+                    { role: "turnaround_sheet", resourceId, metadata: { sourceAssetId } },
+                    { role: "primary", resourceId, metadata: { source: "turnaround_sheet", sourceAssetId } },
+                ],
+                { keepShotVersions: true },
+            );
         },
         onSuccess: async () => {
             await queryClient.invalidateQueries({ queryKey: ["project", project.id] });
@@ -223,7 +244,9 @@ function AssetPane({ project, asset, currentUnit, fourPanel, retrying, onRetry, 
                         </Button>
                     ) : null}
                     {asset.primaryVersionId && (asset.category === "environment" || asset.category === "prop" || asset.character) ? (
-                        <Button size="small" icon={<Pencil className="size-3.5" />} onClick={startEditing}>编辑设定</Button>
+                        <Button size="small" icon={<Pencil className="size-3.5" />} onClick={startEditing}>
+                            编辑设定
+                        </Button>
                     ) : null}
                 </>
             }
@@ -245,14 +268,18 @@ function AssetPane({ project, asset, currentUnit, fourPanel, retrying, onRetry, 
                 </PaneSection>
             ) : null}
             {asset.settingsImageOutdated ? <PaneSection label="图片版本">图片沿用旧设定。下一次出图会使用当前设定。</PaneSection> : null}
-            {assetFields(asset).map((field) => field.label === "原文依据" && field.value ? (
-                <details key={field.label} className="px-3 py-2 text-xs">
-                    <summary className="cursor-pointer">原文依据</summary>
-                    <p className="whitespace-pre-wrap pt-2">{field.value}</p>
-                </details>
-            ) : (
-                <PaneSection key={field.label} label={field.label}>{field.value}</PaneSection>
-            ))}
+            {assetFields(asset).map((field) =>
+                field.label === "原文依据" && field.value ? (
+                    <details key={field.label} className="px-3 py-2 text-xs">
+                        <summary className="cursor-pointer">原文依据</summary>
+                        <p className="whitespace-pre-wrap pt-2">{field.value}</p>
+                    </details>
+                ) : (
+                    <PaneSection key={field.label} label={field.label}>
+                        {field.value}
+                    </PaneSection>
+                ),
+            )}
             <PaneSection label={`引用（${asset.usages.length}）`} empty="还没有段用到它">
                 {asset.usages.length ? (
                     <ul className="drama-flow-pane-list">
@@ -268,18 +295,35 @@ function AssetPane({ project, asset, currentUnit, fourPanel, retrying, onRetry, 
                 </PaneSection>
             ) : null}
             <AssetImageLibraryPicker open={picking} title={asset.title} onClose={() => setPicking(false)} onBind={(image) => bind.mutateAsync(image)} />
-            <Modal open={Boolean(editing)} title={`编辑设定「${asset.title}」`} okText="保存设定" cancelText="取消" confirmLoading={save.isPending} okButtonProps={{ disabled: !Object.keys(updatedFields).length }} onOk={() => save.mutate()} onCancel={() => { if (!save.isPending) setEditing(undefined); }}>
+            <Modal
+                open={Boolean(editing)}
+                title={`编辑设定「${asset.title}」`}
+                okText="保存设定"
+                cancelText="取消"
+                confirmLoading={save.isPending}
+                okButtonProps={{ disabled: !Object.keys(updatedFields).length }}
+                onOk={() => save.mutate()}
+                onCancel={() => {
+                    if (!save.isPending) setEditing(undefined);
+                }}
+            >
                 <p className="mb-3 text-xs text-foreground/60">保存会保留已有图片和镜头引用。外观变化后可按需出图。</p>
                 <div className="grid gap-3">
-                    {editing && Object.entries(settingsFields).map(([key, label]) => (
-                        <label key={key} className="grid gap-1 text-xs">
-                            {label}
-                            <Input.TextArea rows={key.endsWith("Prompt") ? 3 : 2} maxLength={16000} value={editing.fields[key]} onChange={(event) => {
-                                const value = event.target.value;
-                                setEditing((current) => current && ({ ...current, fields: { ...current.fields, [key]: value } }));
-                            }} />
-                        </label>
-                    ))}
+                    {editing &&
+                        Object.entries(settingsFields).map(([key, label]) => (
+                            <label key={key} className="grid gap-1 text-xs">
+                                {label}
+                                <Input.TextArea
+                                    rows={key.endsWith("Prompt") ? 3 : 2}
+                                    maxLength={16000}
+                                    value={editing.fields[key]}
+                                    onChange={(event) => {
+                                        const value = event.target.value;
+                                        setEditing((current) => current && { ...current, fields: { ...current.fields, [key]: value } });
+                                    }}
+                                />
+                            </label>
+                        ))}
                 </div>
             </Modal>
         </DetailPane>

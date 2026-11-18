@@ -141,7 +141,11 @@ export function ShotBindingEditor({
                                     </Button>
                                 ) : editable && !edit ? (
                                     <div className="flex gap-1">
-                                        {currentVersion ? <Button size="small" onClick={() => setEdit({ kind: "pick", replace: item, asset: currentVersion })}>使用已确认新版</Button> : null}
+                                        {currentVersion ? (
+                                            <Button size="small" onClick={() => setEdit({ kind: "pick", replace: item, asset: currentVersion })}>
+                                                使用已确认新版
+                                            </Button>
+                                        ) : null}
                                         <Button size="small" aria-label={`更换${item.title}`} onClick={() => setEdit({ kind: "pick", replace: item })}>
                                             同类更换
                                         </Button>

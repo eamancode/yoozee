@@ -453,10 +453,14 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                     {units.length > 1 ? (
                         <label className="grid gap-1.5 text-xs">
                             <span className="font-medium">提取范围</span>
-                            <Select value={settings.scope} options={[
-                                { value: "project", label: "全剧 · 按顺序处理尚未覆盖或正文有变化的剧集" },
-                                { value: "unit", label: `仅处理本${unitNoun}` },
-                            ]} onChange={(scope: Settings["scope"]) => setSettings((current) => ({ ...current, scope, images: false }))} />
+                            <Select
+                                value={settings.scope}
+                                options={[
+                                    { value: "project", label: "全剧 · 按顺序处理尚未覆盖或正文有变化的剧集" },
+                                    { value: "unit", label: `仅处理本${unitNoun}` },
+                                ]}
+                                onChange={(scope: Settings["scope"]) => setSettings((current) => ({ ...current, scope, images: false }))}
+                            />
                             {settings.scope === "project" ? <span className="text-foreground/60">已有角色与造型可跨集复用。此轮只处理已有场次色卡的剧集。</span> : null}
                         </label>
                     ) : null}
