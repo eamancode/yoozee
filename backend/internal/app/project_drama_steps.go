@@ -68,6 +68,7 @@ type DramaStepRunRequest struct {
 	Config              map[string]any `json:"config"`
 	// ResumeTaskID 是「从第 N 场继续」：同一章上一次没跑完的生成分段任务，新任务带上它已写完的场接着写。
 	ResumeTaskID string `json:"resumeTaskId,omitempty"`
+	AssetScope   string `json:"assetScope,omitempty"`
 	// OnlyScenes 是生成分段的「重新生成问题场」：只重写这几场（剧本场编号，如 E01S02），其余场的镜头行取本章镜头表里已有的。
 	OnlyScenes []string `json:"onlyScenes,omitempty"`
 	// OnlySections 是「重新生成问题小节」：只重写这几节（小节编号，如 E01S02-P2），其余小节的镜头行取本章镜头表里已有的、
@@ -318,6 +319,16 @@ func (s *Service) RunDramaStep(userID string, projectID string, unitID string, s
 	}
 	if _, err := projectStepWorkflow(project, stepID); err != nil {
 		return DramaStepRunResult{}, err
+	}
+	if req.AssetScope != "" {
+		if stepID != drama.StepAssetsExtract || req.AssetScope != "project" || req.ResumeTaskID != "" {
+			return DramaStepRunResult{}, BadAuthRequest("全剧提取仅适用于新发起的资产提取")
+		}
+		queue, err := s.projectAssetExtractionQueue(userID, project, unitID)
+		if err != nil {
+			return DramaStepRunResult{}, err
+		}
+		unitID, req.chain = queue[0], &dramaAssetChain{Queue: queue[1:]}
 	}
 	// 整章生成分段收尾时整章替换段：本章段上已有产物就先要用户确认（续写、只重写几节、改戏类走保留装段，不在这里拦）。
 	if stepID == drama.StepChapterShots && !req.Discard && strings.TrimSpace(req.ResumeTaskID) == "" && len(req.OnlyScenes) == 0 && len(req.OnlySections) == 0 {
@@ -629,7 +640,7 @@ func (s *Service) planDramaStepWith(userID string, project *model.Project, unitI
 	if err != nil {
 		return nil, err
 	}
-	assets, err := s.ProjectAssets(userID, project.ID)
+	assets, err := s.storyboardAssets(userID, project.ID)
 	if err != nil {
 		return nil, err
 	}

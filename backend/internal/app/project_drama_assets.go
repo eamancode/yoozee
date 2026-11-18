@@ -46,12 +46,15 @@ var dramaAssetCategories = []model.AssetCategory{model.AssetCategoryCharacter, m
 // dramaAssetsMeta 是任务 metadata.dramaAssets：本单元、它在导演风格编号里的集号（取本集色彩脚本，0 表示不在编号里）、场数、要不要出图；
 // Chain 是场次色卡收尾自动接着起的提取（还没提取的后面几集）。
 type dramaAssetsMeta struct {
-	UnitID  string           `json:"unitId"`
-	Kind    string           `json:"kind"`
-	Episode int              `json:"episode,omitempty"`
-	Scenes  int              `json:"scenes"`
-	Images  bool             `json:"images"`
-	Chain   *dramaAssetChain `json:"chain,omitempty"`
+	SourceHash   string           `json:"sourceHash,omitempty"`
+	Contract     string           `json:"contract,omitempty"`
+	SkillVersion string           `json:"skillVersion,omitempty"`
+	UnitID       string           `json:"unitId"`
+	Kind         string           `json:"kind"`
+	Episode      int              `json:"episode,omitempty"`
+	Scenes       int              `json:"scenes"`
+	Images       bool             `json:"images"`
+	Chain        *dramaAssetChain `json:"chain,omitempty"`
 }
 
 // dramaAssetChain 是自动接着提取的一串：From 是起这一串的场次色卡任务，Queue 是这一集之后还要依次提取的单元。
@@ -175,8 +178,9 @@ func assetsExtractPlan(project *model.Project, unit *model.ProjectUnit, units []
 	in := drama.AssetsExtractInput{
 		Contract:  usage.Contract,
 		UnitTitle: unit.Title, UnitLabel: label, UnitNoun: noun, SourceText: text, Known: known, Anchor: anchor, Master: master,
-		ColorScript: assetsEpisodeColorScript(project.BibleJSON, units, episode),
-		Style:       drama.StepStyle{Title: style.Title, Prompt: style.Prompt}, Skill: skill,
+		SeriesSpeakerHints: seriesSpeakerHints(unit, units),
+		ColorScript:        assetsEpisodeColorScript(project.BibleJSON, units, episode),
+		Style:              drama.StepStyle{Title: style.Title, Prompt: style.Prompt}, Skill: skill,
 	}
 	if p, err := drama.BuiltinProfile(projectDramaContext(project).profileID()); err == nil {
 		in.Profile = drama.StyleBibleProfile{Label: p.Label, StyleBlock: p.StyleBlock.Zh, LightPolicy: p.LightPolicy}
@@ -193,7 +197,7 @@ func assetsExtractPlan(project *model.Project, unit *model.ProjectUnit, units []
 			"requirements": "提取本" + noun + "的角色、场景和道具，每个资产写中文外观和英文出图提示词，直接写进项目资产并出图。",
 			"dramaSources": []map[string]any{{"unitId": unit.ID, "title": unit.Title, "kind": string(unit.Kind), "episode": episode}},
 		},
-		assets: &dramaAssetsMeta{UnitID: unit.ID, Kind: string(unit.Kind), Episode: episode, Scenes: max(1, len(scenes))},
+		assets: &dramaAssetsMeta{UnitID: unit.ID, Kind: string(unit.Kind), Episode: episode, Scenes: max(1, len(scenes)), SourceHash: assetExtractionSourceHash(unit), Contract: usage.Contract, SkillVersion: usage.Skill.ContentHash},
 	}, nil
 }
 
@@ -203,9 +207,11 @@ func assetsKnownFromSummaries(assets []ProjectAssetSummary) ([]drama.AssetsKnown
 	var known []drama.AssetsKnown
 	var records []dramaStepAssetRecord
 	variants := map[string][]string{}
+	looks := map[string][]drama.KnownAssetLook{}
 	for _, a := range assets {
 		if a.Variant != nil && string(a.Status) != string(model.AssetVersionStatusArchived) {
 			variants[a.Variant.ParentID] = append(variants[a.Variant.ParentID], a.Variant.Label)
+			looks[a.Variant.ParentID] = append(looks[a.Variant.ParentID], drama.KnownAssetLook{ID: a.ID, Label: a.Variant.Label, Look: a.Variant.Look, Delta: a.Variant.VisualDelta})
 		}
 	}
 	for _, a := range assets {
@@ -220,7 +226,7 @@ func assetsKnownFromSummaries(assets []ProjectAssetSummary) ([]drama.AssetsKnown
 		case a.Visual != nil:
 			definition = a.Visual.Definition
 		}
-		known = append(known, drama.AssetsKnown{Category: string(a.Category), Name: a.Title, Aliases: definitionAliases(definition), Incomplete: !imaged && !assetDefinitionHasLook(string(a.Category), definition), Variants: variants[a.ID]})
+		known = append(known, drama.AssetsKnown{ID: a.ID, Looks: looks[a.ID], Category: string(a.Category), Name: a.Title, Aliases: definitionAliases(definition), Incomplete: !imaged && !assetDefinitionHasLook(string(a.Category), definition), Variants: variants[a.ID]})
 		records = append(records, dramaStepAssetRecord{ID: a.ID, Title: a.Title, Category: string(a.Category)})
 	}
 	return known, records
@@ -273,18 +279,19 @@ type DramaAssetsOutcomeItem struct {
 // DramaAssetsExtractOutcome 是资产设计收尾写进任务结果 result.dramaStep 的摘要。Variants 是新建的角色子卡数（也算在 Created 里），
 // Scenes 是回填了场景资产的场数，Chained 是自动接着起的下一集提取。
 type DramaAssetsExtractOutcome struct {
-	Step       string                              `json:"step"`
-	Status     string                              `json:"status"`
-	UnitID     string                              `json:"unitId"`
-	Parse      drama.AssetsExtractParseStats       `json:"parse"`
-	Created    int                                 `json:"created"`
-	Merged     int                                 `json:"merged"`
-	Skipped    int                                 `json:"skipped"`
-	ByCategory map[string]DramaAssetsCategoryCount `json:"byCategory"`
-	Errors     int                                 `json:"errors"`
-	Warnings   int                                 `json:"warnings"`
-	Items      []drama.CheckItem                   `json:"items,omitempty"`
-	Assets     []DramaAssetsOutcomeItem            `json:"assets"`
+	Occurrences []projectAssetOccurrence            `json:"occurrences,omitempty"`
+	Step        string                              `json:"step"`
+	Status      string                              `json:"status"`
+	UnitID      string                              `json:"unitId"`
+	Parse       drama.AssetsExtractParseStats       `json:"parse"`
+	Created     int                                 `json:"created"`
+	Merged      int                                 `json:"merged"`
+	Skipped     int                                 `json:"skipped"`
+	ByCategory  map[string]DramaAssetsCategoryCount `json:"byCategory"`
+	Errors      int                                 `json:"errors"`
+	Warnings    int                                 `json:"warnings"`
+	Items       []drama.CheckItem                   `json:"items,omitempty"`
+	Assets      []DramaAssetsOutcomeItem            `json:"assets"`
 	// Images 是出图：排上的、等空位的（同时任务数有上限，前面的出完图自动接着排）、没排上的。
 	Images   DramaImageQueueResult `json:"images"`
 	Variants int                   `json:"variants"`
@@ -361,17 +368,39 @@ func (x *dramaAssetIndex) add(entry *dramaAssetEntry) {
 }
 
 func (x *dramaAssetIndex) lookup(row drama.AssetsExtractRow) *dramaAssetEntry {
+	if row.AssetID != "" {
+		for _, entry := range x.entries {
+			if entry.asset.ID == row.AssetID && string(entry.asset.Category) == row.Category {
+				return entry
+			}
+		}
+		return nil
+	}
+	var exact *dramaAssetEntry
 	for _, entry := range x.entries {
 		if string(entry.asset.Category) == row.Category && model.AssetCandidateNameKey(entry.asset.Title) == drama.AssetNameKey(row.Name) {
-			return entry
+			if exact != nil {
+				return nil
+			}
+			exact = entry
 		}
 	}
+	if exact != nil {
+		return exact
+	}
+	var matched *dramaAssetEntry
 	for _, name := range append([]string{row.Name}, row.Aliases...) {
+		if row.Category == drama.AssetCharacter && ambiguousCharacterAlias(name) {
+			continue
+		}
 		if entry := x.byKey[row.Category+":"+model.AssetCandidateNameKey(name)]; entry != nil {
-			return entry
+			if matched != nil && matched != entry {
+				return nil
+			}
+			matched = entry
 		}
 	}
-	return nil
+	return matched
 }
 
 func (x *dramaAssetIndex) known() []drama.AssetsKnown {
@@ -382,7 +411,7 @@ func (x *dramaAssetIndex) known() []drama.AssetsKnown {
 		for _, c := range x.children[e.asset.ID] {
 			variants = append(variants, c.asset.VariantLabel)
 		}
-		out = append(out, drama.AssetsKnown{Category: category, Name: e.asset.Title, Aliases: definitionAliases(e.definition), Incomplete: !e.imaged && !assetDefinitionHasLook(category, e.definition), Variants: variants})
+		out = append(out, drama.AssetsKnown{ID: e.asset.ID, Category: category, Name: e.asset.Title, Aliases: definitionAliases(e.definition), Incomplete: !e.imaged && !assetDefinitionHasLook(category, e.definition), Variants: variants})
 	}
 	return out
 }
@@ -485,7 +514,8 @@ func mergeIntoEntry(entry *dramaAssetEntry, row drama.AssetsExtractRow, details 
 			entry.definition["productionPriority"] = merged.ProductionPriority
 		}
 	}
-	if !entry.imaged || entry.asset.Category == model.AssetCategoryCharacter {
+	manuallyEdited, _ := payloadMetadata(assetPayload(&entry.asset))[assetSettingsEdited].(bool)
+	if !manuallyEdited && (!entry.imaged || entry.asset.Category == model.AssetCategoryCharacter) {
 		for _, key := range assetLookFields {
 			value, ok := details[key]
 			if !ok || !emptyCharacterDefinitionValue(entry.definition[key]) || emptyCharacterDefinitionValue(value) {
@@ -507,6 +537,16 @@ func mergeIntoEntry(entry *dramaAssetEntry, row drama.AssetsExtractRow, details 
 // 一行能用的都没有时任务失败（资产都不动）。出图不在这里排（queueAssetsExtractImages）：收尾先接着建下一集的提取任务占一个空位，
 // 再按剩下的空位排出图，免得出图把同时任务数占满、下一集接不上。
 func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMeta, result map[string]interface{}) (DramaAssetsExtractOutcome, error) {
+	for range 3 {
+		outcome, err := s.applyAssetsExtractTaskOnce(task, meta, result)
+		if !errors.Is(err, repository.ErrDramaAssetChanged) {
+			return outcome, err
+		}
+	}
+	return DramaAssetsExtractOutcome{}, assetSettingsConflict()
+}
+
+func (s *Service) applyAssetsExtractTaskOnce(task model.Task, meta *dramaStepTaskMeta, result map[string]interface{}) (DramaAssetsExtractOutcome, error) {
 	target, err := taskDramaStepTarget(task)
 	if err != nil {
 		return DramaAssetsExtractOutcome{}, err
@@ -525,6 +565,9 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	}
 	if err != nil {
 		return DramaAssetsExtractOutcome{}, err
+	}
+	if am.SourceHash != "" && am.SourceHash != assetExtractionSourceHash(unit) {
+		return DramaAssetsExtractOutcome{}, BadAuthRequest("剧本已修改，请基于最新正文提取资产")
 	}
 	units, err := s.repo.ProjectUnits(project.ID)
 	if err != nil {
@@ -546,7 +589,7 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 				return DramaAssetsExtractOutcome{}, BadAuthRequest("资产一体化流程的资产缺少完整generation_prompt，没有写入：" + row.Name)
 			}
 			for _, variant := range row.Variants {
-				if variant.Appearance != "" && variant.GenerationPrompt == "" {
+				if variant.AssetID == "" && variant.Appearance != "" && variant.GenerationPrompt == "" {
 					return DramaAssetsExtractOutcome{}, BadAuthRequest("资产一体化流程的子卡缺少完整generation_prompt：" + row.Name + "·" + variant.Label)
 				}
 			}
@@ -580,18 +623,24 @@ func (s *Service) applyAssetsExtractTask(task model.Task, meta *dramaStepTaskMet
 	// 场景资产回填到这一集的场次：已有的和这次新建的场景都算，地点对得上名字或别名的绑上。
 	// 只改 bible_json.scene_assets 里这一集的条目，事务里按当前值合并（不拿提取开始时读到的整份连戏表覆盖）。
 	var patchBible func(string) (string, error)
+	var environments map[string]dramaSceneAssets
 	if _, numbers, _ := sceneUnits(units); numbers[unit.ID] > 0 {
 		episode := numbers[unit.ID]
-		bindings := unitSceneEnvironments(*unit, episode, index.environments())
-		patchBible = func(bibleJSON string) (string, error) {
-			return mergeSceneAssetsDocument(bibleJSON, unit.ID, episode, bindings)
-		}
-		outcome.Scenes = len(bindings)
+		environments = unitSceneEnvironments(*unit, episode, index.environments())
+		outcome.Scenes = len(environments)
 	}
-	if err := s.repo.ApplyDramaAssetsExtract(task.UserID, project.ID, writes, patchBible, time.Now()); err != nil {
-		if errors.Is(err, repository.ErrDramaAssetChanged) {
-			return DramaAssetsExtractOutcome{}, errors.New("要合并的资产在提取期间被改过，没有写入，请重新提取")
+	patchBible = func(bibleJSON string) (string, error) {
+		var mergeErr error
+		if environments != nil {
+			bibleJSON, mergeErr = mergeSceneAssetsDocument(bibleJSON, unit.ID, am.Episode, environments)
+			if mergeErr != nil {
+				return "", mergeErr
+			}
 		}
+		coverage := projectAssetCoverage{SourceHash: am.SourceHash, Contract: am.Contract, SkillVersion: am.SkillVersion}
+		return mergeProjectAssetOccurrences(bibleJSON, unit.ID, outcome.Occurrences, coverage)
+	}
+	if err := s.repo.ApplyDramaAssetsAtRevision(task.UserID, project.ID, writes, patchBible, time.Now(), &project.Revision); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return DramaAssetsExtractOutcome{}, errors.New("项目或资产在写入前被删除，没有写入")
 		}
@@ -706,13 +755,38 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 	}
 	var writes []repository.DramaAssetWrite
 	var merged []*dramaAssetEntry
+	recordUse := func(assetID string, scenes []int, startAfter string) {
+		for _, scene := range scenes {
+			item := projectAssetOccurrence{AssetID: assetID, Scene: scene, StartAfter: startAfter}
+			if scene > 0 && scene <= am.Scenes && !slices.Contains(outcome.Occurrences, item) {
+				outcome.Occurrences = append(outcome.Occurrences, item)
+			}
+		}
+	}
+	pending := func(name, category, reason string) {
+		outcome.Warnings++
+		outcome.Skipped++
+		count(category, func(c *DramaAssetsCategoryCount) { c.Skipped++ })
+		if len(outcome.Items) < dramaAssetsOutcomeItems {
+			outcome.Items = append(outcome.Items, drama.CheckItem{Level: "warn", Rule: "R-ASSET-REVIEW", ShotID: name, Message: reason})
+		}
+	}
 	for _, row := range checked.Rows {
 		details := assetsRowDefinition(row, am.Episode, colors, master)
+		appearances := row.Appearances
+		if len(appearances) == 0 && row.FirstScene > 0 {
+			appearances = []int{row.FirstScene}
+		}
 		if entry := index.lookup(row); entry != nil {
+			recordUse(entry.asset.ID, appearances, "")
 			mergeIntoEntry(entry, row, details)
 			if !slices.Contains(merged, entry) {
 				merged = append(merged, entry)
 			}
+			continue
+		}
+		if am.SourceHash != "" && row.Category == drama.AssetCharacter && index.needsIdentityReview(row) {
+			pending(row.Name, row.Category, "有多个可能的人物或称谓缺少上下文，请确认后复用")
 			continue
 		}
 		details["name"] = row.Name
@@ -727,6 +801,9 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 			return nil, outcome, err
 		}
 		payload := assetPayload(&asset)
+		if am.SourceHash != "" {
+			payloadMetadata(payload)[assetSettingsKeepShotVersions] = true
+		}
 		imageStatus := initial
 		if details["productionPriority"] == "low" {
 			imageStatus = dramaImageNone
@@ -741,6 +818,7 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 		link := model.ProjectAssetLink{ID: newID(), ProjectID: project.ID, AssetID: asset.ID, FolderID: folderID, Position: position, CreatedAt: now}
 		position++
 		writes = append(writes, repository.DramaAssetWrite{Candidate: &candidate, Asset: &asset, Version: &version, Link: &link})
+		recordUse(asset.ID, appearances, "")
 		// 后面的行（别名不同但实际是同一个）合并到它，不再新建。
 		index.add(&dramaAssetEntry{asset: asset, version: &version, definition: details, imaged: false})
 		outcome.Created++
@@ -771,6 +849,7 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 				return nil, outcome, err
 			}
 			writes = append(writes, w)
+			writes[len(writes)-1].KeepShotVersions = am.SourceHash != "" || assetKeepsShotVersions(&entry.asset)
 			action = "updated"
 		}
 		outcome.Merged++
@@ -778,6 +857,9 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 		outcome.Assets = append(outcome.Assets, DramaAssetsOutcomeItem{AssetID: entry.asset.ID, Name: entry.asset.Title, Category: category, Action: action})
 	}
 	// 子卡：主卡这次新建的用合并后的设定，已有的用当前主版本的设定（主卡的名字和图不动）。
+	source := chapterPlainText(unit.SourceText)
+	scenes := drama.AssetsExtractScenes(source, unit.Title)
+	childWrites := map[string]int{}
 	for _, row := range checked.Rows {
 		if row.Category != drama.AssetCharacter || len(row.Variants) == 0 {
 			continue
@@ -787,29 +869,62 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 			continue
 		}
 		for _, v := range row.Variants {
+			if am.SourceHash != "" && len(v.Scenes) == 0 {
+				pending(parent.asset.Title+"·"+v.Label, drama.AssetCharacter, "没有有效适用场次，待确认")
+				continue
+			}
+			if am.SourceHash != "" && !variantBoundaryInScenes(v, scenes, source) {
+				pending(parent.asset.Title+"·"+v.Label, drama.AssetCharacter, "在指定场次找不到造型生效动作，请核对原文")
+				continue
+			}
 			codes := variantSceneCodes(v.Scenes, am.Episode)
-			if child := index.child(parent.asset.ID, v.Label); child != nil {
-				w, changed, err := variantScenesWrite(child, codes, v.StartAfter, now)
+			var child *dramaAssetEntry
+			if am.SourceHash == "" {
+				child = index.child(parent.asset.ID, v.Label)
+			} else {
+				var conflict bool
+				child, conflict = index.resolveLook(parent.asset.ID, v)
+				if conflict {
+					pending(parent.asset.Title+"·"+v.Label, drama.AssetCharacter, "造型与已有记录有冲突，请确认用哪张卡")
+					continue
+				}
+			}
+			if child != nil {
+				w, changed, err := variantScenesWrite(child, unit.ID, am.Episode, v, codes, now)
 				if err != nil {
 					return nil, outcome, err
 				}
 				action := "merged"
-				if changed && !created[child.asset.ID] {
-					writes = append(writes, w)
+				if changed {
+					if i, ok := childWrites[child.asset.ID]; ok {
+						writes[i].Asset.PayloadJSON = w.Asset.PayloadJSON
+					} else {
+						childWrites[child.asset.ID] = len(writes)
+						writes = append(writes, w)
+					}
 					action = "updated"
 				}
+				recordUse(child.asset.ID, v.Scenes, v.StartAfter)
 				outcome.Merged++
 				count(drama.AssetCharacter, func(c *DramaAssetsCategoryCount) { c.Merged++ })
 				outcome.Assets = append(outcome.Assets, DramaAssetsOutcomeItem{AssetID: child.asset.ID, Name: child.asset.Title, Category: drama.AssetCharacter, Action: action, ParentID: parent.asset.ID})
 				continue
 			}
-			asset, version, err := newVariantAsset(userID, parent.asset, parent.definition, v.Label, v.Kind, v.Appearance, v.PromptEn, assetVariantMeta{Scenes: codes, Source: "extract", StartAfter: v.StartAfter, GenerationPrompt: v.GenerationPrompt, WorkflowSkillVersionID: row.SourceSkillVersionID}, initial, now)
+			if am.SourceHash != "" && !supportedVisualDelta(v, scenes, source) {
+				pending(parent.asset.Title+"·"+v.Label, drama.AssetCharacter, "缺少本场可验证的外观变化依据，沿用现有造型")
+				continue
+			}
+			variantMeta := assetVariantMeta{Scenes: codes, Source: "extract", StartAfter: v.StartAfter, GenerationPrompt: v.GenerationPrompt, WorkflowSkillVersionID: row.SourceSkillVersionID, VisualDelta: v.Delta}
+			appendVariantOccurrences(&variantMeta, unit.ID, v.Scenes, v.StartAfter, am.Episode)
+			asset, version, err := newVariantAsset(userID, parent.asset, parent.definition, v.Label, v.Kind, v.Appearance, v.PromptEn, variantMeta, initial, now)
 			if err != nil {
 				return nil, outcome, err
 			}
 			link := model.ProjectAssetLink{ID: newID(), ProjectID: project.ID, AssetID: asset.ID, FolderID: folderID, Position: position, CreatedAt: now}
 			position++
+			childWrites[asset.ID] = len(writes)
 			writes = append(writes, repository.DramaAssetWrite{Asset: &asset, Version: &version, Link: &link})
+			recordUse(asset.ID, v.Scenes, v.StartAfter)
 			created[asset.ID] = true
 			index.children[parent.asset.ID] = append(index.children[parent.asset.ID], &dramaAssetEntry{asset: asset, version: &version, definition: map[string]any{}})
 			outcome.Created++
@@ -822,13 +937,14 @@ func (s *Service) dramaAssetWrites(userID string, project *model.Project, unit *
 }
 
 // variantScenesWrite 是已有子卡只补场：场都有了时 changed 为 false（不写）；否则只改 payload（不加版本、不动图）。
-func variantScenesWrite(child *dramaAssetEntry, codes []string, startAfter string, now time.Time) (repository.DramaAssetWrite, bool, error) {
+func variantScenesWrite(child *dramaAssetEntry, unitID string, episode int, variant drama.AssetsVariant, codes []string, now time.Time) (repository.DramaAssetWrite, bool, error) {
 	meta := assetVariantMetaOf(&child.asset)
+	added := appendVariantOccurrences(&meta, unitID, variant.Scenes, variant.StartAfter, episode)
 	changed := mergeVariantScenes(&meta, codes)
-	if meta.StartAfter == "" && startAfter != "" {
-		meta.StartAfter, changed = startAfter, true
+	if meta.StartAfter == "" && variant.StartAfter != "" {
+		meta.StartAfter, changed = variant.StartAfter, true
 	}
-	if !changed {
+	if !changed && !added {
 		return repository.DramaAssetWrite{}, false, nil
 	}
 	asset := child.asset
@@ -841,7 +957,7 @@ func variantScenesWrite(child *dramaAssetEntry, codes []string, startAfter strin
 	}
 	asset.PayloadJSON = string(raw)
 	child.asset = asset
-	return repository.DramaAssetWrite{Asset: &asset, ExpectedVersionID: asset.PrimaryVersionID, PayloadOnly: true}, true, nil
+	return repository.DramaAssetWrite{Asset: &asset, ExpectedVersionID: asset.PrimaryVersionID, ExpectedUpdatedAt: &asset.UpdatedAt, PayloadOnly: true}, true, nil
 }
 
 // refreshCreatedAssetDefinition 把新建资产的设定换成合并后的（版本设定、候选详情、payload 里的设定一起换）。
@@ -871,7 +987,7 @@ func (s *Service) mergedAssetWrite(entry *dramaAssetEntry, now time.Time) (repos
 		return repository.DramaAssetWrite{}, err
 	}
 	asset := entry.asset
-	if asset.Category == model.AssetCategoryCharacter {
+	if asset.Category == model.AssetCategoryCharacter && entry.content {
 		// 角色加版本会重建 payload：资产层面的 metadata（出图排队状态）由 prepareNextCharacterVersion 带过去，还在等空位的角色照样排三视图。
 		next, version, reps, voice, err := s.prepareNextCharacterVersion(&asset, asset.Title, string(encoded), nil, nil, false)
 		if err != nil {
@@ -1139,8 +1255,11 @@ func characterStyleConstraint(style styleProfileDocument) string {
 
 // characterTurnaroundSetting 是三视图模板的【角色设定】：设定里画面相关的字段（与前端 characterTurnaroundVariables 一致）。
 func characterTurnaroundSetting(definition map[string]any) string {
+	if prompt, _ := definition["generationPrompt"].(string); strings.TrimSpace(prompt) != "" {
+		return strings.TrimSpace(prompt)
+	}
 	var parts []string
-	for _, key := range []string{"role", "appearance", "physique", "clothing", "personality", "props", "consistencyPrompt", "multiViewPrompt"} {
+	for _, key := range []string{"role", "appearance", "identityAppearance", "age", "physique", "clothing", "personality", "props", "consistencyPrompt", "multiViewPrompt"} {
 		if text, _ := definition[key].(string); strings.TrimSpace(text) != "" {
 			parts = append(parts, strings.TrimSpace(text))
 		}
@@ -1188,7 +1307,10 @@ func (s *Service) dramaVisualImageTaskRequest(userID string, project *model.Proj
 	_ = json.Unmarshal([]byte(firstNonEmpty(version.DefinitionJSON, "{}")), &definition)
 	prompt, _ := definition["prompt"].(string)
 	description, _ := definition["description"].(string)
-	if strings.TrimSpace(prompt) == "" {
+	if full, _ := definition["generationPrompt"].(string); strings.TrimSpace(full) != "" {
+		prompt, description = full, ""
+	}
+	if strings.TrimSpace(prompt) == "" && strings.TrimSpace(description) == "" {
 		return CreateTaskRequest{}, BadAuthRequest("资产缺少出图提示词")
 	}
 	label, tail := "道具", "完整展示当前道具本体的形状、材质与纹理及固定部件，背景简洁，不出现人物。描述中提到的使用者、关联道具和可移动摆放物仅用于交代用途与关系，不随本体出图；承载台面、收纳空间保持空置，不把独立道具组合成套装。"

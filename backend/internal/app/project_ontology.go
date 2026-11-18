@@ -327,7 +327,7 @@ func ontologyArtifactCount(d DramaSegmentDiscard) int {
 
 // ontologyMaterials 是素材清单：有图的人物（主卡在前、子卡跟在后）、场景、道具，各自用主版本当参考文件。没图的资产不进清单。
 func (s *Service) ontologyMaterials(userID string, projectID string) ([]drama.OntologyMaterial, error) {
-	assets, err := s.ProjectAssets(userID, projectID)
+	assets, err := s.storyboardAssets(userID, projectID)
 	if err != nil {
 		return nil, err
 	}

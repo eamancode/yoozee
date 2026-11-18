@@ -44,8 +44,9 @@ type CharacterRepresentationInput struct {
 }
 
 type ReplaceCharacterRepresentationsRequest struct {
-	Representations []CharacterRepresentationInput `json:"representations"`
-	Definition      map[string]any                 `json:"definition,omitempty"`
+	Representations  []CharacterRepresentationInput `json:"representations"`
+	Definition       map[string]any                 `json:"definition,omitempty"`
+	KeepShotVersions bool                           `json:"keepShotVersions,omitempty"`
 }
 
 type BindCharacterVoiceRequest struct {
@@ -371,6 +372,15 @@ func (s *Service) ReplaceProjectCharacterRepresentations(userID string, projectI
 	if err != nil {
 		return ProjectCharacterDetail{}, err
 	}
+	if req.KeepShotVersions {
+		payload := assetPayload(asset)
+		payloadMetadata(payload)[assetSettingsKeepShotVersions] = true
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return ProjectCharacterDetail{}, err
+		}
+		asset.PayloadJSON = string(encoded)
+	}
 	var definitionJSON string
 	if req.Definition != nil {
 		encoded, defErr := normalizedCharacterDefinition(req.Definition)
@@ -649,7 +659,7 @@ func (s *Service) createNextCharacterVersion(projectID string, asset *model.Asse
 	if err != nil {
 		return model.AssetVersion{}, err
 	}
-	if err := s.repo.SaveCharacterVersion(projectID, &nextAsset, &next, representations, voice); err != nil {
+	if err := s.repo.SaveCharacterVersion(projectID, &nextAsset, &next, representations, voice, !assetKeepsShotVersions(asset)); err != nil {
 		return model.AssetVersion{}, err
 	}
 	*asset = nextAsset
@@ -741,6 +751,7 @@ func (s *Service) prepareNextCharacterVersion(asset *model.Asset, name string, d
 		rebuilt["metadata"] = metadata
 		if replacementRepresentations != nil {
 			metadata[assetImageKey] = dramaImageState{Status: dramaImageBound, UpdatedAt: now.Format(time.RFC3339Nano)}
+			delete(metadata, assetSettingsImageVersion)
 		}
 		raw, err := json.Marshal(rebuilt)
 		if err != nil {

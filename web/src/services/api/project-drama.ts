@@ -622,6 +622,7 @@ export function runDramaStep(
         discard?: boolean;
         allowMissingHandoff?: boolean;
         imageTask?: DramaImageTaskTemplate;
+        assetScope?: "project";
     },
 ) {
     return http.post<{ task: GenerationTask; usage: DramaStepUsage }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/drama/steps/${encodeURIComponent(step)}/run`, input);

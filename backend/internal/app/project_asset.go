@@ -28,8 +28,9 @@ type LinkProjectAssetRequest struct {
 }
 
 type UpdateProjectAssetRequest struct {
-	Category *string `json:"category"`
-	FolderID *string `json:"folderId"`
+	Settings *ProjectAssetSettingsPatch `json:"settings"`
+	Category *string                    `json:"category"`
+	FolderID *string                    `json:"folderId"`
 	// Anchors 是场景资产的空间锚点（人物能站、能走到的位置）：写进主版本设定的 anchors，分镜提示词和镜头表检查 R-SHOT-012 读它。
 	Anchors *[]string `json:"anchors"`
 }
@@ -46,24 +47,26 @@ type CreateAssetVersionRequest struct {
 }
 
 type ProjectAssetSummary struct {
-	StoryboardReference *StoryboardReferenceSource `json:"storyboardReference,omitempty"`
-	ID                  string                     `json:"id"`
-	Title               string                     `json:"title"`
-	MediaType           string                     `json:"mediaType"`
-	Category            model.AssetCategory        `json:"category"`
-	Status              model.AssetVersionStatus   `json:"status"`
-	PrimaryVersionID    string                     `json:"primaryVersionId,omitempty"`
-	VersionCount        int                        `json:"versionCount"`
-	Usages              []string                   `json:"usages"`
-	FolderID            string                     `json:"folderId,omitempty"`
-	Position            int                        `json:"position"`
-	StorageKey          string                     `json:"storageKey,omitempty"`
-	DurationMs          int64                      `json:"durationMs,omitempty"`
-	PreviewText         string                     `json:"previewText,omitempty"`
-	UpdatedAt           time.Time                  `json:"updatedAt"`
-	Source              string                     `json:"source,omitempty"`
-	Character           *CharacterCardSummary      `json:"character,omitempty"`
-	Visual              *ProjectAssetVisualSummary `json:"visual,omitempty"`
+	SettingsImageOutdated bool                       `json:"settingsImageOutdated,omitempty"`
+	ConfirmedImageVersion string                     `json:"confirmedImageVersionId,omitempty"`
+	StoryboardReference   *StoryboardReferenceSource `json:"storyboardReference,omitempty"`
+	ID                    string                     `json:"id"`
+	Title                 string                     `json:"title"`
+	MediaType             string                     `json:"mediaType"`
+	Category              model.AssetCategory        `json:"category"`
+	Status                model.AssetVersionStatus   `json:"status"`
+	PrimaryVersionID      string                     `json:"primaryVersionId,omitempty"`
+	VersionCount          int                        `json:"versionCount"`
+	Usages                []string                   `json:"usages"`
+	FolderID              string                     `json:"folderId,omitempty"`
+	Position              int                        `json:"position"`
+	StorageKey            string                     `json:"storageKey,omitempty"`
+	DurationMs            int64                      `json:"durationMs,omitempty"`
+	PreviewText           string                     `json:"previewText,omitempty"`
+	UpdatedAt             time.Time                  `json:"updatedAt"`
+	Source                string                     `json:"source,omitempty"`
+	Character             *CharacterCardSummary      `json:"character,omitempty"`
+	Visual                *ProjectAssetVisualSummary `json:"visual,omitempty"`
 	// Palette 是色卡（category=palette）的色彩脚本、出图状态和取色校验。
 	Palette *ProjectAssetPaletteSummary `json:"palette,omitempty"`
 	// Image 是资产设计建的角色、场景、道具的出图排队状态（别的资产没有）。
@@ -353,10 +356,17 @@ func (s *Service) UpdateProjectAsset(userID string, projectID string, assetID st
 	if !linked {
 		return ProjectAssetSummary{}, BadAuthRequest("素材尚未加入当前项目")
 	}
-	if countSet(req.Category != nil, req.FolderID != nil, req.Anchors != nil) > 1 {
-		return ProjectAssetSummary{}, BadAuthRequest("一次只能修改素材分类、所在文件夹或场景锚点中的一项")
+	if countSet(req.Category != nil, req.FolderID != nil, req.Anchors != nil, req.Settings != nil) > 1 {
+		return ProjectAssetSummary{}, BadAuthRequest("一次只能修改素材分类、所在文件夹、场景锚点或资产设定中的一项")
 	}
-	if req.Anchors != nil {
+	if req.Settings != nil {
+		if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+			return ProjectAssetSummary{}, err
+		}
+		if err := s.saveProjectAssetSettings(userID, projectID, asset, *req.Settings); err != nil {
+			return ProjectAssetSummary{}, err
+		}
+	} else if req.Anchors != nil {
 		if err := s.updateSceneAnchors(projectID, asset, *req.Anchors); err != nil {
 			return ProjectAssetSummary{}, err
 		}
@@ -710,6 +720,9 @@ func (s *Service) projectAssetSummary(userID string, projectID string, asset *mo
 	}
 	storageKey, previewText, source, durationMs := projectAssetPreview(asset.PayloadJSON)
 	summary := ProjectAssetSummary{ID: asset.ID, Title: asset.Title, MediaType: asset.Kind, Category: asset.Category, Status: asset.Status, PrimaryVersionID: asset.PrimaryVersionID, VersionCount: len(versions), Usages: usages, FolderID: link.FolderID, Position: link.Position, StorageKey: storageKey, PreviewText: previewText, DurationMs: durationMs, UpdatedAt: asset.UpdatedAt, Source: source}
+	imageSettingsVersion, _ := payloadMetadata(assetPayload(asset))[assetSettingsImageVersion].(string)
+	summary.SettingsImageOutdated = imageSettingsVersion != ""
+	summary.ConfirmedImageVersion = imageSettingsVersion
 	if asset.Category == model.AssetCategoryStoryboardReference {
 		var payload struct {
 			Metadata struct {
@@ -775,7 +788,7 @@ func (s *Service) projectAssetSummary(userID string, projectID string, asset *mo
 				return ProjectAssetSummary{}, err
 			}
 			// 普通上传图片仍走媒体卡；有提取设定的场景、道具提供出图流程。
-			if asset.Kind == "entity" || definition["prompt"] != nil {
+			if asset.Kind == "entity" || definition["description"] != nil || definition["prompt"] != nil || definition["generationPrompt"] != nil {
 				status := "missing"
 				if asset.Kind == "image" && storageKey != "" {
 					status = "ready"

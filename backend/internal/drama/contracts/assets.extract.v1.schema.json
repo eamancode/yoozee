@@ -74,6 +74,10 @@
             "type": "string",
             "description": "资产名，用剧本里最常用的叫法"
           },
+          "asset_id": {
+            "type": "string",
+            "description": "确认为项目内已登记的同一资产时填其ID；首次登记省略"
+          },
           "aliases": {
             "type": "array",
             "items": {"type": "string"},
@@ -107,12 +111,24 @@
               "type": "object",
               "required": ["label", "kind", "scenes", "appearance", "prompt_en"],
               "properties": {
+                "variant_id": {"type": "string", "description": "复用现有造型时填同一人物下真实的造型ID；新增时省略"},
+                "visual_delta": {
+                  "type": "object",
+                  "description": "新增时只填确实变化的外观字段；evidence引用对应场次的原文",
+                  "properties": {
+                    "age_stage": {"type": "string"},
+                    "clothing": {"type": "string"},
+                    "hair": {"type": "string"},
+                    "visible_state": {"type": "string"},
+                    "evidence": {"type": "string"}
+                  }
+                },
                 "label": {"type": "string", "description": "变体名，如 护士服、淋湿"},
                 "kind": {"type": "string", "enum": ["costume", "state"], "description": "costume（服装）或 state（状态）"},
                 "scenes": {"type": "array", "items": {"type": "integer", "minimum": 1}, "description": "用这套形象的场序"},
                 "appearance": {"type": "string", "description": "和主形象不同的服装或状态"},
                 "prompt_en": {"type": "string", "description": "这一套的三视图设定图提示词"}
-                ,"start_after": {"type":"string","description":"仅在场中动作之后生效时，逐字引用触发动作并写明段落；整场适用写空字符串。非空时禁止按整场自动替换，需在后续镜头按该动作边界选用。"}
+                ,"start_after": {"type":"string","description":"仅在场中动作之后生效时填写触发动作的原文，场次由scene数组给出；整场适用填空字符串。"}
               }
             },
             "description": "只有角色写：换了服装或状态的各套形象（子卡）"

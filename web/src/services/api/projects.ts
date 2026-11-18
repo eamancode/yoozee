@@ -117,6 +117,8 @@ export type ProjectAsset = {
     status: string;
     primaryVersionId?: string;
     versionCount: number;
+    settingsImageOutdated?: boolean;
+    confirmedImageVersionId?: string;
     usages: string[];
     folderId?: string;
     position: number;
@@ -137,7 +139,18 @@ export type ProjectAsset = {
 };
 
 /** look / promptEn 是这套服装或状态的描述、用户写的英文提示词（自动生成的提示词是空串），编辑时原样带回。 */
-export type ProjectAssetVariant = { parentId: string; parentTitle?: string; label: string; kind: "costume" | "state"; scenes: string[]; look: string; promptEn: string; startAfter?: string };
+export type ProjectAssetVariant = {
+    parentId: string;
+    parentTitle?: string;
+    label: string;
+    kind: "costume" | "state";
+    scenes: string[];
+    look: string;
+    promptEn: string;
+    startAfter?: string;
+    occurrences?: Array<{ unitId: string; scene: number; startAfter?: string }>;
+    visualDelta?: { age_stage?: string; clothing?: string; hair?: string; visible_state?: string; evidence?: string };
+};
 
 /** 服务端出图的排队状态：none 还没排，waiting 等空位，queued 出图中，bound 已出图，stale 出图期间换了版本没绑上，failed 失败。 */
 export type DramaImageStatus = "none" | "waiting" | "queued" | "bound" | "stale" | "failed" | "paused";
@@ -505,14 +518,17 @@ export type DramaAssetVariantKind = "costume" | "state";
  * 新增 / 改子卡：label 是变体名，look 是这套服装或状态的描述，promptEn 可空（空时用主卡的三视图提示词接上变体说明），
  * scenes 是用这套形象的场编号（E02S01）；imageTask 给了时建完（或外观改了后）接着出三视图（带主卡三视图作参考）。
  */
-export type DramaAssetVariantInput = { label: string; kind: DramaAssetVariantKind; look: string; promptEn?: string; scenes?: string[]; startAfter?: string; imageTask?: DramaImageTaskTemplate };
+export type DramaAssetVariantInput = { label: string; kind: DramaAssetVariantKind; look: string; promptEn?: string; generationPrompt?: string; ageStage?: string; expectedVersionId?: string; scenes?: string[]; startAfter?: string; imageTask?: DramaImageTaskTemplate };
+
+export function updateProjectAssetSettings(projectId: string, assetId: string, expectedVersionId: string, fields: Record<string, string>) {
+    return http.patch<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, { settings: { expectedVersionId, fields } }).then((result) => normalizeProjectAsset(result.asset));
+}
 
 /** 资产页在主卡下新增子卡：设定按主卡继承（脸型体型不变，只换服装 / 状态）。 */
 export function createDramaAssetVariant(projectId: string, parentId: string, input: DramaAssetVariantInput) {
     return http.post<{ asset: ProjectAsset; images: DramaImageQueueResult }>(`/projects/${encodeURIComponent(projectId)}/drama/assets/${encodeURIComponent(parentId)}/variants`, input).then((result) => ({ ...result, asset: normalizeProjectAsset(result.asset) }));
 }
 
-/** 改子卡：改名、改种类、改场原地改；外观或提示词改了加一个版本（旧三视图不搬，引用它的镜头产物过期）。 */
 export function updateDramaAssetVariant(projectId: string, variantId: string, input: DramaAssetVariantInput) {
     return http.patch<{ asset: ProjectAsset; images: DramaImageQueueResult }>(`/projects/${encodeURIComponent(projectId)}/drama/variants/${encodeURIComponent(variantId)}`, input).then((result) => ({ ...result, asset: normalizeProjectAsset(result.asset) }));
 }
@@ -716,8 +732,8 @@ export function updateProjectCharacter(projectId: string, assetId: string, input
     return http.patch<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}`, input);
 }
 
-export function replaceProjectCharacterRepresentations(projectId: string, assetId: string, representations: Array<{ role: string; resourceId: string; metadata?: Record<string, unknown> }>) {
-    return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/representations`, { representations });
+export function replaceProjectCharacterRepresentations(projectId: string, assetId: string, representations: Array<{ role: string; resourceId: string; metadata?: Record<string, unknown> }>, options?: { keepShotVersions?: boolean }) {
+    return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/representations`, { representations, ...options });
 }
 
 export function bindProjectCharacterVoice(projectId: string, assetId: string, input: { voiceProfileId?: string; sampleResourceId?: string; voiceName?: string; instructions?: string }) {
@@ -764,7 +780,7 @@ export function confirmProjectAssetCandidate(projectId: string, candidateId: str
     return http.post<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/confirm`, { assetId: assetId || "" });
 }
 
-export function bindProjectAssetImage(projectId: string, assetId: string, input: { resourceId: string; expectedVersionId: string }) {
+export function bindProjectAssetImage(projectId: string, assetId: string, input: { resourceId: string; expectedVersionId: string; keepShotVersions?: boolean }) {
     return http.put<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/image`, input);
 }
 

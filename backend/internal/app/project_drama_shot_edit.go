@@ -171,7 +171,7 @@ func (s *Service) planDramaShotEdits(userID string, projectID string, req DramaS
 	if err != nil {
 		return dramaShotEditPlan{}, err
 	}
-	assets, err := s.ProjectAssets(userID, projectID)
+	assets, err := s.storyboardAssets(userID, projectID)
 	if err != nil {
 		return dramaShotEditPlan{}, err
 	}
