@@ -113,7 +113,7 @@ export function createDramaFlowFixture(
         revision: 2,
         saves: 0,
         previews: 0,
-        previewRequests: [] as Array<Pick<VideoChainRequest, "shotId" | "resumeChainId" | "requestId">>,
+        previewRequests: [] as Array<Pick<VideoChainRequest, "shotId" | "resumeChainId" | "restartChainId" | "requestId">>,
         videoRoute: null as ProjectVideoRoute | null,
         /** 每次预览请求里真实发出的视频配置（含被拒的）。 */
         previewConfigs: [] as Array<Record<string, unknown>>,
@@ -389,7 +389,7 @@ export function createDramaFlowFixture(
         calls.push(call);
         if (call.method === "POST" && path === `${base}/video-chains/preview`) {
             const input = body as VideoChainRequest;
-            state.previewRequests.push({ shotId: input?.shotId, resumeChainId: input?.resumeChainId, requestId: input?.requestId });
+        state.previewRequests.push({ shotId: input?.shotId, resumeChainId: input?.resumeChainId, restartChainId: input?.restartChainId, requestId: input?.requestId });
         }
         const override = overrides.get(path);
         if (options.storyboardResume && call.method === "POST" && path === `${base}/units/${FIXTURE_UNIT_ID}/drama/steps/chapter.shots/run`) {
@@ -508,7 +508,7 @@ export function createDramaFlowFixture(
             ];
             if (issues.length) return capabilityReject(issues);
             state.previews += 1;
-            const unresolved = options.chains === "unresolved" && input.shotId === FIXTURE_SHOT_ID && input.resumeChainId === unresolvedChainId;
+            const unresolved = options.chains === "unresolved" && input.shotId === FIXTURE_SHOT_ID && (input.resumeChainId || input.restartChainId) === unresolvedChainId;
             const steps = state.segments
                 .filter((segment) => segment.shotId === input?.shotId || !input?.shotId)
                 .map((segment) => chainStep(segment.shotId, segment.spec.id, "waiting", { ...(unresolved ? unresolvedReceipt : {}), phase: "waiting", model: input.model?.model || FIXTURE_VIDEO_MODEL, quote: { amountMicrocredits: 1_500_000 } }));

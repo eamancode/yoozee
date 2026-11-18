@@ -33,7 +33,10 @@ type ProjectVideoChainRequest struct {
 	PreviewHash string                            `json:"previewHash,omitempty"`
 	RequestID   string                            `json:"requestId,omitempty"`
 
-	ResumeChainID string `json:"resumeChainId,omitempty"`
+	ResumeChainID  string `json:"resumeChainId,omitempty"`
+	RestartChainID string `json:"restartChainId,omitempty"`
+	RecoveryV2     bool   `json:"recoveryV2,omitempty"`
+	QuoteExpiresAt int64  `json:"quoteExpiresAt,omitempty"`
 }
 
 type ProjectVideoChainStep struct {
@@ -71,6 +74,7 @@ type ProjectVideoChainStep struct {
 }
 
 type ProjectVideoChainView struct {
+	SourceChainID               string                  `json:"sourceChainId,omitempty"`
 	WhiteModelStoryboardEnabled bool                    `json:"whiteModelStoryboardEnabled"`
 	Scope                       string                  `json:"scope,omitempty"`
 	PrepareOnly                 bool                    `json:"prepareOnly,omitempty"`
@@ -82,6 +86,7 @@ type ProjectVideoChainView struct {
 	Stage                       string                  `json:"stage"`
 	Error                       string                  `json:"error,omitempty"`
 	PreviewHash                 string                  `json:"previewHash"`
+	QuoteExpiresAt              int64                   `json:"quoteExpiresAt,omitempty"`
 	ConfirmationBlockedReason   string                  `json:"confirmationBlockedReason,omitempty"`
 	TotalMicrocredits           int64                   `json:"totalMicrocredits"`
 	Steps                       []ProjectVideoChainStep `json:"steps"`
@@ -108,6 +113,7 @@ type videoChainState struct {
 	Request                     ProjectVideoChainRequest `json:"request"`
 	PreviewHash                 string                   `json:"previewHash"`
 	Steps                       []videoChainStepState    `json:"steps"`
+	ReceiptFingerprint          string                   `json:"receiptFingerprint,omitempty"`
 	ResumeConfirmations         map[string]string        `json:"resumeConfirmations,omitempty"`
 }
 
@@ -156,9 +162,17 @@ func videoChainView(projectID string, task *model.Task, state videoChainState) P
 	view := ProjectVideoChainView{Scope: state.Request.Scope, PrepareOnly: state.Request.PrepareOnly, ProjectID: projectID, UnitID: state.UnitID, Status: "preview", PreviewHash: state.PreviewHash, Steps: []ProjectVideoChainStep{}}
 	view.WhiteModelStoryboardEnabled = state.WhiteModelStoryboardEnabled == nil || *state.WhiteModelStoryboardEnabled
 	view.AnchorShotID = state.AnchorShotID
+	view.QuoteExpiresAt = state.Request.QuoteExpiresAt
+	view.SourceChainID = state.Request.ResumeChainID
+	if view.SourceChainID == "" {
+		view.SourceChainID = state.Request.RestartChainID
+	}
 	view.ConfirmationBlockedReason = state.confirmationBlockedReason
 	if task != nil {
 		view.ID = task.ID
+		if view.SourceChainID == task.ID {
+			view.SourceChainID = ""
+		}
 		view.Status = string(task.Status)
 		view.Stage = task.Stage
 		view.Error = task.Error
@@ -173,6 +187,13 @@ func videoChainView(projectID string, task *model.Task, state videoChainState) P
 }
 
 func (s *Service) PreviewProjectVideoChain(userID, projectID string, req ProjectVideoChainRequest) (ProjectVideoChainView, error) {
+	if req.RecoveryV2 || req.RestartChainID != "" {
+		state, _, err := s.prepareVideoRecovery(userID, projectID, req, true)
+		if err != nil {
+			return ProjectVideoChainView{}, err
+		}
+		return videoChainView(projectID, nil, state), nil
+	}
 	if req.ResumeChainID != "" {
 		task, old, err := s.videoChainTaskForUser(userID, projectID, req.ResumeChainID)
 		if err != nil {
@@ -267,6 +288,9 @@ func (s *Service) ProjectVideoChains(userID, projectID, unitID string) ([]Projec
 }
 
 func (s *Service) CreateProjectVideoChain(userID, projectID string, req ProjectVideoChainRequest) (ProjectVideoChainView, error) {
+	if req.ResumeChainID == "" && (req.RecoveryV2 || req.RestartChainID != "") {
+		return s.confirmVideoRecovery(userID, projectID, req)
+	}
 	if req.ResumeChainID != "" {
 		return ProjectVideoChainView{}, BadAuthRequest("请在原生成链确认继续出片")
 	}

@@ -20,6 +20,24 @@ func registerProjectVideoChainRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"chains": chains})
 	})
+	r.GET(base+"/receipt", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		chain, err := svc.ProjectVideoChainReceipt(user.ID, c.Param("id"), c.Query("unitId"), c.Query("requestId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		if chain == nil {
+			ok(c, gin.H{"state": "absent"})
+			return
+		}
+		ok(c, gin.H{"state": "recorded", "chain": chain})
+	})
 	for _, preview := range []bool{true, false} {
 		path := base
 		if preview {

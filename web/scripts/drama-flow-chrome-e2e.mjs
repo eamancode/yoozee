@@ -474,10 +474,10 @@ async function clickOrDiagnose(cdp, locator, label, outDir, shotName) {
     return false;
 }
 
-async function quoteCase(cdp, fixture, { label, segmentId, shotId, resumeChainId, unresolved = false, viewport, outDir }) {
-    const buttonText = resumeChainId ? "重新出" : "出这一段";
-    const previewText = resumeChainId ? "从失败步骤重新报价" : "预览当前场景与费用";
-    const confirm = buttonIn(chainModal, resumeChainId ? "确认报价并从失败段继续" : "开始连续生成");
+async function quoteCase(cdp, fixture, { label, segmentId, shotId, restartChainId, unresolved = false, viewport, outDir }) {
+    const buttonText = restartChainId ? "重新出" : "出这一段";
+    const previewText = restartChainId ? "重新生成整段（先报价）" : "预览当前场景与费用";
+    const confirm = buttonIn(chainModal, restartChainId ? "确认报价并从头生成" : "开始连续生成");
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false });
     await cdp.evaluate(`localStorage.setItem("yingce:theme_store", JSON.stringify({ state: { theme: "light" }, version: 0 }))`);
     await cdp.navigate(`/drama-flow/${P}/video`);
@@ -498,16 +498,16 @@ async function quoteCase(cdp, fixture, { label, segmentId, shotId, resumeChainId
     check(!(await cdp.evaluate(crashed)), `${label}：打开面板后页面没有崩（无 RouteErrorPage）`);
     check(!(await cdp.evaluate(exists(confirm))), `${label}：预览前没有付费确认按钮`);
     await cdp.click(buttonIn(chainModal, previewText), `${label}：${previewText}`);
-    const quoteText = resumeChainId ? "剩余步骤预估 1.5 平台积分" : "1.5 平台积分（整链预估";
-    check(await cdp.poll(`(${chainModal})?.textContent.includes(${JSON.stringify(quoteText)})`, "quote", 10000), `${label}：看到${resumeChainId ? "剩余步骤" : "整链"}预估花费`);
+    const quoteText = "1.5 平台积分（整链预估";
+    check(await cdp.poll(`(${chainModal})?.textContent.includes(${JSON.stringify(quoteText)})`, "quote", 10000), `${label}：看到整链预估花费`);
     const requests = fixture.state.previewRequests;
     check(
-        fixture.state.previews === 1 && requests.length === 1 && requests[0].shotId === shotId && requests[0].resumeChainId === resumeChainId && Boolean(requests[0].requestId),
+        fixture.state.previews === 1 && requests.length === 1 && requests[0].shotId === shotId && requests[0].restartChainId === restartChainId && Boolean(requests[0].requestId),
         `${label}：只发了 1 次只读预览，分段、原链和请求标识正确`,
         JSON.stringify(requests),
     );
     check(await cdp.poll(`(${chainModal})?.textContent.includes("报价标识 preview-1")`, "quote receipt", 5000), `${label}：显示本次有效报价标识`);
-    if (resumeChainId) check(await cdp.poll(exists(confirm), "resume confirmation", 5000), `${label}：展示原链确认入口`);
+    if (restartChainId) check(await cdp.poll(exists(confirm), "restart confirmation", 5000), `${label}：展示从头生成确认入口`);
     if (unresolved) {
         check(
             await cdp.evaluate(`(${chainModal})?.innerText.includes("原任务 original-video-s01") && (${chainModal})?.innerText.includes("受理状态 未知") && (${chainModal})?.querySelector('[role="status"]')?.textContent.includes("本次仅供估价")`),
@@ -647,6 +647,13 @@ async function main() {
         const native = await cdp.evaluate(`(() => { const r = document.body.scrollIntoView({ block: "nearest" }); return { type: typeof r, promise: r instanceof Promise }; })()`);
         console.log(`native scrollIntoView returns: ${JSON.stringify(native)}`);
 
+        if (process.env.DRAMA_FLOW_E2E_RECOVERY_ONLY === "1") {
+            const viewport = { width: 1280, height: 900 };
+            fixture = useFixture({ chains: "failed" });
+            await quoteCase(cdp, fixture, { label: "P0 failed clip", segmentId: "S01", shotId: FIXTURE_SHOT_ID, restartChainId: "chain-failed", viewport, outDir });
+            fixture = useFixture({ chains: "unresolved" });
+            await quoteCase(cdp, fixture, { label: "P0 original receipt unresolved", segmentId: "S01", shotId: FIXTURE_SHOT_ID, restartChainId: "chain-unresolved", unresolved: true, viewport, outDir });
+        } else {
         // D-00 分镜：编辑镜头并保存（真实分镜卡、真实保存接口），刷新后保持；换选、关详情、离开。
         await cdp.navigate(`/drama-flow/${P}/shots`);
         // 第一次打开要等 Vite 按需编译，给足时间。
@@ -967,9 +974,9 @@ async function main() {
             fixture = useFixture();
             await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 没有出片链`, segmentId: "S02", shotId: FIXTURE_SHOT_ID_2, viewport, outDir });
             fixture = useFixture({ chains: "failed" });
-            await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 出片失败`, segmentId: "S01", shotId: FIXTURE_SHOT_ID, resumeChainId: "chain-failed", viewport, outDir });
+            await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 出片失败`, segmentId: "S01", shotId: FIXTURE_SHOT_ID, restartChainId: "chain-failed", viewport, outDir });
             fixture = useFixture({ chains: "unresolved" });
-            await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 原单受理未知`, segmentId: "S01", shotId: FIXTURE_SHOT_ID, resumeChainId: "chain-unresolved", unresolved: true, viewport, outDir });
+            await quoteCase(cdp, fixture, { label: `R6-D04 ${size} 原单受理未知`, segmentId: "S01", shotId: FIXTURE_SHOT_ID, restartChainId: "chain-unresolved", unresolved: true, viewport, outDir });
         }
 
         // R8-01：预览请求按所选模型能力对齐。夹具按权威能力校验真实发出的配置（同步音频 false、时长 15/30 秒档）。
@@ -1086,6 +1093,7 @@ async function main() {
         check(!problems.length, "浏览器没有未捕获异常或 console error", problems.map((item) => `${item.kind}: ${item.text}`).join(" | "));
         // 只记录不判失败：老一些的 Chrome 返回 undefined；返回 Promise 的条件由组件回归（drama-flow-lifecycle）固定覆盖。
         console.log(`INFO  原生 scrollIntoView 返回 ${native.promise ? "Promise（D-00 线上触发条件在本浏览器成立）" : native.type}`);
+        }
     } finally {
         cdp?.close();
         for (const child of [browser, vite]) {

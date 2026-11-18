@@ -14,7 +14,7 @@ const automaticName = "Seedance 2.5 备用线路";
 const changedAt = "2026-11-12T08:15:00Z";
 type Segment = DramaFlowFixture["state"]["segments"][number];
 type Manifest = { projectId: string; unitId: string; shotId: string; model: string; imageIds: string[]; audioIds: string[] };
-type Quote = Manifest & { previewHash: string; requestId: string; resumeChainId: string };
+type Quote = Manifest & { previewHash: string; requestId: string; restartChainId: string };
 type Attempt = Quote & { taskId: string; status: "failed" | "succeeded" };
 const ok = (data: unknown): FixtureResponse => ({ status: 200, body: { code: 0, msg: "ok", data } });
 const reject = (msg: string): FixtureResponse => ({ status: 409, body: { code: 409, reason: "journey_state_changed", msg } });
@@ -178,8 +178,8 @@ export function createDramaJourneyProject() {
                 const seconds = Number(config.videoSeconds);
                 if (media.model !== (route?.model || FIXTURE_VIDEO_MODEL)) return reject("项目已换线，请重新报价");
                 if (path.endsWith("/preview")) {
-                    if ((input.resumeChainId || "") !== (chain?.id || "")) return reject("恢复的生成链不匹配");
-                    const quote = { ...media, requestId: input.requestId, resumeChainId: input.resumeChainId || "", previewHash: `journey-quote-${quotes.length + 1}` };
+                    if ((input.restartChainId || "") !== (chain?.id || "")) return reject("恢复的生成链不匹配");
+                    const quote = { ...media, requestId: input.requestId, restartChainId: input.restartChainId || "", previewHash: `journey-quote-${quotes.length + 1}` };
                     quotes.push(quote);
                     requests.set(quote.previewHash, structuredClone(input));
                     return ok({ chain: quoteChain(target, quote, seconds) });
@@ -187,7 +187,7 @@ export function createDramaJourneyProject() {
                 const quote = quotes.find((item) => item.previewHash === input.previewHash);
                 const { previewHash, ...confirmed } = input;
                 if (!quote || JSON.stringify(requests.get(previewHash!)) !== JSON.stringify(confirmed) || JSON.stringify([quote.imageIds, quote.audioIds]) !== JSON.stringify([media.imageIds, media.audioIds])) return reject("报价或绑定已更新");
-                if (quote.resumeChainId ? path !== `${chainsPath}/${chainId}/retry` : path !== chainsPath) return reject("生成入口与报价不符");
+                if (path !== chainsPath) return reject("生成入口与报价不符");
                 if (attempts.some((item) => item.requestId === input.requestId)) return ok({ chain });
                 const failed = quote.model === FIXTURE_VIDEO_MODEL;
                 const attempt: Attempt = { ...quote, taskId: `journey-attempt-${attempts.length + 1}`, status: failed ? "failed" : "succeeded" };
