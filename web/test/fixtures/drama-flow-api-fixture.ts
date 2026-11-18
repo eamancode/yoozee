@@ -96,6 +96,7 @@ export function createDramaFlowFixture(
         stopAtAssets?: boolean;
         directorSegments?: boolean;
         directorSetup?: "missing" | "legacy" | "current";
+        storyboardResume?: boolean;
         handoffGate?: boolean;
         freezeRelay?: "ready" | "skipped";
         assetImages?: boolean;
@@ -130,6 +131,7 @@ export function createDramaFlowFixture(
     const unknown: FixtureCall[] = [];
     const forbidden: FixtureCall[] = [];
     const handoffRequests: boolean[] = [];
+    const storyboardResumeRequests: Array<{ resumeTaskId?: string; discard?: boolean }> = [];
 
     const project = {
         id: FIXTURE_PROJECT_ID,
@@ -251,7 +253,7 @@ export function createDramaFlowFixture(
                 displayName: "柚子系统渠道",
                 sortOrder: 0,
                 models: [
-                    ...(options.handoffGate ? [{ modelKey: "fixture-text", displayName: "验收文本模型", available: true, capability: "text", priceTiers: [] }] : []),
+                    ...(options.handoffGate || options.storyboardResume ? [{ modelKey: "fixture-text", displayName: "验收文本模型", available: true, capability: "text", priceTiers: [] }] : []),
                     { modelKey: "lec-vp-seedance-2-5-f", displayName: FIXTURE_VIDEO_MODEL_NAME, available: true, capability: "video", priceTiers: [], capabilityConfig: FIXTURE_VIDEO_CAPABILITY },
                     // stopAtAssets 时目录里有 imageModel 这个图片模型（确认面板的模型选择用它）；其余用例的 imageModel 可能故意是已下架的模型，不放进目录。
                     ...(options.stopAtAssets && options.imageModel ? [{ modelKey: options.imageModel.replace(/^CHANNEL_000001::/, ""), displayName: "验收图片模型", available: true, capability: "image", priceTiers: [] }] : []),
@@ -390,6 +392,11 @@ export function createDramaFlowFixture(
             state.previewRequests.push({ shotId: input?.shotId, resumeChainId: input?.resumeChainId, requestId: input?.requestId });
         }
         const override = overrides.get(path);
+        if (options.storyboardResume && call.method === "POST" && path === `${base}/units/${FIXTURE_UNIT_ID}/drama/steps/chapter.shots/run`) {
+            const { resumeTaskId, discard } = body as { resumeTaskId?: string; discard?: boolean };
+            storyboardResumeRequests.push({ resumeTaskId, discard });
+            return reject(409, "fixture_storyboard_resume_recorded");
+        }
         if (options.handoffGate && method.toUpperCase() === "POST" && path === `${base}/units/${FIXTURE_UNIT_ID}/drama/steps/chapter.shots/run`) {
             const independent = (body as { allowMissingHandoff?: boolean })?.allowMissingHandoff === true;
             handoffRequests.push(independent);
@@ -543,7 +550,7 @@ export function createDramaFlowFixture(
         return reject(404, "fixture_not_found");
     }
 
-    return { handle, calls, unknown, forbidden, state, project, overrides, catalog, handoffRequests };
+    return { handle, calls, unknown, forbidden, state, project, overrides, catalog, handoffRequests, storyboardResumeRequests };
 }
 
 export type DramaFlowFixture = ReturnType<typeof createDramaFlowFixture>;

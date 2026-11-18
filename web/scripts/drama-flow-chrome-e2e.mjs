@@ -843,6 +843,29 @@ async function main() {
         check(await cdp.poll(`document.body.innerText.includes("导演正在写第 3 轮：整场镜头表与单元总表")`, "sss early", 30000), "R4-SSS-RUN 切分前显示第 3 轮切分");
         check(await cdp.evaluate(`(document.querySelector(".drama-flow-note")?.innerText || "").includes("已保存 2/10 轮（预估总轮数")`), "R4-SSS-RUN 切分前写明是预估总轮数");
 
+        const failedReview = {
+            ...runningSSS,
+            id: "task-sss-review-failed",
+            status: "failed",
+            error: "第 5 轮「后期备忘、交接卡与复看」生成失败；模型服务暂时不可用，请稍后再试。",
+            dramaRounds: { mode: "sss", flow: 2, completed: 4, total: 5, turns: runningSSS.dramaRounds.turns.slice(1) },
+        };
+        fixture = useFixture({ workflowId: "pipeline-2", style: "locked", directorSetup: "current", tasks: [failedReview], storyboardResume: true });
+        await cdp.navigate(`/drama-flow/${P}/shots?fixture=failed-review`);
+        const resumeReview = buttonIn("document", "从第5轮继续");
+        check(await cdp.poll(exists(resumeReview), "review resume"), "SSS 复看失败后显示从第 5 轮继续");
+        check(await cdp.evaluate(`(${resumeReview})?.closest(".drama-flow-note")?.innerText.includes("模型服务暂时不可用") && (${resumeReview})?.closest(".drama-flow-note")?.innerText.includes("已保存 4/5 轮")`), "分镜状态条同时显示失败原因和已保存轮次");
+        check(fixture.storyboardResumeRequests.length === 0, "打开失败任务页面不会自动续跑");
+        await cdp.evaluate(`(() => { const button = (${resumeReview}); button.click(); button.click(); })()`);
+        await cdp.poll(`document.body.innerText.includes("fixture_storyboard_resume_recorded")`, "review resume request");
+        check(JSON.stringify(fixture.storyboardResumeRequests) === JSON.stringify([{ resumeTaskId: failedReview.id }]), "连点只提交一次续跑，带原任务 ID 且不确认整集替换");
+
+        fixture = useFixture({ workflowId: "pipeline-2", tasks: [{ ...failedReview, dramaRounds: { ...failedReview.dramaRounds, completed: 0, turns: [] } }] });
+        await cdp.navigate(`/drama-flow/${P}/shots?fixture=no-checkpoint`);
+        const noCheckpointBar = `[...document.querySelectorAll(".drama-flow-note")].find((el) => el.innerText.includes("模型服务暂时不可用"))`;
+        check(await cdp.poll(exists(noCheckpointBar), "no checkpoint"), "没有检查点时仍显示失败原因");
+        check(!(await cdp.evaluate(`Boolean((${noCheckpointBar})?.innerText.includes("轮继续"))`)), "没有检查点时不提供续跑按钮");
+
         fixture = useFixture({ workflowId: "pipeline-2", directorSetup: "current" });
         for (const width of [1024, 1280]) {
             for (const theme of ["light", "dark"]) {
@@ -1047,7 +1070,7 @@ async function main() {
         check(writes.length === 0, `没有任何生成或改项目的写请求（${fixtures.length} 个夹具实例合计）`, writes.map((call) => `${call.method} ${call.path}`).join(" | "));
         // R8-02 那一项故意让预览回 400（能力不支持），只放过这一次；多出来的同类错误或别的错误照样判失败。
         const handoffResponse = `409 POST /api/projects/${P}/units/${FIXTURE_UNIT_ID}/drama/steps/chapter.shots/run`;
-        const expectedApiErrors = [`400 POST /api/projects/${P}/video-chains/preview`, handoffResponse, handoffResponse, handoffResponse];
+        const expectedApiErrors = [`400 POST /api/projects/${P}/video-chains/preview`, handoffResponse, handoffResponse, handoffResponse, handoffResponse];
         const problems = cdp.problems.filter((item) => {
             if (item.kind === "api" && item.text.startsWith("404")) return false;
             const expected = expectedApiErrors.indexOf(item.text);
@@ -1057,7 +1080,7 @@ async function main() {
             }
             return true;
         });
-        check(!expectedApiErrors.length, "费用预览和交接确认的夹具响应逐次匹配");
+        check(!expectedApiErrors.length, "费用预览、分镜续跑和交接确认的夹具响应逐次匹配");
         const unknown = cdp.problems.filter((item) => item.kind === "api" && item.text.startsWith("404"));
         if (unknown.length) console.log(`      夹具没覆盖的读接口：\n        ${[...new Set(unknown.map((item) => item.text))].join("\n        ")}`);
         check(!problems.length, "浏览器没有未捕获异常或 console error", problems.map((item) => `${item.kind}: ${item.text}`).join(" | "));

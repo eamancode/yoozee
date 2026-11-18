@@ -498,6 +498,44 @@ func TestSSSRunResumesFromAFailedCompileTurn(t *testing.T) {
 	if resumed.ResumeFrom != 8 || resumed.Turns != 9 {
 		t.Fatalf("resume = %+v", resumed)
 	}
+	resumedReq := dramaStepTaskRequest(project.ID, unit.ID, again, dramaStepTaskOptions{})
+	resumedReq.Input["metadata"].(map[string]any)["dramaRun"] = resumed
+	resumedInput, _ := json.Marshal(resumedReq.Input)
+	resumedTask := task
+	resumedTask.ID, resumedTask.InputJSON = "task-sss-2", string(resumedInput)
+	if err := db.Create(&resumedTask).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.runSSSRun(dramaRunCtx(resumedTask), dramaRunInput(server.URL), resumed, taskDramaSSS(resumedTask.InputJSON)); err == nil {
+		t.Fatal("the first new round of the resumed run must fail again")
+	}
+	if err := db.Model(&model.Task{}).Where("id = ?", resumedTask.ID).Update("status", model.TaskStatusFailed).Error; err != nil {
+		t.Fatal(err)
+	}
+	resumed, err = svc.resumeDramaRun("user-1", project.ID, unit.ID, again, resumedTask.ID)
+	if err != nil || resumed.ResumeFrom != 8 {
+		t.Fatalf("repeated failure lost checkpoints: resume = %+v, err = %v", resumed, err)
+	}
+	if err := svc.prepareSSSRun("user-1", project.ID, unit.ID, again, &resumed, false); err != nil {
+		t.Fatal(err)
+	}
+	resumedReq.Input["metadata"].(map[string]any)["dramaRun"] = resumed
+	resumedInput, _ = json.Marshal(resumedReq.Input)
+	resumedTask.ID, resumedTask.InputJSON = "task-sss-3", string(resumedInput)
+	if err := db.Create(&resumedTask).Error; err != nil {
+		t.Fatal(err)
+	}
+	resumedUpstream := &fakeSSSUpstream{compileU2: 1}
+	resumedServer := httptest.NewServer(resumedUpstream.handler(t))
+	defer resumedServer.Close()
+	result, err := svc.runSSSRun(dramaRunCtx(resumedTask), dramaRunInput(resumedServer.URL), resumed, taskDramaSSS(resumedTask.InputJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := result["dramaRun"].(dramaRunProgress)
+	if finished.Completed != 9 || finished.Turns[6].TaskID != task.ID || finished.Turns[7].SSS != drama.SSSTurnCompile || finished.Turns[8].SSS != drama.SSSTurnReview || len(resumedUpstream.prompts) != 2 {
+		t.Fatalf("resumed run completed %d rounds with %d new requests", finished.Completed, len(resumedUpstream.prompts))
+	}
 	// 剧本改过就不能接着旧轮次写。
 	if err := db.Model(&model.ProjectUnit{}).Where("id = ?", unit.ID).Update("source_text", "<p>改过的剧本。</p>").Error; err != nil {
 		t.Fatal(err)
