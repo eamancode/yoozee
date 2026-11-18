@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { ModelPicker } from "@/components/model-picker";
+import type { ModelRequirements } from "@/lib/model-selection";
 import { dramaChoiceKey, dramaChoiceKeys, dramaChoiceToModel, dramaVideoRatioIssue, dramaVideoResolutionIssue, modelToDramaChoice } from "@/lib/drama/model-choice";
 import { cn } from "@/lib/utils";
 import { getDramaModels, type DramaCapability, type DramaModelChoice } from "@/services/api/drama";
@@ -52,6 +53,7 @@ export function useDramaModelAvailability(capability: DramaCapability, { aspectR
  * 短剧制作用的模型下拉：沿用创作端带品牌图标的通用 ModelPicker，
  * 只有服务端可无人值守执行的平台模型可选，其余模型置灰并显示不能用的具体原因。
  * 视频模型传入作品画幅时，给不出该画幅的模型同样置灰，避免选了才发现出片是横屏。
+ * 分辨率不在这里拦模型：先让用户选模型，切模型后由调用方保留或回落到新模型的默认档。
  */
 export function DramaModelPicker({
     capability,
@@ -59,7 +61,7 @@ export function DramaModelPicker({
     onChange,
     placeholder,
     aspectRatio,
-    videoResolution,
+    requirements,
     size = "md",
     showPrice = true,
     className,
@@ -69,14 +71,14 @@ export function DramaModelPicker({
     onChange: (choice: DramaModelChoice) => void;
     placeholder?: string;
     aspectRatio?: string;
-    /** 视频模型：作品指定的分辨率，给不出的模型置灰。 */
-    videoResolution?: string;
+    /** 当前剧情段实际生成规格，用于价格档匹配和服务端报价。 */
+    requirements?: ModelRequirements;
     size?: "sm" | "md";
     showPrice?: boolean;
     className?: string;
 }) {
     const config = useEffectiveConfig();
-    const { matchChoice, allowed, disabledReason: modelDisabledReason } = useDramaModelAvailability(capability, { aspectRatio, videoResolution });
+    const { matchChoice, allowed, disabledReason: modelDisabledReason } = useDramaModelAvailability(capability, { aspectRatio });
     const current = dramaChoiceToModel(config, capability, value);
 
     return (
@@ -84,6 +86,7 @@ export function DramaModelPicker({
             config={config}
             value={current}
             capability={capability}
+            requirements={requirements}
             variant="creation"
             fullWidth
             showSelectedPrice={showPrice}

@@ -68,7 +68,11 @@ func registerProjectCoreRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		detail, err := svc.ProjectDetail(user.ID, c.Param("id"))
+		readProject := svc.ProjectDetail
+		if c.Query("view") == "canvas" {
+			readProject = svc.CanvasLinkedProject
+		}
+		detail, err := readProject(user.ID, c.Param("id"))
 		if err != nil {
 			if service.IsProjectNotFound(err) {
 				fail(c, http.StatusNotFound, err)

@@ -196,14 +196,45 @@ func (s *Service) summarizeProjects(userID string, projects []model.Project) ([]
 	return result, nil
 }
 
-func (s *Service) ProjectDetail(userID string, id string) (ProjectDetail, error) {
+// CanvasLinkedProject 读取精修画布的关联项目。原工作台沿用已有的读取补偿，官方作品只读共用的章节和素材。
+func (s *Service) CanvasLinkedProject(userID string, id string) (ProjectDetail, error) {
+	production, err := s.repo.DramaProduction(id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return s.ProjectDetail(userID, id)
+	}
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	if production.UserID != userID {
+		return ProjectDetail{}, gorm.ErrRecordNotFound
+	}
 	project, err := s.repo.ProjectForUser(userID, id)
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	units, err := s.repo.ProjectUnitSummaries(project.ID)
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	assets, err := s.ProjectAssets(userID, project.ID)
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	folders, err := s.repo.ProjectAssetFolders(project.ID)
+	if err != nil {
+		return ProjectDetail{}, err
+	}
+	return ProjectDetail{Project: *project, Units: units, Assets: assets, AssetFolders: folders}, nil
+}
+
+func (s *Service) ProjectDetail(userID string, id string) (ProjectDetail, error) {
+	project, err := s.repo.WorkbenchProjectForUser(userID, id)
 	if err != nil {
 		return ProjectDetail{}, err
 	}
 	// 项目读取允许降级修复：旧任务可能已成功持久化图片，但浏览器刷新中断了角色版本绑定。
 	if s.reconcileCharacterTurnaroundTasks(userID, project.ID) {
-		project, err = s.repo.ProjectForUser(userID, id)
+		project, err = s.repo.WorkbenchProjectForUser(userID, id)
 		if err != nil {
 			return ProjectDetail{}, err
 		}
@@ -268,7 +299,7 @@ func (s *Service) ProjectDetail(userID string, id string) (ProjectDetail, error)
 }
 
 func (s *Service) UpdateProject(userID string, id string, req UpdateProjectRequest) (model.Project, error) {
-	project, err := s.repo.ProjectForUser(userID, id)
+	project, err := s.repo.WorkbenchProjectForUser(userID, id)
 	if err != nil {
 		return model.Project{}, err
 	}
@@ -426,10 +457,14 @@ func normalizeProjectDefaultModel(value string) (string, error) {
 }
 
 func (s *Service) DeleteProject(userID string, id string) error {
-	if _, err := s.repo.ProjectForUser(userID, id); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, id); err != nil {
 		return err
 	}
-	canvases, err := s.repo.ProjectCanvasDocuments(userID, id)
+	return deleteOwnedProject(s.repo, userID, id)
+}
+
+func deleteOwnedProject(repo *repository.Repository, userID string, id string) error {
+	canvases, err := repo.ProjectCanvasDocuments(userID, id)
 	if err != nil {
 		return err
 	}
@@ -447,14 +482,14 @@ func (s *Service) DeleteProject(userID string, id string) error {
 		canvasUpdates = append(canvasUpdates, canvas)
 		projectScopeIDs = append(projectScopeIDs, canvas.ID)
 	}
-	activeTaskCount, err := s.repo.ActiveTaskCountForProjectIDs(userID, projectScopeIDs)
+	activeTaskCount, err := repo.ActiveTaskCountForProjectIDs(userID, projectScopeIDs)
 	if err != nil {
 		return err
 	}
 	if activeTaskCount > 0 {
 		return BadAuthRequest("项目仍有进行中的生成任务，请等待任务完成或取消后再删除")
 	}
-	if err := s.repo.DeleteProject(userID, id, canvasUpdates); err != nil {
+	if err := repo.DeleteProject(userID, id, canvasUpdates); err != nil {
 		if errors.Is(err, repository.ErrProjectHasActiveTasks) {
 			return BadAuthRequest("项目仍有进行中的生成任务，请等待任务完成或取消后再删除")
 		}
@@ -464,7 +499,7 @@ func (s *Service) DeleteProject(userID string, id string) error {
 }
 
 func (s *Service) activeProjectForUser(userID string, projectID string) (*model.Project, error) {
-	return requireActiveProject(s.repo.ProjectForUser(userID, projectID))
+	return requireActiveProject(s.repo.WorkbenchProjectForUser(userID, projectID))
 }
 
 func requireActiveProject(project *model.Project, err error) (*model.Project, error) {
@@ -478,7 +513,7 @@ func requireActiveProject(project *model.Project, err error) (*model.Project, er
 }
 
 func (s *Service) CreateProjectUnit(userID string, projectID string, req CreateProjectUnitRequest) (model.ProjectUnit, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return model.ProjectUnit{}, err
 	}
 	unit, err := newProjectUnit(projectID, req, 0)
@@ -492,7 +527,7 @@ func (s *Service) CreateProjectUnit(userID string, projectID string, req CreateP
 }
 
 func (s *Service) GetProjectUnit(userID string, projectID string, unitID string) (model.ProjectUnit, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return model.ProjectUnit{}, err
 	}
 	unit, err := s.repo.ProjectUnit(projectID, strings.TrimSpace(unitID))
@@ -503,7 +538,7 @@ func (s *Service) GetProjectUnit(userID string, projectID string, unitID string)
 }
 
 func (s *Service) ImportProjectUnits(userID string, projectID string, req ImportProjectUnitsRequest) ([]model.ProjectUnit, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return nil, err
 	}
 	if len(req.Units) == 0 || len(req.Units) > 2500 {
@@ -528,7 +563,7 @@ func (s *Service) ImportProjectUnits(userID string, projectID string, req Import
 }
 
 func (s *Service) ReorderProjectUnits(userID string, projectID string, req ReorderProjectUnitsRequest) error {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return err
 	}
 	units, err := s.repo.ProjectUnits(projectID)
@@ -625,7 +660,7 @@ func newProjectUnit(projectID string, req CreateProjectUnitRequest, position int
 }
 
 func (s *Service) UpdateProjectUnit(userID string, projectID string, unitID string, req UpdateProjectUnitRequest) (model.ProjectUnit, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return model.ProjectUnit{}, err
 	}
 	unit, err := s.repo.ProjectUnit(projectID, unitID)
@@ -779,6 +814,9 @@ func (s *Service) ensureTaskProjectActive(userID string, canvasOrProjectID strin
 	}
 	if project.Status == model.ProjectStatusArchived {
 		return BadAuthRequest("项目已归档，无法创建生成任务")
+	}
+	if project.Type == "short-drama" {
+		return s.ensureDramaCanvasBudget(project.ID)
 	}
 	return nil
 }

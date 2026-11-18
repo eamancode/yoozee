@@ -296,6 +296,14 @@ func cloudAgentAllToolSchemas() []map[string]any {
 		"episodeId":     str("可选：集 ID"),
 		"episodeNumber": map[string]any{"type": "integer", "minimum": 1, "description": "可选：第几集"},
 	})
+	add("drama_shot_read", "读取当前短剧页最新镜头与 revision，未选镜头时从当前页作品的分集目录选择。", map[string]any{
+		"episodeId": str("分集 ID"), "shotId": str("镜头 ID"),
+		"offset": map[string]any{"type": "integer", "minimum": 0}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 40},
+	})
+	add("drama_shot_update", "修改当前页面的镜头字段。需先读取版本并经用户审批，再重新校验归属和版本。", map[string]any{
+		"episodeId": str("分集 ID"), "shotId": str("镜头 ID"), "fields": cloudAgentDramaShotFieldsSchema(),
+		"expectedRevision": map[string]any{"type": "integer", "minimum": 0, "description": "drama_shot_read 返回的最新 revision"},
+	}, "fields", "expectedRevision")
 	add("drama_adopt_canvas_media", "把画布上已就绪的图片或视频节点采用到关联短剧：图片设为某个设定（角色/道具/场景）的参考图并锁定；视频设为某集某剧情段的当前视频，默认只换本段。节点带短剧绑定时可省略目标；否则先用 drama_get_context 取 castId 或 episodeId+segmentIndex。总是先经用户审批，不提交收费任务。", map[string]any{
 		"nodeId":          str("画布图片或视频节点 ID"),
 		"castId":          str("图片的目标设定 ID"),

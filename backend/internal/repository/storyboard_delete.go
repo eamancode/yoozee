@@ -15,6 +15,14 @@ func (r *Repository) LockActiveStoryboardProject(userID, projectID string) (*mod
 	return r.ProjectForUser(userID, projectID)
 }
 
+// Writes from the legacy workbench must acquire their lock in the same project scope as its list.
+func (r *Repository) LockWorkbenchStoryboardProject(userID, projectID string) (*model.Project, error) {
+	if err := lockStoryboardProject(r.workbenchProjects(userID), projectID); err != nil {
+		return nil, err
+	}
+	return r.WorkbenchProjectForUser(userID, projectID)
+}
+
 func lockStoryboardProject(tx *gorm.DB, projectID string) error {
 	result := tx.Model(&model.Project{}).Where("id = ?", projectID).
 		UpdateColumn("updated_at", gorm.Expr("updated_at"))

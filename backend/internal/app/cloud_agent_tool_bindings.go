@@ -37,6 +37,8 @@ func cloudAgentToolHandlers() map[string]cloudAgentToolHandler {
 		agenttool.CanvasApplyOps:         {Write: applyCloudAgentCanvas, Preview: cloudAgentPreviewCanvas},
 		agenttool.CanvasArrangeNodes:     {Write: applyCloudAgentArrangeNodes, Preview: cloudAgentPreviewArrange},
 		agenttool.GenerateMedia:          {Pipeline: cloudAgentToolMedia},
+		agenttool.DramaShotRead:          {Read: cloudAgentHandleDramaShotRead},
+		agenttool.DramaShotUpdate:        {PageWrite: applyCloudAgentDramaShotUpdate, PagePreview: cloudAgentPreviewDramaShotUpdate},
 		agenttool.DramaGetContext:        {Read: cloudAgentHandleDramaGetContext},
 		agenttool.DramaAdoptCanvasMedia:  {Write: applyCloudAgentDramaAdopt, Preview: cloudAgentPreviewDramaAdopt},
 	}

@@ -117,8 +117,11 @@ type Service struct {
 	adminModelHealthMu       sync.Mutex
 	adminModelHealthCache    *AdminChannelModelHealthReport
 	// dramaTaskHook 只在测试中替换短剧调度的任务提交，生产路径始终走 CreateTask 准入。
-	dramaTailFrameHook func(userID, resourceID string) (string, error)
-	dramaTaskHook      func(userID string, req CreateTaskRequest, timeline *renderProject) (*model.Task, error)
+	dramaTails            dramaTailWorker
+	dramaBackgroundRunner func(fn func()) bool
+	dramaSchedulerStarted time.Time
+	dramaTailFrameHook    func(userID, resourceID string) (string, error)
+	dramaTaskHook         func(userID string, req CreateTaskRequest, timeline *renderProject) (*model.Task, error)
 }
 
 const taskWorkerConcurrency = 3
@@ -168,7 +171,7 @@ func newService(repo *repository.Repository, dataDir string) *Service {
 			paymentRegistry = dynamic
 		}
 	}
-	service := &Service{repo: repo, dataDir: dataDir, activeStorageTests: make(map[string]bool), activeCancels: make(map[string]context.CancelFunc), agentConflictStreak: make(map[string]int), agentSchedulerWake: make(chan struct{}, 1), taskDispatcherWake: make(chan struct{}, 1), piRunners: make(map[string]context.CancelFunc), coordinator: coordinator, runtimeErr: err, pluginRuntime: pluginRuntime, pluginRuntimeErr: pluginRuntimeErr, paymentRegistry: paymentRegistry, workerID: newID(), routeCatalogTTL: 30 * time.Second, routeCatalogMaxStale: 5 * time.Minute, routeHealthBlocked: make(map[string]time.Time), geminiCacheLocks: make(map[string]*geminiCacheKeyLock)}
+	service := &Service{dramaSchedulerStarted: time.Now(), repo: repo, dataDir: dataDir, activeStorageTests: make(map[string]bool), activeCancels: make(map[string]context.CancelFunc), agentConflictStreak: make(map[string]int), agentSchedulerWake: make(chan struct{}, 1), taskDispatcherWake: make(chan struct{}, 1), piRunners: make(map[string]context.CancelFunc), coordinator: coordinator, runtimeErr: err, pluginRuntime: pluginRuntime, pluginRuntimeErr: pluginRuntimeErr, paymentRegistry: paymentRegistry, workerID: newID(), routeCatalogTTL: 30 * time.Second, routeCatalogMaxStale: 5 * time.Minute, routeHealthBlocked: make(map[string]time.Time), geminiCacheLocks: make(map[string]*geminiCacheKeyLock)}
 	service.taskBillingCoordinator = newTaskBillingCoordinator(service.repo)
 	service.taskTerminalCoordinator = newTaskTerminalCoordinator(service)
 	service.taskRouteExecutor = newTaskRouteExecutor(service)

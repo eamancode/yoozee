@@ -7,11 +7,12 @@ import { WorkspaceErrorState, WorkspaceLoadingState, WorkspaceState } from "@/co
 import { refreshFeatureAvailability } from "@/lib/user-session";
 import { useUserStore } from "@/stores/use-user-store";
 
-type FeatureKey = "shortDramaEnabled" | "dramaFlowEnabled" | "taskCenterEnabled" | "creditsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "imageWorkbenchEnabled" | "videoWorkbenchEnabled";
+type FeatureKey = "shortDramaEnabled" | "dramaFlowEnabled" | "dramaFlow2Enabled" | "taskCenterEnabled" | "creditsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "imageWorkbenchEnabled" | "videoWorkbenchEnabled";
 
 const featureNames: Record<FeatureKey, string> = {
     shortDramaEnabled: "短剧创作",
     dramaFlowEnabled: "短剧新工作流",
+    dramaFlow2Enabled: "短剧新工作流2",
     taskCenterEnabled: "任务中心",
     creditsEnabled: "积分中心",
     frontendModelsEnabled: "前台模型",

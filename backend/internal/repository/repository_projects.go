@@ -18,16 +18,30 @@ var ErrProjectNameConflict = errors.New("project name conflict")
 
 var ErrProjectNotActive = errors.New("项目已归档，不能修改短剧生产数据")
 
+// 工作台和官方短剧使用同一项目表。官方作品与制作控制行在同一事务创建。
+func (r *Repository) workbenchProjects(userID string) *gorm.DB {
+	return r.db.Model(&model.Project{}).Where("projects.user_id = ?", userID).
+		Where("NOT EXISTS (SELECT 1 FROM drama_productions d WHERE d.project_id = projects.id)")
+}
+
+func (r *Repository) WorkbenchProjectForUser(userID, id string) (*model.Project, error) {
+	var project model.Project
+	if err := r.workbenchProjects(userID).Where("projects.id = ?", id).First(&project).Error; err != nil {
+		return nil, err
+	}
+	return &project, nil
+}
+
 func (r *Repository) Projects(userID string) ([]model.Project, error) {
 	var projects []model.Project
-	err := r.db.Where("user_id = ?", userID).Order("updated_at desc").Find(&projects).Error
+	err := r.workbenchProjects(userID).Order("updated_at desc").Find(&projects).Error
 	return projects, err
 }
 
 func (r *Repository) ProjectsPage(userID string, page int, pageSize int) ([]model.Project, int64, error) {
 	var projects []model.Project
 	var total int64
-	query := r.db.Model(&model.Project{}).Where("user_id = ?", userID)
+	query := r.workbenchProjects(userID)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}

@@ -144,6 +144,8 @@ const (
 	ProjectUnitStatusDraft     ProjectUnitStatus = "draft"
 	ProjectUnitStatusReady     ProjectUnitStatus = "ready"
 	ProjectUnitStatusCompleted ProjectUnitStatus = "completed"
+	// 已保存原文、暂未加入短剧制作的章节。
+	ProjectUnitStatusReserved ProjectUnitStatus = "reserved"
 
 	AssetCategoryCharacter   AssetCategory = "character"
 	AssetCategoryEnvironment AssetCategory = "environment"

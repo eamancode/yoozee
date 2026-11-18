@@ -21,11 +21,21 @@ func postStreamingAgent(ctx context.Context, config providerConfig, path string,
 			return nil, err
 		}
 	}
-	parser := newStreamingAgentParser(protocol, onDelta)
-	if len(onReasoning) > 0 {
-		parser.emitReasoning = onReasoning[0]
+	newParser := func() *streamingAgentParser {
+		parser := newStreamingAgentParser(protocol, onDelta)
+		if len(onReasoning) > 0 {
+			parser.emitReasoning = onReasoning[0]
+		}
+		return parser
 	}
+	parser := newParser()
 	data, mimeType, err := postStreamingBinary(ctx, config, path, body, parser.consume)
+	if err != nil && protocol == "chat-completion" && streamUsageOptionRejected(err) {
+		// 宿主补的 stream_options 被严格 schema 的上游拒收：去掉后重试一次，见 streamUsageOptionRejected。
+		delete(body, "stream_options")
+		parser = newParser()
+		data, mimeType, err = postStreamingBinary(ctx, config, path, body, parser.consume)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -54,17 +64,21 @@ type streamingAgentToolCall struct {
 }
 
 type streamingAgentParser struct {
-	protocol      string
-	buffer        string
-	text          strings.Builder
-	reasoning     strings.Builder
-	toolCalls     map[int]*streamingAgentToolCall
-	toolCallByID  map[string]int
-	completed     map[string]interface{}
-	finishReason  string
-	err           error
-	emit          func(string)
-	emitReasoning func(string)
+	protocol        string
+	buffer          string
+	text            strings.Builder
+	reasoning       strings.Builder
+	toolCalls       map[int]*streamingAgentToolCall
+	toolCallByID    map[string]int
+	completed       map[string]interface{}
+	finishReason    string
+	terminal        bool
+	requireTerminal bool
+	err             error
+	emit            func(string)
+	emitReasoning   func(string)
+	// claudeThinking 按内容块下标收集 Claude thinking / redacted_thinking 原文与签名，供多轮原样回传。
+	claudeThinking map[int]map[string]interface{}
 }
 
 func newStreamingAgentParser(protocol string, emit func(string)) *streamingAgentParser {
@@ -113,7 +127,11 @@ func (p *streamingAgentParser) consumeFrame(frame string) {
 		}
 	}
 	raw := strings.TrimSpace(strings.Join(dataLines, "\n"))
-	if raw == "" || raw == "[DONE]" {
+	if raw == "" {
+		return
+	}
+	if raw == "[DONE]" {
+		p.terminal = true
 		return
 	}
 	var payload map[string]interface{}
@@ -143,11 +161,18 @@ func (p *streamingAgentParser) consumeResponsesEvent(eventName string, payload m
 	case "response.reasoning.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
 		p.appendReasoning(stringField(payload, "delta"))
 	case "response.completed":
+		p.terminal = true
 		p.completed, _ = payload["response"].(map[string]interface{})
 	case "response.incomplete":
+		p.terminal = true
 		// 输出上限截断时 Responses 发 response.incomplete，原因在 response.incomplete_details。
 		p.completed, _ = payload["response"].(map[string]interface{})
 		p.finishReason = firstNonEmptyString(textPayloadFinishReason(p.completed, "responses"), "incomplete")
+	case "response.failed":
+		p.terminal = true
+		response, _ := payload["response"].(map[string]interface{})
+		failure, _ := response["error"].(map[string]interface{})
+		p.err = errors.New(defaultString(stringField(failure, "message"), "Responses 上游返回失败"))
 	case "response.output_item.added":
 		item, _ := payload["item"].(map[string]interface{})
 		if stringField(item, "type") == "function_call" {
@@ -178,6 +203,7 @@ func (p *streamingAgentParser) consumeChatCompletionEvent(payload map[string]int
 	for _, value := range choices {
 		choice, _ := value.(map[string]interface{})
 		if reason := stringField(choice, "finish_reason"); reason != "" && !textFinishTruncated(p.finishReason) {
+			p.terminal = true
 			p.finishReason = reason
 		}
 		delta, _ := choice["delta"].(map[string]interface{})
@@ -209,7 +235,14 @@ func (p *streamingAgentParser) consumeClaudeEvent(payload map[string]interface{}
 		case "text":
 			p.appendText(stringField(block, "text"))
 		case "thinking":
-			p.appendReasoning(firstRawString(stringField(block, "thinking"), stringField(block, "text")))
+			thinking := firstRawString(stringField(block, "thinking"), stringField(block, "text"))
+			p.appendReasoning(thinking)
+			p.claudeThinkingBlock(index, "thinking")["thinking"] = thinking
+			if signature := stringField(block, "signature"); signature != "" {
+				p.claudeThinkingBlock(index, "thinking")["signature"] = signature
+			}
+		case "redacted_thinking":
+			p.claudeThinkingBlock(index, "redacted_thinking")["data"] = stringField(block, "data")
 		case "tool_use":
 			arguments := ""
 			if input := block["input"]; input != nil {
@@ -226,7 +259,14 @@ func (p *streamingAgentParser) consumeClaudeEvent(payload map[string]interface{}
 			p.appendText(stringField(delta, "text"))
 		}
 		if stringField(delta, "type") == "thinking_delta" {
-			p.appendReasoning(firstRawString(stringField(delta, "thinking"), stringField(delta, "text")))
+			thinking := firstRawString(stringField(delta, "thinking"), stringField(delta, "text"))
+			p.appendReasoning(thinking)
+			block := p.claudeThinkingBlock(index, "thinking")
+			block["thinking"] = stringField(block, "thinking") + thinking
+		}
+		if stringField(delta, "type") == "signature_delta" {
+			block := p.claudeThinkingBlock(index, "thinking")
+			block["signature"] = stringField(block, "signature") + stringField(delta, "signature")
 		}
 		if stringField(delta, "type") == "input_json_delta" {
 			p.toolCall(index).arguments += stringField(delta, "partial_json")
@@ -234,8 +274,11 @@ func (p *streamingAgentParser) consumeClaudeEvent(payload map[string]interface{}
 	case "message_delta":
 		delta, _ := payload["delta"].(map[string]interface{})
 		if reason := stringField(delta, "stop_reason"); reason != "" {
+			p.terminal = true
 			p.finishReason = reason
 		}
+	case "message_stop":
+		p.terminal = true
 	case "error":
 		errValue, _ := payload["error"].(map[string]interface{})
 		p.err = errors.New(defaultString(stringField(errValue, "message"), "Claude 上游返回失败"))
@@ -244,6 +287,34 @@ func (p *streamingAgentParser) consumeClaudeEvent(payload map[string]interface{}
 
 func resultString(value map[string]interface{}, key string) string {
 	return stringField(value, key)
+}
+
+func (p *streamingAgentParser) claudeThinkingBlock(index int, kind string) map[string]interface{} {
+	if p.claudeThinking == nil {
+		p.claudeThinking = map[int]map[string]interface{}{}
+	}
+	block := p.claudeThinking[index]
+	if block == nil {
+		block = map[string]interface{}{"type": kind}
+		p.claudeThinking[index] = block
+	}
+	return block
+}
+
+func (p *streamingAgentParser) claudeThinkingBlocks() []interface{} {
+	if len(p.claudeThinking) == 0 {
+		return nil
+	}
+	indices := make([]int, 0, len(p.claudeThinking))
+	for index := range p.claudeThinking {
+		indices = append(indices, index)
+	}
+	sort.Ints(indices)
+	blocks := make([]interface{}, 0, len(indices))
+	for _, index := range indices {
+		blocks = append(blocks, p.claudeThinking[index])
+	}
+	return blocks
 }
 
 func (p *streamingAgentParser) appendText(delta string) {
@@ -291,6 +362,9 @@ func (p *streamingAgentParser) result() (map[string]interface{}, error) {
 	if p.err != nil {
 		return nil, p.err
 	}
+	if p.requireTerminal && !p.terminal {
+		return nil, errors.New("上游流式响应提前中断：未收到结束标记")
+	}
 	if p.completed != nil {
 		result, err := parseAgentToolPayload(p.completed, p.protocol)
 		if err != nil {
@@ -305,6 +379,7 @@ func (p *streamingAgentParser) result() (map[string]interface{}, error) {
 		if p.finishReason != "" {
 			result["finishReason"] = p.finishReason
 		}
+		markAgentReasoningWire(result, p.protocol)
 		return result, nil
 	}
 	result := map[string]interface{}{"mode": "text", "text": p.text.String(), "toolCalls": []interface{}{}}
@@ -314,6 +389,10 @@ func (p *streamingAgentParser) result() (map[string]interface{}, error) {
 	if p.finishReason != "" {
 		result["finishReason"] = p.finishReason
 	}
+	if blocks := p.claudeThinkingBlocks(); len(blocks) > 0 {
+		result["reasoningBlocks"] = blocks
+	}
+	markAgentReasoningWire(result, p.protocol)
 	indices := make([]int, 0, len(p.toolCalls))
 	for index := range p.toolCalls {
 		indices = append(indices, index)

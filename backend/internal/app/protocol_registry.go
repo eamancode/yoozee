@@ -29,6 +29,7 @@ type PluginProviderCatalogItem struct {
 	Parameters        []protocol.Parameter        `json:"parameters,omitempty"`
 	ImageParameters   []protocol.ImageParameter   `json:"imageParameters,omitempty"`
 	Workflows         []protocol.ManifestWorkflow `json:"workflows,omitempty"`
+	TextWire          string                      `json:"textWire,omitempty"`
 }
 
 // PluginProviderCatalog projects provider and workflow contributions from the
@@ -51,6 +52,7 @@ func (s *Service) PluginProviderCatalog(scope, capability string, includeUnavail
 			if adapter, ok := canonicalProviderAdapter(s.protocolRegistry(), provider.ID); ok {
 				metadata := adapter.Metadata()
 				item.Create, item.Poll, item.ContentType = metadata.Create, metadata.Poll, metadata.ContentType
+				item.TextWire = metadata.TextWire
 			}
 			if includeUnavailable || item.Enabled {
 				items = append(items, item)

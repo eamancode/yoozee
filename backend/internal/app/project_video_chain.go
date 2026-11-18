@@ -195,7 +195,7 @@ func (s *Service) PreviewProjectVideoChain(userID, projectID string, req Project
 }
 
 func (s *Service) ProjectVideoChains(userID, projectID, unitID string) ([]ProjectVideoChainView, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return nil, err
 	}
 	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
@@ -375,7 +375,7 @@ func (s *Service) videoChainTaskForUser(userID, projectID, id string) (*model.Ta
 	if task.ProjectID != projectID || task.Type != model.TaskTypeProjectVideoChain {
 		return nil, videoChainState{}, BadAuthRequest("连续生成链不属于当前项目")
 	}
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return nil, videoChainState{}, err
 	}
 	state, err := s.videoChainState(task)

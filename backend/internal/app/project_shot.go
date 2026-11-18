@@ -336,7 +336,7 @@ func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, 
 }
 
 func (s *Service) linkShotAsset(userID string, projectID string, shotID string, req LinkShotAssetRequest) (model.ShotAssetReference, error) {
-	if _, err := requireActiveProject(s.repo.LockActiveStoryboardProject(userID, projectID)); err != nil {
+	if _, err := requireActiveProject(s.repo.LockWorkbenchStoryboardProject(userID, projectID)); err != nil {
 		return model.ShotAssetReference{}, err
 	}
 	if _, err := s.repo.ShotForProject(projectID, shotID); err != nil {
@@ -423,7 +423,7 @@ func (s *Service) UnlinkShotAsset(userID string, projectID string, shotID string
 }
 
 func (s *Service) unlinkShotAsset(userID string, projectID string, shotID string, referenceID string) error {
-	if _, err := requireActiveProject(s.repo.LockActiveStoryboardProject(userID, projectID)); err != nil {
+	if _, err := requireActiveProject(s.repo.LockWorkbenchStoryboardProject(userID, projectID)); err != nil {
 		return err
 	}
 	if _, err := s.repo.ShotForProject(projectID, shotID); err != nil {

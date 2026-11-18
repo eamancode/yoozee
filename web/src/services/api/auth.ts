@@ -466,7 +466,7 @@ export function getAdminFeatureAvailability() {
 }
 
 export function updateAdminFeatureAvailability(
-    features: Partial<Pick<FeatureAvailability, "welcomeEnabled" | "shortDramaEnabled" | "dramaFlowEnabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "systemPluginsVisibleToUsers" | "inspirationSourcesVisible" | "imageWorkbenchEnabled" | "videoWorkbenchEnabled" | "skillContentVisible">>,
+    features: Partial<Pick<FeatureAvailability, "welcomeEnabled" | "shortDramaEnabled" | "dramaFlowEnabled" | "dramaFlow2Enabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "systemPluginsVisibleToUsers" | "inspirationSourcesVisible" | "imageWorkbenchEnabled" | "videoWorkbenchEnabled" | "skillContentVisible">>,
 ) {
     return http.patch<{ features: FeatureAvailability }>("/admin/settings/features", features);
 }

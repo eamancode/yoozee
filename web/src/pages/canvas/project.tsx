@@ -79,7 +79,7 @@ import { handleListGenerate } from "./list-mode-generator";
 import { CanvasToolbar } from "@/components/canvas/canvas-toolbar";
 import { useCanvasCreateCommands } from "@/components/canvas/use-canvas-create-commands";
 import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
-import { getProject, listCharacters, type ProjectAsset } from "@/services/api/projects";
+import { getCanvasLinkedProject, listCharacters, type ProjectAsset } from "@/services/api/projects";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
 import { persistCanvasAgentCameraFollow, readCanvasAgentCameraFollow } from "@/lib/canvas/canvas-agent-camera-follow";
 import { CanvasShareModal } from "@/components/canvas/canvas-share-modal";
@@ -266,6 +266,7 @@ function CanvasViewportPage() {
     const theme = canvasThemes[colorTheme];
     const defaultDrawingEngine = useUserStore((state) => state.drawingEngine.defaultEngine);
     const shortDramaEnabled = useUserStore((state) => state.features.shortDramaEnabled);
+    const canUseDramaFlow2 = useUserStore((state) => state.features.shortDramaEnabled && state.features.dramaFlow2Enabled);
     const previsOnboardingScope = useUserStore((state) => state.user?.id?.trim() || "");
     const nodesRef = useRef<CanvasNodeData[]>([]);
     const [nodes, setNodesState] = useState<CanvasNodeData[]>([]);
@@ -535,7 +536,7 @@ function CanvasViewportPage() {
         [persistLocalEdits, projectId, setConnections, setNodes],
     );
     const linkedProjectId = shortDramaEnabled ? currentProject?.projectId || "" : "";
-    const linkedProjectQuery = useQuery({ queryKey: ["project", linkedProjectId], queryFn: () => getProject(linkedProjectId), enabled: Boolean(linkedProjectId) });
+    const linkedProjectQuery = useQuery({ queryKey: ["project", linkedProjectId, "canvas-context"], queryFn: ({ signal }) => getCanvasLinkedProject(linkedProjectId, signal), enabled: Boolean(linkedProjectId) });
     const refetchLinkedProject = linkedProjectQuery.refetch;
     const archiveNodesToLinkedFolder = useCallback(
         (folder: CanvasNodeData, droppedNodes: CanvasNodeData[]) => {
@@ -741,7 +742,7 @@ function CanvasViewportPage() {
         saveTimeline: saveDramaTimeline,
         openTimeline: setTimelineNodeId,
         canvasId: projectId,
-        dramaId: linkedProjectId,
+        dramaId: canUseDramaFlow2 ? linkedProjectId : "",
         projectLoaded,
         nodes,
         nodesRef,
@@ -2659,7 +2660,7 @@ function CanvasViewportPage() {
         ) : emptyStateKind === "linked" && drama.summary ? (
             <CanvasDramaEmptyState
                 dramaName={drama.summary.project.name}
-                studioPath={`/projects/${encodeURIComponent(drama.summary.project.id)}`}
+                studioPath={`/drama-flow-2/${encodeURIComponent(drama.summary.project.id)}`}
                 episodeLabel={dramaFirstEpisode ? `第 ${dramaFirstEpisode.number} 集` : undefined}
                 onProjectEpisode={dramaFirstEpisode ? () => void drama.projectEpisode(dramaFirstEpisode.id) : undefined}
                 onAddText={() => createNode(CanvasNodeType.Text)}
@@ -2753,15 +2754,16 @@ function CanvasViewportPage() {
     };
     const createDramaFromStoryboard = useCallback(
         (node: CanvasNodeData) => {
+            if (!canUseDramaFlow2) return;
             const source = canvasStoryboardToDramaSource(node);
             if (!source) {
                 message.warning("分镜脚本里还没有可转录的镜头");
                 return;
             }
             // 未关联项目的画布在作品创建后关联到新短剧，成为它的精修画布；已关联的画布保持原关联。
-            navigate("/projects/new", { state: { prefill: { name: node.title || currentProject?.title || "画布分镜", sourceFormat: "storyboard", text: source.text, canvasId: currentProject?.projectId ? undefined : projectId } } });
+            navigate("/drama-flow-2/new", { state: { prefill: { name: node.title || currentProject?.title || "画布分镜", sourceFormat: "storyboard", text: source.text, canvasId: currentProject?.projectId ? undefined : projectId } } });
         },
-        [currentProject?.projectId, currentProject?.title, message, navigate, projectId],
+        [canUseDramaFlow2, currentProject?.projectId, currentProject?.title, message, navigate, projectId],
     );
     const renameAssetNodes = useCallback(
         (updates: Array<{ nodeId: string; title: string }>) => {
@@ -3487,7 +3489,7 @@ function CanvasViewportPage() {
                                 downloadableSelectionCount={contextMenu && selectedNodeIds.size > 1 ? nodes.filter((node) => selectedNodeIds.has(node.id) && canDownloadCanvasNodeMedia(node)).length : 0}
                                 onDownloadSelection={() => void downloadNodesMedia(nodesRef.current.filter((node) => selectedNodeIds.has(node.id)))}
                                 onAdoptToDrama={drama.active ? drama.openAdopt : undefined}
-                                onCreateDramaFromStoryboard={shortDramaEnabled ? createDramaFromStoryboard : undefined}
+                                onCreateDramaFromStoryboard={canUseDramaFlow2 ? createDramaFromStoryboard : undefined}
                             />
 
                             <CanvasUploadModal open={uploadModalOpen} onClose={closeUploadModal} onUpload={handleUploadFiles} />

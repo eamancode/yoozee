@@ -4,7 +4,21 @@ import { lazyAdminPage } from "@/pages/admin/admin-page-loader";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceternity/full-screen-loader";
-import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadDramaFlowCreatePage, loadDramaFlowDetailPage, loadDramaFlowPage, loadProjectDetailPage, loadProjectsPage, loadSkillWorkbenchPage } from "@/lib/workspace-route-modules";
+import {
+    loadAssetsPage,
+    loadCanvasPage,
+    loadCanvasProjectPage,
+    loadCreatePage,
+    loadDramaFlow2CreatePage,
+    loadDramaFlow2DetailPage,
+    loadDramaFlow2Page,
+    loadDramaFlowCreatePage,
+    loadDramaFlowDetailPage,
+    loadDramaFlowPage,
+    loadProjectDetailPage,
+    loadProjectsPage,
+    loadSkillWorkbenchPage,
+} from "@/lib/workspace-route-modules";
 import { projectWorkbenchRoutePaths } from "@/lib/project-workbench-routes";
 import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
 import { AuthScene } from "@/pages/auth/auth-scene";
@@ -69,6 +83,9 @@ const ProjectDetailPage = lazy(loadProjectDetailPage);
 const DramaFlowPage = lazy(loadDramaFlowPage);
 const DramaFlowCreatePage = lazy(loadDramaFlowCreatePage);
 const DramaFlowDetailPage = lazy(loadDramaFlowDetailPage);
+const DramaFlow2Page = lazy(loadDramaFlow2Page);
+const DramaFlow2CreatePage = lazy(loadDramaFlow2CreatePage);
+const DramaFlow2DetailPage = lazy(loadDramaFlow2DetailPage);
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const ReferralPage = lazy(() => import("@/pages/referral"));
 const AdminReferralPage = lazyAdminPage(() => import("@/pages/admin/referral/referral-admin-page"));
@@ -213,6 +230,21 @@ export const router = createBrowserRouter([
                     <RequireAuth>
                         <RequireFeature feature="shortDramaEnabled">
                             <RequireFeature feature="dramaFlowEnabled">{deferred(page)}</RequireFeature>
+                        </RequireFeature>
+                    </RequireAuth>
+                ),
+            })),
+            ...[
+                { path: "/drama-flow-2", page: <DramaFlow2Page /> },
+                { path: "/drama-flow-2/new", page: <DramaFlow2CreatePage /> },
+                { path: "/drama-flow-2/:projectId", page: <DramaFlow2DetailPage /> },
+                { path: "/drama-flow-2/:projectId/e/:episodeId", page: <DramaFlow2DetailPage /> },
+            ].map(({ path, page }) => ({
+                path,
+                element: (
+                    <RequireAuth>
+                        <RequireFeature feature="shortDramaEnabled">
+                            <RequireFeature feature="dramaFlow2Enabled">{deferred(page)}</RequireFeature>
                         </RequireFeature>
                     </RequireAuth>
                 ),

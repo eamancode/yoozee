@@ -48,6 +48,7 @@ function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[];
                 { ...toolItem("create", "/"), id: "home", title: "创作" },
                 ...(features.shortDramaEnabled ? [{ ...toolItem("projects", "/projects"), title: "短剧制作" }] : []),
                 ...(features.shortDramaEnabled && features.dramaFlowEnabled ? [{ id: "drama-flow", title: "短剧新工作流", icon: Workflow, to: "/drama-flow" }] : []),
+                ...(features.shortDramaEnabled && features.dramaFlow2Enabled ? [{ id: "drama-flow-2", title: "短剧新工作流2", icon: Workflow, to: "/drama-flow-2" }] : []),
                 { ...toolItem("canvas", "/canvas"), title: "自由画布" },
             ],
         },

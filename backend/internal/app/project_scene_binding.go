@@ -251,7 +251,7 @@ func (s *Service) shotSceneReview(userID string, project *model.Project, shot *m
 }
 
 func (s *Service) ProjectSceneReferenceReview(userID, projectID, shotID string) (SceneReferenceReview, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return SceneReferenceReview{}, err
 	}
@@ -278,7 +278,7 @@ func (s *Service) UpdateProjectSceneReference(userID, projectID, shotID string, 
 
 func (s *Service) updateProjectSceneReference(userID, projectID, shotID string, req SceneReferenceUpdate) (SceneReferenceReview, error) {
 	fail := func(msg string) (SceneReferenceReview, error) { return SceneReferenceReview{}, BadAuthRequest(msg) }
-	project, err := requireActiveProject(s.repo.LockActiveStoryboardProject(userID, projectID))
+	project, err := requireActiveProject(s.repo.LockWorkbenchStoryboardProject(userID, projectID))
 	if err != nil {
 		return SceneReferenceReview{}, err
 	}
@@ -387,7 +387,7 @@ func (s *Service) updateProjectSceneReference(userID, projectID, shotID string, 
 }
 
 func (s *Service) ProjectSceneReferenceCandidate(userID, projectID, shotID, versionID string) (drama.SceneSpace, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return drama.SceneSpace{}, err
 	}
 	if _, err := s.repo.ShotForProject(projectID, shotID); err != nil {
@@ -503,7 +503,7 @@ func (s *Service) sceneBindingCurrent(userID, projectID string, shot *model.Shot
 	if shot.CurrentRevisionID != revision.ID {
 		return "", sceneCheckError(shot.ID, []string{"本段版本已变化，请刷新后核对"})
 	}
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return "", err
 	}

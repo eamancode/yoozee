@@ -465,7 +465,7 @@ func scriptAdaptReplaceRequired(mode string, impacts []DramaEpisodeImpact) error
 
 // DramaEpisodes 列出项目的剧集、各自的来源和镜头表情况，以及已改编的原文章节。
 func (s *Service) DramaEpisodes(userID string, projectID string) (DramaEpisodesView, error) {
-	project, err := s.repo.ProjectForUser(userID, projectID)
+	project, err := s.repo.WorkbenchProjectForUser(userID, projectID)
 	if err != nil {
 		return DramaEpisodesView{}, err
 	}

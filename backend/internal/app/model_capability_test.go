@@ -159,7 +159,7 @@ func TestDefaultMiniMaxVideoCapabilitySupportsThirtySecondGeneration(t *testing.
 					if valid && err != nil {
 						t.Fatalf("validateVideoTask(%d seconds): %v", seconds, err)
 					}
-					if !valid && (err == nil || !strings.Contains(err.Error(), "视频时长不在当前模型支持范围内")) {
+					if !valid && (err == nil || !strings.Contains(err.Error(), fmt.Sprintf("视频时长 %d 秒不在当前模型支持范围内", seconds))) {
 						t.Fatalf("validateVideoTask(%d seconds) error = %v", seconds, err)
 					}
 				})

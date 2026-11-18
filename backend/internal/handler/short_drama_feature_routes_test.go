@@ -39,7 +39,7 @@ func TestShortDramaFeatureGateKeepsSharedLibraries(t *testing.T) {
 				&model.Asset{}, &model.AssetVersion{}, &model.AssetRepresentation{}, &model.CharacterVoiceBinding{},
 				&model.VoiceProfile{}, &model.StyleProfile{}, &model.DramaStyleLibraryEntry{}, &model.Project{}, &model.ProjectAssetLink{},
 				&model.ProjectAssetFolder{}, &model.Resource{}, &model.Shot{}, &model.ShotAssetReference{},
-				&model.ProjectUnit{}, &model.CanvasProject{}); err != nil {
+				&model.ProjectUnit{}, &model.CanvasProject{}, &model.DramaProduction{}); err != nil {
 				t.Fatal(err)
 			}
 			for _, record := range []any{

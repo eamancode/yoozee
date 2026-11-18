@@ -16,6 +16,7 @@ const featureAvailabilitySettingKey = "feature_availability"
 
 const (
 	FeatureShortDrama            = "shortDrama"
+	FeatureDramaFlow2            = "dramaFlow2"
 	FeatureTaskCenter            = "taskCenter"
 	FeatureCredits               = "credits"
 	FeatureCustomChannels        = "customChannels"
@@ -34,6 +35,7 @@ type FeatureAvailability struct {
 	ShortDramaEnabled bool `json:"shortDramaEnabled"`
 	// 短剧新工作流入口（/drama-flow）：只控制前台入口是否展示，接口仍走短剧创作的开关。
 	DramaFlowEnabled             bool `json:"dramaFlowEnabled"`
+	DramaFlow2Enabled            bool `json:"dramaFlow2Enabled"`
 	TaskCenterEnabled            bool `json:"taskCenterEnabled"`
 	CreditsEnabled               bool `json:"creditsEnabled"`
 	CustomChannelsEnabled        bool `json:"customChannelsEnabled"`
@@ -122,6 +124,8 @@ func (s *Service) FeatureEnabled(feature string) (bool, error) {
 	switch feature {
 	case FeatureShortDrama:
 		return value.ShortDramaEnabled, nil
+	case FeatureDramaFlow2:
+		return value.ShortDramaEnabled && value.DramaFlow2Enabled, nil
 	case FeatureTaskCenter:
 		return value.TaskCenterEnabled, nil
 	case FeatureCredits:
@@ -160,6 +164,8 @@ func (s *Service) RequireFeature(feature string) error {
 	switch feature {
 	case FeatureShortDrama:
 		return kernel.Forbidden("短剧创作暂未开放")
+	case FeatureDramaFlow2:
+		return kernel.Forbidden("短剧新工作流2暂未开放")
 	case FeatureTaskCenter:
 		return kernel.Forbidden("任务中心暂未开放")
 	case FeatureCredits:

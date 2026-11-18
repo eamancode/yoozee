@@ -14,7 +14,7 @@ import (
 )
 
 func (s *Service) ProjectVideoRouting(userID, projectID string) (*model.ProjectVideoRoute, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	if _, err := s.repo.WorkbenchProjectForUser(userID, projectID); err != nil {
 		return nil, err
 	}
 	return s.repo.ProjectVideoRoute(projectID)
@@ -48,7 +48,7 @@ func (s *Service) OverrideProjectVideoRouting(userID, projectID, selected, from 
 	}
 	state := &model.ProjectVideoRoute{ProjectID: projectID, Model: selected, FromModel: from, Status: "manual", Reason: "用户为本项目选择了视频线路", Revision: revision + 1, ChangedAt: time.Now().UTC()}
 	err = s.repo.Transaction(func(tx *repository.Repository) error {
-		project, err := tx.LockActiveStoryboardProject(userID, projectID)
+		project, err := tx.LockWorkbenchStoryboardProject(userID, projectID)
 		if err != nil {
 			return err
 		}
@@ -97,7 +97,7 @@ func (s *Service) recordProjectVideoTerminal(child *model.Task) error {
 	meta, _ := input["metadata"].(map[string]any)
 	cfg, _ := input["config"].(map[string]any)
 	art, _ := meta["artifactMetadata"].(map[string]any)
-	project, err := s.repo.ProjectForUser(child.UserID, child.ProjectID)
+	project, err := s.repo.WorkbenchProjectForUser(child.UserID, child.ProjectID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
 	}

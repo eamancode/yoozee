@@ -14,6 +14,7 @@ import "./feature-availability-panel.css";
 type FeatureKey =
     | "shortDramaEnabled"
     | "dramaFlowEnabled"
+    | "dramaFlow2Enabled"
     | "taskCenterEnabled"
     | "creditsEnabled"
     | "customChannelsEnabled"
@@ -35,6 +36,7 @@ type FeatureRow = {
 const editableFeatureKeys: FeatureKey[] = [
     "shortDramaEnabled",
     "dramaFlowEnabled",
+    "dramaFlow2Enabled",
     "taskCenterEnabled",
     "creditsEnabled",
     "customChannelsEnabled",
@@ -58,6 +60,13 @@ const workspaceFeatureRows: FeatureRow[] = [
         key: "dramaFlowEnabled",
         title: "短剧新工作流",
         description: "在「短剧制作」下方开放新入口，与旧入口共用同一批项目；关闭只隐藏入口。",
+        icon: <Workflow className="size-4" aria-hidden="true" />,
+        dependsOn: "shortDramaEnabled",
+    },
+    {
+        key: "dramaFlow2Enabled",
+        title: "短剧新工作流2",
+        description: "开放独立制作台、作品创建和任务调度。关闭后，已提交任务可回写结果。",
         icon: <Workflow className="size-4" aria-hidden="true" />,
         dependsOn: "shortDramaEnabled",
     },
@@ -418,6 +427,7 @@ function FeatureSourceRow({ row, saved, draft, saving, onChange }: { row: Featur
 function effectiveFeatureValue(features: FeatureAvailability, key: FeatureKey) {
     if (key === "systemPluginsVisibleToUsers") return features.pluginCenterEnabled && features.systemPluginsVisibleToUsers;
     if (key === "dramaFlowEnabled") return features.shortDramaEnabled && features.dramaFlowEnabled;
+    if (key === "dramaFlow2Enabled") return features.shortDramaEnabled && features.dramaFlow2Enabled;
     return features[key];
 }
 
@@ -425,6 +435,7 @@ function toEditablePayload(features: FeatureAvailability) {
     return {
         shortDramaEnabled: features.shortDramaEnabled,
         dramaFlowEnabled: features.dramaFlowEnabled,
+        dramaFlow2Enabled: features.dramaFlow2Enabled,
         taskCenterEnabled: features.taskCenterEnabled,
         creditsEnabled: features.creditsEnabled,
         customChannelsEnabled: features.customChannelsEnabled,
@@ -452,6 +463,7 @@ function parseFeatureAvailability(value: unknown): FeatureAvailability {
         welcomeEnabled: record.welcomeEnabled as boolean,
         shortDramaEnabled: record.shortDramaEnabled as boolean,
         dramaFlowEnabled: record.dramaFlowEnabled as boolean,
+        dramaFlow2Enabled: record.dramaFlow2Enabled as boolean,
         taskCenterEnabled: record.taskCenterEnabled as boolean,
         creditsEnabled: record.creditsEnabled as boolean,
         customChannelsEnabled: record.customChannelsEnabled as boolean,
