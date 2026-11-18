@@ -171,7 +171,7 @@ export function ProjectCharacterVariants({ projectId, parent, currentUnit, defau
                     disabled={!variants.length}
                 >
                     <ChevronDown className={`size-3.5 transition-transform motion-reduce:transition-none ${expanded ? "" : "-rotate-90"}`} />
-                    {variants.length ? `造型 ${variants.length} 张` : "子卡"}
+                    {variants.length ? `子卡 ${variants.length} 张` : "子卡"}
                 </button>
                 <Button type="text" size="small" className="!h-6 !px-1.5 !text-[var(--fs-tiny)]" icon={<Plus className="size-3" />} onClick={() => open("new")} aria-label={`给 ${parent.title} 新增子卡（服装或状态）`}>
                     新增子卡
