@@ -87,6 +87,20 @@ func videoChainGenerationSeconds(duration VideoDurationConfig, content float64) 
 	return seconds, nil
 }
 
+// Keep the fractional storyboard unchanged; only the explicitly selected ZY
+// system route may round a fractional chain request up to an integer. All
+// other models, fixed slots and unsupported steps retain their old behavior.
+func videoChainGenerationSecondsForRoute(duration VideoDurationConfig, content float64, item *model.ChannelModel) (int, error) {
+	if item != nil && item.ChannelID == "CHANNEL_000001" &&
+		item.ModelKey == "lec-zy-seedance-2-5-discount2" && item.ProviderModelKey == item.ModelKey &&
+		duration.Selection == "range" && duration.Step == 1 &&
+		duration.Min < duration.Max && content >= float64(duration.Min) && content <= float64(duration.Max) &&
+		math.Trunc(content) != content {
+		return int(math.Ceil(content)), nil
+	}
+	return videoChainGenerationSeconds(duration, content)
+}
+
 // System channel capabilities come from the current catalog, never from client metadata.
 func (s *Service) projectTaskVideoDurationSlots(input map[string]any) ([]int, error) {
 	profile, err := s.projectTaskVideoProfile(input)
@@ -97,31 +111,37 @@ func (s *Service) projectTaskVideoDurationSlots(input map[string]any) ([]int, er
 }
 
 func (s *Service) projectTaskVideoProfile(input map[string]any) (*VideoCapabilityConfig, error) {
+	profile, _, err := s.projectTaskVideoRouteProfile(input)
+	return profile, err
+}
+
+func (s *Service) projectTaskVideoRouteProfile(input map[string]any) (*VideoCapabilityConfig, *model.ChannelModel, error) {
 	config, _ := input["config"].(map[string]any)
 	raw, err := json.Marshal(config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var provider providerConfig
 	if err := json.Unmarshal(raw, &provider); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	channelID := firstNonEmpty(provider.ChannelID, systemChannelIDFromBaseURL(provider.BaseURL))
 	profile := provider.CapabilityConfig
+	var item *model.ChannelModel
 	if channelID != "" {
-		item, err := s.repo.ChannelModelByKey(channelID, providerChannelModelKey(provider))
+		item, err = s.repo.ChannelModelByKey(channelID, providerChannelModelKey(provider))
 		if err != nil {
-			return nil, BadAuthRequest("当前系统渠道模型未配置或已停用")
+			return nil, nil, BadAuthRequest("当前系统渠道模型未配置或已停用")
 		}
 		profile, err = normalizedChannelModelCapability(item, s.protocolRegistry())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	if profile == nil || profile.Video == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return profile.Video, nil
+	return profile.Video, item, nil
 }
 
 type submissionSegment struct {
@@ -210,7 +230,7 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 	if !isPositiveVideoSeconds(segment.Dur) {
 		return "", BadAuthRequest("镜头组时长必须大于 0")
 	}
-	profile, err := s.projectTaskVideoProfile(input)
+	profile, route, err := s.projectTaskVideoRouteProfile(input)
 	if err != nil {
 		return "", err
 	}
@@ -224,7 +244,7 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		if profile == nil {
 			return "", BadAuthRequest("当前线路缺少视频时长规格，请重新报价")
 		}
-		seconds, err = videoChainGenerationSeconds(profile.Duration, segment.Dur)
+		seconds, err = videoChainGenerationSecondsForRoute(profile.Duration, segment.Dur, route)
 	} else {
 		seconds, err = projectVideoSubmissionSeconds(slots, segment.Dur)
 	}

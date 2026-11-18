@@ -521,6 +521,12 @@ export function VideoChainPanel({
                                 <p className="mt-1 text-sm text-foreground/65">
                                     {step.scene || "未指定场景"} · 内容 {step.contentSeconds} 秒 → 生成 {step.generationSeconds} 秒 · {modelDisplayName(config, step.model)}
                                 </p>
+                                {chain.status === "preview" && step.status !== "succeeded" && step.contentSeconds % 1 !== 0 &&
+                                    step.generationSeconds === Math.ceil(step.contentSeconds) ? (
+                                    <p className="mt-1 text-xs text-foreground/65">
+                                        保留分镜原时长；本线路按整秒请求，本次报价对应 {step.generationSeconds} 秒请求。
+                                    </p>
+                                ) : null}
                                 <p className="mt-1 text-xs text-foreground/55">
                                     {step.sourceShotId && !step.referenceSkipped ? `保留 ${step.referenceCount} 张原参考图，尝试新增站位图 ${step.referenceTag}` : `保留 ${step.referenceCount} 张参考图`}{step.referenceAudioCount ? ` · 声音参考 ${step.referenceAudioCount} 条` : ""} · {step.ending ? "追加片末结束段" : "不追加片末结束段"}
                                 </p>

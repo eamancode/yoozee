@@ -1471,6 +1471,54 @@ test("R6-D04 出片失败的段点「重新出」：确认前只能重新报价"
     }
 });
 
+test("ZY_CHAIN_DURATION 同场景预览保留 20.5 秒正文，展示 21 秒报价和 8 张参考图，确认前不提交", async () => {
+    const path = `/projects/${P}/video-chains`;
+    const exactCost = 2_625_000;
+    const previews: Array<{ requestId?: string }> = [];
+    const confirmations: Array<{ requestId?: string; previewHash?: string }> = [];
+    const page = await mount(`/drama-flow/${P}/video`, { prepare: (f) => {
+        const fallback = f.handle;
+        f.handle = (method, url, body) => {
+            if (url === path + "/preview") {
+                previews.push(body as typeof previews[number]);
+                const reply = fallback(method, url, body);
+                const data = reply?.body?.data as { chain: { steps: Record<string, unknown>[]; totalMicrocredits: number } };
+                data.chain.totalMicrocredits = exactCost;
+                Object.assign(data.chain.steps[0], {
+                    model: "CHANNEL_000001::lec-zy-seedance-2-5-discount2",
+                    contentSeconds: 20.5,
+                    generationSeconds: 21,
+                    referenceCount: 8,
+                    quote: { billingMode: "fixed_request", quantity: 1, amountMicrocredits: exactCost },
+                });
+                return reply;
+            }
+            if (url === path && method.toLowerCase() === "post") {
+                confirmations.push(body as typeof confirmations[number]);
+                return { status: 200, body: { code: 0, data: { chain: { id: "synthetic-zy-queued" } } } };
+            }
+            return fallback(method, url, body);
+        };
+    } });
+    try {
+        await page.click(buttonByText(cardOf("S01")!, "出这一段"));
+        expect(buttonByText(modal()!, "开始连续生成")).toBeUndefined();
+        expect(confirmations).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "预览当前场景与费用"));
+        expect(previews).toHaveLength(1);
+        expect(modal()?.textContent).toContain("内容 20.5 秒 → 生成 21 秒");
+        expect(modal()?.textContent).toContain("本次报价对应 21 秒请求");
+        expect(modal()?.textContent).toContain("保留 8 张参考图");
+        expect(modal()?.textContent).toContain("按条 · 2.625 平台积分");
+        expect(confirmations).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "开始连续生成"));
+        expect(confirmations).toEqual([expect.objectContaining({ requestId: previews[0].requestId, previewHash: "preview-1" })]);
+        expect(page.errors).toEqual([]);
+    } finally {
+        await page.dispose();
+    }
+});
+
 test("P0_VIDEO_RECOVERY 单段重新生成，回复丢失后重开先查原确认且不再提交", async () => {
     const chainPath = `/projects/${P}/video-chains`;
     const quotes: Record<string, unknown>[] = [];
