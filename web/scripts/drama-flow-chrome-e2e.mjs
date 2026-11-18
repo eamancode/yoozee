@@ -653,7 +653,11 @@ async function main() {
             await quoteCase(cdp, fixture, { label: "P0 failed clip", segmentId: "S01", shotId: FIXTURE_SHOT_ID, restartChainId: "chain-failed", viewport, outDir });
             fixture = useFixture({ chains: "unresolved" });
             await quoteCase(cdp, fixture, { label: "P0 original receipt unresolved", segmentId: "S01", shotId: FIXTURE_SHOT_ID, restartChainId: "chain-unresolved", unresolved: true, viewport, outDir });
-        } else {
+            if (outDir) writeFileSync(join(outDir, "drama-flow-e2e-results.json"), JSON.stringify({ results, failures }, null, 2));
+            console.log(`\n${results.length - failures}/${results.length} passed`);
+            process.exitCode = failures ? 1 : 0;
+            return;
+        }
         // D-00 分镜：编辑镜头并保存（真实分镜卡、真实保存接口），刷新后保持；换选、关详情、离开。
         await cdp.navigate(`/drama-flow/${P}/shots`);
         // 第一次打开要等 Vite 按需编译，给足时间。
@@ -1093,7 +1097,6 @@ async function main() {
         check(!problems.length, "浏览器没有未捕获异常或 console error", problems.map((item) => `${item.kind}: ${item.text}`).join(" | "));
         // 只记录不判失败：老一些的 Chrome 返回 undefined；返回 Promise 的条件由组件回归（drama-flow-lifecycle）固定覆盖。
         console.log(`INFO  原生 scrollIntoView 返回 ${native.promise ? "Promise（D-00 线上触发条件在本浏览器成立）" : native.type}`);
-        }
     } finally {
         cdp?.close();
         for (const child of [browser, vite]) {

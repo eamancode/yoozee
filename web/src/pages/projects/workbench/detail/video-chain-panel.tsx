@@ -82,6 +82,7 @@ export function VideoChainPanel({
     const [receiptAbsent, setReceiptAbsent] = useState(false);
     const [storageUnavailable, setStorageUnavailable] = useState(false);
     const [quoteExpired, setQuoteExpired] = useState(false);
+    const [requiresUpdatedInputs, setRequiresUpdatedInputs] = useState(false);
     const [confirmedChain, setConfirmedChain] = useState<VideoChain>();
     const [lastSourceId, setLastSourceId] = useState<string>();
     const account = getActiveUserScope();
@@ -142,6 +143,7 @@ export function VideoChainPanel({
         session.current++;
         setPreview(undefined);
         setSelectedId(undefined);
+        setRequiresUpdatedInputs(false);
         setConfirmedChain(undefined);
         setLastSourceId(undefined);
         setProblem(undefined);
@@ -244,7 +246,7 @@ export function VideoChainPanel({
             setBusy(false);
         }
     };
-    const refreshPreview = (mode: VideoRecoveryMode) =>
+    const refreshPreview = (mode: VideoRecoveryMode, useUpdatedInputs = false) =>
         run(mode === "restart" ? "从头生成报价" : mode === "resume" ? "失败段重新报价" : "本次费用预览", async () => {
             const version = session.current;
             const scope = captureUserSession();
@@ -268,13 +270,24 @@ export function VideoChainPanel({
             if (mode !== "fresh" && failed?.id) {
                 if (mode === "resume") input.resumeChainId = failed.id;
                 else input.restartChainId = failed.id;
+                if (mode === "restart" && useUpdatedInputs) input.useUpdatedInputs = true;
                 input.shotId = firstShot;
                 input.scope = failed.scope;
                 if (mode === "resume") input.prepareOnly = failed.prepareOnly;
             }
-            const { chain } = await previewVideoChain(projectId, input);
+            let chain: VideoChain;
+            try {
+                ({ chain } = await previewVideoChain(projectId, input));
+            } catch (error) {
+                if (scope.signal.aborted || version !== session.current) return;
+                if (mode === "restart" && error instanceof ApiError && (error.status ?? error.code) === 412 && error.details?.requiresUpdatedInputs === true) {
+                    setRequiresUpdatedInputs(true);
+                }
+                throw error;
+            }
             assertCurrentUserSession(scope);
             if (version !== session.current) return;
+            setRequiresUpdatedInputs(false);
             request.current = { ...input, previewHash: chain.previewHash, quoteExpiresAt: chain.quoteExpiresAt };
             quotedReceipt.current = receiptVersion;
             setSelectedId(undefined);
@@ -479,7 +492,7 @@ export function VideoChainPanel({
                         </span>
                     </div>
                     {chain.status === "preview" && chain.previewHash ? <div className="mb-2 text-xs text-foreground/60">
-                        {recoveryMode === "restart" ? <p>从第一步开始，不复用原视频；保留原记录和已完成的视频。</p> : recoveryMode === "resume" ? <p>从失败处继续，报价中标记可复用的视频不会重新生成。</p> : null}
+                        {recoveryMode === "restart" ? <p>{request.current?.useUpdatedInputs ? "本次使用当前分镜和素材。" : ""}从第一步开始，不复用原视频；保留原记录和已完成的视频。</p> : recoveryMode === "resume" ? <p>从失败处继续，报价中标记可复用的视频不会重新生成。</p> : null}
                         {chain.quoteExpiresAt ? <p>报价有效至 {new Date(chain.quoteExpiresAt * 1000).toLocaleTimeString()}</p> : null}
                         <p className="break-all">报价标识 {chain.previewHash}</p>
                     </div> : null}
@@ -572,8 +585,8 @@ export function VideoChainPanel({
                 ) : null}
                 {!active && chains.isSuccess && !chains.isRefetchError && failed && !failed.prepareOnly && !(reuseOnly && failed.steps.length === 1) ? (
                     <Button loading={busy} disabled={quoteControlsDisabled || Boolean(pending && pending.mode !== "restart")}
-                        onClick={() => void refreshPreview("restart")}>
-                        {failed.steps.length === 1 ? "重新生成整段（先报价）" : "从头重新生成（先报价）"}
+                        onClick={() => void refreshPreview("restart", requiresUpdatedInputs)}>
+                        {requiresUpdatedInputs ? "按当前分镜和素材从头生成（先报价）" : failed.steps.length === 1 ? "重新生成整段（先报价）" : "从头重新生成（先报价）"}
                     </Button>
                 ) : null}
                 {chain?.status === "preview" && request.current ? (

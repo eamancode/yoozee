@@ -1569,6 +1569,46 @@ test("P0_VIDEO_RECOVERY 查不到确认回执后只允许同一个确认标识�
     }
 });
 
+test("P0_VIDEO_RECOVERY 原输入变化后只按明确选择报价和确认", async () => {
+    const path = `/projects/${P}/video-chains`;
+    const intents: Array<{ useUpdatedInputs?: boolean; restartChainId?: string }> = [];
+    const submits: Array<{ useUpdatedInputs?: boolean; restartChainId?: string }> = [];
+    const page = await mount(`/drama-flow/${P}/video`, { chains: "failed", prepare: (f) => {
+        const fallback = f.handle;
+        f.handle = (method, url, body) => {
+            const input = body as typeof intents[number];
+            if (url === path + "/preview") {
+                intents.push(input);
+                if (!input.useUpdatedInputs) return {
+                    status: 412, body: { code: 412, msg: "原参考素材有变化", details: { requiresUpdatedInputs: true } },
+                };
+            }
+            if (url === path && method.toLowerCase() === "post") {
+                submits.push(input);
+                return { status: 200, body: { code: 0, data: { chain: { id: "changed-input-controller" } } } };
+            }
+            return fallback(method, url, body);
+        };
+    } });
+    try {
+        await page.click(buttonByText(cardOf("S01")!, "重新出"));
+        await page.click(buttonByText(modal()!, "重新生成整段（先报价）"));
+        expect(intents).toHaveLength(1);
+        expect(intents[0].useUpdatedInputs).toBeUndefined();
+        expect(buttonByText(modal()!, "确认报价并从头生成")).toBeUndefined();
+        expect(submits).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "按当前分镜和素材从头生成（先报价）"));
+        expect(intents[1]).toMatchObject({ restartChainId: "chain-failed", useUpdatedInputs: true });
+        expect(modal()?.textContent).toContain("本次使用当前分镜和素材");
+        expect(submits).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "确认报价并从头生成"));
+        expect(submits).toHaveLength(1);
+        expect(submits[0]).toMatchObject({ restartChainId: "chain-failed", useUpdatedInputs: true });
+    } finally {
+        await page.dispose();
+    }
+});
+
 test("R6-D04 同一个 QueryClient：两个 observer 先后挂载、刷新、切集，缓存形状始终是 { chains }", async () => {
     fixture = fx.createDramaFlowFixture({ chains: "failed" });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });

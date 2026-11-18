@@ -18,6 +18,7 @@ export interface VideoChainRequest {
     resumeChainId?: string;
     restartChainId?: string;
     recoveryV2?: boolean;
+    useUpdatedInputs?: boolean;
     quoteExpiresAt?: number;
 }
 export interface VideoChainDiagnostic {

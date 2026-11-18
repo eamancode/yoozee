@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -200,5 +201,32 @@ func TestVideoRecoveryKeepsSelectedTakeOnLateOutput(t *testing.T) {
 	var outputs []model.ShotArtifact
 	if err := f.db.Where("project_id = ? AND type = ?", f.projectID, "video").Order("version").Find(&outputs).Error; err != nil || len(outputs) != 2 || outputs[1].Version != 2 || outputs[1].Selected {
 		t.Fatalf("replacement result overwritten or replayed: %+v %v", outputs, err)
+	}
+}
+
+func TestVideoRecoveryChangedArchiveRequiresExplicitUpdatedInputs(t *testing.T) {
+	f := newVideoChainFixture(t, "A")
+	older := f.start(t)
+	if err := f.db.Model(&model.Task{}).Where("id = ?", older.ID).Update("status", model.TaskStatusFailed).Error; err != nil {
+		t.Fatal(err)
+	}
+	setShotSeconds(t, f, 11)
+	req := f.req
+	req.RestartChainID, req.RequestID, req.RecoveryV2, req.PreviewHash = older.ID, "explicit-changed-snapshot", true, ""
+	_, err := f.s.PreviewProjectVideoChain("user-1", f.projectID, req)
+	var blocked *AppError
+	if !errors.As(err, &blocked) || blocked.Details["requiresUpdatedInputs"] != true {
+		t.Fatalf("changed archival snapshot must require explicit opt-in: %v", err)
+	}
+	req.UseUpdatedInputs = true
+	req = videoRecoveryQuote(t, f, req)
+	attempted := req
+	attempted.UseUpdatedInputs = false
+	if _, err := f.s.CreateProjectVideoChain("user-1", f.projectID, attempted); err == nil {
+		t.Fatal("updated quote accepted without opt-in")
+	}
+	next, err := f.s.CreateProjectVideoChain("user-1", f.projectID, req)
+	if err != nil || next.ID == older.ID || next.Steps[0].ContentSeconds != 11 {
+		t.Fatalf("changed input not used explicitly: %+v %v", next, err)
 	}
 }

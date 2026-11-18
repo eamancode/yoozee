@@ -24,14 +24,15 @@ type ProjectVideoChainModel struct {
 }
 
 type ProjectVideoChainRequest struct {
-	PrepareOnly bool                              `json:"prepareOnly,omitempty"`
-	Scope       string                            `json:"scope,omitempty"`
-	UnitID      string                            `json:"unitId"`
-	ShotID      string                            `json:"shotId"`
-	Model       ProjectVideoChainModel            `json:"model"`
-	Models      map[string]ProjectVideoChainModel `json:"models,omitempty"`
-	PreviewHash string                            `json:"previewHash,omitempty"`
-	RequestID   string                            `json:"requestId,omitempty"`
+	UseUpdatedInputs bool                              `json:"useUpdatedInputs,omitempty"`
+	PrepareOnly      bool                              `json:"prepareOnly,omitempty"`
+	Scope            string                            `json:"scope,omitempty"`
+	UnitID           string                            `json:"unitId"`
+	ShotID           string                            `json:"shotId"`
+	Model            ProjectVideoChainModel            `json:"model"`
+	Models           map[string]ProjectVideoChainModel `json:"models,omitempty"`
+	PreviewHash      string                            `json:"previewHash,omitempty"`
+	RequestID        string                            `json:"requestId,omitempty"`
 
 	ResumeChainID  string `json:"resumeChainId,omitempty"`
 	RestartChainID string `json:"restartChainId,omitempty"`

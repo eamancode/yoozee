@@ -46,10 +46,35 @@ func (s *Service) ProjectVideoChainReceipt(userID, projectID, unitID, requestID 
 	return &view, nil
 }
 
+func videoRecoveryArchivedInputsMatch(archived, current videoChainState) bool {
+	if len(archived.Steps) == 0 || len(archived.Steps) != len(current.Steps) ||
+		archived.WhiteModelStoryboardEnabled == nil || current.WhiteModelStoryboardEnabled == nil ||
+		*archived.WhiteModelStoryboardEnabled != *current.WhiteModelStoryboardEnabled {
+		return false
+	}
+	snapshot := func(step videoChainStepState) string {
+		// Content fields only. The selected model and price are bound to the
+		// new quote independently. Material lineage may not change silently.
+		return videoChainHash([]any{
+			step.ShotID, step.RevisionID, step.Scene, step.SceneSignature,
+			step.SourceShotID, step.SourceRevisionID, step.ContentSeconds,
+			step.Input["prompt"], step.Input["negativePrompt"], step.Input["referenceImages"],
+			step.Input["referenceAudios"], step.Input["referenceVideos"],
+		})
+	}
+	for i := range archived.Steps {
+		old, next := archived.Steps[i], current.Steps[i]
+		if old.RevisionID == "" || len(old.Input) == 0 || snapshot(old) != snapshot(next) || (i == 0 && (old.SourceVideoResourceID != next.SourceVideoResourceID || old.SourceVideoTaskID != next.SourceVideoTaskID)) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Service) prepareVideoRecovery(userID, projectID string, req ProjectVideoChainRequest, preview bool) (videoChainState, *model.Task, error) {
 	var state videoChainState
 	if !validVideoRecoveryRequestID(req.RequestID) || req.UnitID == "" || req.PrepareOnly ||
-		(req.ResumeChainID != "" && req.RestartChainID != "") {
+		(req.ResumeChainID != "" && req.RestartChainID != "") || (req.UseUpdatedInputs && req.RestartChainID == "") {
 		return state, nil, BadAuthRequest("连续生成请求缺少有效的确认标识或模式无效")
 	}
 	if preview {
@@ -84,6 +109,11 @@ func (s *Service) prepareVideoRecovery(userID, projectID string, req ProjectVide
 			// Intentionally pass no completed steps or uploads: restart must generate
 			// the chain from its beginning and preserve the source as history.
 			state, err = s.prepareProjectVideoChain(userID, projectID, req)
+			if err == nil && !req.UseUpdatedInputs && !videoRecoveryArchivedInputsMatch(old, state) {
+				e := failedPrecondition("原分镜或参考素材已修改，或原输入快照已不可用。未提交生成：请明确选择按当前分镜和素材重新报价")
+				e.Details = map[string]any{"requiresUpdatedInputs": true}
+				return state, nil, e
+			}
 		}
 	}
 	if err != nil {
