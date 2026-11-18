@@ -265,6 +265,9 @@ func (s *Service) RetryProjectVideoChain(userID, projectID, id string, req Proje
 				return block
 			}
 		}
+		if err := (&Service{repo: tx}).verifySceneChainSnapshots(userID, projectID, next); err != nil {
+			return err
+		}
 		if req.PrepareOnly || next.Steps[len(next.Steps)-1].Status == "succeeded" {
 			return nil
 		}

@@ -103,6 +103,7 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 		return state, err
 	}
 	previousSignature := ""
+	previousSceneResource := ""
 	for i := first; i <= last; i++ {
 		shot := shots[i]
 		if index := i - first; index < len(completed) {
@@ -114,6 +115,7 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 			}
 			state.Steps = append(state.Steps, step)
 			previousSignature = step.Signature
+			previousSceneResource = step.SceneResourceID
 			continue
 		}
 		revision := revisions[shot.ID]
@@ -156,10 +158,23 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 		if err != nil {
 			return state, videoChainSpecError(err, shot.ID, choice.Model, content.Dur, 0, -1, nil)
 		}
+		sceneSignature, sceneResource := "", ""
+		if review := compiled.SceneReference; review != nil {
+			if review.RevisionID != shot.CurrentRevisionID {
+				return state, sceneCheckError(shot.ID, []string{"分镜在报价期间已变化，请刷新后预览"})
+			}
+			if len(review.Issues) > 0 {
+				return state, sceneCheckError(shot.ID, review.Issues)
+			}
+			sceneSignature, sceneResource = sceneReferenceHash(*review), review.Current.ResourceID
+		}
 		input["prompt"] = compiled.Result.Prompt
 		images, videos, audios, err := s.videoChainCompiledReferences(userID, projectID, compiled.Result.Files)
 		if err != nil {
 			return state, videoChainSpecError(err, shot.ID, choice.Model, content.Dur, 0, -1, nil)
+		}
+		if sceneResource != "" && !videoChainHasResource(images, sceneResource) {
+			return state, sceneCheckError(shot.ID, []string{"实际出片场景图已变化，请重新核对并报价"})
 		}
 		input["referenceImages"], input["referenceVideos"], input["referenceAudios"] = images, videos, audios
 		operation := "text_to_video"
@@ -187,14 +202,32 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 		var prior *model.ShotArtifact
 		referenceWarning := ""
 		usePosition := hasPosition
-		if hasPosition && req.Scope == "single" {
+		if hasPosition && i > first && (previousSceneResource != "" || sceneResource != "") && previousSceneResource != sceneResource {
+			usePosition = false
+			referenceWarning = "前后镜头的场景参考图不同，本次使用当前段的场景图与正文"
+		}
+		if usePosition && req.Scope == "single" {
+			if i > sceneFirst {
+				var previous drama.Segment
+				_ = json.Unmarshal([]byte(revisions[shots[i-1].ID].SpecJSON), &previous)
+				prevResource := ""
+				if previous.SceneBinding != nil {
+					prevResource = previous.SceneBinding.ResourceID
+				}
+				if prevResource != sceneResource {
+					usePosition = false
+					referenceWarning = "前一段的场景图未经当前空间核对，本次跳过站位参考"
+				}
+			}
+		}
+		if usePosition && req.Scope == "single" {
 			prior, err = s.videoChainExistingPredecessor(userID, projectID, shots[i-1], freezeReference)
 			if err != nil {
 				return state, err
 			}
 			if prior == nil {
-				if freezeReference {
-					return state, failedPrecondition("上一段视频尚未完成，无法提交同场景后续段")
+				if req.PrepareOnly {
+					return state, failedPrecondition("上一段尚无可用视频，无法仅准备站位参考")
 				}
 				usePosition = false
 				referenceWarning = "上一组没有可用的白模来源视频，本次使用原正文与参考图"
@@ -209,6 +242,9 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 			}
 		}
 		input["metadata"] = map[string]any{"domainProjectId": projectID, "unitId": req.UnitID, "shotId": shot.ID, "shotRevisionId": shot.CurrentRevisionID, "artifactType": "video", "role": "output", "source": "project-video-chain", "videoEditOperation": operation, "artifactMetadata": map[string]any{"model": choice.Model, "contentDurationSeconds": content.Dur}}
+		if sceneSignature != "" {
+			input["metadata"].(map[string]any)["sceneReferenceSnapshot"] = sceneSignature
+		}
 		if err := s.enforceDramaPrevizGate(userID, input); err != nil {
 			return state, err
 		}
@@ -350,12 +386,13 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 		}
 		input["referenceImages"] = images
 		input["prompt"] = original
-		signature := videoChainHash([]any{shot.ID, shot.CurrentRevisionID, scene, content.Dur, ending, input, previousSignature, quote, referenceCount})
+		signature := videoChainHash([]any{shot.ID, shot.CurrentRevisionID, scene, content.Dur, ending, input, previousSignature, quote, referenceCount, sceneSignature})
 		step := videoChainStepState{ProjectVideoChainStep: ProjectVideoChainStep{ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Title: shot.Title, Scene: scene, ContentSeconds: content.Dur, GenerationSeconds: generation, Model: choice.Model, Status: "waiting", Phase: "waiting", ReferenceCount: len(images), ReferenceTag: tag, Ending: ending, Quote: quote}, Input: input, LogicalModelID: choice.LogicalModelID, Signature: signature, Uploads: map[string]string{}}
 		step.ReferenceSkipped, step.ReferenceWarning = hasPosition && !usePosition, referenceWarning
 		step.ReferenceAudioCount = len(audios)
 		step.CompiledModel = compiled.Result.Model
 		step.FreezeReference = freezeReference
+		step.SceneSignature, step.SceneResourceID = sceneSignature, sceneResource
 		if hasPosition {
 			step.SourceShotID = shots[i-1].ID
 			step.SourceRevisionID = shots[i-1].CurrentRevisionID
@@ -366,6 +403,7 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 		}
 		state.Steps = append(state.Steps, step)
 		previousSignature = signature
+		previousSceneResource = sceneResource
 	}
 	fingerprint := []any{projectID, req.UnitID, req.Scope, req.PrepareOnly, enabled}
 	for _, step := range state.Steps {

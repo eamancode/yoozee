@@ -154,6 +154,7 @@ type (
 	DramaShotlistWriteRequest              = app.DramaShotlistWriteRequest
 	DramaShotlistRule                      = app.DramaShotlistRule
 	CompileProjectShotRequest              = app.CompileProjectShotRequest
+	SceneReferenceUpdate                   = app.SceneReferenceUpdate
 	CreateShotEvidenceRequest              = app.CreateShotEvidenceRequest
 	PickShotArtifactRequest                = app.PickShotArtifactRequest
 	DramaGateRequest                       = app.DramaGateRequest

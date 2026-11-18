@@ -187,6 +187,56 @@ const infoValue = (label: string) => {
 };
 const P = fx.FIXTURE_PROJECT_ID;
 
+test("场景核对：打开待核对单元、展示实际图、取消和确认保存", async () => {
+    const shot = fx.FIXTURE_SHOT_ID;
+    const scope = `/projects/${P}/drama/shots/${shot}/scene-reference`;
+    const space = { sceneId: "E01S01", heading: "内·档案室·夜", label: "档案室", versionId: "scene-v1", resourceId: fx.FIXTURE_IMAGE_SQUARE, factsRevision: "facts-1" };
+    const review = { revisionId: "scene-shot-r1", expected: space, current: space, choices: [space], issues: ["场景地图使用了图中不存在的木门"], sections: { 场景地图: "柜台正对通道。" }, textOnly: false, required: true };
+    const writes: unknown[] = [];
+    const ok = (data: unknown) => ({ status: 200, body: { code: 0, data, msg: "ok" } });
+    const page = await mount(`/drama-flow/${P}/shots`, {
+        prepare(f) {
+            const handle = f.handle;
+            f.handle = (method, url, input) => {
+                if (method.toUpperCase() === "GET" && url.startsWith(`${scope}?`)) return ok({ candidate: space });
+                if (method.toUpperCase() === "GET" && url === scope) return ok({ review });
+                if (method.toUpperCase() === "PUT" && url === scope) {
+                    writes.push(input);
+                    return ok({ review: { ...review, revisionId: "scene-shot-r2", issues: [] } });
+                }
+                const response = handle(method, url, input);
+                if (url.includes("/drama/segments") && method.toUpperCase() === "GET") {
+                    const incoming = response.body?.data as { segments?: Array<{ shotId: string }> } | undefined;
+                    return ok({ ...incoming, segments: incoming?.segments?.map((segment) => (segment.shotId === shot ? { ...segment, sceneReview: review.issues } : segment)) });
+                }
+                return response;
+            };
+        },
+    });
+    try {
+        expect(page.text()).toContain("场景待核对 · 1 段");
+        const open = () => page.click(document.querySelector('button[aria-label="核对场景 S01"]'));
+        await open();
+        expect(page.text()).toContain("本段场景描述");
+        expect(page.text()).toContain("场景地图使用了图中不存在的木门");
+        expect(document.querySelector('img[alt="档案室场景参考图"]')?.getAttribute("src")).toContain(space.resourceId);
+        await page.click(buttonByText(document.querySelector('[role="dialog"]')!, "取消"));
+        expect(writes).toEqual([]);
+        await open();
+        const dialog = document.querySelector('[role="dialog"]')!;
+        const save = buttonByText(dialog, "保存场景与描述") as HTMLButtonElement;
+        expect(save.disabled).toBe(true);
+        const ack = Array.from(dialog.querySelectorAll("label")).find((label) => label.textContent?.includes("我已核对本段空间"));
+        await page.click(ack?.querySelector('input[type="checkbox"]'));
+        expect(save.disabled).toBe(false);
+        await page.click(save);
+        expect(writes).toEqual([{ revisionId: review.revisionId, sceneId: space.sceneId, versionId: space.versionId, resourceId: space.resourceId, textOnly: false, sections: {}, shots: {} }]);
+        expect(page.errors).toEqual([]);
+    } finally {
+        await page.dispose();
+    }
+});
+
 test("单元资产绑定：固定版本、静默角色、试听、同类更换、取消、刷新和解除", async () => {
     const shot = fx.FIXTURE_SHOT_ID;
     const path = `/projects/${P}/shots/${shot}/assets`;

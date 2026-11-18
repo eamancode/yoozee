@@ -153,6 +153,10 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 	}
 	input, err := s.videoChainInput(task, step)
 	if err != nil {
+		var sceneErr *AppError
+		if errors.As(err, &sceneErr) && sceneErr.Reason == sceneCheckReason {
+			return fail(err)
+		}
 		if !step.ReferenceSkipped && step.FrameResourceID != "" {
 			return skipReference(err)
 		}
@@ -174,6 +178,10 @@ func (s *Service) processProjectVideoChain(ctx context.Context, task *model.Task
 		if !step.ReferenceSkipped && step.FrameResourceID != "" {
 			input, err = s.videoChainInput(task, step)
 			if err != nil {
+				var sceneErr *AppError
+				if errors.As(err, &sceneErr) && sceneErr.Reason == sceneCheckReason {
+					return fail(err)
+				}
 				return skipReference(err)
 			}
 			if err := s.uploadVideoChainReferences(ctx, task, &state, step, input); err != nil {

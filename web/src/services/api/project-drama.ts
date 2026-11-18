@@ -121,6 +121,7 @@ export type DramaCompileResult = {
     spec: DramaSegment;
     derived: boolean;
     voiceBindings?: Array<{ versionId: string; sampleResourceId: string; tag: string }>;
+    sceneReference?: SceneReferenceReview;
     result: { segment: string; model: string; duration: number; prompt: string; paste?: string; files: Array<{ file: string; tag: string; role: string }>; chars: number; warnings?: string[]; issues: DramaIssue[] };
     /** 这次编译用的编译档案（version 0 为内置默认）。 */
     compileProfile?: DramaCompileProfileRef;
@@ -295,7 +296,7 @@ export function putDramaBible(projectId: string, document: DramaBible) {
 }
 
 /** 一章里的一段：derived 为 true 表示旧镜头没有分段 JSON，段号按位置合成，只能看不能拆合；issues 是带问题装段后挂在这一段镜头上的检查 error。 */
-export type DramaSegmentView = { shotId: string; unitId: string; title: string; position: number; durationMs: number; revisionId?: string; spec: DramaSegment; derived: boolean; issues?: DramaShotIssue[] };
+export type DramaSegmentView = { shotId: string; unitId: string; title: string; position: number; durationMs: number; revisionId?: string; spec: DramaSegment; derived: boolean; issues?: DramaShotIssue[]; sceneReview?: string[] };
 
 export function listDramaSegments(projectId: string, unitId: string, signal?: AbortSignal) {
     return http.get<{ segments: DramaSegmentView[] }>(`/projects/${projectId}/drama/segments`, { params: { unitId }, signal });
@@ -465,6 +466,25 @@ export function repackDramaShotlist(projectId: string, unitId: string, input: { 
  */
 export function compileProjectShot(projectId: string, shotId: string, input: { model?: string; channelModel?: string; maxReferenceImages?: number } = {}) {
     return http.post<{ compiled: DramaCompileResult }>(`/projects/${projectId}/shots/${shotId}/compile`, input);
+}
+
+export type SceneFacts = { inOut?: string; layout?: string; anchors?: string[]; absent?: string[]; unknown?: string[] };
+export type SceneSpace = { sceneId?: string; heading?: string; location?: string; inOut?: string; assetId?: string; versionId?: string; resourceId?: string; label?: string; facts?: SceneFacts; factsRevision?: string };
+export type SceneReferenceReview = { revisionId: string; snapshot?: string; current: SceneSpace; expected: SceneSpace; choices?: SceneSpace[]; issues: string[]; sections?: Record<string, string>; shots?: string[]; textOnly: boolean; required: boolean };
+export type SceneReferenceUpdate = { revisionId: string; sceneId: string; versionId: string; resourceId: string; textOnly: boolean; sections?: Record<string, string>; shots?: Record<number, string>; facts?: SceneFacts; factsRevision?: string };
+
+const sceneReferencePath = (projectId: string, shotId: string) => `/projects/${encodeURIComponent(projectId)}/drama/shots/${encodeURIComponent(shotId)}/scene-reference`;
+
+export function getSceneReferenceReview(projectId: string, shotId: string, signal?: AbortSignal) {
+    return http.get<{ review: SceneReferenceReview }>(sceneReferencePath(projectId, shotId), { signal });
+}
+
+export function getSceneReferenceCandidate(projectId: string, shotId: string, versionId: string, signal?: AbortSignal) {
+    return http.get<{ candidate: SceneSpace }>(sceneReferencePath(projectId, shotId), { params: { versionId }, signal });
+}
+
+export function updateSceneReference(projectId: string, shotId: string, input: SceneReferenceUpdate) {
+    return http.put<{ review: SceneReferenceReview }>(sceneReferencePath(projectId, shotId), input);
 }
 
 export function listDramaEvidence(projectId: string, signal?: AbortSignal) {

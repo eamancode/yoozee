@@ -18,6 +18,7 @@ import { DetailPane, ReadError, StageLayout, SummaryRow } from "./layout";
 import { modelSummaryItem } from "./model-card";
 import { ShotBindingEditor } from "./shot-binding-editor";
 import { DeleteSegmentButton } from "./delete-segment-button";
+import { SceneReferenceReviewDialog } from "./scene-reference-review";
 
 export { unitWorkspaceKey } from "../hooks/use-flow-data";
 
@@ -44,6 +45,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
     const segmentsQuery = useQuery({ queryKey: dramaSegmentsKey(projectId, unitId), queryFn: async ({ signal }) => (await listDramaSegments(projectId, unitId, signal)).segments, enabled: Boolean(projectId && unitId) });
     const [density, setDensity] = useState<"full" | "compact">(() => (localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "full"));
     const [editing, setEditing] = useState<{ unitId: string; shotId: string }>();
+    const [reviewing, setReviewing] = useState<{ unitId: string; shotId: string }>();
     const episode = useMemo(() => unitEpisodeNumber(allUnits, unitId), [allUnits, unitId]);
     const progressByShot = useMemo(() => new Map(unitSegments.map((item) => [item.shotId, item])), [unitSegments]);
     const staleShots = useMemo(() => new Set((workspace?.shotArtifacts || []).filter((artifact) => artifact.type === "video" && artifact.status === "stale").map((artifact) => artifact.shotId)), [workspace?.shotArtifacts]);
@@ -62,6 +64,12 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
     const segments = segmentsQuery.data || [];
     const selected = segments.find((segment) => segment.shotId === selectedId);
     const bindingSegment = editing?.unitId === unitId ? segments.find((item) => item.shotId === editing.shotId) : undefined;
+    const reviewSegment = reviewing?.unitId === unitId ? segments.find((item) => item.shotId === reviewing.shotId) : undefined;
+    const pendingScenes = segments.filter((segment) => segment.sceneReview?.length);
+    function openSceneReview(shotId: string) {
+        setEditing(undefined);
+        setReviewing({ unitId, shotId });
+    }
     const totalMs = segments.reduce((sum, item) => sum + item.durationMs, 0);
     const shotCount = segments.reduce((sum, item) => sum + item.spec.shots.length, 0);
     const overLimit = unitSegments.filter((item) => item.overLimit).length;
@@ -99,6 +107,9 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
 
     return (
         <StageLayout pane={pane}>
+            {reviewSegment ? (
+                <SceneReferenceReviewDialog key={reviewSegment.shotId} projectId={projectId} segment={reviewSegment} assets={data.assets} textModel={stepModels.text.effective} videoModel={data.videoModel} onClose={() => setReviewing(undefined)} />
+            ) : null}
             {bindingSegment && workspace ? (
                 <ShotBindingEditor
                     key={bindingSegment.shotId}
@@ -108,6 +119,7 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                     assets={data.assets}
                     assetsQuery={data.assetsQuery}
                     videoModel={data.videoModel}
+                    onSceneReview={() => openSceneReview(bindingSegment.shotId)}
                     onClose={() => setEditing((current) => (current === editing ? undefined : current))}
                 />
             ) : null}
@@ -148,6 +160,21 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
             {segmentsQuery.isError ? <ReadError what="分镜" onRetry={() => void segmentsQuery.refetch()} /> : null}
             {pipelineQuery.isError ? <ReadError what="每段的检查标记（超时长、问题、参考）" onRetry={() => void pipelineQuery.refetch()} /> : null}
             {workspaceQuery.isError ? <ReadError what="每段绑定的资产和出片状态" onRetry={() => void workspaceQuery.refetch()} /> : null}
+            {pendingScenes.length > 0 ? (
+                <details className="mb-3 rounded-md border border-border/60 p-3">
+                    <summary>场景待核对 · {pendingScenes.length} 段</summary>
+                    <ul className="mt-2 space-y-2">
+                        {pendingScenes.map((segment) => (
+                            <li key={segment.shotId}>
+                                <Button size="small" onClick={() => openSceneReview(segment.shotId)}>
+                                    {segment.spec.id} · 核对场景
+                                </Button>
+                                <span className="ml-2">{segment.sceneReview?.[0]}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </details>
+            ) : null}
             {segmentsQuery.isError ? null : segments.length ? (
                 <div className="drama-flow-segments" data-density={density}>
                     {segments.map((segment, index) => (
@@ -165,15 +192,20 @@ export function StageShots({ data, stage, selectedId, onSelect }: { data: FlowDa
                             selected={segment.shotId === selectedId}
                             onSelect={() => onSelect(segment.shotId === selectedId ? undefined : segment.shotId)}
                             deleteAction={
-                                <DeleteSegmentButton
-                                    projectId={projectId}
-                                    segment={segment}
-                                    episode={episode}
-                                    unitTitle={unit?.title}
-                                    onDeleted={() => {
-                                        if (segment.shotId === selectedId) onSelect(undefined);
-                                    }}
-                                />
+                                <div className="flex flex-wrap items-center gap-1">
+                                    <Button size="small" aria-label={`核对场景 ${segment.spec.id}`} onClick={() => openSceneReview(segment.shotId)}>
+                                        核对场景
+                                    </Button>
+                                    <DeleteSegmentButton
+                                        projectId={projectId}
+                                        segment={segment}
+                                        episode={episode}
+                                        unitTitle={unit?.title}
+                                        onDeleted={() => {
+                                            if (segment.shotId === selectedId) onSelect(undefined);
+                                        }}
+                                    />
+                                </div>
                             }
                         />
                     ))}

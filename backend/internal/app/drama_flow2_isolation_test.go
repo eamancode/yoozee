@@ -210,6 +210,17 @@ func TestDramaFlow2ProjectIsolation(t *testing.T) {
 	if _, err := svc.ProjectVideoRouting(owner, official); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("workbench routing admitted official project: %v", err)
 	}
+	if _, err := svc.DramaSegments(owner, official, ""); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("legacy segments admitted official project: %v", err)
+	}
+	// An owned shot is not sufficient to enter the legacy scene write path.
+	shot := model.Shot{ID: newID(), ProjectID: official, CurrentRevisionID: newID()}
+	if err := fake.db.Create(&shot).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateProjectSceneReference(owner, official, shot.ID, SceneReferenceUpdate{RevisionID: "stale"}); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("legacy scene update admitted official project: %v", err)
+	}
 	if _, err := svc.repo.LockWorkbenchStoryboardProject(owner, official); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("workbench shot write admitted official project: %v", err)
 	}

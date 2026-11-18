@@ -168,7 +168,11 @@ func SSSSkillContext(skill StepSkill, kind string, extra []string) (string, []St
 		if f == nil || f.Binary {
 			return "", nil, fmt.Errorf("SSS 导演技能缺少文件 %s", p)
 		}
-		fmt.Fprintf(&b, "\n\n<skill-file path=%q>\n%s\n</skill-file>", p, f.Content)
+		content := strings.NewReplacer(
+			"与场景参考图100%一致", "按平台提供的本场场景图和已核对的空间事实执行",
+			"与场景参考图 100% 一致", "按平台提供的本场场景图和已核对的空间事实执行",
+		).Replace(f.Content)
+		fmt.Fprintf(&b, "\n\n<skill-file path=%q>\n%s\n</skill-file>", p, content)
 		uses = append(uses, StepSkillFileUse{Path: p, SHA256: f.SHA256})
 	}
 	return b.String(), uses, nil
@@ -241,7 +245,7 @@ func SSSMaterialPackage(brief SSSBrief, materials []SSSMaterial, docs SSSDocs) s
 	if t := strings.TrimSpace(brief.Style); t != "" {
 		fmt.Fprintf(&b, "\n【项目画风（已锁定的硬性视觉约束）】\n%s\n", t)
 	}
-	b.WriteString("\n【素材清单】（每一项都有参考图，与参考图 100% 一致）\n")
+	b.WriteString("\n【素材清单】（每一项关联到有图的资产。场景空间以平台提供的本场绑定和已核对事实为准。）\n")
 	if len(materials) == 0 {
 		b.WriteString("无（提示词里不写任何 @ 标签）\n")
 	}

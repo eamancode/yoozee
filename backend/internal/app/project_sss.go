@@ -36,6 +36,7 @@ type dramaSSSMeta struct {
 	Kind             string              `json:"kind"`
 	Brief            drama.SSSBrief      `json:"brief"`
 	Materials        []drama.SSSMaterial `json:"materials"`
+	Spaces           []drama.SceneSpace  `json:"sceneSpaces,omitempty"`
 	Docs             drama.SSSDocs       `json:"docs"`
 	UnitTitle        string              `json:"unitTitle"`
 	Script           string              `json:"script"`
@@ -54,6 +55,7 @@ type dramaSSSMeta struct {
 type sssRepairMeta struct {
 	PositionReference bool    `json:"positionReference,omitempty"`
 	ShotID            string  `json:"shotId"`
+	RevisionID        string  `json:"revisionId,omitempty"`
 	SegmentID         string  `json:"segmentId"`
 	Unit              string  `json:"unit"`
 	Symptom           string  `json:"symptom"`
@@ -71,7 +73,11 @@ func sssFingerprint(meta *dramaSSSMeta) string {
 	for _, m := range meta.Materials {
 		mats = append(mats, material{m.Index, m.Name, m.VersionID})
 	}
-	encoded, _ := json.Marshal(map[string]any{"kind": meta.Kind, "brief": meta.Brief, "materials": mats, "docs": meta.Docs, "script": meta.Script, "unit": meta.UnitTitle})
+	input := map[string]any{"kind": meta.Kind, "brief": meta.Brief, "materials": mats, "docs": meta.Docs, "script": meta.Script, "unit": meta.UnitTitle}
+	if len(meta.Spaces) > 0 {
+		input["sceneSpaces"] = meta.Spaces
+	}
+	encoded, _ := json.Marshal(input)
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:])
 }
@@ -149,6 +155,19 @@ func (s *Service) planSSSShots(userID string, project *model.Project, unit *mode
 	}
 	kind := drama.SSSWorkflowKind(project.WorkflowID)
 	meta := &dramaSSSMeta{Kind: kind, Materials: materials, UnitTitle: unit.Title, Script: chapterPlainText(unit.SourceText), Repair: repair}
+	if repair == nil {
+		meta.Spaces, err = s.sceneSpaces(userID, project, unit)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range materials {
+			for i := range meta.Spaces {
+				if meta.Spaces[i].VersionID == item.VersionID {
+					meta.Spaces[i].Label = "@" + item.Name
+				}
+			}
+		}
+	}
 	meta.Brief = sssProjectBrief(project, kind, maxSeconds)
 	if m.Refs.Images != nil {
 		meta.Brief.MaxImages = *m.Refs.Images
@@ -312,6 +331,17 @@ func sssMaterialsFrom(picked []drama.OntologyMaterial) []drama.SSSMaterial {
 // sssTurnPrompt 是一轮发给模型的完整提示词：技能上下文、材料包、本集剧本（单元卡、编译、返修轮不带）、前序产物、本轮任务。
 func sssTurnPrompt(skillContext string, meta *dramaSSSMeta, kind string, unit string, codes []string, priors []ontologyPrior) string {
 	parts := []string{skillContext, drama.SSSMaterialPackage(meta.Brief, meta.Materials, meta.Docs)}
+	if len(meta.Spaces) > 0 {
+		key := ""
+		for _, p := range priors {
+			if scenes := drama.SSSUnitScenes(p.Text, unit); len(scenes) == 1 {
+				key = scenes[0]
+				break
+			}
+		}
+		space, _ := drama.MatchSceneSpace(meta.Spaces, key)
+		parts = append(parts, drama.SceneSpacePrompt(meta.Spaces, space, space.Label))
+	}
 	switch kind {
 	case drama.SSSTurnCard, drama.SSSTurnCompile, drama.SSSTurnRepair:
 	default:
@@ -886,6 +916,15 @@ func (s *Service) applySSSShotsTask(task model.Task, meta *dramaSSSMeta, result 
 		if issues := drama.Issues(seg, m); drama.HasError(issues) {
 			return DramaStepTaskOutcome{}, BadAuthRequest(fmt.Sprintf("单元 %s 装不成段：%s", card.ID, issues[0].Message))
 		}
+		key := card.Scene
+		if fromCut := drama.SSSUnitScenes(out.Cut, card.ID); len(fromCut) == 1 {
+			if _, ok := drama.MatchSceneSpace(meta.Spaces, fromCut[0]); ok {
+				key = fromCut[0]
+			}
+		} else if len(fromCut) > 1 {
+			key = ""
+		}
+		addSceneBinding(&seg, meta.Spaces, key)
 		raw, err := json.Marshal(seg)
 		if err != nil {
 			return DramaStepTaskOutcome{}, err
@@ -1020,7 +1059,7 @@ func (s *Service) applySSSRepair(task model.Task, target dramaStepTaskTarget, me
 	updated := strings.Replace(doc.Content, original, card.Text(), 1)
 	updated += fmt.Sprintf("\n\n## 返修记录 %s\n\n症状：%s\n\n%s\n", repair.Unit, repair.Symptom, sssRepairNotes(out.Repair))
 	docs := []ontologyDocWrite{{target.UnitID, model.OntologyDocEpisode, updated}}
-	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: []json.RawMessage{raw}}); err != nil {
+	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: []json.RawMessage{raw}, repairShotID: repair.ShotID, repairRevision: repair.RevisionID}); err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
 	if err := s.writeOntologyDocs(task, target.ProjectID, docs); err != nil {
@@ -1070,7 +1109,7 @@ func (s *Service) RepairSSSSegment(userID string, project *model.Project, unitID
 	if cardIdx < 0 {
 		return DramaStepRunResult{}, BadAuthRequest(fmt.Sprintf("八部分里找不到单元卡 %s", seg.Title))
 	}
-	repair := &sssRepairMeta{ShotID: segments[idx].ShotID, SegmentID: seg.ID, Unit: seg.Title, Symptom: symptom, Card: cards[cardIdx].Text()}
+	repair := &sssRepairMeta{ShotID: segments[idx].ShotID, RevisionID: segments[idx].RevisionID, SegmentID: seg.ID, Unit: seg.Title, Symptom: symptom, Card: cards[cardIdx].Text()}
 	if idx > 0 && seg.Scene != "" && segments[idx-1].Spec.Scene == seg.Scene {
 		repair.PositionReference = drama.SegmentEndsWithFreeze(segments[idx-1].Spec)
 	}
