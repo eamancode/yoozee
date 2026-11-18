@@ -159,7 +159,7 @@ func TestAssetsExtractWritesConfirmedAssetsThroughWorker(t *testing.T) {
 	defer server.Close()
 
 	queued := queueAssetsExtractTask(t, svc, db, project, episodes[0].ID, server.URL, nil)
-	if !strings.Contains(queued.Prompt, "【项目已有资产】") || !strings.Contains(queued.Prompt, "- 林小满（角色；别名：林护士）") || !strings.Contains(queued.Prompt, "日光灯白 #E8ECEF") || !strings.Contains(queued.Prompt, "【全局风格锚】") {
+	if !strings.Contains(queued.Prompt, "【项目已有资产】") || !strings.Contains(queued.Prompt, "- 林小满（角色；asset_id："+lin.Asset.ID+"；别名：林护士）") || !strings.Contains(queued.Prompt, "日光灯白 #E8ECEF") || !strings.Contains(queued.Prompt, "【全局风格锚】") {
 		t.Fatalf("提示词带已有资产、本集色彩脚本、风格锚：\n%s", queued.Prompt)
 	}
 	done, err := runQueuedTask(t, svc)
@@ -179,8 +179,8 @@ func TestAssetsExtractWritesConfirmedAssetsThroughWorker(t *testing.T) {
 		t.Fatalf("林小满 + 4 个新资产：%d", len(assets))
 	}
 	merged := assets["林小满"]
-	if merged.ID != lin.Asset.ID || merged.Character == nil || merged.Character.VisualStatus != "ready" || merged.VersionCount != lin.Asset.VersionCount+1 || merged.Image != nil {
-		t.Fatalf("林小满补别名加一版、三视图搬过去、不记出图状态：%+v %+v", merged, merged.Character)
+	if merged.ID != lin.Asset.ID || merged.Character == nil || merged.Character.VisualStatus != "ready" || merged.VersionCount != lin.Asset.VersionCount || merged.Image != nil {
+		t.Fatalf("林小满补别名、保留当前版本和三视图：%+v %+v", merged, merged.Character)
 	}
 	if got := definitionAliases(merged.Character.Definition); strings.Join(got, "/") != "林护士/小满护士/小满" || merged.Character.Definition["appearance"] != "二十多岁护士，短发" || merged.Character.Definition["firstScene"] != nil {
 		t.Fatalf("别名合并、已有外观不覆盖、只补外观字段：%+v", merged.Character.Definition)

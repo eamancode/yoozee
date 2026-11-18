@@ -20,19 +20,28 @@ import { assetImageQueueLabel } from "./project-visual-asset";
 
 const KIND_LABEL: Record<DramaAssetVariantKind, string> = { costume: "服装", state: "状态" };
 
-type VariantForm = { label: string; kind: DramaAssetVariantKind; look: string; promptEn: string; scenes: string[]; image: boolean; startAfter: string };
+type VariantForm = { label: string; kind: DramaAssetVariantKind; look: string; promptEn: string; generationPrompt: string; ageStage: string; scenes: string[]; image: boolean; startAfter: string };
 
 /** 子卡编辑时的初值：描述和英文提示词用服务端给的原文（只改变体名时外观不算变，三视图保留）。 */
 function variantForm(asset?: ProjectAsset): VariantForm {
-    if (!asset?.variant) return { label: "", kind: "costume", look: "", promptEn: "", scenes: [], image: true, startAfter: "" };
-    return { label: asset.variant.label, kind: asset.variant.kind, look: asset.variant.look, promptEn: asset.variant.promptEn, scenes: asset.variant.scenes, image: false, startAfter: asset.variant.startAfter || "" };
+    if (!asset?.variant) return { label: "", kind: "costume", look: "", promptEn: "", generationPrompt: "", ageStage: "", scenes: [], image: true, startAfter: "" };
+    const fullPrompt = asset.character?.definition.generationPrompt;
+    return { label: asset.variant.label, kind: asset.variant.kind, look: asset.variant.look, promptEn: asset.variant.promptEn, generationPrompt: typeof fullPrompt === "string" ? fullPrompt : "", ageStage: asset.variant.visualDelta?.age_stage || "", scenes: asset.variant.scenes, image: false, startAfter: asset.variant.startAfter || "" };
+}
+
+function lookKey(asset: ProjectAsset) {
+    const changed = asset.variant?.visualDelta;
+    if (!changed) return "";
+    return [changed.age_stage, changed.clothing, changed.hair, changed.visible_state]
+        .map((value) => (value || "").normalize("NFKC").trim().toLocaleLowerCase().replace(/[\s\p{P}]+/gu, ""))
+        .join("|");
 }
 
 /**
  * 角色卡下的子卡（M8 卡 D）：同一角色不同服装 / 状态各一张独立的角色资产「名·变体」，脸型体型继承主卡、只换服装或状态。
  * 折叠显示，可新增（服务端按主卡设定继承生成定义，勾了出图时带主卡三视图作参考出三视图）、改、删（被镜头引用时服务端拒删并列出镜头）、出图。
  */
-export function ProjectCharacterVariants({ projectId, parent, defaultImageModel, fourPanel }: { projectId: string; parent: ProjectAsset; defaultImageModel?: string; fourPanel?: boolean }) {
+export function ProjectCharacterVariants({ projectId, parent, currentUnit, defaultImageModel, fourPanel }: { projectId: string; parent: ProjectAsset; currentUnit?: { id: string; episode?: number }; defaultImageModel?: string; fourPanel?: boolean }) {
     const imageLabel = fourPanel || parent.character?.definition.imageLayout === "four-panel" ? "四宫格" : "三视图";
     const { message } = App.useApp();
     const queryClient = useQueryClient();
@@ -40,12 +49,28 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const variants = parent.variants || [];
     const [expanded, setExpanded] = useState(false);
+    const [reviewing, setReviewing] = useState(false);
+    const [onlyCurrent, setOnlyCurrent] = useState(false);
     const [binding, setBinding] = useState<ProjectAsset | null>(null);
     const [preview, setPreview] = useState<{ resourceId: string; title: string } | null>(null);
     const [editing, setEditing] = useState<ProjectAsset | "new" | null>(null);
     const [form, setForm] = useState<VariantForm>(variantForm());
     const scenesQuery = useQuery({ queryKey: ["project", projectId, "drama-scenes", "all"], queryFn: ({ signal }) => getProjectDramaScenes(projectId, signal), enabled: editing !== null });
     const sceneOptions = (scenesQuery.data?.units || []).flatMap((unit) => (unit.episode > 0 ? unit.scenes.map((scene) => ({ value: scene.id, label: `${scene.id} ${scene.heading}` })) : []));
+    const looks = new Map<string, ProjectAsset[]>();
+    for (const variant of variants) {
+        const key = lookKey(variant);
+        if (key && key !== "|||") looks.set(key, [...(looks.get(key) || []), variant]);
+    }
+    const duplicates = [...looks.values()].filter((items) => items.length > 1);
+    const withoutScenes = variants.filter((variant) => !variant.variant?.scenes.length && !variant.variant?.occurrences?.length);
+    const legacy = variants.filter((variant) => !lookKey(variant));
+    const episodePrefix = currentUnit?.episode ? `E${String(currentUnit.episode).padStart(2, "0")}S` : "";
+    const currentVariants = currentUnit ? variants.filter(({ variant }) => {
+        return variant?.occurrences?.some((use) => use.unitId === currentUnit.id) ||
+            Boolean(episodePrefix && variant?.scenes.some((scene) => scene.startsWith(episodePrefix)));
+    }) : [];
+    const visibleVariants = onlyCurrent && currentUnit ? currentVariants : variants;
 
     const imageTask = async (): Promise<DramaImageTaskTemplate> => {
         const model = turnaroundImageModel(effectiveConfig, defaultImageModel);
@@ -58,7 +83,7 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
         mutationFn: async ({ variant, file }: { variant: ProjectAsset; file: File }) => {
             if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new Error("请上传 PNG、JPEG 或 WebP 图片");
             const resource = await uploadResourceFile(file, "image", { fileName: file.name });
-            return replaceProjectCharacterRepresentations(projectId, variant.id, [{ role: "primary", resourceId: resource.id, metadata: { source: "manual-upload" } }]);
+            return replaceProjectCharacterRepresentations(projectId, variant.id, [{ role: "primary", resourceId: resource.id, metadata: { source: "manual-upload" } }], { keepShotVersions: true });
         },
         onSuccess: async () => {
             await refresh();
@@ -68,6 +93,9 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
     });
     const saveMutation = useMutation({
         mutationFn: async () => {
+            const existing = editing && editing !== "new" ? editing : undefined;
+            if (existing && !existing.primaryVersionId) throw new Error("子卡版本未读取，请刷新后再编辑");
+            const original = variantForm(existing);
             const input: DramaAssetVariantInput = {
                 label: form.label.trim(),
                 kind: form.kind,
@@ -75,6 +103,9 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                 promptEn: form.promptEn.trim(),
                 scenes: form.scenes,
                 startAfter: form.startAfter.trim(),
+                ...(form.ageStage.trim() !== original.ageStage ? { ageStage: form.ageStage.trim() } : {}),
+                ...(existing ? { expectedVersionId: existing.primaryVersionId } : {}),
+                ...(existing && form.generationPrompt.trim() !== original.generationPrompt.trim() ? { generationPrompt: form.generationPrompt.trim() } : {}),
                 ...(form.image ? { imageTask: await imageTask() } : {}),
             };
             return editing === "new" || !editing ? createDramaAssetVariant(projectId, parent.id, input) : updateDramaAssetVariant(projectId, editing.id, input);
@@ -123,15 +154,25 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                     disabled={!variants.length}
                 >
                     <ChevronDown className={`size-3.5 transition-transform motion-reduce:transition-none ${expanded ? "" : "-rotate-90"}`} />
-                    {variants.length ? `子卡 ${variants.length} 张` : "子卡"}
+                    {variants.length ? `造型 ${variants.length} 张` : "子卡"}
                 </button>
                 <Button type="text" size="small" className="!h-6 !px-1.5 !text-[var(--fs-tiny)]" icon={<Plus className="size-3" />} onClick={() => open("new")} aria-label={`给 ${parent.title} 新增子卡（服装或状态）`}>
                     新增子卡
                 </Button>
             </div>
-            {expanded && variants.length ? (
+            {variants.length ? (
+                <div className="my-1 flex items-center justify-between gap-2 text-xs text-foreground/60">
+                    <span>{variants.filter((variant) => variant.character?.visualStatus === "ready").length} 张已有图 · {withoutScenes.length} 张待补适用场次</span>
+                    <Button size="small" type="text" onClick={() => setReviewing(true)}>整理预览</Button>
+                </div>
+            ) : null}
+            {expanded && currentUnit && variants.length ? (
+                <Checkbox checked={onlyCurrent} onChange={(event) => setOnlyCurrent(event.target.checked)}>仅本集造型（{currentVariants.length}）</Checkbox>
+            ) : null}
+            {expanded && onlyCurrent && !visibleVariants.length ? <p className="mt-2 text-xs text-foreground/60">本集暂无已登记的子卡造型。</p> : null}
+            {expanded && visibleVariants.length ? (
                 <ul className="mt-1.5 grid grid-cols-[minmax(0,1fr)] gap-1.5 pl-0">
-                    {variants.map((variant) => {
+                    {visibleVariants.map((variant) => {
                         const cover = projectCharacterCover(variant.character?.representations);
                         const ready = variant.character?.visualStatus === "ready";
                         const queue = assetImageQueueLabel(variant.image);
@@ -166,7 +207,15 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                                         <div className="truncate text-[var(--fs-micro)] text-foreground/45" title={variant.variant?.scenes.join("、")}>
                                             {variant.variant?.scenes.length ? `用于 ${variant.variant.scenes.join("、")}` : "还没指定场次"}
                                         </div>
-                                        {variant.variant?.startAfter ? <p className="mt-1 text-xs text-foreground/60">动作后生效：{variant.variant.startAfter}。需按镜头选择，不覆盖整场。</p> : null}
+                                        {variant.variant?.occurrences?.some((use) => use.startAfter) ? (
+                                            <details className="mt-1 text-xs text-foreground/60">
+                                                <summary>场中生效动作</summary>
+                                                {variant.variant.occurrences.filter((use) => use.startAfter).map((use) => (
+                                                    <p key={`${use.unitId}-${use.scene}-${use.startAfter}`}>第 {use.scene} 场，{use.startAfter}</p>
+                                                ))}
+                                            </details>
+                                        ) : variant.variant?.startAfter ? <p className="mt-1 text-xs text-foreground/60">动作后生效：{variant.variant.startAfter}。需按镜头选择。</p> : null}
+                                        {variant.settingsImageOutdated ? <span className="text-xs text-foreground/60">图片沿用旧设定</span> : null}
                                     </div>
                                 </div>
                                 <div className="mt-1 flex min-w-0 items-center gap-0.5">
@@ -228,13 +277,24 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                 onClose={() => setBinding(null)}
                 onBind={async ({ resourceId, sourceAssetId }) => {
                     if (!binding) throw new Error("未选择子卡");
-                    await replaceProjectCharacterRepresentations(projectId, binding.id, [{ role: "primary", resourceId, metadata: { source: "asset-library", sourceAssetId } }]);
+                    await replaceProjectCharacterRepresentations(projectId, binding.id, [{ role: "primary", resourceId, metadata: { source: "asset-library", sourceAssetId } }], { keepShotVersions: true });
                     await refresh();
                     message.success("子卡图片已绑定并保存为新版本");
                 }}
             />
             {/* 子卡图片放大：与资产详情同一个预览器（缩放、拖动、Esc 退出，按原图比例）。 */}
             {preview ? <ImageZoomPreview src={resourceFileUrl(preview.resourceId)} alt={`${preview.title}完整图片`} onClose={() => setPreview(null)} /> : null}
+            <Modal open={reviewing} title={`整理造型「${parent.title}」`} onCancel={() => setReviewing(false)} footer={<Button onClick={() => setReviewing(false)}>关闭</Button>}>
+                <div className="max-h-[60dvh] space-y-3 overflow-y-auto text-sm">
+                    <p>核对造型差异、现有图片和镜头引用后，再选择要保留的版本。</p>
+                    <div>
+                        <strong>外观字段相同的候选（{duplicates.length} 组）</strong>
+                        {duplicates.length ? <ul>{duplicates.map((items) => <li key={items[0].id}>{items.map((item) => item.variant?.label || item.title).join("、")}</li>)}</ul> : <p>未找到候选</p>}
+                    </div>
+                    <div><strong>缺少适用场次（{withoutScenes.length} 张）</strong><p>{withoutScenes.map((item) => item.variant?.label || item.title).join("、") || "无"}</p></div>
+                    <div><strong>需按原描述核对的历史造型（{legacy.length} 张）</strong><p>{legacy.map((item) => item.variant?.label || item.title).join("、") || "无"}</p></div>
+                </div>
+            </Modal>
             <Modal
                 className="library-modal"
                 title={editing === "new" ? `给「${parent.title}」新增子卡` : `编辑子卡「${editing?.title || ""}」`}
@@ -280,6 +340,17 @@ export function ProjectCharacterVariants({ projectId, parent, defaultImageModel,
                         <span className="font-medium text-foreground/68">英文{imageLabel}提示词（可空）</span>
                         <Input.TextArea rows={2} value={form.promptEn} placeholder={`空着时按主卡身份与本子卡的差异生成${imageLabel}`} onChange={(event) => setForm((current) => ({ ...current, promptEn: event.target.value }))} />
                     </label>
+                    <label className="grid gap-1.5">
+                        <span className="font-medium text-foreground/68">年龄阶段（沿用主卡时留空）</span>
+                        <Input value={form.ageStage} maxLength={80} placeholder="如 高中阶段" onChange={(event) => setForm((current) => ({ ...current, ageStage: event.target.value }))} />
+                    </label>
+                    {editing && editing !== "new" ? (
+                        <label className="grid gap-1.5">
+                            <span className="font-medium text-foreground/68">完整出图提示词（可清除）</span>
+                            <Input.TextArea rows={3} value={form.generationPrompt} onChange={(event) => setForm((current) => ({ ...current, generationPrompt: event.target.value }))} />
+                            {editing.settingsImageOutdated ? <span className="text-xs text-foreground/60">图片沿用旧设定</span> : null}
+                        </label>
+                    ) : null}
                     <label className="grid gap-1.5">
                         <span className="font-medium text-foreground/68">用在哪几场</span>
                         <Select mode="multiple" allowClear value={form.scenes} options={sceneOptions} loading={scenesQuery.isLoading} placeholder="生成分段时这几场的镜头绑这张子卡" onChange={(scenes) => setForm((current) => ({ ...current, scenes }))} />

@@ -46,13 +46,15 @@ func NormalizeAssetVariantKind(kind string, label string) string {
 
 // AssetsVariant 是角色的一张子卡：Scenes 是用这套形象的场序（本单元，从 1 数，与 first_scene 同一套）。
 type AssetsVariant struct {
-	GenerationPrompt string `json:"generation_prompt,omitempty"`
-	Label            string `json:"label"`
-	Kind             string `json:"kind"`
-	Scenes           []int  `json:"scenes"`
-	Appearance       string `json:"appearance"`
-	PromptEn         string `json:"prompt_en"`
-	StartAfter       string `json:"start_after,omitempty"`
+	AssetID          string            `json:"variant_id,omitempty"`
+	Delta            *AssetVisualDelta `json:"visual_delta,omitempty"`
+	GenerationPrompt string            `json:"generation_prompt,omitempty"`
+	Label            string            `json:"label"`
+	Kind             string            `json:"kind"`
+	Scenes           []int             `json:"scenes"`
+	Appearance       string            `json:"appearance"`
+	PromptEn         string            `json:"prompt_en"`
+	StartAfter       string            `json:"start_after,omitempty"`
 }
 
 // AssetVariantTitle 是子卡的资产名：「主卡名·变体名」。
@@ -100,6 +102,11 @@ func parseAssetsVariants(raw json.RawMessage) []AssetsVariant {
 		}
 		v := AssetsVariant{Label: str("label"), Appearance: str("appearance"), PromptEn: str("prompt_en"), StartAfter: str("start_after")}
 		v.GenerationPrompt = str("generation_prompt")
+		v.AssetID = str("variant_id")
+		var delta AssetVisualDelta
+		if json.Unmarshal(obj["visual_delta"], &delta) == nil && delta.Key() != "" {
+			v.Delta = &delta
+		}
 		v.Kind = NormalizeAssetVariantKind(str("kind"), v.Label)
 		v.Scenes = assetsSceneList(obj["scenes"])
 		out = append(out, v)
@@ -153,7 +160,16 @@ func AssetVariantKey(label string) string { return AssetNameKey(label) }
 // mergeAssetsVariants 把 next 的子卡并进 prev：同名的合并场序、空字段用后面的补，新的接在后面。
 func mergeAssetsVariants(prev []AssetsVariant, next []AssetsVariant) []AssetsVariant {
 	for _, v := range next {
-		i := slices.IndexFunc(prev, func(p AssetsVariant) bool { return AssetVariantKey(p.Label) == AssetVariantKey(v.Label) })
+		i := slices.IndexFunc(prev, func(p AssetsVariant) bool {
+			if p.AssetID != "" && v.AssetID != "" {
+				return p.AssetID == v.AssetID && p.StartAfter == v.StartAfter
+			}
+			if p.Delta != nil && v.Delta != nil {
+				return p.Delta.Key() == v.Delta.Key() && p.StartAfter == v.StartAfter
+			}
+			return AssetVariantKey(p.Label) == AssetVariantKey(v.Label) && p.StartAfter == v.StartAfter &&
+				(p.Appearance == "" || v.Appearance == "" || AssetNameKey(p.Appearance) == AssetNameKey(v.Appearance))
+		})
 		if i < 0 {
 			prev = append(prev, v)
 			continue
@@ -200,14 +216,14 @@ func checkAssetsVariants(r *AssetsExtractRow, scenes int, known func(label strin
 		case AssetVariantKey(v.Label) == "" || AssetVariantKey(v.Label) == AssetNameKey(r.Name):
 			add("warn", RuleAssetVariant, label, "子卡没写变体名（如 护士服、淋湿），没有建")
 			continue
-		case v.Appearance == "" && v.PromptEn == "" && !known(v.Label):
+		case v.Appearance == "" && v.PromptEn == "" && v.AssetID == "" && !known(v.Label):
 			add("warn", RuleAssetVariant, label, "子卡没写这套服装 / 状态的外观和提示词，没有建")
 			continue
 		}
 		if scenes > 0 {
 			inRange := v.Scenes[:0:0]
 			for _, n := range v.Scenes {
-				if n <= scenes {
+				if n > 0 && n <= scenes {
 					inRange = append(inRange, n)
 				}
 			}

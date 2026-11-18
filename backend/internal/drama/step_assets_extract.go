@@ -50,6 +50,9 @@ func AssetNameKey(value string) string {
 
 // AssetsKnown 是项目里已有的一个资产（名录用）：Incomplete 是还缺外观或出图提示词，模型可以补写。
 type AssetsKnown struct {
+	ID         string
+	Looks      []KnownAssetLook
+	Relevant   bool
 	Category   string
 	Name       string
 	Aliases    []string
@@ -66,9 +69,10 @@ type AssetsExtractInput struct {
 	UnitLabel string
 	UnitNoun  string
 	// SourceText 是正文纯文本（编辑器 getText 的结果）。
-	SourceText string
-	Known      []AssetsKnown
-	Anchor     *StyleAnchor
+	SourceText         string
+	Known              []AssetsKnown
+	SeriesSpeakerHints []string
+	Anchor             *StyleAnchor
 	// Master 是项目锁定的主基调色卡（角色、道具按它取色）。
 	Master MasterPalette
 	// ColorScript 是本集各场的场次色卡（色彩脚本，场景按本场色卡取色；没有剧集或还没做场次色卡时为空）。
@@ -109,7 +113,9 @@ func BuildAssetsExtractPrompt(in AssetsExtractInput) (StepPrompt, error) {
 	}
 	text := joinTruthy([]string{
 		skillPrompt,
-		assetsKnownPrompt(in.Known),
+		assetsKnownPrompt(ContinuityAssetContext(in.SourceText, in.Known)),
+		assetsSeriesSpeakerPrompt(in.SeriesSpeakerHints),
+		"【跨集资产规则】人物身份和造型是全项目共用的。复用时写名录中的 asset_id；已有造型写 variant_id 和本场 scenes，外观和提示词可以留空。新子卡必须写 visual_delta（age_stage、clothing、hair、visible_state 仅写可见变化，evidence 为本场原文短句）。动作、情绪、光线、地点和年份标签进本场说明。已确认造型只补使用范围和原文依据。每次出场写 first_scene；同场中途变化逐条写 scenes 与 start_after。",
 		assetsAnchorPrompt(in.Anchor),
 		assetsMasterPrompt(in.Master),
 		assetsColorScriptPrompt(in.ColorScript),
@@ -121,6 +127,13 @@ func BuildAssetsExtractPrompt(in AssetsExtractInput) (StepPrompt, error) {
 	return StepPrompt{Text: text, Files: files}, nil
 }
 
+func assetsSeriesSpeakerPrompt(hints []string) string {
+	if len(hints) == 0 {
+		return ""
+	}
+	return "【全剧说话者索引】以下记录来自当前制作用剧本。结合剧情关系和已确认资产 ID 判断同一人物；相同姓名本身不证明同一身份，只有台词而未出镜时留在声音层。\n" + strings.Join(hints, "\n")
+}
+
 // assetsKnownPrompt 是【项目已有资产】段：分类、名字、别名，缺外观的标出来；超过 4000 字或 120 项截断。没有时不写。
 func assetsKnownPrompt(known []AssetsKnown) string {
 	if len(known) == 0 {
@@ -129,28 +142,48 @@ func assetsKnownPrompt(known []AssetsKnown) string {
 	lines := []string{"【项目已有资产】下面这些资产已经建好：复用 category、name，aliases 补新叫法，不重复基础外观；design 仍补本场原文依据、关联索引和状态变化。标了「缺外观」的补 appearance、prompt_en；已有子卡 label 照抄，补本场 scenes 及 design 中的动作边界。"}
 	remaining := assetsKnownChars
 	for i, k := range known {
-		if i >= AssetsExtractMaxKnown {
+		if i >= AssetsExtractMaxKnown && !k.Relevant {
 			lines = append(lines, "- ……（其余略）")
 			break
 		}
 		line := "- " + jsTrim(k.Name) + "（" + firstNonEmptyString(AssetCategoryName(k.Category), k.Category)
-		if len(k.Aliases) > 0 {
-			line += "；别名：" + strings.Join(k.Aliases, "、")
+		if k.ID != "" {
+			line += "；asset_id：" + k.ID
 		}
-		if len(k.Variants) > 0 {
+		if len(k.Aliases) > 0 {
+			line += "；别名：" + jsTruncate(strings.Join(k.Aliases, "、"), 90)
+		}
+		if len(k.Looks) == 0 && len(k.Variants) > 0 {
 			line += "；子卡：" + strings.Join(k.Variants, "、")
 		}
 		if k.Incomplete {
 			line += "；缺外观"
 		}
 		line += "）"
-		if n := jsLen(line); n > remaining {
-			lines = append(lines, "- ……（其余略）")
+		if n := jsLen(line); n > remaining && !k.Relevant {
+			lines = append(lines, "- ……（其余在项目名录中）")
 			break
-		} else {
+		} else if !k.Relevant {
 			remaining -= n
 		}
 		lines = append(lines, line)
+	}
+	// Include relevant identity IDs before look detail so long variant lists
+	// cannot push another speaking character out of the prompt.
+	lookBudget := assetsKnownChars
+	for _, k := range known {
+		if !k.Relevant || lookBudget <= 0 {
+			break
+		}
+		for _, look := range k.Looks {
+			line := "  - " + k.Name + " 子卡：" + compactKnownLook(look)
+			size := jsLen(line)
+			if size > lookBudget {
+				break
+			}
+			lines = append(lines, line)
+			lookBudget -= size
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -270,6 +303,8 @@ func AssetsExtractTurnPrompt(scenes []ShotsScene, k int) string {
 
 // AssetsExtractRow 是模型写的一行资产。
 type AssetsExtractRow struct {
+	AssetID              string       `json:"asset_id,omitempty"`
+	Appearances          []int        `json:"-"`
 	SourceSkillVersionID string       `json:"-"`
 	GenerationPrompt     string       `json:"generation_prompt,omitempty"`
 	Category             string       `json:"category"`
@@ -349,6 +384,7 @@ func AssetsExtractFromText(text string) ([]AssetsExtractRow, AssetsExtractParseS
 				return ""
 			}
 			row.Category, row.Name = NormalizeAssetCategory(str("category")), str("name")
+			row.AssetID = str("asset_id")
 			row.Appearance, row.PromptEn, row.PaletteHint = str("appearance"), str("prompt_en"), str("palette_hint")
 			row.GenerationPrompt = str("generation_prompt")
 			if jsLen(row.GenerationPrompt) > 16000 {
@@ -371,6 +407,9 @@ func AssetsExtractFromText(text string) ([]AssetsExtractRow, AssetsExtractParseS
 			var first any
 			_ = json.Unmarshal(obj["first_scene"], &first)
 			row.FirstScene = assetsSceneNo(first)
+			if row.FirstScene > 0 {
+				row.Appearances = []int{row.FirstScene}
+			}
 			rows = append(rows, row)
 			stats.Rows++
 		}
@@ -508,11 +547,15 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 		}
 	}
 	known := map[string]bool{}
+	knownIDs := map[string]string{}
 	ambiguous := assetAmbiguousAliases(rows, ctx.Known)
 	warnedAliases := map[string]bool{}
 	// knownVariants 是已有角色（名字和别名的键）→ 它已有子卡的变体名键。
 	knownVariants := map[string]map[string]bool{}
 	for _, k := range ctx.Known {
+		if k.ID != "" {
+			knownIDs[k.ID] = k.Category
+		}
 		labels := map[string]bool{}
 		for _, v := range k.Variants {
 			labels[AssetVariantKey(v)] = true
@@ -566,10 +609,12 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 			out.Skipped++
 			continue
 		}
-		keys := []string{r.Category + ":" + AssetNameKey(r.Name)}
-		for _, a := range r.Aliases {
-			keys = append(keys, r.Category+":"+AssetNameKey(a))
+		if r.AssetID != "" && knownIDs[r.AssetID] != r.Category {
+			add("warn", "R-ASSET-IDENTITY", label, "所引用的项目资产无法确认，请核对身份")
+			out.Skipped++
+			continue
 		}
+		keys := assetsRowKeys(r)
 		if i, ok := firstKey(written, keys); ok {
 			prev := &out.Rows[i]
 			if r.HasLook() && prev.HasLook() {
@@ -581,7 +626,7 @@ func CheckAssetsExtract(rows []AssetsExtractRow, ctx AssetsExtractCheckContext) 
 			}
 			continue
 		}
-		r.Merge = slices.ContainsFunc(keys, func(k string) bool { return known[k] })
+		r.Merge = r.AssetID != "" || slices.ContainsFunc(keys, func(k string) bool { return known[k] })
 		if !r.Merge && r.PromptEn == "" {
 			add("error", RuleAssetNoPrompt, label, "新资产没写 prompt_en（英文出图提示词），没有建")
 			out.Skipped++
@@ -724,6 +769,9 @@ func firstKey(index map[string]int, keys []string) (int, bool) {
 }
 
 func assetsRowKeys(r AssetsExtractRow) []string {
+	if r.AssetID != "" {
+		return []string{r.Category + ":id:" + r.AssetID}
+	}
 	keys := []string{}
 	for _, name := range append([]string{r.Name}, r.Aliases...) {
 		if key := AssetNameKey(name); key != "" {
@@ -735,6 +783,11 @@ func assetsRowKeys(r AssetsExtractRow) []string {
 
 // mergeAssetsRow 把同一资产的后一行并进前一行：别名合并（后一行的名字和前一行不同时也算别名），空字段用后一行补。
 func mergeAssetsRow(prev *AssetsExtractRow, next AssetsExtractRow) {
+	for _, scene := range next.Appearances {
+		if !slices.Contains(prev.Appearances, scene) {
+			prev.Appearances = append(prev.Appearances, scene)
+		}
+	}
 	if prev.GenerationPrompt == "" {
 		prev.GenerationPrompt = next.GenerationPrompt
 	}

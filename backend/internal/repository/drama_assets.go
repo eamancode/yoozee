@@ -25,6 +25,8 @@ type DramaAssetWrite struct {
 	ExpectedVersionID string
 	DefinitionOnly    bool
 	PayloadOnly       bool
+	KeepShotVersions  bool
+	ExpectedUpdatedAt *time.Time
 	Representations   []model.AssetRepresentation
 	Voice             *model.CharacterVoiceBinding
 }
@@ -33,10 +35,23 @@ type DramaAssetWrite struct {
 // 交给它只改自己负责的键（场景资产回填到场次），按读到的原值条件写回：同时有别的写（场次色卡写 color_script）时重读再改，
 // 不拿提取开始时的旧快照整块覆盖。
 func (r *Repository) ApplyDramaAssetsExtract(userID string, projectID string, writes []DramaAssetWrite, patchBible func(bibleJSON string) (string, error), now time.Time) error {
+	return r.ApplyDramaAssetsAtRevision(userID, projectID, writes, patchBible, now, nil)
+}
+
+func (r *Repository) ApplyDramaAssetsAtRevision(userID string, projectID string, writes []DramaAssetWrite, patchBible func(string) (string, error), now time.Time, revision *int64) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		var project model.Project
-		if err := tx.Select("id").Where("id = ? AND user_id = ?", projectID, userID).First(&project).Error; err != nil {
-			return err
+		project := tx.Model(&model.Project{}).Where("id = ? AND user_id = ?", projectID, userID)
+		if revision != nil {
+			project = project.Where("revision = ?", *revision)
+		}
+		// Claim the revision before inserting any assets. Different workers may
+		// resolve the same new identity against the same project snapshot.
+		claimed := project.Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": now})
+		if claimed.Error != nil {
+			return claimed.Error
+		}
+		if claimed.RowsAffected != 1 {
+			return ErrDramaAssetChanged
 		}
 		if patchBible != nil {
 			if err := patchProjectBible(tx, projectID, patchBible); err != nil {
@@ -62,14 +77,14 @@ func (r *Repository) ApplyDramaAssetsExtract(userID string, projectID string, wr
 				continue
 			}
 			var current model.Asset
-			err := tx.Select("id", "primary_version_id").
+			err := tx.Select("id", "primary_version_id", "updated_at").
 				Where("id = ? AND user_id = ?", w.Asset.ID, userID).
 				Where("id IN (?)", tx.Model(&model.ProjectAssetLink{}).Select("asset_id").Where("project_id = ?", projectID)).
 				First(&current).Error
 			if err != nil {
 				return err
 			}
-			if current.PrimaryVersionID != w.ExpectedVersionID {
+			if current.PrimaryVersionID != w.ExpectedVersionID || (w.ExpectedUpdatedAt != nil && !current.UpdatedAt.Equal(*w.ExpectedUpdatedAt)) {
 				return ErrDramaAssetChanged
 			}
 			if w.PayloadOnly {
@@ -86,16 +101,16 @@ func (r *Repository) ApplyDramaAssetsExtract(userID string, projectID string, wr
 				if result.RowsAffected != 1 {
 					return gorm.ErrRecordNotFound
 				}
-				if err := tx.Model(&model.Asset{}).Where("id = ?", w.Asset.ID).Updates(map[string]any{"payload_json": w.Asset.PayloadJSON, "updated_at": now}).Error; err != nil {
+				if err := tx.Model(&model.Asset{}).Where("id = ?", w.Asset.ID).Updates(map[string]any{"payload_json": w.Asset.PayloadJSON, "title": w.Asset.Title, "variant_label": w.Asset.VariantLabel, "updated_at": now}).Error; err != nil {
 					return err
 				}
 				continue
 			}
-			if err := saveCharacterVersion(tx, w.Asset, w.Version, w.Representations, w.Voice); err != nil {
+			if err := saveAssetVersion(tx, w.Asset, w.Version, w.Representations, w.Voice, !w.KeepShotVersions); err != nil {
 				return err
 			}
 		}
-		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": now}).Error
+		return nil
 	})
 }
 

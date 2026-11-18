@@ -28,14 +28,16 @@ const assetVariantKey = "assetVariant"
 // assetVariantMeta 是子卡 payload.metadata.assetVariant：变体种类、用这套形象的场编号、怎么来的（extract / manual），
 // 和生成设定时用的服装 / 状态描述、英文提示词原文（改子卡时按它们判断外观变没变；早期建的子卡没有，从设定里拆）。
 type assetVariantMeta struct {
-	WorkflowSkillVersionID string   `json:"-"`
-	GenerationPrompt       string   `json:"generationPrompt,omitempty"`
-	StartAfter             string   `json:"startAfter,omitempty"`
-	Kind                   string   `json:"kind"`
-	Scenes                 []string `json:"scenes"`
-	Source                 string   `json:"source,omitempty"`
-	Look                   string   `json:"look,omitempty"`
-	PromptEn               string   `json:"promptEn,omitempty"`
+	VisualDelta            *drama.AssetVisualDelta `json:"visualDelta,omitempty"`
+	Occurrences            []variantOccurrence     `json:"occurrences,omitempty"`
+	WorkflowSkillVersionID string                  `json:"-"`
+	GenerationPrompt       string                  `json:"generationPrompt,omitempty"`
+	StartAfter             string                  `json:"startAfter,omitempty"`
+	Kind                   string                  `json:"kind"`
+	Scenes                 []string                `json:"scenes"`
+	Source                 string                  `json:"source,omitempty"`
+	Look                   string                  `json:"look,omitempty"`
+	PromptEn               string                  `json:"promptEn,omitempty"`
 }
 
 func assetVariantMetaOf(asset *model.Asset) assetVariantMeta {
@@ -49,14 +51,17 @@ func assetVariantMetaOf(asset *model.Asset) assetVariantMeta {
 // ProjectAssetVariantSummary 是子卡在资产清单里的摘要：主卡、变体名、种类（costume / state）、用这套形象的场，
 // 和服装 / 状态描述、用户写的英文提示词（编辑对话框带出原值；自动生成的提示词是空）。
 type ProjectAssetVariantSummary struct {
-	StartAfter  string   `json:"startAfter,omitempty"`
-	ParentID    string   `json:"parentId"`
-	ParentTitle string   `json:"parentTitle,omitempty"`
-	Label       string   `json:"label"`
-	Kind        string   `json:"kind"`
-	Scenes      []string `json:"scenes"`
-	Look        string   `json:"look"`
-	PromptEn    string   `json:"promptEn"`
+	VisualDelta *drama.AssetVisualDelta `json:"visualDelta,omitempty"`
+	Occurrences []variantOccurrence     `json:"occurrences,omitempty"`
+	Source      string                  `json:"source,omitempty"`
+	StartAfter  string                  `json:"startAfter,omitempty"`
+	ParentID    string                  `json:"parentId"`
+	ParentTitle string                  `json:"parentTitle,omitempty"`
+	Label       string                  `json:"label"`
+	Kind        string                  `json:"kind"`
+	Scenes      []string                `json:"scenes"`
+	Look        string                  `json:"look"`
+	PromptEn    string                  `json:"promptEn"`
 }
 
 // assetVariantSummary 是子卡的摘要（definition 是主版本的设定）；不是子卡返回 nil。
@@ -68,6 +73,8 @@ func (s *Service) assetVariantSummary(userID string, asset *model.Asset, definit
 	summary := &ProjectAssetVariantSummary{ParentID: asset.ParentAssetID, Label: asset.VariantLabel, Kind: drama.NormalizeAssetVariantKind(meta.Kind, asset.VariantLabel), Scenes: meta.Scenes}
 	summary.Look, summary.PromptEn = variantLookOf(meta, definition)
 	summary.StartAfter = meta.StartAfter
+	summary.VisualDelta, summary.Occurrences = meta.VisualDelta, meta.Occurrences
+	summary.Source = meta.Source
 	if parent, err := s.repo.AssetForUser(userID, asset.ParentAssetID); err == nil {
 		summary.ParentTitle = parent.Title
 	}
@@ -214,6 +221,9 @@ func variantPayload(asset *model.Asset, meta assetVariantMeta, imageState string
 // newVariantAsset 组一张子卡（不落库）：资产、第 1 个版本。
 func newVariantAsset(userID string, parent model.Asset, parentDefinition map[string]any, label string, kind string, look string, promptEn string, meta assetVariantMeta, imageState string, now time.Time) (model.Asset, model.AssetVersion, error) {
 	definition := variantDefinition(parentDefinition, parent.Title, label, kind, look, promptEn)
+	if meta.VisualDelta != nil {
+		applyVariantAge(definition, parent.Title, meta.VisualDelta.AgeStage, look, promptEn)
+	}
 	if meta.WorkflowSkillVersionID != "" {
 		definition["assetWorkflowSkillVersionId"] = meta.WorkflowSkillVersionID
 	}
@@ -240,6 +250,20 @@ func newVariantAsset(userID string, parent model.Asset, parentDefinition map[str
 	return asset, version, nil
 }
 
+func applyVariantAge(definition map[string]any, parentTitle, age, look, prompt string) {
+	if age == "" {
+		return
+	}
+	delete(definition, "appearance")
+	delete(definition, "identityAppearance")
+	delete(definition, "physique")
+	definition["age"] = age
+	definition["consistencyPrompt"] = "与主卡「" + parentTitle + "」为同一剧情人物。保留可辨识关联；面容年龄、发型和体型采用本阶段设定。"
+	if strings.TrimSpace(prompt) == "" {
+		definition["multiViewPrompt"] = look
+	}
+}
+
 // mergeVariantScenes 把场并进子卡的场（去重，按先后）；返回有没有加。
 func mergeVariantScenes(meta *assetVariantMeta, codes []string) bool {
 	added := false
@@ -257,13 +281,16 @@ func mergeVariantScenes(meta *assetVariantMeta, codes []string) bool {
 // DramaAssetVariantRequest 是资产页新增 / 改子卡：变体名、种类（costume / state）、这套服装或状态的描述、英文三视图提示词（可空，
 // 空时用主卡的接上变体说明）、用这套形象的场编号；ImageTask 给了时建完（或改了外观后）接着出三视图（带主卡三视图作参考）。
 type DramaAssetVariantRequest struct {
-	StartAfter string                  `json:"startAfter,omitempty"`
-	Label      string                  `json:"label"`
-	Kind       string                  `json:"kind"`
-	Look       string                  `json:"look"`
-	PromptEn   string                  `json:"promptEn,omitempty"`
-	Scenes     []string                `json:"scenes,omitempty"`
-	ImageTask  *DramaImageTaskTemplate `json:"imageTask,omitempty"`
+	ExpectedVersionID string                  `json:"expectedVersionId,omitempty"`
+	GenerationPrompt  *string                 `json:"generationPrompt,omitempty"`
+	AgeStage          *string                 `json:"ageStage,omitempty"`
+	StartAfter        string                  `json:"startAfter,omitempty"`
+	Label             string                  `json:"label"`
+	Kind              string                  `json:"kind"`
+	Look              string                  `json:"look"`
+	PromptEn          string                  `json:"promptEn,omitempty"`
+	Scenes            []string                `json:"scenes,omitempty"`
+	ImageTask         *DramaImageTaskTemplate `json:"imageTask,omitempty"`
 }
 
 // DramaAssetVariantResult 是新增 / 改子卡的结果：子卡和出图排队。
@@ -278,6 +305,13 @@ const (
 )
 
 func normalizeVariantRequest(req *DramaAssetVariantRequest) error {
+	if req.AgeStage != nil {
+		age := strings.TrimSpace(*req.AgeStage)
+		if len([]rune(age)) > 80 {
+			return BadAuthRequest("年龄阶段最多 80 字")
+		}
+		req.AgeStage = &age
+	}
 	req.Label = strings.TrimSpace(req.Label)
 	req.Look = strings.TrimSpace(req.Look)
 	req.PromptEn = strings.TrimSpace(req.PromptEn)
@@ -374,7 +408,11 @@ func (s *Service) CreateDramaAssetVariant(userID string, projectID string, paren
 		return result, err
 	}
 	now := time.Now()
-	asset, version, err := newVariantAsset(userID, *parent, definition, req.Label, req.Kind, req.Look, req.PromptEn, assetVariantMeta{Scenes: req.Scenes, Source: "manual", StartAfter: req.StartAfter}, dramaImageNone, now)
+	meta := assetVariantMeta{Scenes: req.Scenes, Source: "manual", StartAfter: req.StartAfter}
+	if req.AgeStage != nil && *req.AgeStage != "" {
+		meta.VisualDelta = &drama.AssetVisualDelta{AgeStage: *req.AgeStage}
+	}
+	asset, version, err := newVariantAsset(userID, *parent, definition, req.Label, req.Kind, req.Look, req.PromptEn, meta, dramaImageNone, now)
 	if err != nil {
 		return result, err
 	}
@@ -395,9 +433,7 @@ func (s *Service) CreateDramaAssetVariant(userID string, projectID string, paren
 	return result, err
 }
 
-// UpdateDramaAssetVariant 是资产页改子卡：只改变体名、种类、场时原地改（设定里的变体名跟着换，不加版本，三视图和镜头产物都不动）；
-// 服装 / 状态描述或英文提示词改了时按主卡当前设定重新生成定义、加一个版本（旧三视图不再搬过去，引用这张子卡的镜头产物过期），
-// 带了图片模板时接着重出三视图。比较外观只看描述和提示词原文，不看带着变体名的整段设定。
+// UpdateDramaAssetVariant 编辑现有子卡。外观修订保留已确认图片及镜头引用。
 func (s *Service) UpdateDramaAssetVariant(userID string, projectID string, variantID string, req DramaAssetVariantRequest) (DramaAssetVariantResult, error) {
 	result := DramaAssetVariantResult{Images: emptyDramaImageQueueResult()}
 	if err := normalizeVariantRequest(&req); err != nil {
@@ -428,68 +464,26 @@ func (s *Service) UpdateDramaAssetVariant(userID string, projectID string, varia
 	if err != nil {
 		return result, err
 	}
+	if req.ExpectedVersionID != "" && req.ExpectedVersionID != version.ID {
+		return result, assetSettingsConflict()
+	}
 	current := map[string]any{}
 	_ = json.Unmarshal([]byte(firstNonEmpty(version.DefinitionJSON, "{}")), &current)
 	meta := assetVariantMetaOf(child)
-	now := time.Now()
 	title := drama.AssetVariantTitle(parent.Title, req.Label)
 	next := variantDefinition(definition, parent.Title, req.Label, req.Kind, req.Look, req.PromptEn)
 	next["name"] = title
 	oldLook, oldPrompt := variantLookOf(meta, current)
 	lookChanged := req.Look != oldLook || req.PromptEn != oldPrompt
-	if !lookChanged {
-		if full, _ := current["generationPrompt"].(string); full != "" {
-			next["generationPrompt"] = full
-		}
+	age := ""
+	if meta.VisualDelta != nil {
+		age = meta.VisualDelta.AgeStage
 	}
-	encoded, err := json.Marshal(next)
-	if err != nil {
-		return result, err
+	if req.AgeStage != nil && *req.AgeStage != age {
+		age, lookChanged = *req.AgeStage, true
 	}
-	if lookChanged {
-		// 外观改了：旧三视图对不上新设定，不搬到新版本。
-		if _, err := s.createNextCharacterVersion(project.ID, child, title, string(encoded), []model.AssetRepresentation{}, nil, false); err != nil {
-			return result, err
-		}
-	} else if err := s.repo.UpdateAssetVersionDefinition(child.ID, child.PrimaryVersionID, string(encoded), now); err != nil {
-		// 只改了变体名、种类或场：原地换设定里的文字，版本、三视图和引用它的镜头都不动。
-		return result, err
-	}
-	meta.Kind, meta.Scenes, meta.Look, meta.PromptEn = req.Kind, req.Scenes, req.Look, req.PromptEn
-	if lookChanged {
-		meta.GenerationPrompt = ""
-	}
-	meta.StartAfter = req.StartAfter
-	if err := s.setDramaImageState(userID, child.ID, func(payload map[string]any) {
-		metadata := payloadMetadata(payload)
-		metadata[assetVariantKey] = meta
-		if lookChanged {
-			metadata[assetImageKey] = dramaImageState{Status: dramaImageNone, UpdatedAt: now.Format(time.RFC3339Nano)}
-		}
-		if data, ok := payload["data"].(map[string]any); ok {
-			data["definition"] = next
-		}
-		payload["title"] = title
-	}); err != nil {
-		return result, err
-	}
-	if err := s.repo.UpdateAssetVariantLabel(userID, child.ID, title, req.Label, now); err != nil {
-		return result, err
-	}
-	if err := s.repo.BumpProjectRevision(project.ID); err != nil {
-		return result, err
-	}
-	if lookChanged && req.ImageTask.usable() {
-		if result.Images, err = s.queueDramaAssetImages(userID, project.ID, *req.ImageTask, "variant", []string{child.ID}); err != nil {
-			return result, err
-		}
-	}
-	updated, err := s.repo.AssetForUser(userID, child.ID)
-	if err != nil {
-		return result, err
-	}
-	result.Asset, err = s.projectAssetSummary(userID, project.ID, updated)
-	return result, err
+	applyVariantAge(next, parent.Title, age, req.Look, req.PromptEn)
+	return s.saveProjectVariantSettings(userID, project.ID, child, version, current, next, meta, req, lookChanged)
 }
 
 // DeleteDramaAssetVariant 是资产页删子卡：被这个项目的镜头引用时拒绝并列出镜头；否则移出项目（资产留在个人素材库）。

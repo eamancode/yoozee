@@ -176,6 +176,19 @@ func (c *dramaSceneCast) personTitles(parent string) []string {
 func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, assets []ProjectAssetSummary) *dramaSceneCast {
 	_, numbers, _ := sceneUnits(units)
 	episode := numbers[unitID]
+	var continuity projectAssetContinuityDocument
+	_ = json.Unmarshal([]byte(bibleJSON), &continuity)
+	coverage := continuity.Coverage[unitID]
+	sourceCurrent := coverage.SourceHash == ""
+	if i := slices.IndexFunc(units, func(unit model.ProjectUnit) bool { return unit.ID == unitID }); i >= 0 && !sourceCurrent {
+		sourceCurrent = coverage.SourceHash == assetExtractionSourceHash(&units[i])
+	}
+	currentUses := map[string][]variantOccurrence{}
+	if sourceCurrent {
+		for _, use := range continuity.Occurrences[unitID] {
+			currentUses[use.AssetID] = append(currentUses[use.AssetID], variantOccurrence{UnitID: unitID, Scene: use.Scene, StartAfter: use.StartAfter})
+		}
+	}
 	cast := &dramaSceneCast{Variants: map[string]map[string]string{}, Environments: map[string][]string{}, titles: map[string]string{}, parents: map[string]string{}, person: map[string]string{}, imaged: map[string]bool{}}
 	imaged := cast.imaged
 	cast.scoped = map[string]map[string]bool{}
@@ -210,29 +223,37 @@ func sceneCastOf(bibleJSON string, units []model.ProjectUnit, unitID string, ass
 		}
 		cast.parents[a.ID] = a.Variant.ParentID
 		byID[a.ID] = a
-		if a.Variant.StartAfter != "" {
-			for _, code := range a.Variant.Scenes {
-				ep, no, ok := drama.ParseSceneCode(code)
-				if !ok || ep != episode {
-					continue
-				}
-				local := drama.SceneCode(1, no)
+		var uses []variantOccurrence
+		hasScopedRecord := false
+		for _, use := range a.Variant.Occurrences {
+			if use.UnitID == unitID {
+				uses = append(uses, use)
+				hasScopedRecord = true
+			}
+		}
+		if a.Variant.Source == "extract" && coverage.SourceHash != "" {
+			if latest := currentUses[a.ID]; hasScopedRecord || len(latest) != 0 {
+				uses, hasScopedRecord = latest, true
+			}
+		}
+		for _, code := range a.Variant.Scenes {
+			ep, no, ok := drama.ParseSceneCode(code)
+			if !hasScopedRecord && ok && ep == episode {
+				uses = append(uses, variantOccurrence{UnitID: unitID, Scene: no, StartAfter: a.Variant.StartAfter})
+			}
+		}
+		for _, use := range uses {
+			local := drama.SceneCode(1, use.Scene)
+			if use.StartAfter != "" {
 				if cast.scoped[local] == nil {
 					cast.scoped[local] = map[string]bool{}
 				}
 				cast.scoped[local][a.ID] = true
-			}
-			continue
-		}
-		if !imaged[a.ID] && imaged[a.Variant.ParentID] {
-			continue
-		}
-		for _, code := range a.Variant.Scenes {
-			ep, no, ok := drama.ParseSceneCode(code)
-			if !ok || ep != episode {
 				continue
 			}
-			local := drama.SceneCode(1, no)
+			if !imaged[a.ID] && imaged[a.Variant.ParentID] {
+				continue
+			}
 			if cast.Variants[local] == nil {
 				cast.Variants[local] = map[string]string{}
 			}

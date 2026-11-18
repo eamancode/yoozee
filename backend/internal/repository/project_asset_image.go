@@ -34,7 +34,7 @@ func (r *Repository) ProjectAssetImageReferences(userID string, assetIDs []strin
 
 // CommitProjectAssetImage atomically promotes one image version, retaining historical references.
 // version.ID 等于 expectedVersionID 时图绑到现有版本上（色卡出图），不新建版本。
-func (r *Repository) CommitProjectAssetImage(projectID string, expectedVersionID string, asset *model.Asset, version *model.AssetVersion, representation *model.AssetRepresentation) (bool, error) {
+func (r *Repository) CommitProjectAssetImage(projectID string, expectedVersionID string, asset *model.Asset, version *model.AssetVersion, representation *model.AssetRepresentation, followShots bool) (bool, error) {
 	applied := false
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var existing int64
@@ -65,9 +65,10 @@ func (r *Repository) CommitProjectAssetImage(projectID string, expectedVersionID
 			if err := tx.Create(version).Error; err != nil {
 				return err
 			}
-			// 重新出图加了版本：引用旧版本的镜头跟上。
-			if _, err := followAssetVersion(tx, asset.ID, version.ID, asset.UpdatedAt); err != nil {
-				return err
+			if followShots {
+				if _, err := followAssetVersion(tx, asset.ID, version.ID, asset.UpdatedAt); err != nil {
+					return err
+				}
 			}
 		}
 		if err := tx.Create(representation).Error; err != nil {

@@ -60,7 +60,7 @@ export function ShotBindingEditor({
             if (draft.kind === "remove" && draft.binding.reference) {
                 await unlinkShotAsset(projectId, segment.shotId, draft.binding.reference.id);
             } else if (draft.kind === "pick" && draft.asset?.primaryVersionId) {
-                await linkShotAsset(projectId, segment.shotId, { assetVersionId: draft.asset.primaryVersionId, role: "reference", replaceReferenceId: draft.replace?.reference?.id });
+                await linkShotAsset(projectId, segment.shotId, { assetVersionId: draft.asset.confirmedImageVersionId || draft.asset.primaryVersionId, role: "reference", replaceReferenceId: draft.replace?.reference?.id });
             } else throw new Error("请选择要保存的资产版本");
         },
         onSuccess: async () => {
@@ -106,6 +106,7 @@ export function ShotBindingEditor({
                 <ul className="space-y-2" aria-label="本单元的资产和声音参考">
                     {bindings.map((item) => {
                         const editable = item.reference?.role === "reference" && isUnitBindingAsset(item.asset);
+                        const currentVersion = options.find((asset) => asset.id === item.asset.id);
                         const tag = voiceBindings.find((voice) => voice.versionId === item.versionId && voice.sampleResourceId === item.sampleResourceId)?.tag;
                         const imageTag = compiled.data?.result.files.find((file) => file.file === item.versionId && file.role !== "voice")?.tag;
                         const role = item.reference?.role;
@@ -140,6 +141,7 @@ export function ShotBindingEditor({
                                     </Button>
                                 ) : editable && !edit ? (
                                     <div className="flex gap-1">
+                                        {currentVersion ? <Button size="small" onClick={() => setEdit({ kind: "pick", replace: item, asset: currentVersion })}>使用已确认新版</Button> : null}
                                         <Button size="small" aria-label={`更换${item.title}`} onClick={() => setEdit({ kind: "pick", replace: item })}>
                                             同类更换
                                         </Button>

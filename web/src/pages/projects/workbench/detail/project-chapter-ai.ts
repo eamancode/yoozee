@@ -115,6 +115,7 @@ type AssetsExtractInput = {
     /** 给新资产出图的图片任务模板；不给时只建资产不出图。 */
     imageTask?: DramaImageTaskTemplate;
     resumeTaskId?: string;
+    assetScope?: "project";
 };
 
 /**
@@ -130,6 +131,7 @@ export async function runAssetsExtract(input: AssetsExtractInput, options?: Chap
         config: backendProviderConfig(config, "text") as Record<string, unknown>,
         ...(input.imageTask ? { imageTask: input.imageTask } : {}),
         ...(input.resumeTaskId ? { resumeTaskId: input.resumeTaskId } : {}),
+        ...(input.assetScope ? { assetScope: input.assetScope } : {}),
     });
     announceCreatedGenerationTask(task);
     options?.onTaskUpdate?.(task);

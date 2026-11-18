@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { App, Button } from "antd";
-import { ImageUp, RotateCw } from "lucide-react";
+import { App, Button, Input, Modal } from "antd";
+import { ImageUp, Pencil, RotateCw } from "lucide-react";
 
 import { AssetImageLibraryPicker } from "@/components/assets/asset-image-library-picker";
 import { ImageZoomPreview } from "@/components/image-zoom-preview";
@@ -10,7 +10,7 @@ import { projectWorkflow } from "@/lib/project-workflow";
 import { dramaImageStatusOf } from "@/pages/projects/workbench/detail/drama-image-summary";
 import { ProjectCharacterVariants } from "@/pages/projects/workbench/detail/project-character-variants";
 import { assetPreviewUrl } from "@/pages/projects/workbench/detail/workflow-shot-references";
-import { bindProjectAssetImage, replaceProjectCharacterRepresentations, type DramaImageStatus, type Project, type ProjectAsset } from "@/services/api/projects";
+import { bindProjectAssetImage, replaceProjectCharacterRepresentations, updateProjectAssetSettings, type DramaImageStatus, type Project, type ProjectAsset } from "@/services/api/projects";
 
 import { assetFields } from "../model/asset-fields";
 import { DetailPane, PaneSection, StageLayout, SummaryRow } from "./layout";
@@ -34,6 +34,7 @@ export function LookAssets({
     project,
     category,
     assets,
+    currentUnit,
     imageModel,
     selectedId,
     retrying,
@@ -45,6 +46,7 @@ export function LookAssets({
     imageModel: StepModel;
     category: "character" | "environment" | "prop";
     assets: ProjectAsset[];
+    currentUnit?: { id: string; episode?: number };
     selectedId?: string;
     retrying: Set<string>;
     onSelect: (id?: string) => void;
@@ -78,6 +80,7 @@ export function LookAssets({
                     <AssetPane
                         project={project}
                         asset={{ ...selected, variants: selected.variants?.length ? selected.variants : variantsOf.get(selected.id) }}
+                        currentUnit={currentUnit}
                         fourPanel={fourPanel}
                         retrying={retrying.has(selected.id)}
                         onRetry={() => onRetry([selected])}
@@ -155,11 +158,34 @@ export function LookAssets({
     );
 }
 
-function AssetPane({ project, asset, fourPanel, retrying, onRetry, onClose }: { project: Project; asset: ProjectAsset; fourPanel: boolean; retrying: boolean; onRetry: () => void; onClose: () => void }) {
+function AssetPane({ project, asset, currentUnit, fourPanel, retrying, onRetry, onClose }: { project: Project; asset: ProjectAsset; currentUnit?: { id: string; episode?: number }; fourPanel: boolean; retrying: boolean; onRetry: () => void; onClose: () => void }) {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
     const [picking, setPicking] = useState(false);
     const [zooming, setZooming] = useState(false);
+    const [editing, setEditing] = useState<{ version: string; before: Record<string, string>; fields: Record<string, string> }>();
+    const settingsFields = asset.character
+        ? { role: "剧情定位", appearance: "外观设定", identityAppearance: "辨识特征", clothing: "服装设定", personality: "性格", multiViewPrompt: "多视图提示词", generationPrompt: "完整出图提示词" }
+        : { description: "描述", prompt: "出图提示词", generationPrompt: "完整出图提示词" };
+    const startEditing = () => {
+        if (!asset.primaryVersionId) return;
+        const definition = asset.character?.definition || asset.visual?.definition || {};
+        const before = Object.fromEntries(Object.keys(settingsFields).map((key) => [key, typeof definition[key] === "string" ? definition[key] : ""]));
+        setEditing({ version: asset.primaryVersionId, before, fields: before });
+    };
+    const updatedFields = editing ? Object.fromEntries(Object.entries(editing.fields).filter(([key, value]) => value.trim() !== editing.before[key]?.trim())) : {};
+    const save = useMutation({
+        mutationFn: () => {
+            if (!editing) throw new Error("请先打开设定编辑");
+            return updateProjectAssetSettings(project.id, asset.id, editing.version, updatedFields);
+        },
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: ["project", project.id] });
+            setEditing(undefined);
+            message.success("设定已保存");
+        },
+        onError: (error) => message.error(error instanceof Error ? error.message : "设定保存失败"),
+    });
     const status = dramaImageStatusOf(asset);
     const view = status ? IMAGE_STATUS[status] : undefined;
     const preview = assetPreviewUrl(asset);
@@ -167,12 +193,12 @@ function AssetPane({ project, asset, fourPanel, retrying, onRetry, onClose }: { 
         mutationFn: async ({ resourceId, sourceAssetId }: { resourceId: string; sourceAssetId: string }) => {
             if (asset.visual) {
                 if (!asset.primaryVersionId) throw new Error("资产版本没读到，请刷新");
-                return bindProjectAssetImage(project.id, asset.id, { resourceId, expectedVersionId: asset.primaryVersionId });
+                return bindProjectAssetImage(project.id, asset.id, { resourceId, expectedVersionId: asset.primaryVersionId, keepShotVersions: true });
             }
             return replaceProjectCharacterRepresentations(project.id, asset.id, [
                 { role: "turnaround_sheet", resourceId, metadata: { sourceAssetId } },
                 { role: "primary", resourceId, metadata: { source: "turnaround_sheet", sourceAssetId } },
-            ]);
+            ], { keepShotVersions: true });
         },
         onSuccess: async () => {
             await queryClient.invalidateQueries({ queryKey: ["project", project.id] });
@@ -196,6 +222,9 @@ function AssetPane({ project, asset, fourPanel, retrying, onRetry, onClose }: { 
                             换图
                         </Button>
                     ) : null}
+                    {asset.primaryVersionId && (asset.category === "environment" || asset.category === "prop" || asset.character) ? (
+                        <Button size="small" icon={<Pencil className="size-3.5" />} onClick={startEditing}>编辑设定</Button>
+                    ) : null}
                 </>
             }
         >
@@ -215,10 +244,14 @@ function AssetPane({ project, asset, fourPanel, retrying, onRetry, onClose }: { 
                     <p data-tone="bad">{lookAssetError(asset) || "没写原因"}</p>
                 </PaneSection>
             ) : null}
-            {assetFields(asset).map((field) => (
-                <PaneSection key={field.label} label={field.label}>
-                    {field.value}
-                </PaneSection>
+            {asset.settingsImageOutdated ? <PaneSection label="图片版本">图片沿用旧设定。下一次出图会使用当前设定。</PaneSection> : null}
+            {assetFields(asset).map((field) => field.label === "原文依据" && field.value ? (
+                <details key={field.label} className="px-3 py-2 text-xs">
+                    <summary className="cursor-pointer">原文依据</summary>
+                    <p className="whitespace-pre-wrap pt-2">{field.value}</p>
+                </details>
+            ) : (
+                <PaneSection key={field.label} label={field.label}>{field.value}</PaneSection>
             ))}
             <PaneSection label={`引用（${asset.usages.length}）`} empty="还没有段用到它">
                 {asset.usages.length ? (
@@ -231,10 +264,24 @@ function AssetPane({ project, asset, fourPanel, retrying, onRetry, onClose }: { 
             </PaneSection>
             {asset.category === "character" ? (
                 <PaneSection label="子卡（服装、状态）">
-                    <ProjectCharacterVariants projectId={project.id} parent={asset} defaultImageModel={project.defaultImageModel} fourPanel={fourPanel} />
+                    <ProjectCharacterVariants projectId={project.id} parent={asset} currentUnit={currentUnit} defaultImageModel={project.defaultImageModel} fourPanel={fourPanel} />
                 </PaneSection>
             ) : null}
             <AssetImageLibraryPicker open={picking} title={asset.title} onClose={() => setPicking(false)} onBind={(image) => bind.mutateAsync(image)} />
+            <Modal open={Boolean(editing)} title={`编辑设定「${asset.title}」`} okText="保存设定" cancelText="取消" confirmLoading={save.isPending} okButtonProps={{ disabled: !Object.keys(updatedFields).length }} onOk={() => save.mutate()} onCancel={() => { if (!save.isPending) setEditing(undefined); }}>
+                <p className="mb-3 text-xs text-foreground/60">保存会保留已有图片和镜头引用。外观变化后可按需出图。</p>
+                <div className="grid gap-3">
+                    {editing && Object.entries(settingsFields).map(([key, label]) => (
+                        <label key={key} className="grid gap-1 text-xs">
+                            {label}
+                            <Input.TextArea rows={key.endsWith("Prompt") ? 3 : 2} maxLength={16000} value={editing.fields[key]} onChange={(event) => {
+                                const value = event.target.value;
+                                setEditing((current) => current && ({ ...current, fields: { ...current.fields, [key]: value } }));
+                            }} />
+                        </label>
+                    ))}
+                </div>
+            </Modal>
         </DetailPane>
     );
 }

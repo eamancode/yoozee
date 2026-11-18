@@ -42,5 +42,8 @@ export function boundAssetsOf(workspace: ProjectUnitWorkspace | undefined, segme
 
 export function availableBindingAssets(assets: ProjectAsset[], bindings: UnitBinding[], replace?: UnitBinding) {
     const bound = new Set(bindings.filter((item) => !item.reference || item.reference.role === "reference").map((item) => item.versionId));
-    return projectAssetChoices(assets).filter((asset) => isUnitBindingAsset(asset) && asset.primaryVersionId && !bound.has(asset.primaryVersionId) && (!replace || asset.category === replace.asset.category));
+    return projectAssetChoices(assets).filter((asset) => {
+        const version = asset.confirmedImageVersionId || asset.primaryVersionId;
+        return isUnitBindingAsset(asset) && version && !bound.has(version) && (!replace || asset.category === replace.asset.category);
+    });
 }
