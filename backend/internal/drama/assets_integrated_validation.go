@@ -84,14 +84,14 @@ func ValidateIntegratedAssetsText(text string) error {
 				if len(variant.Scenes) == 0 {
 					return fail("variants.scenes正整数数组")
 				}
-				if jsTrim(variant.Appearance) == "" {
-					return fail("variants.appearance（复用子卡也需重述本阶段外观）")
+				if variant.AssetID == "" && jsTrim(variant.Appearance) == "" {
+					return fail("variants.appearance（新增造型需描述可见差异）")
 				}
-				if jsTrim(variant.PromptEn) == "" {
-					return fail("variants.prompt_en（复用子卡也需完整英文摘要）")
+				if variant.AssetID == "" && jsTrim(variant.PromptEn) == "" {
+					return fail("variants.prompt_en（新增造型需英文摘要）")
 				}
-				if jsTrim(variant.GenerationPrompt) == "" || jsLen(variant.GenerationPrompt) > 16000 {
-					return fail("variants.generation_prompt（本阶段完整四宫格提示词，1～16000字符，复用子卡也不可留空）")
+				if (variant.AssetID == "" && jsTrim(variant.GenerationPrompt) == "") || jsLen(variant.GenerationPrompt) > 16000 {
+					return fail("variants.generation_prompt（新增造型需完整四宫格提示词，最多16000字符）")
 				}
 				for _, scene := range variant.Scenes {
 					if scene < 1 {

@@ -72,8 +72,8 @@ func (u *routedUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 const (
 	variantLinMain = `{"category": "character", "name": "林小满", "aliases": [], "appearance": "二十五岁女护士，齐耳短发，护士蓝 #5B7FA3 护士服", "prompt_en": "character turnaround sheet, young nurse, Nurse Blue #5B7FA3 uniform", "first_scene": 1, "palette_hint": "护士蓝", "variants": []}`
-	variantLinWet  = `{"category": "character", "name": "林小满", "aliases": [], "appearance": "", "prompt_en": "", "first_scene": 2, "palette_hint": "", "variants": [{"label": "淋湿", "kind": "state", "scenes": [2], "appearance": "护士服湿透贴身，发梢滴水", "prompt_en": "same nurse, soaking wet uniform, dripping hair"}]}`
-	variantLinEp2  = `{"category": "character", "name": "林小满", "aliases": [], "appearance": "", "prompt_en": "", "first_scene": 1, "palette_hint": "", "variants": [{"label": "淋湿", "kind": "state", "scenes": [1], "appearance": "", "prompt_en": ""}, {"label": "西服", "kind": "costume", "scenes": [1], "appearance": "深灰西服套装", "prompt_en": "same woman in a dark grey suit"}]}`
+	variantLinWet  = `{"category": "character", "name": "林小满", "aliases": [], "appearance": "", "prompt_en": "", "first_scene": 2, "palette_hint": "", "variants": [{"label": "淋湿", "kind": "state", "scenes": [2], "appearance": "护士服湿透贴身，发梢滴水", "prompt_en": "same nurse, soaking wet uniform, dripping hair", "visual_delta":{"visible_state":"护士服湿透","evidence":"林小满的护士服湿透了"}}]}`
+	variantLinEp2  = `{"category": "character", "name": "林小满", "aliases": [], "appearance": "", "prompt_en": "", "first_scene": 1, "palette_hint": "", "variants": [{"label": "淋湿", "kind": "state", "scenes": [1], "appearance": "", "prompt_en": ""}, {"label": "西服", "kind": "costume", "scenes": [1], "appearance": "深灰西服套装", "prompt_en": "same woman in a dark grey suit", "visual_delta":{"clothing":"深灰西服套装","evidence":"林小满换上深灰西服套装"},"start_after":"林小满换上深灰西服套装"}]}`
 )
 
 // 还没有场次色卡时提取资产：400 palette_required；场次表接口标出这一集还没有色卡。做完场次色卡后两集都能提取。
@@ -117,6 +117,20 @@ func TestAssetsExtractRequiresScenePalette(t *testing.T) {
 func TestScenePaletteChainsAssetsExtractWithVariants(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
 	project, episodes := seedEpisodeProject(t, svc, db)
+	for i, line := range []string{"（林小满的护士服湿透了。）", "（林小满换上深灰西服套装。）"} {
+		text := plainTextToHTML(chapterPlainText(episodes[i].SourceText) + "\n" + line)
+		if err := db.Model(&model.ProjectUnit{}).Where("id = ?", episodes[i].ID).Update("source_text", text).Error; err != nil {
+			t.Fatal(err)
+		}
+		unit, err := svc.repo.ProjectUnit(project.ID, episodes[i].ID)
+		if err != nil || !strings.Contains(chapterPlainText(unit.SourceText), line) {
+			t.Fatalf("script fixture was not updated: %v %+v", err, unit)
+		}
+		scene := drama.AssetsExtractScenes(chapterPlainText(unit.SourceText), unit.Title)
+		if len(scene) != 0 && !strings.Contains(scene[len(scene)-1].AssetSourceText, line) {
+			t.Fatalf("script fixture was not in the target scene: %+v", scene)
+		}
+	}
 	palette := scenePaletteUpstream()
 	ep1 := &streamingShotsUpstream{scenes: map[string][]string{"E01S01": {variantLinMain, assetsHall}, "E01S02": {variantLinWet, assetsLift}}}
 	ep2 := &streamingShotsUpstream{scenes: map[string][]string{"E01S01": {variantLinEp2, assetsInLift}}}
@@ -392,7 +406,7 @@ func TestDramaVariantQueueReportsParentDependency(t *testing.T) {
 	}
 }
 
-// 资产页改、删子卡：改外观加一版、旧三视图不搬；被镜头引用的子卡不能删（列出镜头），解除引用后能删（移出项目）。
+// 改外观后旧三视图仍可用；被镜头引用时不能移出子卡。
 // 子卡换版本只让引用子卡的镜头产物过期，引用主卡的不动。
 func TestDramaAssetVariantEditDeleteAndFollow(t *testing.T) {
 	svc, db := newDramaWorkerTestService(t)
@@ -457,19 +471,19 @@ func TestDramaAssetVariantEditDeleteAndFollow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Asset.Title != "林小满·正装" || updated.Asset.Variant.Label != "正装" || !slices.Equal(updated.Asset.Variant.Scenes, []string{"E02S01"}) || updated.Asset.Character.VisualStatus == "ready" || updated.Asset.VersionCount != 3 {
-		t.Fatalf("改子卡：改名、改场、外观变了加一版且旧图不搬：%+v %+v", updated.Asset, updated.Asset.Character)
+	if updated.Asset.Title != "林小满·正装" || updated.Asset.Variant.Label != "正装" || !slices.Equal(updated.Asset.Variant.Scenes, []string{"E02S01"}) || updated.Asset.Character.VisualStatus != "ready" || !updated.Asset.SettingsImageOutdated || updated.Asset.VersionCount != 3 {
+		t.Fatalf("子卡外观修订后需保留旧图并标明对应设定：%+v %+v", updated.Asset, updated.Asset.Character)
 	}
-	if refs := shotReferencesByRole(t, db, childShot.ID, "reference"); len(refs) != 1 || refs[0].AssetVersionID != updated.Asset.PrimaryVersionID {
-		t.Fatalf("引用子卡的镜头跟到新版本：%+v", refs)
+	if refs := shotReferencesByRole(t, db, childShot.ID, "reference"); len(refs) != 1 || refs[0].AssetVersionID != child.PrimaryVersionID {
+		t.Fatalf("镜头保持此前确认的子卡版本：%+v", refs)
 	}
 	var artifacts []model.ShotArtifact
 	if err := db.Where("project_id = ?", project.ID).Find(&artifacts).Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, a := range artifacts {
-		if (a.ShotID == childShot.ID) != (a.Status == "stale") {
-			t.Fatalf("只有引用子卡的镜头产物过期：%s %s", a.ShotID, a.Status)
+		if a.Status == "stale" {
+			t.Fatalf("编辑资产设定不应让已有产物过期：%s %s", a.ShotID, a.Status)
 		}
 	}
 
@@ -847,7 +861,7 @@ func TestSectionShotsVariantBindingPaths(t *testing.T) {
 					}
 					keys := strings.Join(referenceKeys(t, db, seg.ShotID), ",")
 					for id, a := range family {
-						if has := strings.Contains(keys, a.PrimaryVersionID); has != (id == want) {
+						if has := strings.Contains(keys, firstNonEmpty(a.ConfirmedImageVersion, a.PrimaryVersionID)); has != (id == want) {
 							t.Fatalf("%s：段 %s（%s）绑 %s，%s 却 has=%v：%s", path, seg.Spec.ID, seg.Spec.Section, family[want].Title, a.Title, has, keys)
 						}
 					}
@@ -875,7 +889,7 @@ func TestSectionShotsVariantBindingPaths(t *testing.T) {
 							continue
 						}
 						for id, a := range family {
-							if has := slices.Contains(sub.Refs, a.PrimaryVersionID); has != (id == want) {
+							if has := slices.Contains(sub.Refs, firstNonEmpty(a.ConfirmedImageVersion, a.PrimaryVersionID)); has != (id == want) {
 								t.Fatalf("%s：段 %s 镜头 %s 的 refs 应是 %s，%s has=%v：%v", path, seg.Spec.ID, sub.ShotID, family[want].Title, a.Title, has, sub.Refs)
 							}
 						}
@@ -919,16 +933,16 @@ func TestSectionShotsVariantBindingPaths(t *testing.T) {
 				expect("只重跑一节", lin, wet)
 				return
 			}
-			// 淋湿加一版不出图：重装、只重跑一节（留下的节是淋湿有图时写的）、整章重跑都退回主卡。
+			// 编辑淋湿造型但还未更新参考图片：三条路径都继续使用已确认的原子卡版本。
 			if _, err := svc.UpdateDramaAssetVariant("user-1", project.ID, wet, DramaAssetVariantRequest{Label: "淋湿", Look: "护士服湿透、发梢滴水", Scenes: []string{"E01S02"}}); err != nil {
 				t.Fatal(err)
 			}
 			repack()
-			expect("去图后重装", lin, lin)
+			expect("改设定后重装", lin, wet)
 			onlyOne()
-			expect("去图后只重跑一节", lin, lin)
-			runChapter("去图后整章生成", nil)
-			expect("去图后整章", lin, lin)
+			expect("改设定后只重跑一节", lin, wet)
+			runChapter("改设定后整章生成", nil)
+			expect("改设定后整章", lin, wet)
 			// 淋湿补上图再重装：第 2 场换回淋湿。
 			draw(wet, color.White)
 			repack()

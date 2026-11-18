@@ -99,7 +99,17 @@ export function StageLook({
             ) : active === "palette" ? (
                 <LookPalettes projectId={project.id} bible={bible} palettes={palettes} episodes={data.unitsQuery.isSuccess ? episodeUnits : undefined} textModel={stepModels.text} />
             ) : assetsTab ? (
-                <LookAssets project={project} category={active} assets={assets} imageModel={stepModels.image} selectedId={selectedId} retrying={retrying} onSelect={onSelect} onRetry={onRetry} />
+                <LookAssets
+                    project={project}
+                    category={active}
+                    assets={assets}
+                    currentUnit={unit ? { id: unit.id, episode: scenesQuery.data?.episode } : undefined}
+                    imageModel={stepModels.image}
+                    selectedId={selectedId}
+                    retrying={retrying}
+                    onSelect={onSelect}
+                    onRetry={onRetry}
+                />
             ) : (
                 <StageLayout>
                     <div className="drama-flow-panel">

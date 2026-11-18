@@ -245,9 +245,9 @@ func (r *Repository) CreateProjectCharacter(projectID string, asset *model.Asset
 }
 
 // SaveCharacterVersion 通过不可变版本替换角色当前状态，旧镜头仍可继续引用历史版本。
-func (r *Repository) SaveCharacterVersion(projectID string, asset *model.Asset, version *model.AssetVersion, representations []model.AssetRepresentation, voice *model.CharacterVoiceBinding) error {
+func (r *Repository) SaveCharacterVersion(projectID string, asset *model.Asset, version *model.AssetVersion, representations []model.AssetRepresentation, voice *model.CharacterVoiceBinding, followShots bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := saveCharacterVersion(tx, asset, version, representations, voice); err != nil {
+		if err := saveAssetVersion(tx, asset, version, representations, voice, followShots); err != nil {
 			return err
 		}
 		projectIDs := []string{}
@@ -287,6 +287,10 @@ func (r *Repository) ConfirmProjectCharacterCandidate(candidate *model.ProjectAs
 }
 
 func saveCharacterVersion(tx *gorm.DB, asset *model.Asset, version *model.AssetVersion, representations []model.AssetRepresentation, voice *model.CharacterVoiceBinding) error {
+	return saveAssetVersion(tx, asset, version, representations, voice, true)
+}
+
+func saveAssetVersion(tx *gorm.DB, asset *model.Asset, version *model.AssetVersion, representations []model.AssetRepresentation, voice *model.CharacterVoiceBinding, followShots bool) error {
 	if err := tx.Create(version).Error; err != nil {
 		return err
 	}
@@ -302,7 +306,7 @@ func saveCharacterVersion(tx *gorm.DB, asset *model.Asset, version *model.AssetV
 	}
 	result := tx.Model(&model.Asset{}).Where("id = ? AND user_id = ?", asset.ID, asset.UserID).Updates(map[string]any{
 		"kind": asset.Kind, "category": asset.Category, "status": asset.Status, "primary_version_id": asset.PrimaryVersionID,
-		"title": asset.Title, "payload_json": asset.PayloadJSON, "updated_at": asset.UpdatedAt,
+		"title": asset.Title, "variant_label": asset.VariantLabel, "payload_json": asset.PayloadJSON, "updated_at": asset.UpdatedAt,
 	})
 	if result.Error != nil {
 		return result.Error
@@ -310,7 +314,9 @@ func saveCharacterVersion(tx *gorm.DB, asset *model.Asset, version *model.AssetV
 	if result.RowsAffected != 1 {
 		return gorm.ErrRecordNotFound
 	}
-	// 新版本就是主版本：引用旧版本的镜头跟上（换定妆、改设定、资产设计合并加版本都走这里）。
+	if !followShots {
+		return nil
+	}
 	_, err := followAssetVersion(tx, asset.ID, version.ID, asset.UpdatedAt)
 	return err
 }

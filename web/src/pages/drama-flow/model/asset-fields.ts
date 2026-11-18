@@ -39,12 +39,12 @@ export function assetFields(asset: ProjectAsset): Array<{ label: string; value: 
               ["性格", def.personality],
               ["别名与称呼", def.aliases],
               ["原文依据", evidenceText(def)],
-              ["出图提示词", def.prompt || def.promptEn],
+              ["出图提示词", def.generationPrompt || def.multiViewPrompt || def.prompt || def.promptEn],
           ]
         : [
               ["描述", def.description],
               ["原文依据", evidenceText(def)],
-              ["出图提示词", def.prompt],
+              ["出图提示词", def.generationPrompt || def.prompt],
           ];
     return rows.map(([label, value]) => ({ label, value: text(value) }));
 }

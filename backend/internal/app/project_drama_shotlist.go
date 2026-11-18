@@ -622,7 +622,7 @@ func (s *Service) WriteDramaShotlist(userID string, projectID string, unitID str
 		return DramaShotlistWriteResult{}, err
 	}
 	script := dramaShotlistScript(unit, req.LegacyScenes)
-	assets, err := s.ProjectAssets(userID, projectID)
+	assets, err := s.storyboardAssets(userID, projectID)
 	if err != nil {
 		return DramaShotlistWriteResult{}, err
 	}
@@ -1267,7 +1267,7 @@ func (s *Service) dramaRefLookup(userID string, projectID string, seg drama.Segm
 	if len(seg.Refs) == 0 {
 		return func(string) dramaRefAsset { return dramaRefAsset{} }, nil
 	}
-	assets, err := s.ProjectAssets(userID, projectID)
+	assets, err := s.storyboardAssets(userID, projectID)
 	if err != nil {
 		return nil, err
 	}

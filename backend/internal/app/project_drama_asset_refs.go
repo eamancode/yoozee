@@ -75,7 +75,15 @@ func (s *Service) dramaAssetImageRefs(userID string, project *model.Project, ass
 		if err != nil {
 			return nil, err
 		}
-		id, err := s.versionImageResource(parent.PrimaryVersionID, "turnaround_sheet", "front", "primary")
+		reference := parent
+		age, _ := definition["age"].(string)
+		if age != "" {
+			reference, err = s.variantReferenceAtAge(userID, project.ID, asset, parent, age)
+			if err != nil {
+				return nil, err
+			}
+		}
+		id, err := s.versionImageResource(confirmedImageVersion(reference), "turnaround_sheet", "front", "primary")
 		if err != nil {
 			return nil, err
 		}
@@ -85,6 +93,9 @@ func (s *Service) dramaAssetImageRefs(userID string, project *model.Project, ass
 		label := fmt.Sprintf("主卡「%s」已确认的三视图：脸型、五官、发型、肤色、体型与它完全一致，只换服装或状态", parent.Title)
 		if drama.IntegratedAssets(project.WorkflowID) {
 			label = fmt.Sprintf("主卡「%s」已确认的四宫格：保持同一人物的面部辨识与肤色；年龄阶段、服装、发型及临时状态以当前子卡明确差异为准，不叠加主卡默认服装", parent.Title)
+		}
+		if age != "" {
+			label = fmt.Sprintf("同一人物的已确认参考图「%s」：保留可辨识的面部关联。年龄、发型、服装及体型以本子卡的设定为准。", reference.Title)
 		}
 		refs = append(refs, dramaImageRef{ResourceID: id, Label: label})
 	}
@@ -116,6 +127,35 @@ func (s *Service) dramaAssetImageRefs(userID string, project *model.Project, ass
 		}
 	}
 	return refs, nil
+}
+
+func confirmedImageVersion(asset *model.Asset) string {
+	pinned, _ := payloadMetadata(assetPayload(asset))[assetSettingsImageVersion].(string)
+	return firstNonEmpty(pinned, asset.PrimaryVersionID)
+}
+
+func (s *Service) variantReferenceAtAge(userID, projectID string, asset model.Asset, parent *model.Asset, age string) (*model.Asset, error) {
+	siblings, err := s.projectVariants(userID, projectID, parent.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, sibling := range siblings {
+		if sibling.ID == asset.ID || sibling.Status == model.AssetVersionStatusArchived || confirmedImageVersion(&sibling) != sibling.PrimaryVersionID {
+			continue
+		}
+		delta := assetVariantMetaOf(&sibling).VisualDelta
+		if delta == nil || drama.AssetNameKey(delta.AgeStage) != drama.AssetNameKey(age) {
+			continue
+		}
+		image, err := s.versionImageResource(sibling.PrimaryVersionID, "turnaround_sheet", "front", "primary")
+		if err != nil {
+			return nil, err
+		}
+		if image != "" {
+			return &sibling, nil
+		}
+	}
+	return parent, nil
 }
 
 // sceneEnvironmentPaletteRef 是场景资产的本场色卡：场景回填绑到的第一场（场编号排在最前的），没绑时取提取时记的第一次出现的场。

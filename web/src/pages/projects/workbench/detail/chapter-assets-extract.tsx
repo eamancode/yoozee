@@ -1,5 +1,5 @@
 import { projectWorkflow } from "@/lib/project-workflow";
-import { App, Button, Modal, Switch } from "antd";
+import { App, Button, Modal, Select, Switch } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { UsersRound } from "lucide-react";
@@ -45,7 +45,7 @@ type AssetsExtractControlProps = {
     disabledReason?: string;
 };
 
-type Settings = { textModel: string; images: boolean; imageModel: string };
+type Settings = { textModel: string; images: boolean; imageModel: string; scope: "project" | "unit" };
 
 const CHAINED_ASSETS_KEY = "drama-assets-follow:";
 const CHAINED_ASSETS_EVENT = "drama-assets-follow";
@@ -173,7 +173,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
     const [stream, setStream] = useState<{ taskId: string; unitId: string; text: string }>({ taskId: "", unitId: "", text: "" });
     const [resumeView, setResumeView] = useState<{ from: number; total: number; previous: AssetsExtractStreamState }>();
     const followedRef = useRef(new Set<string>());
-    const [settings, setSettings] = useState<Settings>({ textModel: "", images: true, imageModel: "" });
+    const [settings, setSettings] = useState<Settings>({ textModel: "", images: true, imageModel: "", scope: "unit" });
     const textPicker = dialogModelPicker("text", stepModels, settings.textModel, (textModel) => setSettings((current) => ({ ...current, textModel })));
     const imagePicker = dialogModelPicker("image", stepModels, settings.imageModel, (imageModel) => {
         setPrecheckError("");
@@ -227,7 +227,8 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
         setPrecheckError("");
         setSettings((current) => ({
             textModel: effectiveConfig.textModel || effectiveConfig.model || effectiveConfig.textModels[0] || "",
-            images: current.images,
+            scope: units.length > 1 ? "project" : "unit",
+            images: units.length > 1 ? false : current.images,
             imageModel: defaultImageModel(),
         }));
         setOpen(true);
@@ -239,7 +240,8 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
 
     const start = async (options: { resumeTaskId?: string } = {}) => {
         if (!unit) return;
-        if (paletteMissing && unit.id === selectedUnitId) return message.warning(PALETTE_REQUIRED_HINT);
+        const projectScope = !options.resumeTaskId && settings.scope === "project";
+        if (!projectScope && paletteMissing && unit.id === selectedUnitId) return message.warning(PALETTE_REQUIRED_HINT);
         if (detail.project.status === "archived") return message.warning("项目已归档，请先在项目设置中恢复");
         const resumeModel = options.resumeTaskId ? (checkpoint || taskDetail)?.model || "" : undefined;
         const { model: textModel, issue } = dialogTextSubmission(stepModels?.text, effectiveConfig, settings.textModel, resumeModel);
@@ -279,14 +281,20 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
         setStream({ taskId: "", unitId: unit.id, text: "" });
         setResumeView(options.resumeTaskId && resume ? { from: resume.from, total: resume.total, previous: assetsExtractStreamFromResult(checkpoint?.resultJson) } : undefined);
         setPanelOpen(true);
+        let startedTaskId = "";
+        let startedUnitId = unit.id;
         try {
             const result = await runAssetsExtract(
-                { projectId, unitId: unit.id, config: submission.textConfig(config, resumeModel, imageTask), imageTask, resumeTaskId: options.resumeTaskId },
+                { projectId, unitId: unit.id, config: submission.textConfig(config, resumeModel, imageTask), imageTask, resumeTaskId: options.resumeTaskId, assetScope: projectScope ? "project" : undefined },
                 {
                     onTaskUpdate: (task) => {
                         if (images && imageTask) useDramaModelPreferencesStore.getState().remember("image", imageModel, task.userId);
                         followedRef.current.add(task.id);
-                        setStream((current) => ({ taskId: task.id, unitId: unit.id, text: current.taskId && current.taskId !== task.id ? "" : current.text }));
+                        startedTaskId = task.id;
+                        startedUnitId = taskUnitId(task) || unit.id;
+                        setStarting(startedUnitId);
+                        if (startedUnitId !== unit.id) setFollowUnitId(startedUnitId);
+                        setStream((current) => ({ taskId: task.id, unitId: startedUnitId, text: current.taskId && current.taskId !== task.id ? "" : current.text }));
                     },
                     onStreamText: (text) => setStream((current) => ({ ...current, text })),
                 },
@@ -301,6 +309,7 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 message.warning(PALETTE_REQUIRED_HINT);
             } else {
                 message.error(error instanceof Error ? `提取资产失败：${error.message}` : "提取资产失败");
+                if (projectScope && startedTaskId) void followAfterFailure(startedTaskId, startedUnitId, error instanceof Error ? error.message : "");
             }
         } finally {
             setStarting("");
@@ -415,12 +424,12 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
                 <Button
                     size="small"
                     icon={<UsersRound className="size-3.5" />}
-                    disabled={disabled || selectedRunning || !selectedUnit || paletteMissing}
+                    disabled={disabled || selectedRunning || running || !selectedUnit || (paletteMissing && units.length < 2)}
                     loading={selectedRunning}
                     onClick={openDialog}
                     aria-label={paletteMissing ? `提取角色、场景与道具（${PALETTE_REQUIRED_HINT}）` : "提取角色、场景与道具"}
                 >
-                    {selectedRunning ? "提取资产中" : paletteMissing ? "提取资产（先生成场次色卡）" : selectedFailed ? "重新提取资产（上次失败）" : selectedTask?.status === "succeeded" ? "提取资产（已提取）" : "提取资产"}
+                    {selectedRunning ? "提取资产中" : paletteMissing && units.length < 2 ? "提取资产（先生成场次色卡）" : selectedFailed ? "重新提取资产（上次失败）" : selectedTask?.status === "succeeded" ? "提取资产（已提取）" : "提取资产"}
                 </Button>
             </Tooltip>
             {running || latestTask ? (
@@ -430,17 +439,31 @@ export function AssetsExtractControl({ detail, unit: selectedUnit, units, palett
             ) : null}
             <Modal
                 className="library-modal"
-                title={`提取${unitNoun === "集" ? "本集" : "本章"}角色、场景与道具`}
+                title="提取角色、场景与道具"
                 open={open}
                 width={540}
                 okText="开始提取"
                 cancelText="取消"
-                okButtonProps={{ disabled: !textPicker.value || !usage || (settings.images && !imagePicker.value), loading: preparing }}
+                okButtonProps={{ disabled: !textPicker.value || !usage || (settings.images && !imagePicker.value) || (settings.scope === "unit" && paletteMissing), loading: preparing }}
                 onCancel={() => setOpen(false)}
                 onOk={() => void start()}
                 styles={{ body: { paddingTop: 12 } }}
             >
                 <div className="grid gap-4">
+                    {units.length > 1 ? (
+                        <label className="grid gap-1.5 text-xs">
+                            <span className="font-medium">提取范围</span>
+                            <Select
+                                value={settings.scope}
+                                options={[
+                                    { value: "project", label: "全剧 · 按顺序处理尚未覆盖或正文有变化的剧集" },
+                                    { value: "unit", label: `仅处理本${unitNoun}` },
+                                ]}
+                                onChange={(scope: Settings["scope"]) => setSettings((current) => ({ ...current, scope, images: false }))}
+                            />
+                            {settings.scope === "project" ? <span className="text-foreground/60">已有角色与造型可跨集复用。此轮只处理已有场次色卡的剧集。</span> : null}
+                        </label>
+                    ) : null}
                     <div className="rounded-lg border border-border/70 bg-foreground/[.018] px-3 py-2.5">
                         <div className="text-[var(--fs-tiny)] text-foreground/42">当前{unitNoun}</div>
                         <div className="mt-1 truncate text-sm font-medium text-foreground/85">{unit?.title}</div>

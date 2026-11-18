@@ -20,6 +20,7 @@ type ProjectAssetVisualSummary struct {
 type BindProjectAssetImageRequest struct {
 	ResourceID        string `json:"resourceId"`
 	ExpectedVersionID string `json:"expectedVersionId"`
+	KeepShotVersions  bool   `json:"keepShotVersions,omitempty"`
 }
 
 func projectVisualCategory(category model.AssetCategory) bool {
@@ -135,6 +136,10 @@ func (s *Service) bindProjectAssetImage(userID, projectID, assetID string, req B
 		metadata = map[string]any{}
 	}
 	metadata["projectAssetImageHistory"] = history
+	delete(metadata, assetSettingsImageVersion)
+	if req.KeepShotVersions {
+		metadata[assetSettingsKeepShotVersions] = true
+	}
 	payload["metadata"] = metadata
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -146,7 +151,7 @@ func (s *Service) bindProjectAssetImage(userID, projectID, assetID string, req B
 		info, _ := json.Marshal(assetWorkflowLayoutMetadata("spatial-master"))
 		representation.MetadataJSON = string(info)
 	}
-	applied, err := s.repo.CommitProjectAssetImage(projectID, req.ExpectedVersionID, asset, &version, &representation)
+	applied, err := s.repo.CommitProjectAssetImage(projectID, req.ExpectedVersionID, asset, &version, &representation, !assetKeepsShotVersions(asset))
 	if err != nil {
 		// 多实例对同一任务收尾时只允许一个提交；其他实例按重放处理。
 		existing, readErr := s.repo.AssetRepresentationsForTask(operationID)
