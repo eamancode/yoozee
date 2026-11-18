@@ -186,7 +186,11 @@ func (s *Service) sceneReview(userID string, project *model.Project, shot *model
 			}
 		}
 	}
-	view.Required = binding != nil || view.Expected.VersionID != "" || slices.ContainsFunc(spaces, func(scene drama.SceneSpace) bool { return scene.Defined })
+	// A stored text-only shot with no scene asset stays a valid text-only
+	// shot. Older shots that actually carry a scene image must still resolve
+	// their scene identity before using it.
+	view.Required = binding != nil || view.Expected.VersionID != "" ||
+		(location >= 0 && slices.ContainsFunc(spaces, func(scene drama.SceneSpace) bool { return scene.Defined }))
 	if !view.Required {
 		return view, nil
 	}
