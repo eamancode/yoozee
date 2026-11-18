@@ -399,7 +399,7 @@ func (s *Service) ApplyUserCanvasOperations(userID, canvasID string, req CanvasO
 			if err := quota(tx, existing == nil, int64(len(project.PayloadJSON)-len(existingPayload))); err != nil {
 				return err
 			}
-			if err := tx.UpsertCanvasProject(&project); err != nil {
+			if err := SaveDocumentWithHistory(tx, existing, &project, "automatic"); err != nil {
 				return err
 			}
 			result = UserDataSummary{ID: project.ID, Title: project.Title, CreatedAt: project.CreatedAt, UpdatedAt: project.UpdatedAt, Revision: project.Revision,
@@ -425,6 +425,10 @@ func (s *Service) ApplyUserCanvasOperations(userID, canvasID string, req CanvasO
 	}
 	if errors.Is(err, repository.ErrCanvasEditLease) {
 		return UserDataSummary{}, canvasMutationError("canvas_edit_lease_conflict", err.Error())
+	}
+	var missing *repository.CanvasHistoryResourceMissingError
+	if errors.As(err, &missing) {
+		return UserDataSummary{}, canvasResourcesMissingError(missing.References)
 	}
 	return result, err
 }
