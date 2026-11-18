@@ -74,11 +74,12 @@ type DramaGateResult struct {
 }
 
 type DramaCompileResult struct {
-	ShotID        string              `json:"shotId"`
-	Spec          drama.Segment       `json:"spec"`
-	Derived       bool                `json:"derived"`
-	Result        drama.CompileResult `json:"result"`
-	VoiceBindings []DramaVoiceBinding `json:"voiceBindings,omitempty"`
+	ShotID         string                `json:"shotId"`
+	Spec           drama.Segment         `json:"spec"`
+	Derived        bool                  `json:"derived"`
+	Result         drama.CompileResult   `json:"result"`
+	SceneReference *SceneReferenceReview `json:"sceneReference,omitempty"`
+	VoiceBindings  []DramaVoiceBinding   `json:"voiceBindings,omitempty"`
 	// CompileProfile 是这次编译用的编译档案（0 为内置默认）；段里的镜头画面句是装段时按当时的档案写的。
 	CompileProfile DramaCompileProfileRef `json:"compileProfile"`
 }
@@ -93,7 +94,8 @@ type ProjectDramaSegmentView struct {
 	Spec       drama.Segment `json:"spec"`
 	Derived    bool          `json:"derived"`
 	// Issues 是本章镜头表检查的 error 里挂在这一段镜头上的（带问题装段后才有；镜头表还是没装段的草稿时不挂，段对不上）。
-	Issues []drama.ShotIssue `json:"issues,omitempty"`
+	Issues      []drama.ShotIssue `json:"issues,omitempty"`
+	SceneReview []string          `json:"sceneReview,omitempty"`
 }
 
 type DramaSegmentsWriteRequest struct {
@@ -110,6 +112,8 @@ type DramaSegmentsWriteRequest struct {
 	Shots []json.RawMessage `json:"shots,omitempty"`
 	// ShotlistVersion 是编辑时读到的镜头表版本：给了且与库里不同（期间重新生成或重装过）就拒绝，免得覆盖新结果。
 	ShotlistVersion int `json:"shotlistVersion,omitempty"`
+	repairShotID    string
+	repairRevision  string
 }
 
 // DramaModels 返回可选的生成模型目录。
@@ -585,7 +589,8 @@ func projectDramaNonEmpty(values ...string) []string {
 
 // DramaSegments 列出项目（或某章）的全部段。
 func (s *Service) DramaSegments(userID string, projectID string, unitID string) ([]ProjectDramaSegmentView, error) {
-	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
+	project, err := s.repo.ProjectForUser(userID, projectID)
+	if err != nil {
 		return nil, err
 	}
 	shots, err := s.repo.ProjectShots(projectID)
@@ -601,6 +606,15 @@ func (s *Service) DramaSegments(userID string, projectID string, unitID string) 
 		unitTitles[unit.ID] = unit.Title
 	}
 	assets := s.dramaAssetIndex(userID, projectID)
+	var sceneSpaces []drama.SceneSpace
+	if unitID != "" {
+		if unit, err := s.repo.ProjectUnit(projectID, unitID); err == nil {
+			sceneSpaces, err = s.sceneSpaces(userID, project, unit)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	out := []ProjectDramaSegmentView{}
 	for i := range shots {
 		shot := &shots[i]
@@ -614,6 +628,16 @@ func (s *Service) DramaSegments(userID string, projectID string, unitID string) 
 		view := ProjectDramaSegmentView{ShotID: shot.ID, UnitID: shot.UnitID, Title: shot.Title, Position: shot.Position, DurationMs: shot.DurationMs, Spec: seg, Derived: derived}
 		if revision != nil {
 			view.RevisionID = revision.ID
+		}
+		if len(sceneSpaces) > 0 {
+			review, err := s.sceneReview(userID, project, shot, seg, sceneSpaces)
+			if err != nil {
+				return nil, err
+			}
+			view.SceneReview = review.Issues
+			if review.Required && len(view.SceneReview) == 0 && !review.TextOnly && review.Current.Facts == nil {
+				view.SceneReview = []string{"场景图的空间锚点待核对"}
+			}
 		}
 		out = append(out, view)
 	}
@@ -698,6 +722,22 @@ func (s *Service) writeDramaSegmentsTransaction(userID string, projectID string,
 		byID[view.Spec.ID] = view
 		maxPosition = max(maxPosition, view.Position)
 		current = append(current, drama.ExistingSegment{ID: view.Spec.ID, Derived: view.Derived})
+	}
+	if req.repairShotID != "" {
+		index := slices.IndexFunc(existing, func(view ProjectDramaSegmentView) bool { return view.ShotID == req.repairShotID })
+		if index < 0 || (req.repairRevision != "" && existing[index].RevisionID != req.repairRevision) {
+			return nil, directorDocumentConflict("返修开始后本段已更新，请按当前场景和描述重新返修")
+		}
+		for i := range parsed {
+			if parsed[i].ID == existing[index].Spec.ID {
+				if err := s.preserveRepairedScene(userID, projectID, existing[index].Spec, &parsed[i]); err != nil {
+					return nil, err
+				}
+				if issues := drama.Issues(parsed[i], m); drama.HasError(issues) {
+					return nil, BadAuthRequest(issues[0].Message)
+				}
+			}
+		}
 	}
 	removed, err := drama.PlanSegmentOrder(req.Order, written, current)
 	if err != nil {
@@ -884,7 +924,10 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 	if strings.TrimSpace(seg.Verbatim) != "" {
 		compiled, err := s.compileOntologyShot(shot, seg, derived, m, lookup)
 		compiled.VoiceBindings = voiceBindings
-		return compiled, err
+		if err != nil {
+			return compiled, err
+		}
+		return s.withSceneReference(userID, project, shot, m, compiled)
 	}
 	// 2.1 段写了风格档案（由镜头表装出）：默认风格块和表演块取档案的，与本机 compile.py 一致。
 	var profile *drama.Profile
@@ -925,7 +968,7 @@ func (s *Service) CompileProjectShot(userID string, projectID string, shotID str
 		result.Paste += "\n\n" + spatialNote
 		result.Chars += len([]rune("\n\n" + spatialNote))
 	}
-	return DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result, VoiceBindings: voiceBindings, CompileProfile: compileProfileRef(phrases)}, nil
+	return s.withSceneReference(userID, project, shot, m, DramaCompileResult{ShotID: shot.ID, Spec: seg, Derived: derived, Result: result, VoiceBindings: voiceBindings, CompileProfile: compileProfileRef(phrases)})
 }
 
 // shotScenePalette 是这一段绑的本场色卡（role=style 引用的场次色卡版本）：版本有合成图时带上版本 ID 当参考图，没有图时只给色值；

@@ -89,12 +89,14 @@ type ProjectVideoChainView struct {
 
 type videoChainStepState struct {
 	ProjectVideoChainStep
-	CompiledModel  string            `json:"compiledModel,omitempty"`
-	Input          map[string]any    `json:"input"`
-	LogicalModelID string            `json:"logicalModelId,omitempty"`
-	Signature      string            `json:"signature"`
-	Uploads        map[string]string `json:"uploads,omitempty"`
-	UploadScope    string            `json:"uploadScope,omitempty"`
+	CompiledModel   string            `json:"compiledModel,omitempty"`
+	Input           map[string]any    `json:"input"`
+	LogicalModelID  string            `json:"logicalModelId,omitempty"`
+	Signature       string            `json:"signature"`
+	SceneSignature  string            `json:"sceneSignature,omitempty"`
+	SceneResourceID string            `json:"sceneResourceId,omitempty"`
+	Uploads         map[string]string `json:"uploads,omitempty"`
+	UploadScope     string            `json:"uploadScope,omitempty"`
 }
 
 type videoChainState struct {
@@ -303,6 +305,9 @@ func (s *Service) CreateProjectVideoChain(userID, projectID string, req ProjectV
 	var saved *model.Task
 	if err == nil {
 		saved, err = s.repo.CreateProjectVideoChain(&task, policy.Task.ActiveTaskLimit, *state.WhiteModelStoryboardEnabled, func(tx *repository.Repository) error {
+			if err := (&Service{repo: tx}).verifySceneChainSnapshots(userID, projectID, state); err != nil {
+				return err
+			}
 			if !req.PrepareOnly {
 				if err := s.checkVideoChainQuoteRevision(tx, userID, projectID, state); err != nil {
 					return err

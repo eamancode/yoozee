@@ -367,7 +367,12 @@ function VideoPane({
                 {compiled ? (
                     <>
                         <pre className="drama-flow-stream">{compiled.prompt}</pre>
-                        <Button size="small" icon={<Copy className="size-3.5" />} onClick={() => void copy(compiled.prompt)}>
+                        {compileQuery.data?.sceneReference?.issues.map((issue) => (
+                            <p className="text-status-error" key={issue}>
+                                {issue}。请回分镜页核对场景。
+                            </p>
+                        ))}
+                        <Button size="small" icon={<Copy className="size-3.5" />} disabled={Boolean(compileQuery.data?.sceneReference?.issues.length)} onClick={() => void copy(compiled.prompt)}>
                             复制
                         </Button>
                     </>
@@ -390,7 +395,8 @@ function VideoPane({
                                     </span>
                                 );
                             }
-                            const preview = asset ? projectAssetReferenceImage(asset, reference)?.url : "";
+                            const scene = compileQuery.data?.sceneReference?.current;
+                            const preview = file.role === "location" && scene?.resourceId && scene.versionId === file.file ? resourceFileUrl(scene.resourceId) : asset ? projectAssetReferenceImage(asset, reference)?.url : "";
                             return (
                                 <span key={`${file.tag}-${file.file}`} title={`${file.tag} · ${file.role} · ${file.file}`}>
                                     {preview ? <img src={preview} alt="" loading="lazy" /> : null}

@@ -180,6 +180,7 @@ func (s *Service) changeSegmentAsset(userID, projectID, shotID, addVersion, repl
 	if removeID != "" && index < 0 {
 		return false, nil
 	}
+	sceneChanged := index >= 0 && seg.Refs[index].Role == "location"
 	if addVersion != "" {
 		version, err := s.repo.ProjectReferenceVersion(userID, projectID, addVersion)
 		if err != nil {
@@ -222,6 +223,7 @@ func (s *Service) changeSegmentAsset(userID, projectID, shotID, addVersion, repl
 		}
 		if asset.Category == model.AssetCategoryEnvironment {
 			role = "location"
+			sceneChanged = removeVersion != version.ID
 		}
 		if index >= 0 {
 			seg.Refs[index].File = version.ID
@@ -263,6 +265,19 @@ func (s *Service) changeSegmentAsset(userID, projectID, shotID, addVersion, repl
 	project, err := s.repo.ProjectForUser(userID, projectID)
 	if err != nil {
 		return true, err
+	}
+	if sceneChanged {
+		if seg.SceneBinding != nil {
+			seg.SceneBinding.Pending = true
+		} else {
+			review, err := s.shotSceneReview(userID, project, shot, seg)
+			if err != nil {
+				return true, err
+			}
+			if review.Required {
+				seg.SceneBinding = &drama.SceneBinding{SceneID: review.Expected.SceneID, Pending: true}
+			}
+		}
 	}
 	lookup, err := s.dramaRefLookup(userID, projectID, seg)
 	if err != nil {

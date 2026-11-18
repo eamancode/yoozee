@@ -184,14 +184,24 @@ func (s *Service) prepareDramaVideoSubmission(userID string, input map[string]an
 		}
 	}
 	marker, _ := input[videoChainMetadataKey].(map[string]any)
+	var confirmedStep *videoChainStepState
 	if controllerID := stringValue(marker["controllerId"]); controllerID != "" {
 		_, state, err := s.videoChainTaskForUser(userID, projectID, controllerID)
 		if err != nil {
 			return "", err
 		}
 		enabled = state.WhiteModelStoryboardEnabled == nil || *state.WhiteModelStoryboardEnabled
+		for i := range state.Steps {
+			if state.Steps[i].ShotID == shotID && state.Steps[i].RevisionID == revision.ID {
+				confirmedStep = &state.Steps[i]
+				break
+			}
+		}
 	}
 	segment := segmentSubmissionContent(*shot, revision)
+	if err := s.enforceSceneReferenceSubmission(userID, project, shot, revision, input, metadata, marker, basePrompt, confirmedStep); err != nil {
+		return "", err
+	}
 	workflow, _ := drama.Workflow(project.WorkflowID)
 	sss := workflow.StoryboardMode == drama.StoryboardModeSSS && strings.TrimSpace(segment.Verbatim) != ""
 	if !enabled && !sss && stringValue(marker["frameResourceId"]) != "" {

@@ -787,6 +787,16 @@ func (r *Repository) UpdateAssetVersionDefinition(assetID string, versionID stri
 	return nil
 }
 
+func (r *Repository) UpdateSceneAssetDefinition(assetID, versionID, previous, definition string, now time.Time) error {
+	result := r.db.Model(&model.AssetVersion{}).
+		Where("id = ? AND asset_id = ? AND definition_json = ?", versionID, assetID, previous).
+		Updates(map[string]any{"definition_json": definition, "updated_at": now})
+	if result.Error == nil && result.RowsAffected != 1 {
+		return ErrProjectUnitShotsChanged
+	}
+	return result.Error
+}
+
 func (r *Repository) AssetVersions(assetID string) ([]model.AssetVersion, error) {
 	var versions []model.AssetVersion
 	err := r.db.Where("asset_id = ?", assetID).Order("version desc").Find(&versions).Error

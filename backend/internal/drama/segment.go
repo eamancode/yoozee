@@ -15,6 +15,7 @@ import (
 type Segment struct {
 	ID               string            `json:"id"`
 	Scene            string            `json:"scene"`
+	SceneBinding     *SceneBinding     `json:"scene_binding,omitempty"`
 	Title            string            `json:"title,omitempty"`
 	Dur              float64           `json:"dur"`
 	Mode             string            `json:"mode"`

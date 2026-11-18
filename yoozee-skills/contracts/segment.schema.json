@@ -9,6 +9,22 @@
   "properties": {
     "id": {"type": "string", "pattern": "^S[0-9]{2,3}[a-z]?$"},
     "scene": {"type": "string", "minLength": 1},
+    "scene_binding": {
+      "type": "object",
+      "required": ["sceneId"],
+      "additionalProperties": false,
+      "description": "分镜修订固定的剧本场次与实际主场景参考图。",
+      "properties": {
+        "sceneId": {"type": "string"},
+        "location": {"type": "string"},
+        "inOut": {"type": "string"},
+        "versionId": {"type": "string"},
+        "resourceId": {"type": "string"},
+        "override": {"type": "boolean"},
+        "textOnly": {"type": "boolean"},
+        "pending": {"type": "boolean"}
+      }
+    },
     "title": {"type": "string"},
     "dur": {"type": "number", "exclusiveMinimum": 0},
     "mode": {"type": "string", "enum": ["lock_identity", "lock_first_frame", "text_only"]},

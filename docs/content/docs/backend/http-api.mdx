@@ -728,6 +728,10 @@ Agent 已不再注入、召回或写入下列经验条目，记忆设置页只�
 
 ## 短剧制作线（yoozee 1.0 skills）
 
+- `GET /projects/:id/drama/shots/:shotId/scene-reference` 返回本段剧本场次候选、当前和预期主场景图、可编辑空间段、镜头画面及冲突。加 `versionId` 查询参数可预览指定项目内场景版本实际使用的图片。
+- 同路径 `PUT` 以 `revisionId`、`sceneId`、场景版本 `versionId` 和实际图片 `resourceId` 保存场景及局部描述。使用文字场景时传 `textOnly: true` 和空版本及图片 ID。可带 `sections`、按镜头序号键控的 `shots` 与已核对 `facts`，写入空间事实时附带读取时的 `factsRevision`。
+- 编译返回 `sceneReference`，含同一次解析的图片、空间事实与快照。预览或提交发现图、空间事实或分镜过期时返回 409 `scene_reference_review_required`，附目标镜头 ID 和待处理提示。连续生成在实际执行前核对当前场景快照。
+
 分镜卡通过 `DELETE /projects/:id/shots/:shotId` 删除一个单元。路径使用稳定的镜头记录 ID。新卡头提交 `{expectedRevisionId, expectedArtifactIds}`，无产物时传空数组。服务端核对项目归属、当前版本、产物及占用任务后，在同一事务中删除本单元关联、同步本集镜头表或导演文档，并更新同场衔接。项目资产、共享文件和历史任务回执保留。成功返回 `{deleted: true}`。重复删除或目标不属于本项目返回 404，任务占用或确认过期返回 409。
 
 「段」是生成单位：一个镜头记录（Shot）就是一段，一段 = 一次视频生成，段内可以有多个镜头。单段上限由项目的生成模型决定，数据来自 `backend/builtin/kb-dialects/models.json`（与 `yoozee-skills/` 源同步，测试校验两份一致）。

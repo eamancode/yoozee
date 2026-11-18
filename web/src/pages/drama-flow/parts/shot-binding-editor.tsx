@@ -26,6 +26,7 @@ export function ShotBindingEditor({
     assets,
     assetsQuery,
     videoModel,
+    onSceneReview,
     onClose,
 }: {
     projectId: string;
@@ -33,6 +34,7 @@ export function ShotBindingEditor({
     bindings: UnitBinding[];
     assets: ProjectAsset[];
     videoModel: string;
+    onSceneReview?: () => void;
     assetsQuery: Pick<FlowData["assetsQuery"], "isError" | "isPending" | "refetch">;
     onClose: () => void;
 }) {
@@ -51,7 +53,7 @@ export function ShotBindingEditor({
     const maxAudios = videoModel ? modelCapabilityConfigFor(config, videoModel).video?.references.maxAudios : undefined;
     const insufficient = maxAudios !== undefined && audioCount > maxAudios;
     const ready = maxAudios !== undefined && !insufficient && !compiled.data?.result.issues.some((issue) => issue.level === "error");
-    const options = availableBindingAssets(assets, bindings, edit?.kind === "pick" ? edit.replace : undefined);
+    const options = availableBindingAssets(assets, bindings, edit?.kind === "pick" ? edit.replace : undefined).filter((asset) => !onSceneReview || asset.category !== "environment");
     const selection = edit?.kind === "pick" ? edit.asset : undefined;
     const submit = useMutation({
         mutationFn: async (draft: Edit) => {
@@ -132,7 +134,11 @@ export function ShotBindingEditor({
                                         </div>
                                     ) : null}
                                 </div>
-                                {editable && !edit ? (
+                                {editable && !edit && item.asset.category === "environment" && onSceneReview ? (
+                                    <Button size="small" onClick={onSceneReview}>
+                                        核对或更换场景
+                                    </Button>
+                                ) : editable && !edit ? (
                                     <div className="flex gap-1">
                                         <Button size="small" aria-label={`更换${item.title}`} onClick={() => setEdit({ kind: "pick", replace: item })}>
                                             同类更换
@@ -158,7 +164,10 @@ export function ShotBindingEditor({
                     </p>
                 ) : null}
                 {!edit ? (
-                    <Button onClick={() => setEdit({ kind: "pick" })}>绑定资产</Button>
+                    <div className="flex flex-wrap gap-2">
+                        <Button onClick={() => setEdit({ kind: "pick" })}>绑定资产</Button>
+                        {onSceneReview && !bindings.some((item) => item.asset.category === "environment") ? <Button onClick={onSceneReview}>选择本段场景</Button> : null}
+                    </div>
                 ) : edit.kind === "remove" ? (
                     <p>将解除「{edit.binding.title}」在本单元的绑定。</p>
                 ) : (

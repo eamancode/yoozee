@@ -55,31 +55,41 @@ func unitSceneEnvironments(unit model.ProjectUnit, episode int, envs []sceneEnvi
 	}
 	for _, sc := range drama.SplitScenes(chapterPlainText(unit.SourceText), unit.Title) {
 		code := drama.SceneCode(episode, sc.No)
-		pick := ""
+		best := 0
+		var tied []string
 		for _, e := range envs {
-			if drama.AssetNameKey(dramaLocationKey(e.Title)) == drama.AssetNameKey(sc.Location) && drama.AssetNameKey(sc.Location) != "" {
-				pick = e.ID
-				break
+			heading := drama.ParseSceneHeading(e.Title)
+			if sc.InOut != "" && heading.InOut != "" && sc.InOut != heading.InOut {
+				continue
+			}
+			isFirst := strings.EqualFold(e.FirstScene, code)
+			place := drama.AssetNameKey(sc.Location)
+			score := 0
+			switch {
+			case place != "" && (drama.AssetNameKey(dramaLocationKey(e.Title)) == place || drama.AssetNameKey(heading.Location) == place):
+				score = 10
+			case drama.AssetMatchesLocation(e.Title, e.Aliases, sc.Location):
+				score = 5
+			case isFirst:
+				score = 1
+			}
+			if score == 0 {
+				continue
+			}
+			if sc.InOut != "" && sc.InOut == heading.InOut {
+				score += 2
+			}
+			if isFirst {
+				score++
+			}
+			if score > best {
+				best, tied = score, []string{e.ID}
+			} else if score == best && !slices.Contains(tied, e.ID) {
+				tied = append(tied, e.ID)
 			}
 		}
-		if pick == "" {
-			for _, e := range envs {
-				if drama.AssetMatchesLocation(e.Title, e.Aliases, sc.Location) {
-					pick = e.ID
-					break
-				}
-			}
-		}
-		if pick == "" {
-			for _, e := range envs {
-				if strings.EqualFold(e.FirstScene, code) {
-					pick = e.ID
-					break
-				}
-			}
-		}
-		if pick != "" {
-			out[code] = dramaSceneAssets{UnitID: unit.ID, Environments: []string{pick}}
+		if len(tied) == 1 {
+			out[code] = dramaSceneAssets{UnitID: unit.ID, Environments: tied}
 		}
 	}
 	return out

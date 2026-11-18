@@ -34,6 +34,7 @@ const ontologyMaxMaterials = 60
 type dramaOntologyMeta struct {
 	Brief     drama.OntologyBrief      `json:"brief"`
 	Materials []drama.OntologyMaterial `json:"materials"`
+	Spaces    []drama.SceneSpace       `json:"sceneSpaces,omitempty"`
 	Bible     string                   `json:"bible,omitempty"`
 	Handoff   string                   `json:"handoff,omitempty"`
 	UnitTitle string                   `json:"unitTitle"`
@@ -64,18 +65,23 @@ func ontologyFingerprint(meta *dramaOntologyMeta) string {
 	for _, m := range meta.Materials {
 		mats = append(mats, material{m.Index, m.Name, m.VersionID})
 	}
-	encoded, _ := json.Marshal(map[string]any{"brief": meta.Brief, "materials": mats, "bible": meta.Bible, "handoff": meta.Handoff, "script": meta.Script, "unit": meta.UnitTitle, "maxImages": meta.MaxImages})
+	input := map[string]any{"brief": meta.Brief, "materials": mats, "bible": meta.Bible, "handoff": meta.Handoff, "script": meta.Script, "unit": meta.UnitTitle, "maxImages": meta.MaxImages}
+	if len(meta.Spaces) > 0 {
+		input["sceneSpaces"] = meta.Spaces
+	}
+	encoded, _ := json.Marshal(input)
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:])
 }
 
 // ontologyRepairMeta 是返修回合：只重写一个段。
 type ontologyRepairMeta struct {
-	ShotID    string `json:"shotId"`
-	SegmentID string `json:"segmentId"`
-	Unit      string `json:"unit"`
-	Symptom   string `json:"symptom"`
-	Card      string `json:"card"`
+	ShotID     string `json:"shotId"`
+	RevisionID string `json:"revisionId,omitempty"`
+	SegmentID  string `json:"segmentId"`
+	Unit       string `json:"unit"`
+	Symptom    string `json:"symptom"`
+	Card       string `json:"card"`
 	// OtherSeconds 是这一集其他单元的总时长合计（返修后的单元按每集上限扣掉它们之后的余量校验）。
 	OtherSeconds float64 `json:"otherSeconds,omitempty"`
 }
@@ -159,6 +165,19 @@ func (s *Service) planOntologyShots(userID string, project *model.Project, unit 
 	meta := &dramaOntologyMeta{
 		Brief:     ontologyProjectBrief(project, maxSeconds),
 		Materials: materials, UnitTitle: unit.Title, Script: chapterPlainText(unit.SourceText), Repair: repair,
+	}
+	if repair == nil {
+		meta.Spaces, err = s.sceneSpaces(userID, project, unit)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range materials {
+			for i := range meta.Spaces {
+				if meta.Spaces[i].VersionID == item.VersionID {
+					meta.Spaces[i].Label = fmt.Sprintf("@图%d", item.Index)
+				}
+			}
+		}
 	}
 	if m.Refs.Images != nil {
 		meta.MaxImages = *m.Refs.Images
@@ -404,6 +423,10 @@ type ontologyPrior struct{ Title, Text string }
 // ontologyTurnPrompt 是一轮发给模型的完整提示词：技能上下文、材料包、本集剧本、前序产物、本轮任务。
 func ontologyTurnPrompt(skillContext string, meta *dramaOntologyMeta, kind string, unit string, priors []ontologyPrior) string {
 	parts := []string{skillContext, drama.OntologyMaterialPackage(meta.Brief, meta.Materials, meta.Bible, meta.Handoff)}
+	if len(meta.Spaces) > 0 {
+		space, _ := drama.MatchSceneSpace(meta.Spaces, strings.SplitN(unit, "-", 2)[0])
+		parts = append(parts, drama.SceneSpacePrompt(meta.Spaces, space, space.Label))
+	}
 	if kind != drama.OntologyTurnRepair {
 		parts = append(parts, fmt.Sprintf("【本集剧本】%s\n%s", meta.UnitTitle, strings.TrimSpace(meta.Script)))
 	}
@@ -757,6 +780,7 @@ func (s *Service) applyOntologyShotsTask(task model.Task, step *dramaStepTaskMet
 		if issues := drama.Issues(seg, m); drama.HasError(issues) {
 			return DramaStepTaskOutcome{}, BadAuthRequest(fmt.Sprintf("单元 %s 装不成段：%s", card.ID, issues[0].Message))
 		}
+		addSceneBinding(&seg, meta.Spaces, card.Scene)
 		raw, err := json.Marshal(seg)
 		if err != nil {
 			return DramaStepTaskOutcome{}, err
@@ -1033,7 +1057,7 @@ func (s *Service) applyOntologyRepair(task model.Task, target dramaStepTaskTarge
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return DramaStepTaskOutcome{}, err
 	}
-	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: []json.RawMessage{raw}}); err != nil {
+	if _, err := s.writeDramaSegments(task.UserID, target.ProjectID, DramaSegmentsWriteRequest{UnitID: target.UnitID, Segments: []json.RawMessage{raw}, repairShotID: repair.ShotID, repairRevision: repair.RevisionID}); err != nil {
 		return DramaStepTaskOutcome{}, err
 	}
 	if err := s.writeOntologyDocs(task, target.ProjectID, docs); err != nil {
@@ -1199,7 +1223,7 @@ func (s *Service) RepairOntologySegment(userID string, projectID string, unitID 
 	if cardIdx < 0 {
 		return DramaStepRunResult{}, BadAuthRequest(fmt.Sprintf("七部分里找不到单元卡 %s", seg.Title))
 	}
-	repair := &ontologyRepairMeta{ShotID: segments[idx].ShotID, SegmentID: seg.ID, Unit: seg.Title, Symptom: symptom, Card: cards[cardIdx].Text}
+	repair := &ontologyRepairMeta{ShotID: segments[idx].ShotID, RevisionID: segments[idx].RevisionID, SegmentID: seg.ID, Unit: seg.Title, Symptom: symptom, Card: cards[cardIdx].Text}
 	for i, c := range cards {
 		if i != cardIdx {
 			repair.OtherSeconds += c.TotalSeconds

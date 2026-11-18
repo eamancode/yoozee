@@ -57,6 +57,11 @@ func videoChainReference(resource *model.Resource, name string) map[string]any {
 }
 
 func (s *Service) videoChainInput(task *model.Task, step *videoChainStepState) (map[string]any, error) {
+	if step.SceneSignature != "" {
+		if err := s.verifySceneSnapshot(task.UserID, task.ProjectID, step.ShotID, step.RevisionID, step.SceneSignature); err != nil {
+			return nil, err
+		}
+	}
 	input := cloneVideoChainInput(step.Input)
 	marker := map[string]any{"controllerId": task.ID}
 	if step.SourceShotID != "" && !step.ReferenceSkipped && step.FrameResourceID != "" {
@@ -104,6 +109,16 @@ func (s *Service) videoChainInput(task *model.Task, step *videoChainStepState) (
 		}
 	}
 	return input, nil
+}
+
+func videoChainHasResource(items []any, resourceID string) bool {
+	for _, item := range items {
+		media, _ := item.(map[string]any)
+		if stringValue(media["id"]) == resourceID {
+			return true
+		}
+	}
+	return false
 }
 
 // Preflight uses the same adapter/upload implementation as generation. Each
