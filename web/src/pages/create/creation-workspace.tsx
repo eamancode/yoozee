@@ -30,6 +30,7 @@ import { modelOptionName, resolveModelChannel, type AiConfig } from "@/stores/us
 import { useUserStore } from "@/stores/use-user-store";
 import type { PromptOptimizerProvider } from "@/lib/plugins/plugin-types";
 import { type CreationReference } from "./creation-references";
+import { hasCreationReferenceDrop, readCreationReferenceDrop, type CreationReferenceDrop } from "./creation-reference-drop";
 import { creationAttachmentKind, type CreationAttachment, type CreationMode } from "./creation-assets";
 import { countOptions, modeLabels, qualityOptions, resolutionOptions, type CreationShotRailEntry } from "./creation-types";
 import { creationMessageNeedsResultSync } from "./creation-conversations";
@@ -91,6 +92,8 @@ type ComposerProps = {
     busy: boolean;
     generationActive: boolean;
     referenceReplacementBusy: boolean;
+    referenceDropBusy: boolean;
+    onReferenceDrop: (drop: CreationReferenceDrop) => void;
     attachments: CreationAttachment[];
     referenceImageSize?: { width: number; height: number };
     maxReferences: number;
@@ -138,6 +141,7 @@ type ComposerProps = {
 type CreationReferenceFilter = "all" | "image" | "video" | "audio" | "file";
 
 export function CreationComposer(props: ComposerProps) {
+    const [referenceDragOver, setReferenceDragOver] = useState(false);
     const [previewUrl, setPreviewUrl] = useState("");
     const [previewType, setPreviewType] = useState<"image" | "video">("image");
     const [promptOptimizerOpen, setPromptOptimizerOpen] = useState(false);
@@ -149,7 +153,7 @@ export function CreationComposer(props: ComposerProps) {
     const suppressAttachmentClickRef = useRef(false);
     const [trackState, setTrackState] = useState({ canScrollLeft: false, canScrollRight: false, isExpanded: true, isDragging: false });
     const previousAttachmentCountRef = useRef(0);
-    const interactionBusy = props.busy || props.referenceReplacementBusy;
+    const interactionBusy = props.busy || props.referenceReplacementBusy || props.referenceDropBusy;
     const canSubmit = Boolean(props.prompt.trim()) && !interactionBusy;
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
     const priceChannel = resolveModelChannel(props.config, props.model);
@@ -299,11 +303,39 @@ export function CreationComposer(props: ComposerProps) {
     };
     const composer = <HoverBorderGradient as="div" duration={2.2} containerClassName="creation-composer-shell" className="creation-composer-shell-inner">
         <SpotlightSurface
-            className={`creation-chat-composer is-${props.variant}`}
+            className={`creation-chat-composer is-${props.variant}${referenceDragOver ? " is-reference-drag-over" : ""}`}
             contentClassName="contents"
             spotlightColor="color-mix(in srgb, var(--user-ink) 12%, transparent)"
             spotlightRadius={280}
+            onDragOver={(event) => {
+                if (!hasCreationReferenceDrop(event.dataTransfer)) return;
+                if (event.defaultPrevented) {
+                    setReferenceDragOver(false);
+                    return;
+                }
+                event.preventDefault();
+                event.dataTransfer.dropEffect = interactionBusy ? "none" : "copy";
+                setReferenceDragOver(!interactionBusy);
+            }}
+            onDragLeave={(event) => {
+                if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setReferenceDragOver(false);
+            }}
+            onDrop={(event) => {
+                setReferenceDragOver(false);
+                // 引用标签已处理的文件替换不能再追加一遍。
+                if (event.defaultPrevented || !hasCreationReferenceDrop(event.dataTransfer)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (interactionBusy) return;
+                const drop = readCreationReferenceDrop(event.dataTransfer);
+                if (drop) props.onReferenceDrop(drop);
+            }}
         >
+            {referenceDragOver || props.referenceDropBusy ? (
+                <div className="creation-reference-drop-hint" role="status">
+                    {props.referenceDropBusy ? "正在添加参考图…" : "松开添加参考图"}
+                </div>
+            ) : null}
         <div className="creation-chat-writing-surface">
             <div className="creation-chat-editor">
                 <CanvasResourceMentionTextarea ref={props.composerFocusRef} value={props.prompt} references={props.references} mentionMenuWidth={400} sendOnEnter onFocus={props.onPromptFocus} onChange={props.setPrompt} onSubmit={props.onSubmit} containerClassName="creation-chat-mention-container" className="creation-chat-mention-editor creation-scrollbar" style={{ color: "var(--creation-text)" }} placeholder={props.placeholderOverride || (props.variant === "empty" ? emptyPlaceholder : placeholder)} aria-label="创作提示词，可使用 @ 引用当前参考内容或技能；回车发送，Shift+回车换行" spellCheck disabled={interactionBusy} activeDropReferenceId={dropTargetReferenceId} onReferenceFilesDrop={(reference, files) => { const target = props.references.find((item) => item.id === reference.id); if (target?.attachmentId) props.onReplaceReferenceFiles(target.attachmentId, files); }} />
