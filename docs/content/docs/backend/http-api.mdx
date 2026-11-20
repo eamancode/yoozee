@@ -1028,6 +1028,7 @@ install 的 Base URL、协议、能力和成本全部从服务端快照读取，
 | `POST /dramas/:id/episodes` | 逐集追加 `{ title, text, sourceFormat }`：原文直接成为末尾新的一集（≤ 1.2 万字），不影响已有集；仍有章节等待分集规划时返回 400。已完成的作品回到制作中，暂停中的保持暂停。返回新集详情 |
 | `PATCH /dramas/:id/episodes/:episodeId` | `{ title?, sourceFormat? }` 修改集标题或素材类型；素材类型在下次重新改编时生效，不递增集版本 |
 | `POST /dramas/:id/episodes/:episodeId/approve` · `/rescript` | 确认本集提示词（样片模式下确认第 1 集样片）/ 重新改编本集 |
+| `POST /dramas/:id/episodes/:episodeId/compose` | 手动拼接本集当前有资源的 `ready`、`stale` 段，按段序和视频时长紧接；未就绪段跳过，零段可用时拒绝。同一集版本合成中重复请求不重复排队，暂停的作品不恢复模型生成。单集详情的 `composeJob` 返回最近的手动作业；缺段或使用旧版时成片仍可预览、下载，但不算全段就绪。 |
 | `POST /dramas/:id/episodes/:episodeId/segments/prompts` | `{ segments: number[] }` 让文本模型（重新）撰写这些剧情段的完整视频提示词，正在撰写的段跳过；返回 `{ queued }` |
 | `PATCH /dramas/:id/episodes/:episodeId/segments/:index` | 保存剧情段视频提示词改写 `{ videoPromptOverride }`，最多 12000 字，空串恢复为模型撰写的版本；正文里的参考图引用统一写作“参考图N”（“@参考图N”“参考图 N”保存时归一，模型撰写的提示词同样归一）。段视图 `request.unknownReferences` 列出正文里编号超出本段参考图数量的引用，此时 `request.warning` 说明原因，生成本段视频被拒绝；本段与后续已生成的段视频标记过期。也可以 `{ referenceCastIds: string[] }` 手动指定本段参考图（本作品的设定 ID，最多 20 个，顺序即“参考图N”编号，空数组表示不发参考图），或 `{ autoReferences: true }` 恢复按镜头自动取；参考图变化时模型撰写的提示词标记过期、视频过期。段视图的 `referenceMode` 为 auto/custom，`request` 附 `referenceCapacity`（本段最多发送张数，已扣除首帧并受每段上限约束）、`modelMaxImages` 与 `referenceLimited` |
 | `POST /dramas/:id/episodes/:episodeId/segments/generate` | `{ segments, videoModel? }` 按剧情段生成视频，可同时换视频模型（只接受目录中的模型）。提示词缺失或过期、视频正在生成时返回 400；样片模式下第 1 集样片确认前，其他集返回 400。段按顺序提交，第 2 段起等上一段最后一帧 |
