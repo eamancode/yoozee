@@ -127,6 +127,9 @@ func (s *Service) cloudAgentPiModel(ctx context.Context, userID, runID string, p
 		}
 		lastErr = err
 		if !retryable {
+			if isRouteDispatchUncertain(err) {
+				s.failPiRunner(runID, userID, err)
+			}
 			return nil, err
 		}
 		var outputLimitErr *cloudAgentPiOutputLimitError
@@ -347,6 +350,9 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 	taskID := state.ActiveTaskID
 	task, err := s.waitCloudAgentTask(ctx, taskID)
 	if err != nil {
+		if isRouteDispatchUncertain(err) {
+			return nil, false, err
+		}
 		truncated := false
 		if failed, lookupErr := s.repo.Task(taskID); lookupErr == nil && failed != nil && failed.Status != model.TaskStatusSucceeded {
 			truncated = cloudAgentTruncatedToolArguments(failed)
@@ -423,7 +429,7 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 }
 
 // adoptCloudAgentPiModelStep 判断挂着的活动任务能否作为本步结果直接接手。
-// 排队、运行中或已成功的模型步骤直接接手；失败或已取消的先释放，由调用方重新调度。
+// 恢复时也接手受理状态待核对的步骤，保留原任务和订单。
 // 其它活动任务（运行根任务、上下文压缩）保持原有流程。
 func (s *Service) adoptCloudAgentPiModelStep(userID, runID, taskID string) (adopt, released bool, err error) {
 	task, err := s.repo.TaskForUser(userID, taskID)
@@ -435,6 +441,9 @@ func (s *Service) adoptCloudAgentPiModelStep(userID, runID, taskID string) (adop
 	}
 	if task.Operation != cloudAgentStepOperation {
 		return false, false, nil
+	}
+	if cloudAgentSubmissionNeedsReconciliation(task) {
+		return true, false, nil
 	}
 	switch task.Status {
 	case model.TaskStatusQueued, model.TaskStatusRunning, model.TaskStatusSucceeded:
@@ -566,6 +575,9 @@ func cloudAgentTransientModelFailure(call model.ApiCallLog) bool {
 func (s *Service) cloudAgentModelTaskRetryable(taskID string) bool {
 	task, err := s.repo.Task(taskID)
 	if err != nil || task == nil || task.Status == model.TaskStatusSucceeded || task.Status == model.TaskStatusCancelled {
+		return false
+	}
+	if cloudAgentSubmissionNeedsReconciliation(task) {
 		return false
 	}
 	if cloudAgentEmptyModelOutput(task) || cloudAgentStepTimedOut(task) {
@@ -736,6 +748,9 @@ func (s *Service) waitCloudAgentTask(ctx context.Context, taskID string) (*model
 		}
 		if cloudAgentTaskTerminal(task.Status) {
 			if task.Status != model.TaskStatusSucceeded {
+				if cloudAgentModelOperation(task) && cloudAgentSubmissionNeedsReconciliation(task) {
+					return nil, routeDispatchUncertainError{"对话模型调用的受理状态待核对，已停止自动重发。请在任务中心查看模型任务 " + task.ID + " 并核对积分订单。"}
+				}
 				// 与画布节点同一套失败分类（网络/审核/存储/HTTP 状态/供应商原因），
 				// 原始错误保留在任务中心诊断里，不直接抛给用户。
 				return nil, BadAuthRequest(userFacingTaskFailure(task))
