@@ -27,8 +27,9 @@ func isStoryboardMetaKey(name string) bool {
 }
 
 var (
-	parenthetical = regexp.MustCompile(`（[^）]*）|\([^)]*\)`)
-	listMarker    = regexp.MustCompile(`^\s*(?:[-*•△▲]+|\d+[.、)）])\s*`)
+	parenthetical      = regexp.MustCompile(`（[^）]*）|\([^)]*\)`)
+	listMarker         = regexp.MustCompile(`^\s*(?:[-*•△▲]+|\d+[.、)）])\s*`)
+	scriptActionMarker = regexp.MustCompile(`^\s*(?:(?:[-*•]+|\d+[.、)）])\s*)?[△▲]`)
 )
 
 // dialogueKey 只保留文字与数字，用于忽略标点和拆分差异的比较。
@@ -100,6 +101,16 @@ func speakerLines(text string) []string {
 func SourceDialogueLines(text string, format string) []string {
 	format = NormalizeSourceFormat(format)
 	candidates := []string{}
+	if format == SourceScript {
+		lines := strings.Split(text, "\n")
+		for i, line := range lines {
+			match := speakerPrefix.FindStringSubmatch(listMarker.ReplaceAllString(line, ""))
+			if scriptActionMarker.MatchString(line) || (match != nil && (isStoryboardMetaKey(match[1]) || strings.HasSuffix(match[1], "字幕") || strings.HasSuffix(match[1], "字卡"))) {
+				lines[i] = ""
+			}
+		}
+		text = strings.Join(lines, "\n")
+	}
 	if format == SourceStoryboard {
 		if shots, ok := ParseStoryboardSource(text); ok {
 			for _, shot := range shots {

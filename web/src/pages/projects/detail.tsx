@@ -34,7 +34,7 @@ import {
     type DramaShotPatch,
 } from "@/services/api/drama";
 
-import { episodeStageLabel, formatCount, formatDuration, sourceFormatOf, StagePips, STATUS_LABEL } from "./drama-shared";
+import { episodePromptsReady, episodeStageLabel, formatCount, formatDuration, sourceFormatOf, StagePips, STATUS_LABEL } from "./drama-shared";
 import { CastPanel, InboxPanel, SettingsPanel } from "./studio/panels";
 import { EpisodeDeleteModal } from "./studio/episode-delete-modal";
 import { EpisodeRail } from "./studio/episode-rail";
@@ -91,6 +91,10 @@ export default function DramaStudioPage() {
     const episodes = summary?.episodes || [];
     const episodeId = episodes.some((episode) => episode.id === routeEpisodeId) ? routeEpisodeId : (episodes.find((episode) => episode.stage === "review") || episodes.find((episode) => episode.stage !== "done") || episodes[0])?.id || "";
     const episodeRow = episodes.find((episode) => episode.id === episodeId);
+    const promptsReady = Boolean(episodeRow && episodePromptsReady(episodeRow));
+    const mediaBanner = promptsReady
+        ? AWAITING_MEDIA_BANNER
+        : { title: "分段提示词尚未齐备", text: `已就绪 ${episodeRow?.stats.promptReady ?? 0}/${episodeRow?.stats.segments ?? 0} 段。提示词可以逐段查看，齐备后可放行本集视频。` };
     const awaitingCount = episodes.filter((episode) => episode.awaitingMedia).length;
     const running = summary?.production.status === "running";
     const episodeQuery = useDramaEpisode(projectId, episodeId, Boolean(running || (summary?.jobCounts.running || 0) > 0));
@@ -655,17 +659,18 @@ export default function DramaStudioPage() {
                                     </div>
                                 ) : null}
                                 {episodeRow?.awaitingMedia ? (
-                                    <div className="drama-banner is-ready">
+                                    <div className={`drama-banner ${promptsReady ? "is-ready" : "is-info"}`}>
                                         <Clapperboard className="size-5 shrink-0 text-[var(--workspace-accent)]" />
-                                        <div className="drama-banner-text" title={`${AWAITING_MEDIA_BANNER.title}\n${AWAITING_MEDIA_BANNER.text}`}>
-                                            <strong>{AWAITING_MEDIA_BANNER.title}</strong>
-                                            <span>{AWAITING_MEDIA_BANNER.text}</span>
+                                        <div className="drama-banner-text" title={`${mediaBanner.title}\n${mediaBanner.text}`}>
+                                            <strong>{mediaBanner.title}</strong>
+                                            <span>{mediaBanner.text}</span>
                                         </div>
                                         <div className="flex shrink-0 gap-2">
                                             {tab !== "script" ? <Button onClick={() => setParams({ tab: "script" })}>看剧本与原文</Button> : null}
                                             <Button
                                                 type="primary"
                                                 icon={<Play className="size-4" />}
+                                                disabled={!promptsReady}
                                                 loading={release.isPending && release.variables?.target === "episodes"}
                                                 onClick={() => release.mutate({ target: "episodes", episodeIds: [episodeRow.id] })}
                                             >
