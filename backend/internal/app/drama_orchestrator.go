@@ -145,10 +145,10 @@ func (s *Service) tickDrama(productionRow *model.DramaProduction) error {
 	if err := run.syncJobs(); err != nil {
 		return err
 	}
-    enabled, err := s.dramaFlow2Enabled(project.UserID)
-    if err != nil || !enabled {
-        return err
-    }
+	enabled, err := s.dramaFlow2Enabled(project.UserID)
+	if err != nil || !enabled {
+		return err
+	}
 	allowGeneration := run.production.Status == model.DramaStatusRunning
 	if allowGeneration {
 		if err := run.loadCasts(); err != nil {
