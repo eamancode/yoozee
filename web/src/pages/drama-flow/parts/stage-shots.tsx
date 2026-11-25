@@ -240,6 +240,11 @@ function ShotlistBar({ run, segmentCount, director }: { run: StoryboardRun; segm
     const streamTurn = stream.scenes.at(-1);
     const view = latest && (!running || latestActive) ? directorRunView(latest, { now, streamTurn: streamTurn ? { index: streamTurn.index, heading: streamTurn.heading } : undefined }) : undefined;
     const rounds = view ? directorRoundsText(view) : "";
+    const checkpoint = latest?.dramaRounds;
+    const resume =
+        director && latest?.status === "failed" && checkpoint && !checkpoint.repair && checkpoint.completed > 0 && checkpoint.completed < checkpoint.total && checkpoint.turns.length >= checkpoint.completed
+            ? { taskId: latest.id, from: checkpoint.completed + 1 }
+            : undefined;
     const status = running
         ? director
             ? view?.current
@@ -268,7 +273,7 @@ function ShotlistBar({ run, segmentCount, director }: { run: StoryboardRun; segm
                 </span>
                 <div className="drama-flow-work-actions">
                     {shotlist?.draft && problemSections.length ? (
-                        <Button size="small" type="primary" disabled={running} onClick={() => void generate(problemSections)}>
+                        <Button size="small" type="primary" disabled={running} onClick={() => void generate({ onlySections: problemSections })}>
                             只重写有问题的 {problemSections.length} 节
                         </Button>
                     ) : null}
@@ -282,8 +287,13 @@ function ShotlistBar({ run, segmentCount, director }: { run: StoryboardRun; segm
                             重新装段
                         </Button>
                     ) : null}
-                    <Button size="small" loading={running} onClick={() => void generate()}>
-                        {shotlist || (director && segmentCount) ? "整集重新生成" : "生成这一集分镜"}
+                    {resume ? (
+                        <Button size="small" type="primary" loading={running} onClick={() => void generate({ resumeTaskId: resume.taskId })}>
+                            从第 {resume.from} 轮继续
+                        </Button>
+                    ) : null}
+                    <Button size="small" loading={running && !resume} disabled={running} onClick={() => void generate()}>
+                        {shotlist || (director && segmentCount) || resume ? "整集重新生成" : "生成这一集分镜"}
                     </Button>
                 </div>
             </div>

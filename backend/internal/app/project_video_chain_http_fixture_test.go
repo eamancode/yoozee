@@ -238,12 +238,17 @@ func CheckUnknownVideoChainHTTP(t *testing.T, routerFor func(*Service) http.Hand
 
 func addHTTPRecoveryShot(t *testing.T, f *videoChainFixture, script string) string {
 	t.Helper()
+	return addHTTPVideoChainShot(t, f, script, 26, 7)
+}
+
+func addHTTPVideoChainShot(t *testing.T, f *videoChainFixture, script string, seconds float64, refs int) string {
+	t.Helper()
 	if err := f.db.Model(&model.Project{}).Where("id = ?", f.projectID).Update("workflow_id", drama.WorkflowSSSDrama).Error; err != nil {
 		t.Fatal(err)
 	}
-	seg := drama.Segment{ID: "S02", Scene: "A", Dur: 26, Mode: drama.ModeLockIdentity, Verbatim: script,
+	seg := drama.Segment{ID: "S02", Scene: "A", Dur: seconds, Mode: drama.ModeLockIdentity, Verbatim: script,
 		Shots: []drama.SubShot{{At: 0, Size: "中景", Text: "阿婆整理推车，林深站在左边。"}}}
-	for i := range 7 {
+	for i := range refs {
 		id := fmt.Sprintf("recovery-ref-%d", i)
 		src := image.NewRGBA(image.Rect(0, 0, 2, 3))
 		src.SetRGBA(0, 0, color.RGBA{R: uint8(i + 1), A: 255})
@@ -275,7 +280,7 @@ func addHTTPRecoveryShot(t *testing.T, f *videoChainFixture, script string) stri
 	if err := f.db.Model(&model.ShotRevision{}).Where("id = ?", "rs1").Update("spec_json", string(encoded)).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := f.db.Model(&model.Shot{}).Where("id = ?", "s1").Update("duration_ms", 26000).Error; err != nil {
+	if err := f.db.Model(&model.Shot{}).Where("id = ?", "s1").Update("duration_ms", int(seconds*1000)).Error; err != nil {
 		t.Fatal(err)
 	}
 	return string(encoded)

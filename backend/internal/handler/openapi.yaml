@@ -130,6 +130,20 @@ paths:
         "400": {$ref: "#/components/responses/Error"}
         "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
+  /projects/{id}/video-chains/receipt:
+    get:
+      tags: [projects]
+      summary: Read an existing consecutive video submission receipt without resubmitting
+      description: Returns absent or the original recorded chain for the authenticated project, chapter and request key.
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+        - {in: query, name: unitId, required: true, schema: {type: string}}
+        - {in: query, name: requestId, required: true, schema: {type: string}}
+      responses:
+        "200": {description: 'data={state: absent} or data={state: recorded, chain: ...}'}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
   /projects/{id}/video-chains/preview:
     post:
       tags: [projects]
@@ -2961,6 +2975,16 @@ components:
           additionalProperties: {$ref: "#/components/schemas/ProjectVideoChainModel"}
         previewHash: {type: string}
         requestId: {type: string, maxLength: 160}
+        useUpdatedInputs:
+          type: boolean
+          description: Explicitly quote current storyboard and references when archived inputs cannot safely be replayed.
+        restartChainId:
+          type: string
+        recoveryV2:
+          type: boolean
+        quoteExpiresAt:
+          type: integer
+          format: int64
         resumeChainId: {type: string, description: 恢复预览与确认使用的原控制链 ID}
     DramaCheckReport:
       type: object

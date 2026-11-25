@@ -56,3 +56,36 @@ func TestTaskListErrorIsSafeAndReadable(t *testing.T) {
 		t.Fatalf("task list contract: %s", encoded)
 	}
 }
+
+func TestProjectTaskListShowsFailedStoryboardCheckpointReason(t *testing.T) {
+	svc, db, project, _ := newProjectDramaTestService(t, "seedance-2.5")
+	if err := db.AutoMigrate(&model.ApiCallLog{}, &model.BillingOrder{}); err != nil {
+		t.Fatal(err)
+	}
+	task := model.Task{
+		ID: "failed-storyboard", UserID: project.UserID, ProjectID: project.ID,
+		Type: "canvas_text", Operation: "storyboard", Status: model.TaskStatusFailed,
+		Error:      "第 5 轮「后期备忘、交接卡与复看」生成失败，已写完的 4 轮已保存，可从第 5 轮继续：模型服务返回失败，请检查请求内容或渠道配置；上游：The service is temporarily unavailable. Please retry later.",
+		InputJSON:  `{"metadata":{"source":"short-drama-storyboard","dramaRun":{"runId":"run-1","step":"chapter.shots","turns":5},"dramaSSS":{"flow":2}}}`,
+		ResultJSON: `{"dramaRun":{"total":5,"completed":4,"turns":[{"sss":"direct"},{"sss":"cut"},{"sss":"card"},{"sss":"compile","text":"PRIVATE-ROUND-OUTPUT"}]}}`,
+	}
+	if err := db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows, err := svc.TasksWithOptions(task.UserID, TaskListOptions{ProjectID: task.ProjectID})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("task list: %d rows, err = %v", len(rows), err)
+	}
+	want := "第 5 轮「后期备忘、交接卡与复看」生成失败，已写完的 4 轮已保存，可从第 5 轮继续；模型服务暂时不可用，请稍后再试。"
+	if rows[0].Error != want {
+		t.Fatalf("error = %q, want %q", rows[0].Error, want)
+	}
+	rounds := rows[0].DramaRounds
+	if rounds == nil || rounds.Completed != 4 || rounds.Total != 5 || len(rounds.Turns) != 4 {
+		t.Fatalf("checkpoint = %+v", rounds)
+	}
+	encoded, err := json.Marshal(rows[0])
+	if err != nil || strings.Contains(string(encoded), "PRIVATE-ROUND-OUTPUT") {
+		t.Fatalf("task summary included raw output: %s, err = %v", encoded, err)
+	}
+}

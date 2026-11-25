@@ -50,6 +50,9 @@ func classifyUserFacingTaskError(raw string) string {
 			return taskErrorModerationMessage
 		}
 		if hint := actionableUpstreamReason(raw[index+len("；上游："):]); hint != "" {
+			if hint == taskErrorUnavailableMessage {
+				prefix = strings.TrimRight(strings.TrimSuffix(prefix, "模型服务返回失败，请检查请求内容或渠道配置"), "：: ")
+			}
 			if prefix != "" {
 				return prefix + "；" + hint
 			}
@@ -209,6 +212,8 @@ func actionableUpstreamReason(value string) string {
 	image := strings.Contains(lower, "image") || strings.Contains(lower, "图片") || strings.Contains(lower, "file") || strings.Contains(lower, "参考图")
 	tooLarge := strings.Contains(lower, "too large") || strings.Contains(lower, "exceed") || strings.Contains(lower, "超过") || strings.Contains(lower, "25mb") || strings.Contains(lower, "25 mb")
 	switch {
+	case strings.Contains(lower, "service is temporarily unavailable"):
+		return taskErrorUnavailableMessage
 	case image && tooLarge:
 		return "参考图片超过模型支持的大小限制，请压缩图片后重试。"
 	case strings.Contains(lower, "model_not_found") || strings.Contains(lower, "model not found") || strings.Contains(lower, "无可用渠道"):

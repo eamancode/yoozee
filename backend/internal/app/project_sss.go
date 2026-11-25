@@ -732,6 +732,11 @@ func (s *Service) runSSSRun(ctx context.Context, input canvasGenerationInput, ru
 		meta.Docs.Bible = bible
 	}
 	progress := dramaRunProgress{RunID: run.RunID, Total: max(run.Turns, len(turns)), Completed: len(turns), Turns: turns}
+	if progress.Completed > 0 {
+		if err := s.saveDirectorRunCheckpoint(task, fmt.Sprintf("已恢复 %d/%d 轮", progress.Completed, progress.Total), progress); err != nil {
+			return nil, fmt.Errorf("恢复分镜进度失败：%w", err)
+		}
+	}
 	stream := newDramaRunStream(s, task, input.OnTextDelta)
 	defer stream.close()
 	turnInput := input
@@ -810,11 +815,8 @@ func (s *Service) runSSSRun(ctx context.Context, input canvasGenerationInput, ru
 		if out.Units != nil {
 			progress.Total = sssTotalTurns(meta, len(out.Units))
 		}
-		encoded, err := json.Marshal(map[string]any{"mode": "text", "dramaRun": progress})
-		if err != nil {
-			return nil, err
-		}
-		if err := s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, fmt.Sprintf("已写完第 %d/%d 轮：%s，输入 %d 字", k, max(progress.Total, k), spec.label, len([]rune(turnInput.Prompt))), 35+60*k/max(progress.Total, k), string(encoded)); err != nil {
+		stage := fmt.Sprintf("已写完第 %d/%d 轮：%s，输入 %d 字", k, max(progress.Total, k), spec.label, len([]rune(turnInput.Prompt)))
+		if err := s.saveDirectorRunCheckpoint(task, stage, progress); err != nil {
 			return nil, fmt.Errorf("保存第 %d 轮进度失败：%w", k, err)
 		}
 	}

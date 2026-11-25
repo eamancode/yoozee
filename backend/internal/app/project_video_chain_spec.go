@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"yingce/backend/internal/model"
 )
 
 // Carry diagnostics from this preview only. Keep the original HTTP reason and
@@ -52,37 +54,37 @@ func videoChainPositionFits(profile *VideoCapabilityConfig, images int, operatio
 	return images < profile.References.MaxImages && (operation == "video_to_video" || containsCapabilityString(profile.Operations, "reference_to_video"))
 }
 
-func (s *Service) videoChainRouteProfile(userID string, input map[string]any, choice ProjectVideoChainModel, feature bool, shotID, operation string, content float64, position bool) (*VideoCapabilityConfig, *RoutedModel, error) {
+func (s *Service) videoChainRouteProfile(userID string, input map[string]any, choice ProjectVideoChainModel, feature bool, shotID, operation string, content float64, position bool) (*VideoCapabilityConfig, *RoutedModel, *model.ChannelModel, error) {
 	if choice.LogicalModelID == "" && !taskInputUsesSystemChannel(input) {
 		profile, err := s.projectTaskVideoProfile(input)
-		return profile, nil, err
+		return profile, nil, nil, err
 	}
 	access, err := s.userGroupAccess(userID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if taskInputUsesSystemChannel(input) {
 		config, _ := input["config"].(map[string]any)
 		_, item, err := s.selectableSystemChannelModel(access, config)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		profile, err := normalizedChannelModelCapability(item, s.protocolRegistry())
 		if err != nil || profile == nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-		return profile.Video, nil, nil
+		return profile.Video, nil, item, nil
 	}
 	if !feature || taskInputUsesCustomChannel(input) {
-		return nil, nil, ModelCatalogMismatch("模型目录已更新，请重新选择")
+		return nil, nil, nil, ModelCatalogMismatch("模型目录已更新，请重新选择")
 	}
 	catalog, err := s.routeCatalogSnapshot()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	product, ok := catalog.Models[choice.LogicalModelID]
 	if !ok {
-		return nil, nil, InvalidModelSelection("所选模型不可用")
+		return nil, nil, nil, InvalidModelSelection("所选模型不可用")
 	}
 	type option struct {
 		profile *VideoCapabilityConfig
@@ -136,7 +138,7 @@ func (s *Service) videoChainRouteProfile(userID string, input map[string]any, ch
 		if mismatch == nil {
 			mismatch = InvalidModelSelection("当前模型没有可用且获授权的视频线路")
 		}
-		return lastProfile, nil, mismatch
+		return lastProfile, nil, nil, mismatch
 	}
 	// Keep the weighted choice stable across preview, confirmation and leases.
 	slices.SortFunc(options, func(a, b option) int { return strings.Compare(a.routed.Route.ID, b.routed.Route.ID) })
@@ -148,11 +150,11 @@ func (s *Service) videoChainRouteProfile(userID string, input map[string]any, ch
 	draw %= total
 	for _, item := range options {
 		if draw < uint64(item.routed.Route.Weight) {
-			return item.profile, item.routed, nil
+			return item.profile, item.routed, nil, nil
 		}
 		draw -= uint64(item.routed.Route.Weight)
 	}
-	return nil, nil, InvalidModelSelection("当前模型没有可用的视频线路")
+	return nil, nil, nil, InvalidModelSelection("当前模型没有可用的视频线路")
 }
 
 func (s *Service) videoChainPinnedLogicalModel(userID, logicalID string, input map[string]any, operation string) (*RoutedModel, error) {

@@ -231,7 +231,13 @@ func (s *Service) registerTaskOutput(userID string, projectID string, stepID str
 		artifact = &model.ShotArtifact{ID: newID(), ProjectID: projectID, UnitID: shot.UnitID, ShotID: shot.ID, RevisionID: shotRevisionID, TaskID: task.ID, Type: artifactType, ResourceID: strings.TrimSpace(req.ResourceID), Status: "ready", Selected: true, MetadataJSON: metadata, CreatedAt: now, UpdatedAt: now}
 		artifact.InputHash = s.artifactInputHash(shot.ID, shotRevisionID, artifactType)
 	}
-	if err := s.repo.RegisterTaskOutputRecords(projectID, representation, productionLink, artifact); err != nil {
+	// Completing a chain adds a take; it must not silently change the editor's
+	// existing selected take, including when a late original result is recovered.
+	var storedInput map[string]any
+	_ = json.Unmarshal([]byte(task.InputJSON), &storedInput)
+	marker, _ := storedInput[videoChainMetadataKey].(map[string]any)
+	preserveSelected := artifactType == "video" && stringValue(marker["controllerId"]) != ""
+	if err := s.repo.RegisterTaskOutputRecords(projectID, representation, productionLink, artifact, preserveSelected); err != nil {
 		return nil, err
 	}
 	return artifact, nil

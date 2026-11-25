@@ -312,6 +312,16 @@ func (s *Service) dramaRunStartTurns(task model.Task, run dramaRunMeta) ([]drama
 	return turns, nil
 }
 
+// saveDirectorRunCheckpoint 把恢复的轮次写入新任务，再调用模型。这样续跑遇到同一错误时仍可继续。
+func (s *Service) saveDirectorRunCheckpoint(task model.Task, stage string, progress dramaRunProgress) error {
+	encoded, err := json.Marshal(map[string]any{"mode": "text", "dramaRun": progress})
+	if err != nil {
+		return err
+	}
+	percent := 35 + 60*progress.Completed/max(progress.Total, progress.Completed)
+	return s.repo.UpdateTaskResultForLease(task.ID, task.LeaseOwner, stage, percent, string(encoded))
+}
+
 // runDramaRun 按轮循环调模型（input 是第一轮的输入：提示词是服务端组装的整章 / 整批提示词）。返回的结果 text 是各轮输出按顺序拼接，
 // dramaRun 是进度（去掉了对话正文）；收尾（finalizeDramaStepTask）从 text 解析镜头行或剧集。
 func (s *Service) runDramaRun(ctx context.Context, input canvasGenerationInput, run dramaRunMeta) (map[string]any, error) {

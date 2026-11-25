@@ -21,7 +21,7 @@ import { projectTasksKey, type FlowData } from "./use-flow-data";
 const active = (status: string) => status === "queued" || status === "running";
 
 /**
- * 一集的分镜生成与装段：整集重新生成、只重写有问题的小节、重新装段、带着问题先装段。
+ * 一集的分镜生成与装段：整集重新生成、从检查点继续、只重写有问题的小节、重新装段。
  * 规则和旧章节页一致：会删掉已有分镜图、预演、视频的操作，列出会删的段确认一次（这是除花费外唯一保留的确认）。
  */
 export function useStoryboardRun(data: FlowData) {
@@ -36,7 +36,8 @@ export function useStoryboardRun(data: FlowData) {
     const episode = unitEpisodeNumber(allUnits, unitId);
     const code = (text: string) => projectSceneCode(text, episode);
     const [streamText, setStreamText] = useState("");
-    const [liveTaskId, setLiveTaskId] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+    const submissionInFlight = useRef(false);
     // 确认框可能跨过模型目录更新、换集或离开页面，只使用当前仍挂载的项目和章节。
     const current = useRef<{ data: FlowData; config: typeof effectiveConfig } | null>(null);
     useLayoutEffect(() => {
@@ -50,7 +51,7 @@ export function useStoryboardRun(data: FlowData) {
     const shotlist = shotlistQuery.data;
     const tasks = useMemo(() => projectTasks.filter((task) => chapterTaskIdentity(task)?.kind === "storyboard" && chapterTaskIdentity(task)?.chapterId === unitId), [projectTasks, unitId]);
     const latest = tasks[0];
-    const running = Boolean(liveTaskId) || Boolean(latest && active(latest.status));
+    const running = submitting || Boolean(latest && active(latest.status));
     const stream = useMemo(() => parseShotStream(streamText), [streamText]);
     const problemSections = shotlist?.draft && shotlist.sections?.length ? issueSections(shotlist.issues) : [];
 
@@ -127,10 +128,11 @@ export function useStoryboardRun(data: FlowData) {
         }
         return { detail, config, rule: dramaRule };
     };
-    const generate = async (onlySections?: string[], independent = false) => {
+    const generate = async ({ onlySections, independent, resumeTaskId }: { onlySections?: string[]; independent?: boolean; resumeTaskId?: string } = {}) => {
+        if (running || submissionInFlight.current) return;
         let input = generationInput();
         if (!input) return;
-        const whole = !onlySections?.length;
+        const whole = !resumeTaskId && !onlySections?.length;
         if (whole && !independent) {
             const discards = chapterSegmentDiscards(input.detail.shots, input.detail.shotArtifacts, unitId);
             if (discards.length) {
@@ -139,15 +141,24 @@ export function useStoryboardRun(data: FlowData) {
                 if (!input) return;
             }
         }
+        if (submissionInFlight.current) return;
+        submissionInFlight.current = true;
+        setSubmitting(true);
         setStreamText("");
         try {
             const result = await generateChapterStoryboard(
-                { projectId, chapterId: unitId, config: input.config, rule: input.rule, onlySections, discard: whole, allowMissingHandoff: independent },
+                { projectId, chapterId: unitId, config: input.config, rule: input.rule, onlySections, resumeTaskId, discard: whole, allowMissingHandoff: independent },
                 {
-                    onTaskUpdate: (task) => setLiveTaskId(task.id),
                     onStreamText: (text) => setStreamText(text),
                 },
-            );
+            ).finally(async () => {
+                try {
+                    await refresh();
+                } finally {
+                    submissionInFlight.current = false;
+                    setSubmitting(false);
+                }
+            });
             const outcome = result.outcome;
             if (outcome?.status === "draft") message.warning(`镜头表检查有 ${outcome.errors} 个问题，存成了草稿还没装段；在上面的条里处理`, 8);
             else message.success(outcome ? `已生成 ${outcome.segments} 段（${outcome.scenes} 场）` : "分镜已写入");
@@ -158,7 +169,7 @@ export function useStoryboardRun(data: FlowData) {
                     previous: (id) => {
                         if (sameTarget()) navigate(`/drama-flow/${projectId}/shots?ep=${encodeURIComponent(id)}`);
                     },
-                    independent: () => void generate(onlySections, true),
+                    independent: () => void generate({ onlySections, resumeTaskId, independent: true }),
                     design: () => {
                         if (sameTarget()) navigate(`/drama-flow/${projectId}/script?ep=${encodeURIComponent(unitId)}`);
                     },
@@ -166,9 +177,6 @@ export function useStoryboardRun(data: FlowData) {
             )
                 return;
             message.error(error instanceof Error ? `分镜生成失败：${error.message}` : "分镜生成失败");
-        } finally {
-            setLiveTaskId("");
-            await refresh();
         }
     };
 

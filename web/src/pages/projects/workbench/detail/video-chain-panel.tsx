@@ -3,16 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import { App, Button, Image, Spin } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Callout } from "@/components/ui/product/callout";
-import { createVideoChain, cancelVideoChain, previewVideoChain, retryVideoChain, videoChainsQuery, type VideoChain, type VideoChainModel, type VideoChainRequest, type VideoChainStep } from "@/services/api/project-video-chains";
+import { createVideoChain, cancelVideoChain, getVideoChainReceipt, previewVideoChain, retryVideoChain, videoChainsQuery, type VideoChain, type VideoChainModel, type VideoChainRequest, type VideoChainStep } from "@/services/api/project-video-chains";
 import { resourceFileUrl } from "@/services/api/resources";
 import { modelQuoteDescription } from "@/lib/model-pricing";
 import { modelDisplayName } from "@/stores/use-config-store";
 import { useDramaModelConfig as useEffectiveConfig } from "@/hooks/use-drama-model-config";
 import { ApiError } from "@/services/api/request";
-import { getActiveUserScope } from "@/lib/user-scope";
+import { assertCurrentUserSession, captureUserSession, getActiveUserScope } from "@/lib/user-scope";
 import { useDramaModelPreferencesStore } from "@/stores/use-drama-model-preferences-store";
 import { queryFailedVideoProviderTask, recoverGenerationTaskMedia, refreshGenerationTaskStatus } from "@/services/api/task-center";
 import { videoChainFailureLabel, videoChainOperationProblem } from "./video-chain-diagnostics";
+import { clearPendingVideoReceipt, readPendingVideoReceipt, storePendingVideoReceipt, videoReceiptKey, type PendingVideoReceipt, type VideoRecoveryMode } from "./video-chain-receipt";
 
 const phaseLabels: Record<string, string> = {
     waiting: "等待前序镜头",
@@ -76,6 +77,16 @@ export function VideoChainPanel({
     const [busy, setBusy] = useState(false);
     const [problem, setProblem] = useState<ReturnType<typeof videoChainOperationProblem>>();
     const [queryResult, setQueryResult] = useState("");
+    const [pending, setPending] = useState<PendingVideoReceipt>();
+    const [receiptCheck, setReceiptCheck] = useState(0);
+    const [receiptAbsent, setReceiptAbsent] = useState(false);
+    const [storageUnavailable, setStorageUnavailable] = useState(false);
+    const [quoteExpired, setQuoteExpired] = useState(false);
+    const [requiresUpdatedInputs, setRequiresUpdatedInputs] = useState(false);
+    const [confirmedChain, setConfirmedChain] = useState<VideoChain>();
+    const [lastSourceId, setLastSourceId] = useState<string>();
+    const account = getActiveUserScope();
+    const storageKey = videoReceiptKey(account, projectId, unitId);
     const request = useRef<VideoChainRequest | undefined>(undefined);
     const quotedReceipt = useRef("");
     const prepareRequest = useRef<VideoChainRequest | undefined>(undefined);
@@ -83,24 +94,43 @@ export function VideoChainPanel({
     const session = useRef(0);
     // 和短剧新工作流共用 key 与缓存形状（{ chains }），见 videoChainsQuery。
     const chains = useQuery({ ...videoChainsQuery(projectId, unitId), enabled: open, refetchInterval: open ? 2000 : false });
+    const receipt = useQuery({
+        queryKey: ["project-video-chain-receipt", storageKey, pending?.requestId, receiptCheck],
+        queryFn: ({ signal }) => getVideoChainReceipt(projectId, unitId, pending!.requestId, signal),
+        enabled: open && Boolean(pending),
+        retry: false,
+        refetchOnWindowFocus: false,
+    });
     const existing =
         chains.data?.chains.find((chain) => chain.id === selectedId) ||
+        (confirmedChain?.id === selectedId ? confirmedChain : undefined) ||
         chains.data?.chains.find((chain) => ["queued", "running"].includes(chain.status)) ||
         chains.data?.chains.find((chain) => chain.steps.some((step) => step.shotId === shotId));
     const chain = existing?.status === "running" || existing?.status === "queued" ? existing : preview || existing;
-    const failed = existing?.status === "failed" && existing.steps.some((step) => step.shotId === shotId) ? existing : undefined;
+    const originalId = request.current?.resumeChainId || request.current?.restartChainId || pending?.sourceId;
+    const originalChain = originalId ? chains.data?.chains.find((item) => item.id === originalId) : existing;
+    const failed = originalChain?.status === "failed" && originalChain.steps.some((step) => step.shotId === shotId) ? originalChain : undefined;
     const originalStep = failed?.steps.find((step) => step.status !== "succeeded");
     const originalDiagnostic = originalStep?.diagnostic;
     const reuseOnly = Boolean(failed?.steps.length && failed.steps.every(canReuseOriginal));
     const receiptVersion = JSON.stringify([failed?.id, originalStep?.taskId, originalDiagnostic?.attemptId, originalDiagnostic?.terminalStatus,
         originalDiagnostic?.submissionOutcome, originalDiagnostic?.billingStatus, originalDiagnostic?.safeToResubmit]);
-    const receiptChanged = Boolean(request.current?.resumeChainId && receiptVersion !== quotedReceipt.current);
+    const receiptChanged = Boolean((request.current?.resumeChainId || request.current?.restartChainId) && receiptVersion !== quotedReceipt.current);
     const originalPending = originalNeedsReconciliation(originalStep);
     const quotePending = preview?.steps.some((step) => step.diagnostic && originalNeedsReconciliation(step));
-    const blockedReason = receiptChanged && !originalPending ? "原请求的状态已变化，请重新报价后确认。" : preview?.confirmationBlockedReason ||
+    const blockedReason = quoteExpired ? "报价已过期，请重新报价后确认。" : receiptChanged && !originalPending ? "原请求的状态已变化，请重新报价后确认。" : preview?.confirmationBlockedReason ||
         (originalPending || quotePending ? "原请求的受理或结算尚未核实。请先查询原请求，再重新报价并确认。" :
         preview && !preview.previewHash?.trim() ? "缺少有效报价标识，请重新报价后确认。" : "");
     const active = chain?.status === "queued" || chain?.status === "running";
+    const awaitingReceipt = Boolean(pending && (!receiptAbsent || receipt.isFetching));
+    const pendingOtherShot = Boolean(pending && pending.shotId !== shotId);
+    const recoveryMode: VideoRecoveryMode = request.current?.restartChainId ? "restart" : request.current?.resumeChainId ? "resume" : "fresh";
+    const quoteControlsDisabled = awaitingReceipt || pendingOtherShot || storageUnavailable || receipt.isFetching || chains.isError || chains.isRefetchError;
+    const previousId = chain?.sourceChainId || lastSourceId;
+    const priorError = chain?.status !== "preview" && previousId
+        ? chains.data?.chains.find((item) => item.id === previousId)?.error
+        : failed?.error;
+    const newError = (previousId || (selectedId && selectedId === chain?.id)) && chain?.status === "failed" ? chain.error : undefined;
     const referenceAttachments = chain?.steps.map((step) => step.frameAssetId || "").join(",") || "";
     const originalVideos = new Map<string, VideoChainStep>();
     for (const history of chains.data?.chains || []) {
@@ -113,12 +143,67 @@ export function VideoChainPanel({
         session.current++;
         setPreview(undefined);
         setSelectedId(undefined);
+        setRequiresUpdatedInputs(false);
+        setConfirmedChain(undefined);
+        setLastSourceId(undefined);
         setProblem(undefined);
         setQueryResult("");
         request.current = undefined;
         prepareRequest.current = undefined;
         return () => { session.current++; };
-    }, [open, projectId, unitId, shotId]);
+    }, [open, projectId, unitId, shotId, account]);
+    useEffect(() => {
+        if (!open) return;
+        const reloadPending = () => {
+            setReceiptAbsent(false);
+            try {
+                setPending(readPendingVideoReceipt(window.localStorage, storageKey));
+                setStorageUnavailable(false);
+            } catch {
+                setStorageUnavailable(true);
+            }
+        };
+        reloadPending();
+        const onStorage = (event: StorageEvent) => {
+            if (event.key === storageKey || event.key === null) reloadPending();
+        };
+        window.addEventListener("storage", onStorage);
+        return () => window.removeEventListener("storage", onStorage);
+    }, [open, storageKey, shotId]);
+    useEffect(() => {
+        if (!open || !pending || !receipt.data || receipt.isFetching) return;
+        if (receipt.data.state === "absent") {
+            setReceiptAbsent(true);
+            return;
+        }
+        const recovered = receipt.data.chain;
+        if (!recovered?.id || !Array.isArray(recovered.steps)) return;
+        try {
+            clearPendingVideoReceipt(window.localStorage, storageKey, pending.requestId);
+        } catch {
+            setStorageUnavailable(true);
+        }
+        request.current = undefined;
+        setPreview(undefined);
+        setPending(undefined);
+        setReceiptAbsent(false);
+        setSelectedId(recovered.id);
+        setConfirmedChain(recovered);
+        setLastSourceId(pending.sourceId);
+        setProblem(undefined);
+        setQueryResult("已找到本次提交回执，未重复提交。");
+    }, [open, pending, receipt.data, receipt.isFetching, storageKey]);
+    useEffect(() => {
+        setQuoteExpired(false);
+        if (!preview?.quoteExpiresAt) return;
+        const remaining = preview.quoteExpiresAt * 1000 - Date.now();
+        if (remaining <= 0) {
+            setQuoteExpired(true);
+            return;
+        }
+        const timer = window.setTimeout(() => setQuoteExpired(true), remaining);
+        return () => window.clearTimeout(timer);
+    }, [preview?.quoteExpiresAt]);
 	useEffect(() => {
 		session.current++;
 		setPreview(undefined);
@@ -161,47 +246,128 @@ export function VideoChainPanel({
             setBusy(false);
         }
     };
-    const refreshPreview = () =>
-        run(failed ? "失败段重新报价" : "本次费用预览", async () => {
+    const refreshPreview = (mode: VideoRecoveryMode, useUpdatedInputs = false) =>
+        run(mode === "restart" ? "从头生成报价" : mode === "resume" ? "失败段重新报价" : "本次费用预览", async () => {
             const version = session.current;
+            const scope = captureUserSession();
+            if (scope.scope !== account) return;
+            const prior = readPendingVideoReceipt(window.localStorage, storageKey);
+            if (prior && (prior.requestId !== pending?.requestId || !receiptAbsent || prior.shotId !== shotId ||
+                prior.mode !== mode || prior.sourceId !== (mode === "fresh" ? undefined : failed?.id))) {
+                throw new Error("该集已有待查的提交回执。请核对后回到原镜头继续。");
+            }
             request.current = undefined;
             setPreview(undefined);
-            const model = reuseOnly && failed
+            if (mode !== "fresh" && !failed?.id) throw new Error("找不到原生成记录，请刷新后重试");
+            const firstShot = failed?.anchorShotId || failed?.steps[0]?.shotId || shotId;
+            const model = mode === "resume" && reuseOnly && failed
                 ? { model: (originalStep || failed.steps[0]).model, input: {} }
-                : await buildModel(originalStep?.shotId || shotId);
+                : await buildModel(mode === "restart" ? firstShot : mode === "resume" ? originalStep?.shotId || shotId : shotId);
+            assertCurrentUserSession(scope);
             if (version !== session.current) return;
-            const input: VideoChainRequest = { unitId, shotId, model, requestId: crypto.randomUUID() };
-            if (failed?.id) {
-                input.resumeChainId = failed.id;
-                input.shotId = failed.anchorShotId || failed.steps[0]?.shotId || shotId;
+            const input: VideoChainRequest = { unitId, shotId, model, requestId: prior?.requestId || crypto.randomUUID() };
+            if (!failed?.prepareOnly) input.recoveryV2 = true;
+            if (mode !== "fresh" && failed?.id) {
+                if (mode === "resume") input.resumeChainId = failed.id;
+                else input.restartChainId = failed.id;
+                if (mode === "restart" && useUpdatedInputs) input.useUpdatedInputs = true;
+                input.shotId = firstShot;
                 input.scope = failed.scope;
-                input.prepareOnly = failed.prepareOnly;
+                if (mode === "resume") input.prepareOnly = failed.prepareOnly;
             }
-            const { chain } = await previewVideoChain(projectId, input);
+            let chain: VideoChain;
+            try {
+                ({ chain } = await previewVideoChain(projectId, input));
+            } catch (error) {
+                if (scope.signal.aborted || version !== session.current) return;
+                if (mode === "restart" && error instanceof ApiError && (error.status ?? error.code) === 412 && error.details?.requiresUpdatedInputs === true) {
+                    setRequiresUpdatedInputs(true);
+                }
+                throw error;
+            }
+            assertCurrentUserSession(scope);
             if (version !== session.current) return;
-            request.current = { ...input, previewHash: chain.previewHash };
+            setRequiresUpdatedInputs(false);
+            request.current = { ...input, previewHash: chain.previewHash, quoteExpiresAt: chain.quoteExpiresAt };
             quotedReceipt.current = receiptVersion;
             setSelectedId(undefined);
             setPreview(chain);
         });
     const start = () =>
         run("确认提交", async () => {
-            if (blockedReason || !preview?.previewHash || request.current?.previewHash !== preview.previewHash || chains.isError) return;
+            if (blockedReason || quoteControlsDisabled ||
+                !preview?.previewHash || request.current?.previewHash !== preview.previewHash ||
+                (preview.quoteExpiresAt && preview.quoteExpiresAt * 1000 <= Date.now())) return;
             const version = session.current;
-            const scope = getActiveUserScope();
-            // Keep this idempotency key after timeouts so a repeated click finds the
-            // original controller rather than scheduling another paid chain.
+            const scope = captureUserSession();
+            if (scope.scope !== account) return;
             const confirmed = request.current;
-            const { chain } = confirmed.resumeChainId
-                ? await retryVideoChain(projectId, { ...confirmed, resumeChainId: confirmed.resumeChainId })
-                : await createVideoChain(projectId, confirmed);
-            if (version !== session.current) return;
-            if (rememberModel && !reuseOnly) useDramaModelPreferencesStore.getState().remember("video", confirmed.model.model, scope);
-            request.current = undefined;
-            setSelectedId(chain.id);
-            setPreview(undefined);
-            await chains.refetch();
-            message.success(reuseOnly ? "已确认复用原视频" : "连续生成已启动，关闭面板后仍会在后台继续");
+            const requestId = confirmed.requestId;
+            if (!requestId) return;
+            if (confirmed.prepareOnly && confirmed.resumeChainId) {
+                // Preparing references is a separate, non-video operation.
+                const { chain } = await retryVideoChain(projectId, { ...confirmed, resumeChainId: confirmed.resumeChainId });
+                if (version !== session.current || scope.signal.aborted) return;
+                request.current = undefined;
+                setSelectedId(chain.id);
+                setPreview(undefined);
+                await chains.refetch();
+                return;
+            }
+            const entry: PendingVideoReceipt = {
+                requestId, shotId,
+                sourceId: confirmed.resumeChainId || confirmed.restartChainId,
+                mode: confirmed.resumeChainId ? "resume" : confirmed.restartChainId ? "restart" : "fresh",
+            };
+            const submit = async () => {
+                assertCurrentUserSession(scope);
+                // Persist only opaque identifiers before calling a paid endpoint.
+                storePendingVideoReceipt(window.localStorage, storageKey, entry);
+                let chain: VideoChain;
+                try {
+                    ({ chain } = confirmed.resumeChainId
+                        ? await retryVideoChain(projectId, { ...confirmed, resumeChainId: confirmed.resumeChainId })
+                        : await createVideoChain(projectId, confirmed));
+                    if (!chain.id) throw new Error("确认没有返回任务编号");
+                } catch (error) {
+                    const rejected = error instanceof ApiError && [400, 401, 403, 404, 412, 422].includes(error.status ?? error.code ?? 0);
+                    // If this is a replay after an unknown outcome, a rejection of
+                    // the replay does not prove the earlier request was rejected.
+                    const definitive = rejected && pending?.requestId !== requestId;
+                    if (definitive) clearPendingVideoReceipt(window.localStorage, storageKey, requestId);
+                    if (version === session.current && !scope.signal.aborted) {
+                        setReceiptAbsent(false);
+                        setPending(definitive ? undefined : entry);
+                        setReceiptCheck((n) => n + 1);
+                        if (rejected && !definitive) {
+                            request.current = undefined;
+                            setPreview(undefined);
+                            setProblem(videoChainOperationProblem(error, "确认提交"));
+                        }
+                    }
+                    if (definitive) throw error;
+                    // A timeout/network error is not a rejection. The next action is lookup, not a new submit.
+                    return;
+                }
+                clearPendingVideoReceipt(window.localStorage, storageKey, requestId);
+                if (version !== session.current || scope.signal.aborted) return;
+                if (rememberModel && !(reuseOnly && confirmed.resumeChainId)) useDramaModelPreferencesStore.getState().remember("video", confirmed.model.model, scope.scope);
+                request.current = undefined;
+                setPending(undefined);
+                setReceiptAbsent(false);
+                setSelectedId(chain.id);
+                setConfirmedChain(Array.isArray(chain.steps) ? chain : undefined);
+                setLastSourceId(entry.sourceId);
+                setPreview(undefined);
+                message.success(chain.status === "queued" ? "已受理，正在排队。" : "已收到提交回执。");
+                await chains.refetch();
+            };
+            if (navigator.locks) {
+                await navigator.locks.request(storageKey, { ifAvailable: true }, async (lock) => {
+                    if (!lock) throw new Error("另一个页面正在确认，请先核对提交回执");
+                    await submit();
+                });
+            } else await submit();
         });
 
     const preparePosition = () =>
@@ -233,7 +399,7 @@ export function VideoChainPanel({
             if (original.status === "failed" && (step.diagnostic?.canQueryProvider ?? Boolean(original.providerRequestId)) && !original.canRecoverMedia) {
                 const result = await queryFailedVideoProviderTask(step.taskId);
                 if (version !== session.current) return;
-                setQueryResult(result.recovered ? `已取回原视频。结算${result.billingSettled ? "已完成" : "待核对"}。` : `上游状态 ${result.providerStatus || "待确认"} · 结算 ${billingStatus}`);
+                setQueryResult(result.recovered ? `已取回原视频。结算${result.billingSettled ? "已完成" : "待核对"}。` : `上游状态 ${result.providerStatus === "failed" ? "已确认失败" : result.providerStatus === "cancelled" ? "已确认取消" : result.providerStatus || "待确认"} · 结算 ${billingStatus}`);
             } else {
                 setQueryResult(`原任务 ${original.id} · 状态 ${original.status} · 结算 ${billingStatus}${!original.providerRequestId && original.status === "failed" ? " · 尚无上游受理号" : ""}`);
             }
@@ -291,27 +457,45 @@ export function VideoChainPanel({
                 </div>
             ) : null}
             {queryResult ? <p role="status" className="mb-3">{queryResult}</p> : null}
+            {storageUnavailable ? <Callout tone="error">无法安全保存提交回执，本次不会提交。请检查浏览器存储后重新打开。</Callout> : null}
+            {pending ? (
+                <div className="mb-3 flex flex-wrap items-center gap-2" role="status">
+                    <span>{receipt.isFetching ? "正在核对提交回执，请勿再次提交。" :
+                        receiptAbsent ? pendingOtherShot ? "暂未查到回执。请回原镜头使用同一次确认重试。" : "暂未查到回执，可以使用同一次确认重试；不会创建第二次请求。" :
+                        "提交结果未确认。请先核对回执，暂不可再次提交。"}</span>
+                    <Button size="small" loading={receipt.isFetching} onClick={() => {
+                        setReceiptAbsent(false);
+                        setReceiptCheck((n) => n + 1);
+                    }}>核对提交回执</Button>
+                </div>
+            ) : null}
             {originalVideos.size ? (
                 <div className="mb-3 flex flex-wrap gap-3 text-sm">
                     <strong>已完成的视频</strong>
                     {[...originalVideos].map(([resourceId, step]) => <a key={resourceId} className="text-primary underline" href={resourceFileUrl(resourceId)} target="_blank" rel="noreferrer">{step.title || step.shotId} · 查看视频</a>)}
                 </div>
             ) : null}
-            {chain?.error ? (
+            {priorError ? (
                 <div role="alert" className="mb-3">
-                    <Callout tone="error">原生成链失败。{chain.error}。后续镜头暂停。</Callout>
+                    <Callout tone="error">原生成链失败：{priorError}</Callout>
                 </div>
             ) : null}
+            {newError ? <div role="alert" className="mb-3"><Callout tone="error">本次生成失败：{newError}。后续镜头暂停。</Callout></div> : null}
             {chains.isLoading ? <Spin /> : null}
             {chain ? (
                 <>
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <strong aria-live="polite">{chain.status === "preview" ? (request.current?.resumeChainId ? "从失败段继续 · 本次报价" : "本次费用预览") : chain.stage || "已有生成记录"}</strong>
+                        <strong aria-live="polite">{chain.status === "preview" ? (recoveryMode === "restart" ? "从头重新生成 · 本次报价" : recoveryMode === "resume" ? "从失败段继续 · 本次报价" : "本次费用预览") :
+                            chain.status === "queued" ? "已受理，正在排队" : chain.status === "running" ? "已受理，正在生成" : chain.stage || "已有生成记录"}</strong>
                         <span>
-                            共 {chain.steps.length} 组 · {chain.prepareOnly ? "仅准备参考，不生成视频" : request.current?.resumeChainId && chain.status === "preview" ? `剩余步骤预估 ${chain.totalMicrocredits / 1000000} 平台积分` : chain.steps.some((step) => step.quote) ? `${chain.totalMicrocredits / 1000000} 平台积分（整链预估，按实际子任务结算）` : "个人渠道按上游计费"}
+                            共 {chain.steps.length} 组 · {chain.prepareOnly ? "仅准备参考，不生成视频" : recoveryMode === "resume" && chain.status === "preview" ? `剩余步骤预估 ${chain.totalMicrocredits / 1000000} 平台积分` : chain.steps.some((step) => step.quote) ? `${chain.totalMicrocredits / 1000000} 平台积分（整链预估，按实际子任务结算）` : "个人渠道按上游计费"}
                         </span>
                     </div>
-                    {chain.status === "preview" && chain.previewHash ? <p className="mb-2 break-all text-xs text-foreground/60">报价标识 {chain.previewHash}</p> : null}
+                    {chain.status === "preview" && chain.previewHash ? <div className="mb-2 text-xs text-foreground/60">
+                        {recoveryMode === "restart" ? <p>{request.current?.useUpdatedInputs ? "本次使用当前分镜和素材。" : ""}从第一步开始，不复用原视频；保留原记录和已完成的视频。</p> : recoveryMode === "resume" ? <p>从失败处继续，报价中标记可复用的视频不会重新生成。</p> : null}
+                        {chain.quoteExpiresAt ? <p>报价有效至 {new Date(chain.quoteExpiresAt * 1000).toLocaleTimeString()}</p> : null}
+                        <p className="break-all">报价标识 {chain.previewHash}</p>
+                    </div> : null}
                     {chain.status === "preview" && blockedReason ? <div role="status" className="mb-3"><Callout tone="warning">本次仅供估价。{blockedReason}</Callout></div> : null}
                     <ol className="max-h-[50vh] space-y-3 overflow-y-auto pr-2 thin-scrollbar">
                         {chain.steps.map((step, index) => (
@@ -337,6 +521,12 @@ export function VideoChainPanel({
                                 <p className="mt-1 text-sm text-foreground/65">
                                     {step.scene || "未指定场景"} · 内容 {step.contentSeconds} 秒 → 生成 {step.generationSeconds} 秒 · {modelDisplayName(config, step.model)}
                                 </p>
+                                {chain.status === "preview" && step.status !== "succeeded" && step.contentSeconds % 1 !== 0 &&
+                                    step.generationSeconds === Math.ceil(step.contentSeconds) ? (
+                                    <p className="mt-1 text-xs text-foreground/65">
+                                        保留分镜原时长；本线路按整秒请求，本次报价对应 {step.generationSeconds} 秒请求。
+                                    </p>
+                                ) : null}
                                 <p className="mt-1 text-xs text-foreground/55">
                                     {step.sourceShotId && !step.referenceSkipped ? `保留 ${step.referenceCount} 张原参考图，尝试新增站位图 ${step.referenceTag}` : `保留 ${step.referenceCount} 张参考图`}{step.referenceAudioCount ? ` · 声音参考 ${step.referenceAudioCount} 条` : ""} · {step.ending ? "追加片末结束段" : "不追加片末结束段"}
                                 </p>
@@ -389,18 +579,25 @@ export function VideoChainPanel({
                     </Button>
                 ) : null}
                 {!active && !failed && (sss || whiteModelStoryboardEnabled) ? (
-                    <Button loading={busy} onClick={() => void preparePosition()}>
+                    <Button loading={busy} disabled={Boolean(pending) || storageUnavailable} onClick={() => void preparePosition()}>
                         仅准备本组站位参考
                     </Button>
                 ) : null}
-                {!active && chains.isSuccess && !chains.isRefetchError ? (
-                    <Button loading={busy} onClick={() => void refreshPreview()}>
+                {!active && chains.isSuccess && !chains.isRefetchError && (!failed || failed.steps.length > 1 || failed.prepareOnly || reuseOnly) ? (
+                    <Button loading={busy} disabled={quoteControlsDisabled || Boolean(pending && pending.mode !== (failed ? "resume" : "fresh"))}
+                        onClick={() => void refreshPreview(failed ? "resume" : "fresh")}>
                         {reuseOnly ? "预览可复用的原视频" : failed ? "从失败步骤重新报价" : "预览当前场景与费用"}
                     </Button>
                 ) : null}
-                {chain?.status === "preview" && request.current && !chains.isError ? (
-                    <Button type="primary" disabled={busy || Boolean(blockedReason)} loading={busy} onClick={() => void start()}>
-                        {reuseOnly ? "确认复用原视频" : request.current.resumeChainId ? "确认报价并从失败段继续" : "开始连续生成"}
+                {!active && chains.isSuccess && !chains.isRefetchError && failed && !failed.prepareOnly && !(reuseOnly && failed.steps.length === 1) ? (
+                    <Button loading={busy} disabled={quoteControlsDisabled || Boolean(pending && pending.mode !== "restart")}
+                        onClick={() => void refreshPreview("restart", requiresUpdatedInputs)}>
+                        {requiresUpdatedInputs ? "按当前分镜和素材从头生成（先报价）" : failed.steps.length === 1 ? "重新生成整段（先报价）" : "从头重新生成（先报价）"}
+                    </Button>
+                ) : null}
+                {chain?.status === "preview" && request.current ? (
+                    <Button type="primary" disabled={busy || Boolean(blockedReason) || quoteControlsDisabled} loading={busy} onClick={() => void start()}>
+                        {recoveryMode === "restart" ? "确认报价并从头生成" : recoveryMode === "resume" ? (reuseOnly ? "确认复用原视频" : "确认报价并从失败段继续") : "开始连续生成"}
                     </Button>
                 ) : null}
             </div>

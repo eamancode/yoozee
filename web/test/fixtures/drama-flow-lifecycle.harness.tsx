@@ -1156,6 +1156,7 @@ test("出片恢复：503 受理未知时换线只读估价，核实后重新报�
         await page.click(buttonByText(cardOf("S01")!, "出这一段"));
         expect(buttonByText(modal()!, "预览当前场景与费用")).toBeUndefined();
         expect(buttonByText(modal()!, "从失败步骤重新报价")).toBeTruthy();
+        expect(buttonByText(modal()!, "从头重新生成（先报价）")).toBeTruthy();
         await page.click(buttonByText(modal()!, "关闭"));
         await page.click(buttonByText(cardOf("S02")!, "重新出"));
         expect(modal()?.textContent).toContain("线路不可用");
@@ -1256,8 +1257,8 @@ test("出片恢复：原单轮询核清后仍需全新有效报价，缺少报�
     });
     try {
         await page.click(buttonByText(cardOf("S01")!, "重新出"));
-        const estimate = () => page.click(buttonByText(modal()!, "从失败步骤重新报价"));
-        const confirm = () => buttonByText(modal()!, "确认报价并从失败段继续") as HTMLButtonElement;
+        const estimate = () => page.click(buttonByText(modal()!, "重新生成整段（先报价）"));
+        const confirm = () => buttonByText(modal()!, "确认报价并从头生成") as HTMLButtonElement;
         await estimate();
         expect(confirm().disabled).toBe(true);
         reconciled = true;
@@ -1344,7 +1345,7 @@ test("出片恢复：已受理的超时先查原上游任务，取回视频后�
     try {
         await page.click(buttonByText(cardOf("S01")!, "重新出"));
         expect(modal()?.textContent).toContain("原报价 initial-quote");
-        expect((buttonByText(modal()!, "从失败步骤重新报价") as HTMLButtonElement).disabled).toBe(false);
+        expect((buttonByText(modal()!, "重新生成整段（先报价）") as HTMLButtonElement).disabled).toBe(false);
         await page.click(buttonByText(modal()!, "查询原请求与结算"));
         expect(modal()?.textContent).toContain("已取回原视频");
         fixture.overrides.set("/dramas/models", "error");
@@ -1455,15 +1456,202 @@ test("R6-D04 出片失败的段点「重新出」：确认前只能重新报价"
     try {
         await page.click(buttonByText(cardOf("S01")!, "重新出"));
         expect(modal()?.textContent).toContain("上游超时");
-        expect(buttonByText(modal()!, "确认报价并从失败段继续")).toBeUndefined();
-        await page.click(buttonByText(modal()!, "从失败步骤重新报价"));
+        expect(buttonByText(modal()!, "确认报价并从头生成")).toBeUndefined();
+        expect(buttonByText(modal()!, "从失败步骤重新报价")).toBeUndefined();
+        await page.click(buttonByText(modal()!, "重新生成整段（先报价）"));
         expect(fixture.state.previews).toBe(1);
-        expect(modal()?.textContent).toContain("剩余步骤预估 1.5 平台积分");
-        expect(buttonByText(modal()!, "确认报价并从失败段继续")).toBeTruthy();
+        expect(modal()?.textContent).toContain("从第一步开始，不复用原视频");
+        expect(buttonByText(modal()!, "确认报价并从头生成")).toBeTruthy();
         await page.click(buttonByText(modal()!, "关闭"));
         expect(page.errors).toEqual([]);
         expect(submitted()).toEqual([]);
         expect(fixture.forbidden).toEqual([]);
+    } finally {
+        await page.dispose();
+    }
+});
+
+test("ZY_CHAIN_DURATION 同场景预览保留 20.5 秒正文，展示 21 秒报价和 8 张参考图，确认前不提交", async () => {
+    const path = `/projects/${P}/video-chains`;
+    const exactCost = 2_625_000;
+    const previews: Array<{ requestId?: string }> = [];
+    const confirmations: Array<{ requestId?: string; previewHash?: string }> = [];
+    const page = await mount(`/drama-flow/${P}/video`, { prepare: (f) => {
+        const fallback = f.handle;
+        f.handle = (method, url, body) => {
+            if (url === path + "/preview") {
+                previews.push(body as typeof previews[number]);
+                const reply = fallback(method, url, body);
+                const data = reply?.body?.data as { chain: { steps: Record<string, unknown>[]; totalMicrocredits: number } };
+                data.chain.totalMicrocredits = exactCost;
+                Object.assign(data.chain.steps[0], {
+                    model: "CHANNEL_000001::lec-zy-seedance-2-5-discount2",
+                    contentSeconds: 20.5,
+                    generationSeconds: 21,
+                    referenceCount: 8,
+                    quote: { billingMode: "fixed_request", quantity: 1, amountMicrocredits: exactCost },
+                });
+                return reply;
+            }
+            if (url === path && method.toLowerCase() === "post") {
+                confirmations.push(body as typeof confirmations[number]);
+                return { status: 200, body: { code: 0, data: { chain: { id: "synthetic-zy-queued" } } } };
+            }
+            return fallback(method, url, body);
+        };
+    } });
+    try {
+        await page.click(buttonByText(cardOf("S01")!, "出这一段"));
+        expect(buttonByText(modal()!, "开始连续生成")).toBeUndefined();
+        expect(confirmations).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "预览当前场景与费用"));
+        expect(previews).toHaveLength(1);
+        expect(modal()?.textContent).toContain("内容 20.5 秒 → 生成 21 秒");
+        expect(modal()?.textContent).toContain("本次报价对应 21 秒请求");
+        expect(modal()?.textContent).toContain("保留 8 张参考图");
+        expect(modal()?.textContent).toContain("按条 · 2.625 平台积分");
+        expect(confirmations).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "开始连续生成"));
+        expect(confirmations).toEqual([expect.objectContaining({ requestId: previews[0].requestId, previewHash: "preview-1" })]);
+        expect(page.errors).toEqual([]);
+    } finally {
+        await page.dispose();
+    }
+});
+
+test("P0_VIDEO_RECOVERY 单段重新生成，回复丢失后重开先查原确认且不再提交", async () => {
+    const chainPath = `/projects/${P}/video-chains`;
+    const quotes: Record<string, unknown>[] = [];
+    const confirmations: Record<string, unknown>[] = [];
+    const keys: string[] = [];
+    let recorded: Record<string, unknown> | undefined;
+    let receiptAvailable = false;
+    const expires = Math.floor(Date.now() / 1000) + 300;
+    const ok = (data: unknown) => ({ status: 200, body: { code: 0, data, msg: "ok" } });
+    const page = await mount(`/drama-flow/${P}/video`, { chains: "failed", prepare: (f) => {
+        const fallback = f.handle;
+        f.handle = (method, path, body) => {
+            if (path === chainPath + "/preview") {
+                quotes.push(body as Record<string, unknown>);
+                const reply = fallback(method, path, body);
+                const data = reply?.body?.data as { chain: Record<string, unknown> };
+                data.chain.quoteExpiresAt = expires;
+                recorded = { ...data.chain, id: "new-controller", status: "queued" };
+                return reply;
+            }
+            if (method.toLowerCase() === "post" && path === chainPath) {
+                confirmations.push(body as Record<string, unknown>);
+                return { status: 503, body: { code: 503, msg: "reply lost" } };
+            }
+            if (path.startsWith(chainPath + "/receipt?")) {
+                keys.push(new URLSearchParams(path.split("?")[1]).get("requestId") || "");
+                return receiptAvailable ? ok({ state: "recorded", chain: recorded }) : { status: 503, body: { code: 503, msg: "receipt temporarily unavailable" } };
+            }
+            return fallback(method, path, body);
+        };
+    } });
+    try {
+        await page.click(buttonByText(cardOf("S01")!, "重新出"));
+        expect(confirmations).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "重新生成整段（先报价）"));
+        expect(quotes[0]).toMatchObject({ restartChainId: "chain-failed", recoveryV2: true });
+        expect(quotes[0].resumeChainId).toBeUndefined();
+        expect(confirmations).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "确认报价并从头生成"));
+        expect(confirmations).toHaveLength(1);
+        expect(confirmations[0]).toMatchObject({ requestId: quotes[0].requestId, quoteExpiresAt: expires, restartChainId: "chain-failed" });
+        expect(keys).toEqual([confirmations[0].requestId as string]);
+        expect((buttonByText(modal()!, "确认报价并从头生成") as HTMLButtonElement).disabled).toBe(true);
+        await page.click(buttonByText(modal()!, "关闭"));
+        receiptAvailable = true;
+        await page.click(buttonByText(cardOf("S01")!, "重新出"));
+        expect(keys).toEqual([confirmations[0].requestId as string, confirmations[0].requestId as string]);
+        expect(modal()?.textContent).toContain("已找到本次提交回执");
+        expect(modal()?.textContent).toContain("已受理，正在排队");
+        expect(confirmations).toHaveLength(1);
+        expect(page.errors).toEqual([]);
+    } finally {
+        await page.dispose();
+    }
+});
+
+test("P0_VIDEO_RECOVERY 查不到确认回执后只允许同一个确认标识再次提交", async () => {
+    const path = `/projects/${P}/video-chains`;
+    const confirmations: Record<string, unknown>[] = [];
+    let quote: Record<string, unknown>;
+    let absent = false;
+    const ok = (data: unknown) => ({ status: 200, body: { code: 0, data, msg: "ok" } });
+    const page = await mount(`/drama-flow/${P}/video`, { chains: "failed", prepare: (f) => {
+        const fallback = f.handle;
+        f.handle = (method, url, body) => {
+            if (url === path + "/preview") {
+                const reply = fallback(method, url, body);
+                quote = (reply?.body?.data as { chain: Record<string, unknown> }).chain;
+                return reply;
+            }
+            if (url === path && method.toLowerCase() === "post") {
+                confirmations.push(body as Record<string, unknown>);
+                if (confirmations.length === 1) return { status: 503, body: { code: 503, msg: "no answer" } };
+                return ok({ chain: { ...quote, id: "one-controller", status: "queued" } });
+            }
+            if (url.startsWith(path + "/receipt?")) return absent ? ok({ state: "absent" }) : { status: 503, body: { code: 503, msg: "try later" } };
+            return fallback(method, url, body);
+        };
+    } });
+    try {
+        await page.click(buttonByText(cardOf("S01")!, "重新出"));
+        await page.click(buttonByText(modal()!, "重新生成整段（先报价）"));
+        await page.click(buttonByText(modal()!, "确认报价并从头生成"));
+        expect(confirmations).toHaveLength(1);
+        expect((buttonByText(modal()!, "确认报价并从头生成") as HTMLButtonElement).disabled).toBe(true);
+        absent = true;
+        await page.click(buttonByText(modal()!, "核对提交回执"));
+        expect(modal()?.textContent).toContain("暂未查到回执");
+        expect(confirmations).toHaveLength(1);
+        await page.click(buttonByText(modal()!, "确认报价并从头生成"));
+        expect(confirmations).toHaveLength(2);
+        expect(confirmations[1]).toEqual(confirmations[0]);
+        expect(modal()?.textContent).toContain("已受理，正在排队");
+    } finally {
+        await page.dispose();
+    }
+});
+
+test("P0_VIDEO_RECOVERY 原输入变化后只按明确选择报价和确认", async () => {
+    const path = `/projects/${P}/video-chains`;
+    const intents: Array<{ useUpdatedInputs?: boolean; restartChainId?: string }> = [];
+    const submits: Array<{ useUpdatedInputs?: boolean; restartChainId?: string }> = [];
+    const page = await mount(`/drama-flow/${P}/video`, { chains: "failed", prepare: (f) => {
+        const fallback = f.handle;
+        f.handle = (method, url, body) => {
+            const input = body as typeof intents[number];
+            if (url === path + "/preview") {
+                intents.push(input);
+                if (!input.useUpdatedInputs) return {
+                    status: 412, body: { code: 412, msg: "原参考素材有变化", details: { requiresUpdatedInputs: true } },
+                };
+            }
+            if (url === path && method.toLowerCase() === "post") {
+                submits.push(input);
+                return { status: 200, body: { code: 0, data: { chain: { id: "changed-input-controller" } } } };
+            }
+            return fallback(method, url, body);
+        };
+    } });
+    try {
+        await page.click(buttonByText(cardOf("S01")!, "重新出"));
+        await page.click(buttonByText(modal()!, "重新生成整段（先报价）"));
+        expect(intents).toHaveLength(1);
+        expect(intents[0].useUpdatedInputs).toBeUndefined();
+        expect(buttonByText(modal()!, "确认报价并从头生成")).toBeUndefined();
+        expect(submits).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "按当前分镜和素材从头生成（先报价）"));
+        expect(intents[1]).toMatchObject({ restartChainId: "chain-failed", useUpdatedInputs: true });
+        expect(modal()?.textContent).toContain("本次使用当前分镜和素材");
+        expect(submits).toHaveLength(0);
+        await page.click(buttonByText(modal()!, "确认报价并从头生成"));
+        expect(submits).toHaveLength(1);
+        expect(submits[0]).toMatchObject({ restartChainId: "chain-failed", useUpdatedInputs: true });
     } finally {
         await page.dispose();
     }
@@ -1996,14 +2184,14 @@ test("FLOW-01 同一三集项目增减剧集、删除单元、更换演员并按
             } else {
                 expect(summaryValue("视频模型")).toBe(fx.FIXTURE_VIDEO_MODEL_NAME);
             }
-            await page.click(buttonByText(modal()!, index === 0 ? "预览当前场景与费用" : "从失败步骤重新报价"));
+            await page.click(buttonByText(modal()!, index === 0 ? "预览当前场景与费用" : "重新生成整段（先报价）"));
             expect(server.attempts).toHaveLength(index);
             expect(server.quotes).toHaveLength(index + 1);
             const quote = server.quotes[index];
             expect(quote).toMatchObject(expected);
-            if (index > 0) expect(quote.resumeChainId).toBe("journey-chain");
+            if (index > 0) expect(quote.restartChainId).toBe("journey-chain");
             expect(modal()?.textContent).toContain(quote.previewHash);
-            await page.click(buttonByText(modal()!, index === 0 ? "开始连续生成" : "确认报价并从失败段继续"));
+            await page.click(buttonByText(modal()!, index === 0 ? "开始连续生成" : "确认报价并从头生成"));
             expect(server.attempts).toHaveLength(index + 1);
             expect(server.attempts[index]).toMatchObject({ ...expected, previewHash: quote.previewHash, requestId: quote.requestId, status: index === 3 ? "succeeded" : "failed" });
             await page.click(buttonByText(modal()!, "关闭"));

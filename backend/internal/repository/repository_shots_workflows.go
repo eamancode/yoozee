@@ -614,7 +614,7 @@ func (r *Repository) UpdateWorkflowStep(step *model.WorkflowStepInstance) error 
 
 // RegisterTaskOutputRecords 把成功任务的产物表示、生产关联和段产物写进同一事务；重复回填按任务与用途幂等。
 // 旧六步流程已只读，这里不再推进任何步骤或流程实例。
-func (r *Repository) RegisterTaskOutputRecords(projectID string, representation *model.AssetRepresentation, productionLink *model.ProductionTaskLink, artifact *model.ShotArtifact) error {
+func (r *Repository) RegisterTaskOutputRecords(projectID string, representation *model.AssetRepresentation, productionLink *model.ProductionTaskLink, artifact *model.ShotArtifact, preserveSelectedVideo ...bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		// Match deletion's project -> shot lock order. A task can be terminal
 		// before registration, including the production link without a resource.
@@ -680,6 +680,13 @@ func (r *Repository) RegisterTaskOutputRecords(projectID string, representation 
 				return err
 			}
 			artifact.Version = currentVersion + 1
+			if artifact.Selected && artifact.Type == "video" && len(preserveSelectedVideo) > 0 && preserveSelectedVideo[0] {
+				var selected int64
+				if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ? AND selected = ?", artifact.ShotID, artifact.Type, true).Count(&selected).Error; err != nil {
+					return err
+				}
+				artifact.Selected = selected == 0
+			}
 			if artifact.Selected {
 				if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", artifact.ShotID, artifact.Type).Updates(map[string]any{"selected": false, "updated_at": artifact.UpdatedAt}).Error; err != nil {
 					return err
