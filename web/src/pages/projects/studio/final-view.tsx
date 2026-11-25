@@ -4,7 +4,7 @@ import { Clapperboard, Download, Film } from "lucide-react";
 
 import type { DramaEpisodeDetail } from "@/services/api/drama";
 
-import { aspectRatioValue, downloadResource, formatDuration, MediaThumb, STAGE_LABEL, useResourceMediaUrl } from "../drama-shared";
+import { aspectRatioValue, downloadResource, episodeStageLabel, formatDuration, MediaThumb, useResourceMediaUrl } from "../drama-shared";
 import { JianyingDraftModal } from "./asset-transfer";
 import { secondsLabel } from "./segment-parts";
 
@@ -13,6 +13,7 @@ export function FinalView({
     projectId,
     title,
     detail,
+    paused,
     aspectRatio,
     onOpenSegment,
     onCompose,
@@ -21,6 +22,7 @@ export function FinalView({
     projectId: string;
     title: string;
     detail: DramaEpisodeDetail;
+    paused: boolean;
     aspectRatio: string;
     onOpenSegment: (index: number) => void;
     /** 手动重新合成成品（按实测时长拼接）。 */
@@ -57,7 +59,7 @@ export function FinalView({
                         <div className="drama-finalv-empty">
                             <Film className="size-6" aria-hidden />
                             <span>
-                                {STAGE_LABEL[episode.stage]} · {rendering ? "正在合成成片…" : "全部段视频生成后自动合成，也可点右侧「合成成品」"}
+                                {episodeStageLabel(episode.stage, paused)} · {paused && episode.stage === "queued" ? "继续制作后，本集将开始编写剧本与分镜" : rendering ? "正在合成成片…" : "全部段视频生成后自动合成，也可点右侧「合成成品」"}
                             </span>
                         </div>
                     )}
