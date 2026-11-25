@@ -1,4 +1,6 @@
-import { Blocks, CircleDollarSign, Clapperboard, Images, LibraryBig, ListTodo, PanelsTopLeft, Settings, PenTool } from "lucide-react";
+import { Blocks, CircleDollarSign, Images, LibraryBig, ListTodo, PanelsTopLeft, Settings, PenTool, Workflow } from "lucide-react";
+
+export const DRAMA_PIPELINE_TITLE = "短剧流水线";
 
 export const navigationTools = [
     {
@@ -8,9 +10,9 @@ export const navigationTools = [
         section: "创作空间",
     },
     {
-        slug: "projects",
-        label: "短剧创作",
-        icon: Clapperboard,
+        slug: "drama-flow-2",
+        label: DRAMA_PIPELINE_TITLE,
+        icon: Workflow,
         section: "创作空间",
     },
     {

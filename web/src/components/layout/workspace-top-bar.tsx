@@ -7,6 +7,7 @@ import { WorkspaceAccountMenu } from "@/components/layout/workspace-account-menu
 import { WorkspaceCreditGiftMark } from "@/components/layout/workspace-credit-gift-mark";
 import { WorkspaceTopBarExtensionSlot } from "@/components/layout/workspace-top-bar-extension";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
+import { DRAMA_PIPELINE_TITLE } from "@/constant/navigation-tools";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
@@ -17,6 +18,7 @@ const PAGE_TITLES: Record<string, string> = {
     home: "创作",
     create: "创作",
     projects: "短剧制作",
+    "drama-flow-2": DRAMA_PIPELINE_TITLE,
     canvas: "自由画布",
     tasks: "创作历史",
     assets: "资产",
