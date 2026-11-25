@@ -389,7 +389,7 @@ export function createDramaFlowFixture(
         calls.push(call);
         if (call.method === "POST" && path === `${base}/video-chains/preview`) {
             const input = body as VideoChainRequest;
-        state.previewRequests.push({ shotId: input?.shotId, resumeChainId: input?.resumeChainId, restartChainId: input?.restartChainId, requestId: input?.requestId });
+            state.previewRequests.push({ shotId: input?.shotId, resumeChainId: input?.resumeChainId, restartChainId: input?.restartChainId, requestId: input?.requestId });
         }
         const override = overrides.get(path);
         if (options.storyboardResume && call.method === "POST" && path === `${base}/units/${FIXTURE_UNIT_ID}/drama/steps/chapter.shots/run`) {

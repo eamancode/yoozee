@@ -1476,30 +1476,32 @@ test("ZY_CHAIN_DURATION 同场景预览保留 20.5 秒正文，展示 21 秒报�
     const exactCost = 2_625_000;
     const previews: Array<{ requestId?: string }> = [];
     const confirmations: Array<{ requestId?: string; previewHash?: string }> = [];
-    const page = await mount(`/drama-flow/${P}/video`, { prepare: (f) => {
-        const fallback = f.handle;
-        f.handle = (method, url, body) => {
-            if (url === path + "/preview") {
-                previews.push(body as typeof previews[number]);
-                const reply = fallback(method, url, body);
-                const data = reply?.body?.data as { chain: { steps: Record<string, unknown>[]; totalMicrocredits: number } };
-                data.chain.totalMicrocredits = exactCost;
-                Object.assign(data.chain.steps[0], {
-                    model: "CHANNEL_000001::lec-zy-seedance-2-5-discount2",
-                    contentSeconds: 20.5,
-                    generationSeconds: 21,
-                    referenceCount: 8,
-                    quote: { billingMode: "fixed_request", quantity: 1, amountMicrocredits: exactCost },
-                });
-                return reply;
-            }
-            if (url === path && method.toLowerCase() === "post") {
-                confirmations.push(body as typeof confirmations[number]);
-                return { status: 200, body: { code: 0, data: { chain: { id: "synthetic-zy-queued" } } } };
-            }
-            return fallback(method, url, body);
-        };
-    } });
+    const page = await mount(`/drama-flow/${P}/video`, {
+        prepare: (f) => {
+            const fallback = f.handle;
+            f.handle = (method, url, body) => {
+                if (url === path + "/preview") {
+                    previews.push(body as (typeof previews)[number]);
+                    const reply = fallback(method, url, body);
+                    const data = reply?.body?.data as { chain: { steps: Record<string, unknown>[]; totalMicrocredits: number } };
+                    data.chain.totalMicrocredits = exactCost;
+                    Object.assign(data.chain.steps[0], {
+                        model: "CHANNEL_000001::lec-zy-seedance-2-5-discount2",
+                        contentSeconds: 20.5,
+                        generationSeconds: 21,
+                        referenceCount: 8,
+                        quote: { billingMode: "fixed_request", quantity: 1, amountMicrocredits: exactCost },
+                    });
+                    return reply;
+                }
+                if (url === path && method.toLowerCase() === "post") {
+                    confirmations.push(body as (typeof confirmations)[number]);
+                    return { status: 200, body: { code: 0, data: { chain: { id: "synthetic-zy-queued" } } } };
+                }
+                return fallback(method, url, body);
+            };
+        },
+    });
     try {
         await page.click(buttonByText(cardOf("S01")!, "出这一段"));
         expect(buttonByText(modal()!, "开始连续生成")).toBeUndefined();
@@ -1528,28 +1530,31 @@ test("P0_VIDEO_RECOVERY 单段重新生成，回复丢失后重开先查原确�
     let receiptAvailable = false;
     const expires = Math.floor(Date.now() / 1000) + 300;
     const ok = (data: unknown) => ({ status: 200, body: { code: 0, data, msg: "ok" } });
-    const page = await mount(`/drama-flow/${P}/video`, { chains: "failed", prepare: (f) => {
-        const fallback = f.handle;
-        f.handle = (method, path, body) => {
-            if (path === chainPath + "/preview") {
-                quotes.push(body as Record<string, unknown>);
-                const reply = fallback(method, path, body);
-                const data = reply?.body?.data as { chain: Record<string, unknown> };
-                data.chain.quoteExpiresAt = expires;
-                recorded = { ...data.chain, id: "new-controller", status: "queued" };
-                return reply;
-            }
-            if (method.toLowerCase() === "post" && path === chainPath) {
-                confirmations.push(body as Record<string, unknown>);
-                return { status: 503, body: { code: 503, msg: "reply lost" } };
-            }
-            if (path.startsWith(chainPath + "/receipt?")) {
-                keys.push(new URLSearchParams(path.split("?")[1]).get("requestId") || "");
-                return receiptAvailable ? ok({ state: "recorded", chain: recorded }) : { status: 503, body: { code: 503, msg: "receipt temporarily unavailable" } };
-            }
-            return fallback(method, path, body);
-        };
-    } });
+    const page = await mount(`/drama-flow/${P}/video`, {
+        chains: "failed",
+        prepare: (f) => {
+            const fallback = f.handle;
+            f.handle = (method, path, body) => {
+                if (path === chainPath + "/preview") {
+                    quotes.push(body as Record<string, unknown>);
+                    const reply = fallback(method, path, body);
+                    const data = reply?.body?.data as { chain: Record<string, unknown> };
+                    data.chain.quoteExpiresAt = expires;
+                    recorded = { ...data.chain, id: "new-controller", status: "queued" };
+                    return reply;
+                }
+                if (method.toLowerCase() === "post" && path === chainPath) {
+                    confirmations.push(body as Record<string, unknown>);
+                    return { status: 503, body: { code: 503, msg: "reply lost" } };
+                }
+                if (path.startsWith(chainPath + "/receipt?")) {
+                    keys.push(new URLSearchParams(path.split("?")[1]).get("requestId") || "");
+                    return receiptAvailable ? ok({ state: "recorded", chain: recorded }) : { status: 503, body: { code: 503, msg: "receipt temporarily unavailable" } };
+                }
+                return fallback(method, path, body);
+            };
+        },
+    });
     try {
         await page.click(buttonByText(cardOf("S01")!, "重新出"));
         expect(confirmations).toHaveLength(0);
@@ -1581,23 +1586,26 @@ test("P0_VIDEO_RECOVERY 查不到确认回执后只允许同一个确认标识�
     let quote: Record<string, unknown>;
     let absent = false;
     const ok = (data: unknown) => ({ status: 200, body: { code: 0, data, msg: "ok" } });
-    const page = await mount(`/drama-flow/${P}/video`, { chains: "failed", prepare: (f) => {
-        const fallback = f.handle;
-        f.handle = (method, url, body) => {
-            if (url === path + "/preview") {
-                const reply = fallback(method, url, body);
-                quote = (reply?.body?.data as { chain: Record<string, unknown> }).chain;
-                return reply;
-            }
-            if (url === path && method.toLowerCase() === "post") {
-                confirmations.push(body as Record<string, unknown>);
-                if (confirmations.length === 1) return { status: 503, body: { code: 503, msg: "no answer" } };
-                return ok({ chain: { ...quote, id: "one-controller", status: "queued" } });
-            }
-            if (url.startsWith(path + "/receipt?")) return absent ? ok({ state: "absent" }) : { status: 503, body: { code: 503, msg: "try later" } };
-            return fallback(method, url, body);
-        };
-    } });
+    const page = await mount(`/drama-flow/${P}/video`, {
+        chains: "failed",
+        prepare: (f) => {
+            const fallback = f.handle;
+            f.handle = (method, url, body) => {
+                if (url === path + "/preview") {
+                    const reply = fallback(method, url, body);
+                    quote = (reply?.body?.data as { chain: Record<string, unknown> }).chain;
+                    return reply;
+                }
+                if (url === path && method.toLowerCase() === "post") {
+                    confirmations.push(body as Record<string, unknown>);
+                    if (confirmations.length === 1) return { status: 503, body: { code: 503, msg: "no answer" } };
+                    return ok({ chain: { ...quote, id: "one-controller", status: "queued" } });
+                }
+                if (url.startsWith(path + "/receipt?")) return absent ? ok({ state: "absent" }) : { status: 503, body: { code: 503, msg: "try later" } };
+                return fallback(method, url, body);
+            };
+        },
+    });
     try {
         await page.click(buttonByText(cardOf("S01")!, "重新出"));
         await page.click(buttonByText(modal()!, "重新生成整段（先报价）"));
@@ -1621,23 +1629,28 @@ test("P0_VIDEO_RECOVERY 原输入变化后只按明确选择报价和确认", as
     const path = `/projects/${P}/video-chains`;
     const intents: Array<{ useUpdatedInputs?: boolean; restartChainId?: string }> = [];
     const submits: Array<{ useUpdatedInputs?: boolean; restartChainId?: string }> = [];
-    const page = await mount(`/drama-flow/${P}/video`, { chains: "failed", prepare: (f) => {
-        const fallback = f.handle;
-        f.handle = (method, url, body) => {
-            const input = body as typeof intents[number];
-            if (url === path + "/preview") {
-                intents.push(input);
-                if (!input.useUpdatedInputs) return {
-                    status: 412, body: { code: 412, msg: "原参考素材有变化", details: { requiresUpdatedInputs: true } },
-                };
-            }
-            if (url === path && method.toLowerCase() === "post") {
-                submits.push(input);
-                return { status: 200, body: { code: 0, data: { chain: { id: "changed-input-controller" } } } };
-            }
-            return fallback(method, url, body);
-        };
-    } });
+    const page = await mount(`/drama-flow/${P}/video`, {
+        chains: "failed",
+        prepare: (f) => {
+            const fallback = f.handle;
+            f.handle = (method, url, body) => {
+                const input = body as (typeof intents)[number];
+                if (url === path + "/preview") {
+                    intents.push(input);
+                    if (!input.useUpdatedInputs)
+                        return {
+                            status: 412,
+                            body: { code: 412, msg: "原参考素材有变化", details: { requiresUpdatedInputs: true } },
+                        };
+                }
+                if (url === path && method.toLowerCase() === "post") {
+                    submits.push(input);
+                    return { status: 200, body: { code: 0, data: { chain: { id: "changed-input-controller" } } } };
+                }
+                return fallback(method, url, body);
+            };
+        },
+    });
     try {
         await page.click(buttonByText(cardOf("S01")!, "重新出"));
         await page.click(buttonByText(modal()!, "重新生成整段（先报价）"));

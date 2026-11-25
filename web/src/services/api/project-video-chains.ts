@@ -106,6 +106,5 @@ export const videoChainsQuery = (projectId: string, unitId: string) => ({
 export const previewVideoChain = (projectId: string, input: VideoChainRequest) => http.post<{ chain: VideoChain }>(`${base(projectId)}/preview`, input);
 export const createVideoChain = (projectId: string, input: VideoChainRequest) => http.post<{ chain: VideoChain }>(base(projectId), input);
 export const retryVideoChain = (projectId: string, input: VideoChainRequest & { resumeChainId: string }) => http.post<{ chain: VideoChain }>(`${base(projectId)}/${encodeURIComponent(input.resumeChainId)}/retry`, input);
-export const getVideoChainReceipt = (projectId: string, unitId: string, requestId: string, signal?: AbortSignal) =>
-    http.get<{ state: "absent" | "recorded"; chain?: VideoChain }>(`${base(projectId)}/receipt`, { params: { unitId, requestId }, signal });
+export const getVideoChainReceipt = (projectId: string, unitId: string, requestId: string, signal?: AbortSignal) => http.get<{ state: "absent" | "recorded"; chain?: VideoChain }>(`${base(projectId)}/receipt`, { params: { unitId, requestId }, signal });
 export const cancelVideoChain = (projectId: string, id: string) => http.post<{ chain: VideoChain }>(`${base(projectId)}/${encodeURIComponent(id)}/cancel`);

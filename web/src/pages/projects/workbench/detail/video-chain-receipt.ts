@@ -16,22 +16,24 @@ export function readPendingVideoReceipt(storage: Storage, key: string): PendingV
     if (raw === null) return undefined;
     const value = JSON.parse(raw);
     if (
-        typeof value?.requestId !== "string" || !value.requestId ||
-        typeof value.shotId !== "string" || !value.shotId ||
+        typeof value?.requestId !== "string" ||
+        !value.requestId ||
+        typeof value.shotId !== "string" ||
+        !value.shotId ||
         !["fresh", "resume", "restart"].includes(value.mode) ||
         (value.mode !== "fresh" && (typeof value.sourceId !== "string" || !value.sourceId))
-    ) throw new Error("生成确认回执标识无法读取");
+    )
+        throw new Error("生成确认回执标识无法读取");
     return value;
 }
 
 export function storePendingVideoReceipt(storage: Storage, key: string, value: PendingVideoReceipt) {
     const previous = readPendingVideoReceipt(storage, key);
-    if (previous && (previous.requestId !== value.requestId || previous.shotId !== value.shotId ||
-        previous.mode !== value.mode || previous.sourceId !== value.sourceId)) {
+    if (previous && (previous.requestId !== value.requestId || previous.shotId !== value.shotId || previous.mode !== value.mode || previous.sourceId !== value.sourceId)) {
         throw new Error("该集已有待查的提交回执，请先核对");
     }
-    const {requestId, shotId, mode, sourceId} = value;
-    storage.setItem(key, JSON.stringify({requestId, shotId, mode, sourceId}));
+    const { requestId, shotId, mode, sourceId } = value;
+    storage.setItem(key, JSON.stringify({ requestId, shotId, mode, sourceId }));
 }
 
 export function clearPendingVideoReceipt(storage: Storage, key: string, requestId: string) {
