@@ -13,6 +13,11 @@ import (
 	"yingce/backend/internal/model"
 )
 
+func cloudAgentSubmissionNeedsReconciliation(task *model.Task) bool {
+	diagnostic := taskExecutionDiagnostic(task)
+	return diagnostic != nil && diagnostic.RetryClass == "reconcile_submission" && diagnostic.SubmissionOutcome == "unknown"
+}
+
 // Only expose known failure categories; raw provider errors can contain URLs and credentials.
 func cloudAgentModelFailure(task *model.Task) (string, string) {
 	detail, reason := "模型任务未成功", "model_task_failed"
