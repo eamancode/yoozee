@@ -92,9 +92,7 @@ export default function DramaStudioPage() {
     const episodeId = episodes.some((episode) => episode.id === routeEpisodeId) ? routeEpisodeId : (episodes.find((episode) => episode.stage === "review") || episodes.find((episode) => episode.stage !== "done") || episodes[0])?.id || "";
     const episodeRow = episodes.find((episode) => episode.id === episodeId);
     const promptsReady = Boolean(episodeRow && episodePromptsReady(episodeRow));
-    const mediaBanner = promptsReady
-        ? AWAITING_MEDIA_BANNER
-        : { title: "分段提示词尚未齐备", text: `已就绪 ${episodeRow?.stats.promptReady ?? 0}/${episodeRow?.stats.segments ?? 0} 段。提示词可以逐段查看，齐备后可放行本集视频。` };
+    const mediaBanner = promptsReady ? AWAITING_MEDIA_BANNER : { title: "分段提示词尚未齐备", text: `已就绪 ${episodeRow?.stats.promptReady ?? 0}/${episodeRow?.stats.segments ?? 0} 段。提示词可以逐段查看，齐备后可放行本集视频。` };
     const awaitingCount = episodes.filter((episode) => episode.awaitingMedia).length;
     const running = summary?.production.status === "running";
     const episodeQuery = useDramaEpisode(projectId, episodeId, Boolean(running || (summary?.jobCounts.running || 0) > 0));
