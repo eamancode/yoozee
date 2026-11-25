@@ -265,7 +265,7 @@ export type DramaEpisode = {
 
 export type DramaJob = {
     id: string;
-    kind: "bible" | "plan" | "cast_image" | "cast_extract" | "script" | "segment_prompt" | "segment_video" | "render";
+    kind: "bible" | "plan" | "cast_image" | "cast_extract" | "script" | "segment_prompt" | "segment_video" | "render" | "compose";
     status: "queued" | "running" | "succeeded" | "failed" | "canceled";
     label: string;
     error?: string;
@@ -318,6 +318,7 @@ export type DramaEpisodeDetail = {
     chapters: DramaChapterRef[];
     jobs: DramaJob[];
     scriptJob?: DramaJob;
+    composeJob?: DramaJob;
     /** 原文台词与镜头台词的逐句核对；章节被多集共用或还没有镜头时不提供。 */
     dialogueCheck?: DramaDialogueCheck;
 };
@@ -326,7 +327,7 @@ export type DramaEpisodeDetail = {
 export type DramaDialogueCheck = { sourceLines: number; missingCount: number; missing: string[] };
 
 /** 剧情段视频提示词的撰写状态：none 无记录、stale 镜头或设定改过后过期。 */
-export type DramaSegmentPromptStatus = "none" | "queued" | "running" | "ready" | "stale" | "failed";
+export type DramaSegmentPromptStatus = "none" | "queued" | "running" | "ready" | "stale" | "failed" | "conflict" | "review";
 
 /** 一个剧情段；videoPrompt 为生效内容（手动改写优先），generated 为模型撰写的版本。 */
 export type DramaSegment = {

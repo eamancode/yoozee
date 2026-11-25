@@ -34,7 +34,7 @@ import {
     type DramaShotPatch,
 } from "@/services/api/drama";
 
-import { episodeStageLabel, formatCount, formatDuration, sourceFormatOf, StagePips, STATUS_LABEL } from "./drama-shared";
+import { episodePromptsReady, episodeStageLabel, formatCount, formatDuration, sourceFormatOf, StagePips, STATUS_LABEL } from "./drama-shared";
 import { CastPanel, InboxPanel, SettingsPanel } from "./studio/panels";
 import { EpisodeDeleteModal } from "./studio/episode-delete-modal";
 import { EpisodeRail } from "./studio/episode-rail";
@@ -91,11 +91,13 @@ export default function DramaStudioPage() {
     const episodes = summary?.episodes || [];
     const episodeId = episodes.some((episode) => episode.id === routeEpisodeId) ? routeEpisodeId : (episodes.find((episode) => episode.stage === "review") || episodes.find((episode) => episode.stage !== "done") || episodes[0])?.id || "";
     const episodeRow = episodes.find((episode) => episode.id === episodeId);
+    const promptsReady = Boolean(episodeRow && episodePromptsReady(episodeRow));
+    const mediaBanner = promptsReady ? AWAITING_MEDIA_BANNER : { title: "分段提示词尚未齐备", text: `已就绪 ${episodeRow?.stats.promptReady ?? 0}/${episodeRow?.stats.segments ?? 0} 段。提示词可以逐段查看，齐备后可放行本集视频。` };
     const awaitingCount = episodes.filter((episode) => episode.awaitingMedia).length;
     const running = summary?.production.status === "running";
     const episodeQuery = useDramaEpisode(projectId, episodeId, Boolean(running || (summary?.jobCounts.running || 0) > 0));
     const detail = episodeQuery.data?.episode.id === episodeId ? episodeQuery.data : undefined;
-    const castQuery = useDramaCast(projectId, Boolean(running));
+    const castQuery = useDramaCast(projectId, summary);
     const { cast, byId: castById } = castQuery;
     const shots = useMemo(() => detail?.shots || [], [detail]);
     const currentShot = shots.find((shot) => shot.id === shotParam);
@@ -184,7 +186,7 @@ export default function DramaStudioPage() {
         mutationFn: ({ shot, patch }: { shot: DramaShot; patch: DramaShotPatch }) => updateDramaShot(projectId, shot.id, patch),
         onSuccess: () => {
             invalidate(episodeId);
-            message.success("已保存，本段提示词与视频已标记过期，请重新确认");
+            message.success("分镜已保存；可安全同步的对白已更新到提示词");
         },
         onError: (error) => errorMessage(error, "保存失败"),
     });
@@ -193,7 +195,7 @@ export default function DramaStudioPage() {
         onSuccess: ({ shot }) => {
             invalidate(episodeId);
             setParams({ shot: shot.id });
-            message.success("已插入空镜头，填写动作或台词后本段提示词需重新撰写");
+            message.success("已插入空镜头，原提示词已保留，请核对镜头内容");
         },
         onError: (error) => errorMessage(error, "插入失败"),
     });
@@ -202,7 +204,7 @@ export default function DramaStudioPage() {
         onSuccess: () => {
             invalidate(episodeId);
             setParams({ shot: null });
-            message.success("已删除镜头，本段提示词与视频已标记过期");
+            message.success("已删除镜头，原提示词已保留，请核对镜头内容");
         },
         onError: (error) => errorMessage(error, "删除失败"),
     });
@@ -278,7 +280,7 @@ export default function DramaStudioPage() {
         mutationFn: () => composeDramaEpisode(projectId, episodeId),
         onSuccess: () => {
             invalidate(episodeId);
-            message.success(running ? "已开始合成成品" : "已继续制作，正在合成成品");
+            message.success("已提交成片合成任务");
         },
         onError: (error) => {
             invalidate(episodeId);
@@ -468,7 +470,13 @@ export default function DramaStudioPage() {
                                 <span className="drama-topbar-action-label">资产包</span>
                             </Button>
                         </Dropdown>
-                        <Button icon={<Brush className="size-4" />} loading={canvas.opening === "canvas"} onClick={() => void canvas.open()} aria-label="精修画布" title="打开这部短剧的精修画布：投送设定、剧情段或成片，精修后采用回短剧">
+                        <Button
+                            icon={<Brush className="size-4" />}
+                            loading={canvas.opening !== null}
+                            onClick={() => void canvas.open(episodeRow?.stats.segments ? { kind: "episode", episodeId: episodeRow.id } : undefined)}
+                            aria-label="精修画布"
+                            title="打开当前集的精修画布，按剧情段放入参考图和镜头表"
+                        >
                             <span className="drama-topbar-action-label">精修画布</span>
                         </Button>
                         {awaitingCount ? (
@@ -649,17 +657,18 @@ export default function DramaStudioPage() {
                                     </div>
                                 ) : null}
                                 {episodeRow?.awaitingMedia ? (
-                                    <div className="drama-banner is-ready">
+                                    <div className={`drama-banner ${promptsReady ? "is-ready" : "is-info"}`}>
                                         <Clapperboard className="size-5 shrink-0 text-[var(--workspace-accent)]" />
-                                        <div className="drama-banner-text" title={`${AWAITING_MEDIA_BANNER.title}\n${AWAITING_MEDIA_BANNER.text}`}>
-                                            <strong>{AWAITING_MEDIA_BANNER.title}</strong>
-                                            <span>{AWAITING_MEDIA_BANNER.text}</span>
+                                        <div className="drama-banner-text" title={`${mediaBanner.title}\n${mediaBanner.text}`}>
+                                            <strong>{mediaBanner.title}</strong>
+                                            <span>{mediaBanner.text}</span>
                                         </div>
                                         <div className="flex shrink-0 gap-2">
                                             {tab !== "script" ? <Button onClick={() => setParams({ tab: "script" })}>看剧本与原文</Button> : null}
                                             <Button
                                                 type="primary"
                                                 icon={<Play className="size-4" />}
+                                                disabled={!promptsReady}
                                                 loading={release.isPending && release.variables?.target === "episodes"}
                                                 onClick={() => release.mutate({ target: "episodes", episodeIds: [episodeRow.id] })}
                                             >

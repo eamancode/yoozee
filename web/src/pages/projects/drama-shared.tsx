@@ -105,9 +105,13 @@ export function SourceFormatPicker({ value, onChange, disabled, row }: { value: 
 
 export type EpisodeTone = "done" | "active" | "review" | "error" | "idle" | "ready";
 
+export function episodePromptsReady({ stats }: Pick<DramaEpisodeRow, "stats">) {
+    return stats.segments > 0 && stats.promptReady === stats.segments;
+}
+
 export function episodeTone(episode: DramaEpisodeRow): EpisodeTone {
     if (episode.error || episode.stats.failed > 0) return "error";
-    if (episode.awaitingMedia) return "ready";
+    if (episode.awaitingMedia && episodePromptsReady(episode)) return "ready";
     if (episode.stage === "review") return "review";
     if (episode.stage === "done" && !episode.finalStale) return "done";
     if (episode.stage === "queued") return "idle";
@@ -120,7 +124,7 @@ export function episodeStageLabel(stage: DramaEpisodeStage, paused: boolean) {
 
 export function episodeStatusText(episode: DramaEpisodeRow, paused = false) {
     if (episode.error) return "需要处理";
-    if (episode.awaitingMedia) return `剧本就绪 · ${episode.shotCount} 镜 · 待生成画面`;
+    if (episode.awaitingMedia && episodePromptsReady(episode)) return `剧本就绪 · ${episode.shotCount} 镜 · 待生成画面`;
     if (episode.stage === "done" && episode.finalStale) return "已修改 · 待重新合成";
     const { stats } = episode;
     switch (episode.stage) {
