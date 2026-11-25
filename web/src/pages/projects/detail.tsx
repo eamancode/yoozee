@@ -34,7 +34,7 @@ import {
     type DramaShotPatch,
 } from "@/services/api/drama";
 
-import { formatCount, formatDuration, sourceFormatOf, StagePips, STAGE_LABEL, STATUS_LABEL } from "./drama-shared";
+import { episodeStageLabel, formatCount, formatDuration, sourceFormatOf, StagePips, STATUS_LABEL } from "./drama-shared";
 import { CastPanel, InboxPanel, SettingsPanel } from "./studio/panels";
 import { EpisodeDeleteModal } from "./studio/episode-delete-modal";
 import { EpisodeRail } from "./studio/episode-rail";
@@ -573,6 +573,7 @@ export default function DramaStudioPage() {
                             episodes={episodes}
                             currentId={episodeId}
                             planning={!production.planDone}
+                            paused={production.status === "paused"}
                             reservedChapters={production.reservedChapterCount}
                             onSelect={(id) => {
                                 selectEpisode(id);
@@ -595,7 +596,7 @@ export default function DramaStudioPage() {
                                 <div className="drama-ep-header">
                                     <div className="drama-ep-heading">
                                         <div className="drama-eyebrow">
-                                            第 {episodeRow.number} 集 · {STAGE_LABEL[episodeRow.stage]}
+                                            第 {episodeRow.number} 集 · {episodeStageLabel(episodeRow.stage, production.status === "paused")}
                                         </div>
                                         <h2 title={episodeRow.title}>
                                             {episodeRow.title}
@@ -744,6 +745,7 @@ export default function DramaStudioPage() {
                                         projectId={projectId}
                                         title={summary.project.name}
                                         detail={detail}
+                                        paused={production.status === "paused"}
                                         aspectRatio={aspectRatio}
                                         onOpenSegment={(index) => setParams({ tab: null, segment: String(index), shot: null })}
                                         onCompose={() => composeFinal.mutate()}

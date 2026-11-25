@@ -126,7 +126,7 @@ afterAll(() => {
     dom.happyDOM.abort();
 });
 
-function Studio() {
+function Studio({ paused }: { paused: boolean }) {
     const summary = useQuery({ queryKey: dramaKeys.summary("p1"), queryFn: ({ signal }) => getDrama("p1", signal) });
     const detail = useQuery({ queryKey: dramaKeys.episode("p1", "ep2"), queryFn: ({ signal }) => getDramaEpisode("p1", "ep2", signal) });
     const [renaming, setRenaming] = useState<DramaEpisodeRow | null>(null);
@@ -136,6 +136,7 @@ function Studio() {
                 episodes={summary.data?.episodes || []}
                 currentId="ep1"
                 planning={false}
+                paused={paused}
                 onSelect={(id) => selected.push(id)}
                 onAdd={() => {}}
                 onRename={setRenaming}
@@ -154,13 +155,13 @@ async function settle() {
     });
 }
 
-async function mount() {
+async function mount(paused = false) {
     await act(async () =>
         root.render(
             <QueryClientProvider client={client}>
                 <ConfigProvider theme={{ token: { motion: false } }}>
                     <App>
-                        <Studio />
+                        <Studio paused={paused} />
                     </App>
                 </ConfigProvider>
             </QueryClientProvider>,
@@ -174,6 +175,23 @@ function button(text: string) {
     expect(found).toBeDefined();
     return found!;
 }
+
+test("作品暂停时，未开始的分集在列表和矩阵中显示已暂停", async () => {
+    episodes[0] = { ...episodes[0], stage: "queued", shotCount: 0 };
+    await mount();
+    expect(button("第一章 零悟性").textContent).toContain("排队中");
+    await mount(true);
+    expect(button("第一章 零悟性").textContent).toContain("已暂停");
+    expect(button("第二章 入门").textContent).toContain("等待审阅");
+
+    const matrix = host.querySelector<HTMLButtonElement>('button[aria-label="切换矩阵视图"]')!;
+    await act(async () => matrix.click());
+    await settle();
+    expect(host.querySelector('button[aria-label="第 1 集 已暂停"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="第 1 集 排队中"]')).toBeNull();
+    await mount();
+    expect(host.querySelector('button[aria-label="第 1 集 排队中"]')).not.toBeNull();
+});
 
 function titleInput() {
     return document.querySelector<HTMLInputElement>('input[aria-label="分集名称"]')!;

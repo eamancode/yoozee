@@ -114,7 +114,11 @@ export function episodeTone(episode: DramaEpisodeRow): EpisodeTone {
     return "active";
 }
 
-export function episodeStatusText(episode: DramaEpisodeRow) {
+export function episodeStageLabel(stage: DramaEpisodeStage, paused: boolean) {
+    return paused && stage === "queued" ? "已暂停" : STAGE_LABEL[stage];
+}
+
+export function episodeStatusText(episode: DramaEpisodeRow, paused = false) {
     if (episode.error) return "需要处理";
     if (episode.awaitingMedia) return `剧本就绪 · ${episode.shotCount} 镜 · 待生成画面`;
     if (episode.stage === "done" && episode.finalStale) return "已修改 · 待重新合成";
@@ -127,7 +131,7 @@ export function episodeStatusText(episode: DramaEpisodeRow) {
         case "done":
             return `已完成 · ${formatDuration(episode.durationMs)}`;
     }
-    return STAGE_LABEL[episode.stage];
+    return episodeStageLabel(episode.stage, paused);
 }
 
 /** 每个流水线步骤的完成度：0 未开始、0-1 进行中、1 完成。 */

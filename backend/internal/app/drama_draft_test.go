@@ -1,10 +1,75 @@
 package app
 
 import (
+	"encoding/json"
 	"testing"
 
 	"yingce/backend/internal/model"
 )
+
+func TestDramaDraftStartAdmitsBibleTask(t *testing.T) {
+	svc, fake := newDramaTestService(t)
+	svc.dramaTaskHook = nil
+	const userID = "usr-drama"
+	protocol := model.ChannelInterfaceChatCompletion
+	capability, err := json.Marshal(DefaultModelCapabilityConfigForModel(string(protocol), fakeDramaModels.Text.ModelKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []any{
+		&model.ModelChannel{ID: "ch", Scope: model.ChannelScopeSystem, Enabled: true, Name: "测试渠道", BaseURL: "https://models.example.com"},
+		&model.ChannelModel{ID: "bible-model", ChannelID: "ch", ModelKey: "text", Capability: "text", Protocol: protocol, CapabilityConfigJSON: string(capability), Enabled: true, PriceConfigured: true, BillingMode: "fixed_request"},
+		&model.ChannelModelPriceTier{ID: "bible-price", ChannelModelID: "bible-model", SelectorKey: "{}", SelectorJSON: "{}", BillingMode: "fixed_request", UnitPriceMicrocredits: 1_000_000, Enabled: true, PriceConfigured: true},
+		&model.CreditAccount{UserID: userID, AvailableMicrocredits: 10_000_000},
+	} {
+		if err := fake.db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := CreateDramaRequest{
+		Name: "雨夜果汁摊", SourceFormat: "script",
+		Chapters: []DramaChapterInput{{Title: "第一集", Text: "阿婆：喝口热的。"}},
+		Draft:    &DramaDraftForm{SourceText: "阿婆：喝口热的。"},
+		Settings: DramaSettings{MediaMode: DramaMediaManual, ReviewMode: DramaReviewEvery, Models: fakeDramaModels, EpisodeMode: DramaEpisodeModeChapter},
+	}
+	draft, err := svc.CreateDrama(userID, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := draft.Project.ID
+	req.Start = true
+	if _, err := svc.SaveDramaDraft(userID, projectID, req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Leave the worker stopped. Exercise real model admission, reservation,
+	// persistence, and the job binding without contacting the provider.
+	runDramaTicks(t, svc, projectID, 2)
+	jobs, err := svc.repo.DramaJobsByStatus(projectID, model.DramaJobRunning)
+	if err != nil || len(jobs) != 1 || jobs[0].Kind != model.DramaJobBible || jobs[0].TaskID == "" {
+		summary, _ := svc.DramaSummary(userID, projectID)
+		t.Fatalf("expected one dispatched bible job, got %v, err=%v, reason=%q", jobs, err, summary.Production.PauseReason)
+	}
+	var tasks []model.Task
+	if err := fake.db.Where("project_id = ?", projectID).Find(&tasks).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != jobs[0].TaskID || tasks[0].Type != "canvas_text" || tasks[0].Status != model.TaskStatusQueued || tasks[0].BillingOrderID == "" {
+		t.Fatalf("expected a reserved text task and no media tasks, got %v", tasks)
+	}
+	var input struct {
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(tasks[0].InputJSON), &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Metadata["domainProjectId"] != projectID || input.Metadata["assetWorkflow"] != nil {
+		t.Fatalf("unexpected workflow metadata: %v", input.Metadata)
+	}
+	if _, err := svc.prepareProjectAssetWorkflow("other-user", projectID, map[string]any{"metadata": input.Metadata}, tasks[0].Prompt); err == nil {
+		t.Fatal("non-asset task must still check domain project ownership")
+	}
+}
 
 // 草稿保存创建页表单，回到创建页可整体替换原文、选章与设置；开工后不能再按草稿修改。
 func TestDramaDraftReplaceThenStart(t *testing.T) {

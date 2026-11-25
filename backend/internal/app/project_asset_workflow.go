@@ -20,10 +20,17 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 	domainID, _ := metadata["domainProjectId"].(string)
 	op, _ := metadata["operation"].(string)
 	assetImage := op == "character_turnaround" || op == "project_asset_image" || op == "project_spatial_reference"
-	if op == "character_turnaround" && domainID == "" && projectID == "" {
+	if !assetImage {
+		// Both production modes carry a domain project ID. Only legacy asset
+		// images require the old workbench workflow and its asset recipes.
+		if domainID != "" {
+			if _, err := s.repo.ProjectForUser(userID, domainID); err != nil {
+				return "", err
+			}
+		}
 		return prompt, nil
 	}
-	if domainID == "" && !assetImage {
+	if op == "character_turnaround" && domainID == "" && projectID == "" {
 		return prompt, nil
 	}
 	if domainID == "" {
@@ -32,7 +39,7 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 	if domainID == "" {
 		return "", BadAuthRequest("资产出图缺少项目标识")
 	}
-	if assetImage && projectID != "" && projectID != domainID {
+	if projectID != "" && projectID != domainID {
 		return "", BadAuthRequest("任务项目与资产项目不一致")
 	}
 	project, err := s.repo.WorkbenchProjectForUser(userID, domainID)
@@ -47,7 +54,7 @@ func (s *Service) prepareProjectAssetWorkflow(userID, projectID string, input ma
 	if op == "project_spatial_reference" && !drama.IntegratedAssets(wf.ID) {
 		return "", BadAuthRequest("空间母版派生仅适用于流水线一、二")
 	}
-	if !assetImage || !drama.IntegratedAssets(wf.ID) {
+	if !drama.IntegratedAssets(wf.ID) {
 		return prompt, nil
 	}
 	idKey := "projectAssetId"

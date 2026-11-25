@@ -6,7 +6,7 @@ import { ArrowDownToLine, ArrowUpToLine, BookOpenText, Grid3x3, List, MoreHorizo
 
 import type { DramaEpisodeRow } from "@/services/api/drama";
 
-import { episodeStatusText, episodeTone, StagePips, STAGE_LABEL } from "../drama-shared";
+import { episodeStageLabel, episodeStatusText, episodeTone, StagePips } from "../drama-shared";
 
 type Filter = "all" | "ready" | "attention" | "active" | "done";
 
@@ -63,6 +63,7 @@ export function EpisodeRail({
     episodes,
     currentId,
     planning,
+    paused = false,
     reservedChapters = 0,
     onSelect,
     onAdd,
@@ -74,6 +75,7 @@ export function EpisodeRail({
     episodes: DramaEpisodeRow[];
     currentId: string;
     planning: boolean;
+    paused?: boolean;
     /** 导入时未加入制作的原著章节数；大于 0 时提供“继续选章”入口。 */
     reservedChapters?: number;
     onSelect: (id: string) => void;
@@ -187,12 +189,12 @@ export function EpisodeRail({
                         </div>
                         <div className="drama-matrix-grid">
                             {visible.map((episode) => (
-                                <Tooltip key={episode.id} title={`第 ${episode.number} 集 · ${episode.title} · ${episodeStatusText(episode)}`} mouseEnterDelay={0.25}>
+                                <Tooltip key={episode.id} title={`第 ${episode.number} 集 · ${episode.title} · ${episodeStatusText(episode, paused)}`} mouseEnterDelay={0.25}>
                                     <button
                                         type="button"
                                         className={`drama-cell is-${episodeTone(episode)}`}
                                         aria-current={episode.id === currentId}
-                                        aria-label={`第 ${episode.number} 集 ${STAGE_LABEL[episode.stage]}`}
+                                        aria-label={`第 ${episode.number} 集 ${episodeStageLabel(episode.stage, paused)}`}
                                         onClick={() => onSelect(episode.id)}
                                     >
                                         {episode.number}
@@ -222,7 +224,7 @@ export function EpisodeRail({
                                                     {episode.title}
                                                 </span>
                                                 <span className="drama-ep-meta">
-                                                    <span>{episodeStatusText(episode)}</span>
+                                                    <span>{episodeStatusText(episode, paused)}</span>
                                                     <StagePips episode={episode} />
                                                 </span>
                                             </span>
