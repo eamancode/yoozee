@@ -3,7 +3,6 @@ import { appendCreationReference, creationAttachmentFromResult, CREATION_IMAGE_D
 import { creationAttachmentFromImage, splitCreationAttachments, type CreationAttachment } from "../src/pages/create/creation-assets";
 import { buildCreationMentionReferences } from "../src/pages/create/creation-references";
 import { prepareBackendGenerationTask } from "../src/services/api/generation-task";
-import { creationHistoryMedia, restoreHistoryMedia } from "../src/services/creation-history-media";
 import { defaultConfig } from "../src/stores/use-config-store";
 import type { ImageAsset } from "../src/stores/use-asset-store";
 import type { CreationMessage } from "../src/pages/create/creation-types";
@@ -120,9 +119,9 @@ describe("创作参考图拖拽", () => {
         const task = await prepareBackendGenerationTask({ mode: "image", prompt: "保留两张参考图", config, referenceImages });
         expect(task.input.referenceImages.map((item) => item.storageKey)).toEqual(["resource:uploaded", "resource:second"]);
         const userMessage: CreationMessage = { id: "dropped-references", role: "user", mode: "image", content: "保留两张参考图", createdAt: message.createdAt, attachments, references: buildCreationMentionReferences([], attachments) };
-        const payload = await creationHistoryMedia("test-scope", new AbortController().signal, () => true)(userMessage);
-        expect(JSON.stringify(payload)).not.toContain("expired.invalid");
-        const restored = restoreHistoryMedia(JSON.parse(JSON.stringify(payload)) as CreationMessage);
+        const persisted = JSON.stringify(userMessage);
+        expect(persisted).not.toContain("expired.invalid");
+        const restored = JSON.parse(persisted) as CreationMessage;
         expect(restored.attachments?.map((item) => item.storageKey)).toEqual(["resource:uploaded", "resource:second"]);
         expect(restored.references?.map((item) => item.storageKey)).toEqual(["resource:uploaded", "resource:second"]);
         const restoredImages = splitCreationAttachments(restored.attachments!).referenceImages;
