@@ -695,7 +695,7 @@ func TestComposeDramaEpisodeWhilePausedDoesNotRegenerateOrCompleteEpisode(t *tes
 	if err != nil || queued.ComposeJob == nil || queued.ComposeJob.Status != model.DramaJobQueued || queued.Episode.FinalResourceID != episode.FinalResourceID {
 		t.Fatalf("queued with previous final: %+v, %v", queued.Episode, err)
 	}
-	work, err := svc.repo.RunningDramaProductions(10)
+	work, err := svc.repo.RunningDramaProductions(10, svc.dramaSchedulerStarted)
 	if err != nil || !slices.ContainsFunc(work, func(row model.DramaProduction) bool {
 		return row.ProjectID == project && row.Status == model.DramaStatusPaused
 	}) {
