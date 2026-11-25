@@ -206,3 +206,18 @@ func (r *Repository) CancelProjectVideoChain(userID, id string) error {
 		return tx.Model(&task).Updates(map[string]any{"status": model.TaskStatusCancelled, "stage": "已停止后续镜头", "completed_at": time.Now(), "next_poll_at": nil, "updated_at": time.Now()}).Error
 	})
 }
+
+func (r *Repository) LockVideoRecoverySource(userID, projectID, id string) (*model.Task, error) {
+	var task model.Task
+	err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ? AND project_id = ? AND id = ? AND type = ?", userID, projectID, id, model.TaskTypeProjectVideoChain).First(&task).Error
+	return &task, err
+}
+
+func (r *Repository) AvailableVideoRecoveryCredits(userID string) (int64, error) {
+	var account model.CreditAccount
+	err := r.db.Select("available_microcredits").Where("user_id = ?", userID).First(&account).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
+	return account.AvailableMicrocredits, err
+}

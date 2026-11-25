@@ -254,21 +254,21 @@ func (s *Service) prepareVideoChainSteps(userID, projectID string, req ProjectVi
 		if options, ok := input["capabilityOptions"].(map[string]any); ok {
 			delete(options, "videoSeconds")
 		}
-		profile, routed, err := s.videoChainRouteProfile(userID, input, choice, feature, shot.ID, operation, content.Dur, usePosition)
+		profile, routed, route, err := s.videoChainRouteProfile(userID, input, choice, feature, shot.ID, operation, content.Dur, usePosition)
 		seconds, referenceCount := 0, len(images)
 		specError := func(err error) error {
 			return videoChainSpecError(videoChainBindingCapabilityError(err, len(audios)), shot.ID, choice.Model, content.Dur, seconds, referenceCount, profile)
 		}
 		if err != nil {
 			if profile != nil {
-				seconds, _ = videoChainGenerationSeconds(profile.Duration, content.Dur)
+				seconds, _ = videoChainGenerationSecondsForRoute(profile.Duration, content.Dur, route)
 			}
 			return state, specError(err)
 		}
 		if profile == nil {
 			return state, specError(BadAuthRequest("视频模型未声明参考图片能力，暂不能开始连续生成"))
 		}
-		seconds, err = videoChainGenerationSeconds(profile.Duration, content.Dur)
+		seconds, err = videoChainGenerationSecondsForRoute(profile.Duration, content.Dur, route)
 		if err != nil {
 			return state, specError(err)
 		}

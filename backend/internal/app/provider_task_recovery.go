@@ -366,6 +366,13 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task) (*
 	}
 	task.ProviderRequestID = diagnostic.originalRequestID
 	providerRequestID := strings.TrimSpace(task.ProviderRequestID)
+	// A confirmed upstream terminal receipt and reconciled bill are immutable.
+	// Re-querying it after the user authorized a replacement could interpret an
+	// out-of-order upstream response as a new success and restore an old refund.
+	if original.Chain.ControllerID != "" && providerRequestID != "" && diagnostic.SafeToResubmit &&
+		(task.PollStage == "provider_failed" || task.PollStage == "provider_cancelled") {
+		return &ProviderTaskQueryResult{Task: taskForOutput(*task), ProviderStatus: strings.TrimPrefix(task.PollStage, "provider_")}, nil
+	}
 	if providerRequestID == "" {
 		return nil, BadAuthRequest("该任务没有可恢复的上游任务 ID")
 	}

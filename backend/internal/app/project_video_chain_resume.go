@@ -54,7 +54,7 @@ func (s *Service) checkOriginalVideoChain(repo *repository.Repository, userID, p
 				return err
 			}
 			if child.Status == model.TaskStatusSucceeded && (d.BillingStatus == "none" || d.BillingStatus == "settled") ||
-				(parent.Status == model.TaskStatusCancelled || next.Request.ResumeChainID != "") && d.SafeToResubmit {
+				(parent.Status == model.TaskStatusCancelled || next.Request.ResumeChainID != "" || next.Request.RestartChainID != "") && d.SafeToResubmit {
 				continue
 			}
 			e := failedPrecondition("本段已有原生成请求，请查看原任务状态并从原失败段重新报价")
@@ -208,6 +208,12 @@ func (s *Service) prepareVideoChainResume(task *model.Task, old videoChainState,
 }
 
 func (s *Service) RetryProjectVideoChain(userID, projectID, id string, req ProjectVideoChainRequest) (ProjectVideoChainView, error) {
+	if req.RecoveryV2 {
+		if req.ResumeChainID != id || req.RestartChainID != "" {
+			return ProjectVideoChainView{}, BadAuthRequest("恢复请求不属于此生成链")
+		}
+		return s.confirmVideoRecovery(userID, projectID, req)
+	}
 	if s.IsDraining() {
 		return ProjectVideoChainView{}, BadAuthRequest("服务正在维护，请稍后继续")
 	}

@@ -194,6 +194,11 @@ func TestVideoChainTimeoutQueriesOriginalAndConfirmsNewRouteOnce(t *testing.T) {
 	if _, err := f.s.QueryFailedVideoTask(context.Background(), "user-1", second.TaskID); err == nil {
 		t.Fatal("terminal upstream failure was reported as processing")
 	}
+	beforeTerminalReplay := queries.Load()
+	terminal, err := f.s.QueryFailedVideoTask(context.Background(), "user-1", second.TaskID)
+	if err != nil || terminal.ProviderStatus != "failed" || terminal.Recovered || queries.Load() != beforeTerminalReplay {
+		t.Fatalf("terminal replay did not return stored failure without recontacting provider: %+v %v", terminal, err)
+	}
 	oldQuote := f.resumeQuote(t, chain.ID)
 	if readOnly.PreviewHash == oldQuote.PreviewHash {
 		t.Fatal("read-only quote became confirmable after reconciliation")
