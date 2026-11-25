@@ -150,8 +150,15 @@ func (c *taskTerminalCoordinator) handleExecutionFailure(task *model.Task, err e
 	task.Stage = "任务失败"
 	task.Error = c.userFacingMessage(err)
 	outcome := taskSubmissionOutcome(task, channelSlotFailedBeforeRequest)
+	billingNeedsReview := providerSucceeded || (!channelSlotFailedBeforeRequest && c.billing.BillingFailureRequiresReview(task.BillingOrderID, task.ID, err))
 	if providerSucceeded {
 		outcome = "accepted"
+	}
+	// Agent 的同步文本调用收到明确 HTTP 拒绝且可退款时，仍走原有临时故障重试。
+	// 只从本次终结错误取证，旧日志中的失败响应不能证明当前不明提交被拒绝。
+	var upstreamError providerHTTPError
+	if outcome == "unknown" && cloudAgentModelOperation(task) && !billingNeedsReview && !isRouteDispatchUncertain(err) && errors.As(err, &upstreamError) && upstreamError.StatusCode >= 400 {
+		outcome = "rejected"
 	}
 	retryClass := "new_generation_authorization"
 	if outcome == "unknown" {
@@ -163,7 +170,7 @@ func (c *taskTerminalCoordinator) handleExecutionFailure(task *model.Task, err e
 	}
 	c.finalizeReplay(task, model.TaskStatusFailed, "文本回放草稿归并失败")
 	var billingErr error
-	if providerSucceeded || (!channelSlotFailedBeforeRequest && c.billing.BillingFailureRequiresReview(task.BillingOrderID, task.ID, err)) {
+	if billingNeedsReview {
 		billingErr = c.billing.MarkBillingUncertain(task.BillingOrderID, task.Error)
 	} else {
 		billingErr = c.billing.RefundBilling(task.BillingOrderID, task.Error)
