@@ -620,7 +620,11 @@ export default function CreatePage() {
     };
 
     const addDroppedReferences = async (drop: CreationReferenceDrop) => {
-        if (!requireCreationLogin() || busy || referenceReplacementBusy || referenceDropLock.current) return;
+        if (busy || referenceReplacementBusy || referenceDropLock.current) return;
+        if (!useUserStore.getState().user) {
+            setLoginDialogOpen(true);
+            return;
+        }
         const maxImages = mode === "video" ? videoReferenceLimits?.maxImages || 0 : maxReferences;
         const maxAttachments = mode === "video" ? Infinity : maxReferences;
         if (maxImages <= 0) {
@@ -651,7 +655,7 @@ export default function CreatePage() {
             for (const file of files) {
                 if (!active()) break;
                 if (attachmentsRef.current.length >= maxAttachments || attachmentsRef.current.filter((item) => item.type.startsWith("image/")).length >= maxImages) {
-                    toast.warning(t("create.page.referenceLimitExceeded"));
+                    toast.warning("已达到当前模型的参考图上限");
                     break;
                 }
                 try {
