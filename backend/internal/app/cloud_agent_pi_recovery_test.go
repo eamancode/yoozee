@@ -132,8 +132,15 @@ func TestCloudAgentPiRecoversFailedStepUsingOriginalSubmissionFacts(t *testing.T
 					t.Fatal(err)
 				}
 				stored, err := s.repo.CloudAgent("user", runID)
-				if err != nil || stored.Status != "failed" || stored.ActiveTaskID != "" || stored.CleanupPending {
-					t.Fatalf("failed run did not settle: %+v %v", stored, err)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if stored.Status != "failed" || stored.ActiveTaskID != "" || stored.CleanupPending {
+					t.Fatalf("failed run did not settle: status=%s active task=%s cleanup=%v", stored.Status, stored.ActiveTaskID, stored.CleanupPending)
+				}
+				original, err := s.repo.TaskForUser("user", taskID)
+				if err != nil || original.Status != model.TaskStatusFailed || original.ExecutionDiagnosticJSON != task.ExecutionDiagnosticJSON {
+					t.Fatalf("original failed task or diagnostic changed: %v", err)
 				}
 			} else {
 				wantTasks++

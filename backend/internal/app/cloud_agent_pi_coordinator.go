@@ -198,6 +198,7 @@ func (s *Service) failPiRunner(runID, userID string, cause error) {
 				cloudAgentDropInterjections(runID, "本轮已结束："+truncateRunes(cause.Error(), 120), &state)
 				payload := map[string]any{"error": cause.Error()}
 				if isRouteDispatchUncertain(cause) {
+					current.CleanupPending = true
 					payload["reason"] = "model_submission_uncertain"
 					payload["taskId"] = state.ActiveTaskID
 				}
