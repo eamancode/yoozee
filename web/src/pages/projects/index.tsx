@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router";
 import { CollectionToolbar } from "@/components/layout/collection-toolbar";
 import { PageHeader, PaginationBar, WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState, WorkspaceNoResultsState } from "@/components/layout/workspace-state";
+import { DRAMA_PIPELINE_TITLE } from "@/constant/navigation-tools";
 import { deleteDrama, listDramas, type DramaListItem, type DramaStatus } from "@/services/api/drama";
 
 import { formatCredits, MediaThumb, STATUS_LABEL } from "./drama-shared";
@@ -115,7 +116,7 @@ export default function DramaListPage() {
         <WorkspacePage className="studio-collection-page drama-library">
             <div className="drama-root" {...dragProps}>
                 <div className="studio-band">
-                    <PageHeader title="短剧新工作流2" description="上传一本小说，流水线自动改编、拆集、建角色、出分镜并合成成片。" meta={<span className="app-projects-header-meta">{total} 部</span>} actions={total ? actions : undefined} />
+                    <PageHeader title={DRAMA_PIPELINE_TITLE} description="上传一本小说，流水线自动改编、拆集、建角色、出分镜并合成成片。" meta={<span className="app-projects-header-meta">{total} 部</span>} actions={total ? actions : undefined} />
                     {total ? (
                         <CollectionToolbar
                             label="短剧浏览工具"

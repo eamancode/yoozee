@@ -4,6 +4,7 @@ import { Switch } from "@/pages/admin/ui/controls";
 import { AlertTriangle, BookOpenText, Clapperboard, Coins, ListChecks, MonitorCog, PlugZap, RadioTower, RefreshCw, ShieldCheck, Boxes, ImageIcon, Quote, Workflow } from "lucide-react";
 
 import { Link } from "react-router";
+import { DRAMA_PIPELINE_TITLE } from "@/constant/navigation-tools";
 
 import { cn } from "@/lib/utils";
 import { getAdminFeatureAvailability, updateAdminFeatureAvailability } from "@/services/api/auth";
@@ -53,19 +54,19 @@ const workspaceFeatureRows: FeatureRow[] = [
     {
         key: "shortDramaEnabled",
         title: "短剧创作",
-        description: "开放短剧入口、项目列表与项目详情。关闭不删除已有项目。",
+        description: "控制短剧功能和各制作台的访问权限。关闭会暂停新任务准入，保留已有项目。",
         icon: <Clapperboard className="size-4" aria-hidden="true" />,
     },
     {
         key: "dramaFlowEnabled",
         title: "短剧新工作流",
-        description: "在「短剧制作」下方开放新入口，与旧入口共用同一批项目；关闭只隐藏入口。",
+        description: "控制旧版短剧新工作流链接的访问。项目与旧版短剧制作共用。",
         icon: <Workflow className="size-4" aria-hidden="true" />,
         dependsOn: "shortDramaEnabled",
     },
     {
         key: "dramaFlow2Enabled",
-        title: "短剧新工作流2",
+        title: DRAMA_PIPELINE_TITLE,
         description: "开放独立制作台、作品创建和任务调度。关闭后，已提交任务可回写结果。",
         icon: <Workflow className="size-4" aria-hidden="true" />,
         dependsOn: "shortDramaEnabled",

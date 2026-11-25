@@ -1,5 +1,5 @@
 import { Popover } from "antd";
-import { ChevronDown, ChevronRight, CircleUserRound, History as HistoryIcon, Image as ImageIcon, Infinity as InfinityIcon, PanelLeftClose, PanelLeftOpen, Plus, Video, Workflow } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleUserRound, History as HistoryIcon, Image as ImageIcon, Infinity as InfinityIcon, PanelLeftClose, PanelLeftOpen, Plus, Video } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -46,9 +46,7 @@ function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[];
         {
             items: [
                 { ...toolItem("create", "/"), id: "home", title: "创作" },
-                ...(features.shortDramaEnabled ? [{ ...toolItem("projects", "/projects"), title: "短剧制作" }] : []),
-                ...(features.shortDramaEnabled && features.dramaFlowEnabled ? [{ id: "drama-flow", title: "短剧新工作流", icon: Workflow, to: "/drama-flow" }] : []),
-                ...(features.shortDramaEnabled && features.dramaFlow2Enabled ? [{ id: "drama-flow-2", title: "短剧新工作流2", icon: Workflow, to: "/drama-flow-2" }] : []),
+                ...(features.shortDramaEnabled && features.dramaFlow2Enabled ? [toolItem("drama-flow-2", "/drama-flow-2")] : []),
                 { ...toolItem("canvas", "/canvas"), title: "自由画布" },
             ],
         },

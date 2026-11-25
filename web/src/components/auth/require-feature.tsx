@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState, WorkspaceState } from "@/components/layout/workspace-state";
+import { DRAMA_PIPELINE_TITLE } from "@/constant/navigation-tools";
 import { refreshFeatureAvailability } from "@/lib/user-session";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -12,7 +13,7 @@ type FeatureKey = "shortDramaEnabled" | "dramaFlowEnabled" | "dramaFlow2Enabled"
 const featureNames: Record<FeatureKey, string> = {
     shortDramaEnabled: "短剧创作",
     dramaFlowEnabled: "短剧新工作流",
-    dramaFlow2Enabled: "短剧新工作流2",
+    dramaFlow2Enabled: DRAMA_PIPELINE_TITLE,
     taskCenterEnabled: "任务中心",
     creditsEnabled: "积分中心",
     frontendModelsEnabled: "前台模型",

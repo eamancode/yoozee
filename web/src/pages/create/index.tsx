@@ -35,6 +35,7 @@ import { creationLibraryDisabledReason, creationLibrarySelectionToAttachments } 
 import { defaultCreationMode, modeLabels, type CreationConversation, type CreationMessage, type CreationMode, type CreationRetryContext, type CreationSettings, type CreationShotRailEntry, type CreationStatus } from "./creation-types";
 import { attachCreationTaskContexts, completedCreationGenerationTask, conversationTimestamp, creationMessageNeedsResultSync, creationShotRail, creationVideoShotOrdinal, isImageAttachment, isVideoAttachment, materializeCreationTaskResults, newConversation, newMessage, reconcileCreationTaskMessages, type PersistedCreationTask } from "./creation-conversations";
 import { CreationComposer, CreationEmptySuggest, CreationHistoryDrawer, CreationMessageView, CreationModeTabs, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
+import { appendCreationReference, creationAttachmentFromResult, type CreationReferenceDrop } from "./creation-reference-drop";
 import { declaredInspirationSources } from "@/lib/inspirations/catalog";
 import { fillablePrompt } from "@/lib/inspirations/resolve";
 import { CreationRecentCanvases } from "./creation-recent-canvases";
@@ -117,6 +118,8 @@ export default function CreatePage() {
     const [textThinking, setTextThinking] = useState(() => readComposerPref(TEXT_THINKING_PREF_KEY, false));
     const [busy, setBusy] = useState(false);
     const [referenceReplacementBusy, setReferenceReplacementBusy] = useState(false);
+    const [referenceDropBusy, setReferenceDropBusy] = useState(false);
+    const referenceDropLock = useRef(false);
     const [historyOpen, setHistoryOpen] = useState(false);
     const [loginDialogOpen, setLoginDialogOpen] = useState(false);
     const [libraryOpen, setLibraryOpen] = useState(false);
@@ -616,6 +619,64 @@ export default function CreatePage() {
         setLibraryOpen(false);
     };
 
+    const addDroppedReferences = async (drop: CreationReferenceDrop) => {
+        if (busy || referenceReplacementBusy || referenceDropLock.current) return;
+        if (!useUserStore.getState().user) {
+            setLoginDialogOpen(true);
+            return;
+        }
+        const maxImages = mode === "video" ? videoReferenceLimits?.maxImages || 0 : maxReferences;
+        const maxAttachments = mode === "video" ? Infinity : maxReferences;
+        if (maxImages <= 0) {
+            toast.warning("当前模型或模式不支持参考图");
+            return;
+        }
+        const scope = getActiveUserScope();
+        const conversationId = activeId;
+        const active = () => scope === getActiveUserScope() && conversationId === activeIdRef.current;
+        referenceDropLock.current = true;
+        setReferenceDropBusy(true);
+        try {
+            if (drop.kind === "result") {
+                const attachment = await creationAttachmentFromResult(
+                    drop.image,
+                    conversationsRef.current.flatMap((conversation) => conversation.messages),
+                    useAssetStore.getState().assets,
+                );
+                if (!active()) return;
+                const next = appendCreationReference(attachmentsRef.current, attachment, maxImages, maxAttachments);
+                attachmentsRef.current = next;
+                setAttachments(next);
+                return;
+            }
+            const files = drop.files.filter((file) => file.type.startsWith("image/"));
+            if (files.length !== drop.files.length) toast.warning("这里只能拖入图片文件");
+            // 逐张上传，先检查容量；多文件保留原始顺序，失败不阻止后续合法图片。
+            for (const file of files) {
+                if (!active()) break;
+                if (attachmentsRef.current.length >= maxAttachments || attachmentsRef.current.filter((item) => item.type.startsWith("image/")).length >= maxImages) {
+                    toast.warning("已达到当前模型的参考图上限");
+                    break;
+                }
+                try {
+                    const { asset, attachment } = await uploadCreationAsset(file);
+                    if (!active()) break;
+                    if (asset) addAsset(asset);
+                    const next = appendCreationReference(attachmentsRef.current, attachment, maxImages, maxAttachments);
+                    attachmentsRef.current = next;
+                    setAttachments(next);
+                } catch (error) {
+                    if (active()) toast.error(error instanceof Error ? error.message : "参考图上传失败");
+                }
+            }
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "添加参考图失败");
+        } finally {
+            referenceDropLock.current = false;
+            setReferenceDropBusy(false);
+        }
+    };
+
     const removeAttachment = (id: string) => {
         const reference = mentionReferences.find((item) => item.attachmentId === id);
         setAttachments((current) => removeCreationAttachment(current, id));
@@ -699,7 +760,7 @@ export default function CreatePage() {
         }
         const releaseSubmitGate = () => submitGateRef.current.release(submitToken);
         const text = prompt.trim();
-        if (!text || busy || !activeConversation) {
+        if (!text || busy || referenceReplacementBusy || referenceDropLock.current || !activeConversation) {
             releaseRetryLock();
             releaseSubmitGate();
             return;
@@ -1182,6 +1243,8 @@ export default function CreatePage() {
         busy,
         generationActive,
         referenceReplacementBusy,
+        referenceDropBusy,
+        onReferenceDrop: addDroppedReferences,
         attachments,
         referenceImageSize,
         maxReferences,

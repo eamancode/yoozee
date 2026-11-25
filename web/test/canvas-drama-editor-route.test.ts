@@ -16,7 +16,7 @@ test("整集剪辑和单镜预演、时间轴入口各自保留焦点", () => {
     }
 });
 
-test("画布分镜只投送到已开放的新工作流2，并保留原文与画布预填", () => {
+test("画布分镜只投送到已开放的短剧流水线，并保留原文与画布预填", () => {
     const canvas = readFileSync(new URL("../src/pages/canvas/project.tsx", import.meta.url), "utf8");
     const create = canvas.slice(canvas.indexOf("const createDramaFromStoryboard ="), canvas.indexOf("const renameAssetNodes ="));
     expect(create).toContain('navigate("/drama-flow-2/new",');

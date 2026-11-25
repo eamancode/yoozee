@@ -1061,6 +1061,7 @@ function CanvasViewportPage() {
         copyNodesToClipboard,
         copySelectedNodes,
         createFolder,
+        createFrameAroundSelection,
         createNode,
         createReferenceGroup,
         createStoryboardGroup,
@@ -3322,6 +3323,7 @@ function CanvasViewportPage() {
                                     onAlign={alignSelectedNodes}
                                     onArrange={arrangeSelectedNodes}
                                     onCreateStoryboard={createStoryboardGroup}
+                                    onCreateFrame={createFrameAroundSelection}
                                     onCreateReferenceGroup={createReferenceGroup}
                                     onBatchConnect={() => beginBatchConnectionMode(batchSourceNodeIds)}
                                     onCompareImages={selectedNodeIds.size === 2 && selectionImages.length === 2 ? () => setComparedImageIds(selectionImages.map((node) => node.id)) : undefined}
@@ -3481,6 +3483,31 @@ function CanvasViewportPage() {
                                 }}
                                 onUploadToArkPrivateAsset={confirmUploadNodeImageToArkPrivateAsset}
                                 onSetAssetCategory={(nodeId, assetCategory) => handleConfigNodeChange(nodeId, { assetCategory })}
+                                onSetFrameColor={(nodeId, color) => {
+                                    const target = nodesRef.current.find((item) => item.id === nodeId);
+                                    if (!target || target.type !== CanvasNodeType.Frame || target.metadata?.folder) return;
+                                    setNodes((current) => {
+                                        const next = current.map((item) =>
+                                            item.id === nodeId
+                                                ? {
+                                                      ...item,
+                                                      metadata: {
+                                                          ...item.metadata,
+                                                          frame: {
+                                                              ...item.metadata?.frame,
+                                                              collapsed: Boolean(item.metadata?.frame?.collapsed),
+                                                              expandedWidth: item.metadata?.frame?.expandedWidth || item.width,
+                                                              expandedHeight: item.metadata?.frame?.expandedHeight || item.height,
+                                                              color,
+                                                          },
+                                                      },
+                                                  }
+                                                : item,
+                                        );
+                                        nodesRef.current = next;
+                                        return next;
+                                    });
+                                }}
                                 onToggleFrame={(node) => handleFrameToggle(node.id)}
                                 onSpreadSelection={spreadSelectedNodes}
                                 onCopySelection={copySelectedNodes}
