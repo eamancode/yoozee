@@ -142,12 +142,18 @@ const (
 	DramaReviewAuto   = "auto"
 )
 
-// DramaSkillRef 指向用户技能库里的一个技能文件，用作文字步骤（资产提取、分镜拆分、视频提示词）的写作方法。
+// DramaSkillRef 指向一个技能文件，用作文字步骤（分集规划、资产提取、分镜拆分、视频提示词）的写作方法。
+// Source 为 system 时是管理员在后台为这一步配置的技能（见 drama_step_skills.go）：执行时只在它仍在后台清单里、
+// 并且启用时读取，下架后明确报错；为空是早先从用户自己技能库里选的技能，按用户的可见性读取。
 type DramaSkillRef struct {
 	SkillID   string `json:"skillId"`
 	SkillName string `json:"skillName"`
 	Path      string `json:"path"`
+	Source    string `json:"source,omitempty"`
 }
+
+// DramaSkillSourceSystem 是后台配置的步骤技能。
+const DramaSkillSourceSystem = "system"
 
 // normalizedDramaSkillRef 截断字段长度；没有技能 ID 时视为未选择。
 func normalizedDramaSkillRef(value *DramaSkillRef) *DramaSkillRef {
@@ -155,6 +161,9 @@ func normalizedDramaSkillRef(value *DramaSkillRef) *DramaSkillRef {
 		return nil
 	}
 	ref := DramaSkillRef{SkillID: truncateRunes(strings.TrimSpace(value.SkillID), 64), SkillName: truncateRunes(strings.TrimSpace(value.SkillName), 120), Path: truncateRunes(strings.TrimSpace(value.Path), 300)}
+	if strings.TrimSpace(value.Source) == DramaSkillSourceSystem {
+		ref.Source = DramaSkillSourceSystem
+	}
 	if ref.SkillID == "" {
 		return nil
 	}
@@ -168,7 +177,8 @@ type DramaSettings struct {
 	production.Settings
 	// PromptSkill 为空时按内置格式撰写段视频提示词。
 	PromptSkill *DramaSkillRef `json:"promptSkill,omitempty"`
-	// BibleSkill / ScriptSkill 是资产提取与分镜拆分的写作技能，为空按内置规则；输出结构始终由系统固定。
+	// PlanSkill / BibleSkill / ScriptSkill 是分集规划、资产提取与分镜拆分的写作技能，为空按内置规则；输出结构始终由系统固定。
+	PlanSkill    *DramaSkillRef    `json:"planSkill,omitempty"`
 	BibleSkill   *DramaSkillRef    `json:"bibleSkill,omitempty"`
 	ScriptSkill  *DramaSkillRef    `json:"scriptSkill,omitempty"`
 	ReviewMode   string            `json:"reviewMode"`
@@ -222,6 +232,7 @@ func (s DramaSettings) normalized() DramaSettings {
 		s.MediaMode = DramaMediaAuto
 	}
 	s.PromptSkill = normalizedDramaSkillRef(s.PromptSkill)
+	s.PlanSkill = normalizedDramaSkillRef(s.PlanSkill)
 	s.BibleSkill = normalizedDramaSkillRef(s.BibleSkill)
 	s.ScriptSkill = normalizedDramaSkillRef(s.ScriptSkill)
 	if s.Concurrency <= 0 {

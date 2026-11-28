@@ -52,6 +52,9 @@ func (w *taskLifecycleCoordinator) retryTaskAdmitted(userID string, id string, a
 	if task.Type == model.TaskTypeProjectVideoChain {
 		return nil, BadAuthRequest("请在项目连续生成面板中继续生成链")
 	}
+	if taskHasProtectedDramaSkill(task.InputJSON) {
+		return nil, BadAuthRequest("请回到短剧流水线重试此步骤，执行时会重新检查技能是否可用")
+	}
 	if task.CreationSubmissionID != nil {
 		return nil, creationConflict("智能创作重做需要新的报价批准，请回到创作会话继续")
 	}

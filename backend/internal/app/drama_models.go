@@ -224,19 +224,6 @@ func (s *Service) validateDramaModelOverrides(userID string, models DramaModels)
 	return nil
 }
 
-// validateDramaSkills 确认三个文字步骤选定的技能都可读。
-func (s *Service) validateDramaSkills(userID string, settings DramaSettings) error {
-	for _, item := range []struct {
-		label string
-		ref   *DramaSkillRef
-	}{{"资产提取", settings.BibleSkill}, {"分镜拆分", settings.ScriptSkill}, {"视频提示词", settings.PromptSkill}} {
-		if _, err := s.dramaWritingSkill(userID, item.ref, item.label); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func dramaIntentIssue(capability, reason string) string {
 	switch capability {
 	case "image":
@@ -1050,24 +1037,4 @@ func dramaMaxVideoSeconds(options production.DurationOptions) int {
 		longest = max(longest, value)
 	}
 	return longest
-}
-
-// dramaWritingSkill 读取作品为某个文字步骤选定的写作技能；技能不可读时报错，不悄悄退回内置写法。label 用于错误提示。
-func (s *Service) dramaWritingSkill(userID string, ref *DramaSkillRef, label string) (*production.WritingSkill, error) {
-	if ref == nil || strings.TrimSpace(ref.SkillID) == "" {
-		return nil, nil
-	}
-	// 按柚子技能包的归属及发布权限读取。
-	file, err := s.SkillPackageFile(userID, ref.SkillID, ref.Path)
-	if err != nil {
-		var appErr *AppError
-		if errors.As(err, &appErr) && (appErr.Status == 401 || appErr.Status == 403) {
-			return nil, err
-		}
-		return nil, BadAuthRequest(label + "技能「" + firstNonEmpty(ref.SkillName, ref.SkillID) + "」不可用：" + err.Error())
-	}
-	if file.Binary || strings.TrimSpace(file.Content) == "" {
-		return nil, BadAuthRequest(label + "技能文件 " + ref.Path + " 不是文本或为空")
-	}
-	return &production.WritingSkill{Name: firstNonEmpty(ref.SkillName, ref.SkillID), Path: ref.Path, Content: file.Content}, nil
 }

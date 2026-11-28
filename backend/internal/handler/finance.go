@@ -194,6 +194,38 @@ func RegisterFinanceRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"setting": setting})
 	})
+	// 短剧文字步骤的技能清单（管理员配置，用户在制作设置里选）。
+	r.GET("/admin/settings/drama-step-skills", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		config, err := svc.AdminDramaStepSkills(user)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"config": config})
+	})
+	r.PUT("/admin/settings/drama-step-skills", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var req service.DramaStepSkillConfig
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		config, err := svc.UpdateAdminDramaStepSkills(user, req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"config": config})
+	})
 	r.GET("/admin/settings/email", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

@@ -166,6 +166,11 @@ func (s *Service) SkillPackageFile(userID string, skillID string, filePath strin
 	return s.skillDomain().SkillPackageFile(userID, skillID, filePath)
 }
 
+// trustedSkillPackageFile 不按用户可见性读技能文件，只给已在服务端授权的调用方（后台配置的短剧步骤技能）。
+func (s *Service) trustedSkillPackageFile(skillID string, filePath string) (*SkillPackageFileContent, error) {
+	return s.skillDomain().TrustedSkillPackageFile(skillID, filePath)
+}
+
 func (s *Service) SkillPackageRawFile(userID string, skillID string, filePath string) ([]byte, string, string, error) {
 	return s.skillDomain().SkillPackageRawFile(userID, skillID, filePath)
 }

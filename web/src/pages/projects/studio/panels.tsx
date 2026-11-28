@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Checkbox, Input, InputNumber, Select, Switch } from "antd";
 import {
     AlertCircle,
@@ -61,7 +61,7 @@ import {
 import { aspectRatioValue, CAST_KIND_LABEL, EpisodeGroupField, formatCredits, MEDIA_MODE_LABEL, mediaBusy, MediaThumb, parseList, VIDEO_CONTINUITY_LABEL } from "../drama-shared";
 import { AssetSchemePicker } from "../asset-scheme";
 import { DramaModelPicker, useDramaModelCatalog } from "../drama-model-picker";
-import { DramaAssetImageModels, DramaTextSteps, VideoResolutionField } from "../step-settings";
+import { DRAMA_SKILL_FIELDS, DramaAssetImageModels, dramaStepSkillsKey, DramaTextSteps, VideoResolutionField } from "../step-settings";
 import { StoryboardRules } from "../storyboard-rules";
 import { progressFillStyle } from "@/lib/progress-fill";
 import { uploadResourceFile } from "@/services/api/resources";
@@ -827,6 +827,7 @@ const CONCURRENCY = [2, 4, 6, 8, 12, 16];
 
 export function SettingsPanel({ projectId, summary, cast, onChanged }: { projectId: string; summary: DramaSummary; cast: DramaCast[]; onChanged: () => void }) {
     const { message, modal } = App.useApp();
+    const queryClient = useQueryClient();
     const current = summary.production.settings;
     const [settings, setSettings] = useState(current);
     const [budget, setBudget] = useState(summary.production.budgetMicrocredits / 1_000_000);
@@ -838,6 +839,7 @@ export function SettingsPanel({ projectId, summary, cast, onChanged }: { project
     const save = useMutation({
         mutationFn: () => updateDramaSettings(projectId, { settings, budgetMicrocredits: Math.max(0, Math.round((budget || 0) * 1_000_000)) }),
         onSuccess: () => {
+            void queryClient.invalidateQueries({ queryKey: dramaStepSkillsKey });
             message.success("设置已保存，新任务会使用新配置");
             onChanged();
         },
@@ -921,8 +923,8 @@ export function SettingsPanel({ projectId, summary, cast, onChanged }: { project
                                 <DramaTextSteps
                                     models={settings.models}
                                     onModelsChange={setModels}
-                                    skills={{ bible: settings.bibleSkill, script: settings.scriptSkill, prompt: settings.promptSkill }}
-                                    onSkillChange={(step, value) => setSettings({ ...settings, [step === "bible" ? "bibleSkill" : step === "script" ? "scriptSkill" : "promptSkill"]: value })}
+                                    skills={{ plan: settings.planSkill, bible: settings.bibleSkill, script: settings.scriptSkill, prompt: settings.promptSkill }}
+                                    onSkillChange={(step, value) => setSettings({ ...settings, [DRAMA_SKILL_FIELDS[step]]: value })}
                                     textThinking={settings.textThinking || {}}
                                     onThinkingChange={(step, level) => setSettings({ ...settings, textThinking: { ...settings.textThinking, [step]: level === "auto" ? undefined : level } as DramaTextThinking })}
                                 />
