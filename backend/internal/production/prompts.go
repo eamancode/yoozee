@@ -211,8 +211,8 @@ func PlanSystemPrompt() string {
 	return "你是竖屏短剧分集编剧。你把小说章节改编为节奏紧凑的分集大纲：每集开场 3 秒有钩子，结尾停在悬念。" + jsonOnly
 }
 
-// PlanPrompt 规划一批章节对应的分集；章节与集是多对多关系。
-func PlanPrompt(title string, settings Settings, bibleSummary string, batch []Chapter, nextEpisode int, previousCliffhanger string) string {
+// PlanPrompt 规划一批章节对应的分集；章节与集是多对多关系。skill 不为空时按技能的方法分集，输出结构不变。
+func PlanPrompt(title string, settings Settings, bibleSummary string, batch []Chapter, nextEpisode int, previousCliffhanger string, skill *WritingSkill) string {
 	settings = settings.Normalized()
 	var b strings.Builder
 	fmt.Fprintf(&b, "作品：%s\n单集时长：约 %d 秒\n下一集编号：%d\n", title, settings.EpisodeSeconds, nextEpisode)
@@ -220,6 +220,7 @@ func PlanPrompt(title string, settings Settings, bibleSummary string, batch []Ch
 		fmt.Fprintf(&b, "上一集结尾悬念：%s\n", previousCliffhanger)
 	}
 	b.WriteString("\n【作品圣经摘要】\n" + bibleSummary + "\n\n")
+	b.WriteString(structuredSkillBlock("把章节组织为连续剧集", skill))
 	b.WriteString("请把下面的章节改编为若干集，输出：\n")
 	b.WriteString(`{"episodes":[{"title":"集标题（6-12字）","chapters":[章节序号],"synopsis":"本集剧情（80-150字）","hook":"开场钩子","cliffhanger":"结尾悬念"}]}` + "\n")
 	b.WriteString("规则：信息密度高的一章可拆成两集；过渡性章节与相邻章节合并；chapters 使用下方方括号里的章节序号；只覆盖本批章节，不要编造后续剧情。\n\n")

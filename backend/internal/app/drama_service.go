@@ -73,7 +73,14 @@ func (s *Service) prepareDramaCreation(userID string, projectID string, req Crea
 	if problem := production.ValidateAssetPrompts(settings.Assets); problem != "" {
 		return nil, BadAuthRequest(problem)
 	}
-	if err := s.validateDramaSkills(userID, settings); err != nil {
+	// 草稿再次保存时，没改动的早先自选技能照样可以保留；新建作品只能选系统默认或后台技能。
+	var current *DramaSettings
+	if _, existing, err := s.dramaForUser(userID, projectID); err == nil {
+		saved := parseDramaSettings(existing.SettingsJSON)
+		current = &saved
+	}
+	settings, err := s.validateDramaSkills(userID, settings, current)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.validateDramaModelOverrides(userID, settings.Models); err != nil {
@@ -187,6 +194,7 @@ func (s *Service) CreateDrama(userID string, req CreateDramaRequest) (DramaSumma
 		}
 		return DramaSummary{}, err
 	}
+	s.recordDramaStepSkills(userID, parseDramaSettings(creation.production.SettingsJSON))
 	s.wakeDramaScheduler()
 	return s.DramaSummary(userID, creation.project.ID)
 }
@@ -216,6 +224,7 @@ func (s *Service) SaveDramaDraft(userID string, projectID string, req CreateDram
 		}
 		return DramaSummary{}, err
 	}
+	s.recordDramaStepSkills(userID, parseDramaSettings(creation.production.SettingsJSON))
 	s.wakeDramaScheduler()
 	return s.DramaSummary(userID, project.ID)
 }
@@ -707,7 +716,7 @@ func dramaJobTaskView(task *model.Task, labels map[string]string) *DramaJobTaskV
 	view := &DramaJobTaskView{
 		ID: task.ID, Status: string(task.Status), Stage: task.Stage, Operation: task.Operation, Model: task.Model,
 		ModelLabel: firstNonEmpty(labels["l:"+task.LogicalModelID], labels["m:"+task.Model], task.Model),
-		Prompt:     truncateRunes(task.Prompt, 6000), Params: map[string]string{}, Error: task.Error, MediaStage: task.MediaStage,
+		Prompt:     truncateRunes(taskDisplayPrompt(*task), 6000), Params: map[string]string{}, Error: task.Error, MediaStage: task.MediaStage,
 		CreatedAt: task.CreatedAt.Format(time.RFC3339),
 	}
 	if task.StartedAt != nil {

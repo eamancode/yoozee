@@ -63,12 +63,12 @@ func (r *dramaRun) submitCastExtract(job *model.DramaJob) (*model.Task, bool, er
 	if err != nil {
 		return nil, false, err
 	}
-	skill, err := r.s.dramaWritingSkill(r.project.UserID, r.settings.BibleSkill, "资产提取")
+	skill, err := r.s.dramaWritingSkill(r.project.UserID, DramaStepBible, r.settings.BibleSkill)
 	if err != nil {
 		return nil, false, err
 	}
 	prompt := production.LateAssetPrompt(r.project.Name, r.settings.Settings, assets, chapters, dramaShotExtractSummary(r, episode.ID), skill)
-	input := r.textInput(job, production.LateAssetSystemPrompt(), DramaStepBible)
+	input := protectDramaSkillInput(r.textInput(job, production.LateAssetSystemPrompt(), DramaStepBible), r.settings.BibleSkill)
 	task, err := r.createTaskWith(job, r.settings.Models.textFor(DramaStepBible), "text", "text", prompt, input)
 	return task, false, err
 }

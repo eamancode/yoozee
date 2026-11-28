@@ -1,4 +1,3 @@
-import { hasSkillLibraryAccess } from "@/lib/skill-access";
 import { compactApiParams, http } from "@/services/api/request";
 import type { Project } from "@/services/api/projects";
 import type { ThinkingRequest } from "@/lib/text-thinking";
@@ -86,7 +85,17 @@ export type DramaPacing = "rapid" | "fast" | "standard" | "relaxed" | "slow";
 export type DramaDialogue = "dense" | "standard" | "sparse" | "custom";
 
 /** 用户技能库里的一个技能文件，作为文字步骤（资产提取、分镜拆分、视频提示词）的写作方法。 */
-export type DramaSkillRef = { skillId: string; skillName: string; path: string };
+/** source 为 system：管理员在后台为这一步配置的技能；为空是早先从自己技能库选的技能（只保留，新作品不能再选）。 */
+export type DramaSkillRef = { skillId: string; skillName: string; path: string; source?: "system" };
+
+/** 四个文字步骤：分集规划、资产提取、分镜拆分、视频提示词。 */
+export type DramaSkillStepKey = "plan" | "bible" | "script" | "prompt";
+
+/** 后台给某个步骤配置的一个可选技能。 */
+export type DramaStepSkillOption = { step: DramaSkillStepKey; skillId: string; path: string; label: string; description?: string; enabled: boolean };
+
+/** 制作设置能选的技能：每步启用的后台技能、这个用户上次的选择（仍可选的）和上次选了但已下架的步骤名。 */
+export type DramaStepSkillCatalog = { options: DramaStepSkillOption[]; last: Partial<Record<DramaSkillStepKey, DramaSkillRef>>; unavailable?: string[] };
 
 export type DramaTextThinking = Partial<Record<"bible" | "plan" | "script" | "prompt", ThinkingRequest>>;
 
@@ -102,7 +111,8 @@ export type DramaSettings = {
     storyboard: DramaStoryboardSettings;
     /** 为空时按内置格式撰写段视频提示词。 */
     promptSkill?: DramaSkillRef;
-    /** 资产提取、分镜拆分的写作技能；为空按内置规则，输出结构始终由系统固定。 */
+    /** 分集规划、资产提取、分镜拆分的写作技能；为空按内置规则，输出结构始终由系统固定。 */
+    planSkill?: DramaSkillRef;
     bibleSkill?: DramaSkillRef;
     scriptSkill?: DramaSkillRef;
     /** 剧情段视频分辨率档位（取自视频模型声明的分辨率）；缺省按模型默认。 */
@@ -533,12 +543,6 @@ export type DramaDraft = {
     form: DramaDraftForm;
 };
 
-function withoutRestrictedSkillRefs<T extends { settings?: Partial<DramaSettings> }>(input: T): T {
-    if (hasSkillLibraryAccess() || !input.settings) return input;
-    const { bibleSkill, scriptSkill, promptSkill, ...settings } = input.settings;
-    return { ...input, settings };
-}
-
 const base = (projectId: string) => `/dramas/${encodeURIComponent(projectId)}`;
 
 export function listDramas(params: { page: number; pageSize: number; q?: string; status?: DramaStatus }, signal?: AbortSignal) {
@@ -553,12 +557,16 @@ export function getDramaModels() {
     return http.get<DramaModelCatalog>("/dramas/models");
 }
 
+export function getDramaStepSkills() {
+    return http.get<DramaStepSkillCatalog>("/dramas/step-skills");
+}
+
 export function estimateDrama(input: { chapterCount: number; wordCount: number; settings: Partial<DramaSettings>; episodeMode?: DramaEpisodeMode }, signal?: AbortSignal) {
-    return http.post<DramaEstimate>("/dramas/estimate", withoutRestrictedSkillRefs(input), { signal });
+    return http.post<DramaEstimate>("/dramas/estimate", input, { signal });
 }
 
 export function createDrama(input: CreateDramaInput) {
-    return http.post<DramaSummary>("/dramas", withoutRestrictedSkillRefs(input), { timeout: 120_000 });
+    return http.post<DramaSummary>("/dramas", input, { timeout: 120_000 });
 }
 
 export function getDramaDraft(projectId: string, signal?: AbortSignal) {
@@ -567,7 +575,7 @@ export function getDramaDraft(projectId: string, signal?: AbortSignal) {
 
 /** 整体替换从未开工的草稿；start=true 时替换后直接开工。 */
 export function saveDramaDraft(projectId: string, input: CreateDramaInput) {
-    return http.put<DramaSummary>(`${base(projectId)}/draft`, withoutRestrictedSkillRefs(input), { timeout: 120_000 });
+    return http.put<DramaSummary>(`${base(projectId)}/draft`, input, { timeout: 120_000 });
 }
 
 export function deleteDrama(projectId: string) {
@@ -579,7 +587,7 @@ export function getDrama(projectId: string, signal?: AbortSignal) {
 }
 
 export function updateDramaSettings(projectId: string, input: { settings?: DramaSettings; budgetMicrocredits?: number }) {
-    return http.patch<DramaSummary>(`${base(projectId)}/settings`, withoutRestrictedSkillRefs(input));
+    return http.patch<DramaSummary>(`${base(projectId)}/settings`, input);
 }
 
 export function startDrama(projectId: string) {

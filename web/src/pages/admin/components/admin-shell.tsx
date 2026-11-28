@@ -121,6 +121,7 @@ const adminNavigation: AdminNavigationGroup[] = [
             { path: "/admin/builtin-skills", label: "内置技能", shortLabel: "内置", icon: <BookMarked className="size-4" /> },
             { path: "/admin/drama-compile-profiles", label: "编译档案", shortLabel: "编译", icon: <FileClock className="size-4" /> },
             { path: "/admin/drama-step-bindings", label: "流程技能", shortLabel: "流程", icon: <Rows3 className="size-4" /> },
+            { path: "/admin/drama-step-skills", label: "短剧步骤技能", shortLabel: "步骤", icon: <BookMarked className="size-4" /> },
             { path: "/admin/drama-style-library", label: "风格中心", shortLabel: "风格", icon: <Palette className="size-4" /> },
             { path: "/admin/resources", label: "存储资源", shortLabel: "资源", icon: <Database className="size-4" /> },
         ],

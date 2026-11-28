@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Input, InputNumber, Select } from "antd";
 import { AlertTriangle, ArrowLeft, BookOpenText, ClipboardPaste, FileUp, Cpu, Play } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -36,7 +36,7 @@ import {
 import { EpisodeGroupField, formatCount, formatCredits, MEDIA_MODE_LABEL, SOURCE_FORMAT_LABEL, SourceFormatPicker, VIDEO_CONTINUITY_LABEL } from "./drama-shared";
 import { AssetSchemePicker, defaultAssetSettings, useAssetSchemes } from "./asset-scheme";
 import { DramaModelPicker, useDramaModelCatalog } from "./drama-model-picker";
-import { DramaAssetImageModels, DramaTextSteps, VideoResolutionField } from "./step-settings";
+import { DramaAssetImageModels, DramaTextSteps, dramaStepSkillsKey, useDramaStepSkillCatalog, VideoResolutionField } from "./step-settings";
 import { EpisodeDurationInput, StoryboardRules } from "./storyboard-rules";
 import { DramaStylePicker } from "./style-picker";
 import { ChapterPickList } from "./chapter-pick-list";
@@ -65,6 +65,7 @@ const EPISODE_MODES: Array<{ value: DramaEpisodeMode; title: string; detail: str
 
 export default function DramaCreatePage() {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const { message } = App.useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [dragOver, setDragOver] = useState(false);
@@ -114,6 +115,7 @@ export default function DramaCreatePage() {
     const [mediaMode, setMediaMode] = useState<DramaMediaMode>("manual");
     const [videoContinuity, setVideoContinuity] = useState<DramaVideoContinuity>("tail_frame");
     const [storyboard, setStoryboard] = useState<DramaStoryboardSettings>(DEFAULT_STORYBOARD);
+    const [planSkill, setPlanSkill] = useState<DramaSkillRef>();
     const [promptSkill, setPromptSkill] = useState<DramaSkillRef>();
     const [bibleSkill, setBibleSkill] = useState<DramaSkillRef>();
     const [scriptSkill, setScriptSkill] = useState<DramaSkillRef>();
@@ -128,6 +130,19 @@ export default function DramaCreatePage() {
 
     const style = findDramaStyle(styleId);
     const catalogQuery = useDramaModelCatalog();
+    // 新建（不是编辑草稿）时，每步技能默认取这个用户上次的选择；上次选的已下架的步骤用系统默认并提示一次。
+    const stepSkillsQuery = useDramaStepSkillCatalog();
+    const skillDefaultsRef = useRef(false);
+    useEffect(() => {
+        const catalog = stepSkillsQuery.data;
+        if (draftId || !catalog || skillDefaultsRef.current) return;
+        skillDefaultsRef.current = true;
+        setPlanSkill(catalog.last.plan);
+        setBibleSkill(catalog.last.bible);
+        setScriptSkill(catalog.last.script);
+        setPromptSkill(catalog.last.prompt);
+        if (catalog.unavailable?.length) message.info(`上次给${catalog.unavailable.join("、")}选的技能已被后台下架，这次用系统默认`);
+    }, [draftId, message, stepSkillsQuery.data]);
     const resolvedModels = useMemo<DramaModels | undefined>(() => {
         const catalog = catalogQuery.data;
         if (!catalog) return undefined;
@@ -163,6 +178,7 @@ export default function DramaCreatePage() {
         mediaMode,
         videoContinuity,
         storyboard,
+        ...(planSkill ? { planSkill } : {}),
         ...(promptSkill ? { promptSkill } : {}),
         ...(bibleSkill ? { bibleSkill } : {}),
         ...(scriptSkill ? { scriptSkill } : {}),
@@ -261,6 +277,7 @@ export default function DramaCreatePage() {
         if (saved.mediaMode) setMediaMode(saved.mediaMode);
         if (saved.videoContinuity) setVideoContinuity(saved.videoContinuity);
         if (saved.storyboard) setStoryboard(saved.storyboard);
+        setPlanSkill(saved.planSkill);
         setPromptSkill(saved.promptSkill);
         setBibleSkill(saved.bibleSkill);
         setScriptSkill(saved.scriptSkill);
@@ -304,6 +321,7 @@ export default function DramaCreatePage() {
             return draftId ? saveDramaDraft(draftId, input) : createDrama(input);
         },
         onSuccess: async (summary, start) => {
+            void queryClient.invalidateQueries({ queryKey: dramaStepSkillsKey });
             const canvasId = linkCanvasRef.current;
             if (canvasId) {
                 linkCanvasRef.current = undefined;
@@ -544,8 +562,8 @@ export default function DramaCreatePage() {
                         <DramaTextSteps
                             models={resolvedModels}
                             onModelsChange={(patch) => setModels((current) => ({ ...current, ...patch }))}
-                            skills={{ bible: bibleSkill, script: scriptSkill, prompt: promptSkill }}
-                            onSkillChange={(step, value) => (step === "bible" ? setBibleSkill(value) : step === "script" ? setScriptSkill(value) : setPromptSkill(value))}
+                            skills={{ plan: planSkill, bible: bibleSkill, script: scriptSkill, prompt: promptSkill }}
+                            onSkillChange={(step, value) => ({ plan: setPlanSkill, bible: setBibleSkill, script: setScriptSkill, prompt: setPromptSkill })[step](value)}
                             textThinking={textThinking}
                             onThinkingChange={(step, level) => setTextThinking((current) => ({ ...current, [step]: level === "auto" ? undefined : level }))}
                         />

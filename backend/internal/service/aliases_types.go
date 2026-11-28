@@ -171,6 +171,7 @@ type (
 	CreationSubmissionOutput               = app.CreationSubmissionOutput
 	CreditPolicy                           = app.CreditPolicy
 	BillingAutoRefundSetting               = app.BillingAutoRefundSetting
+	DramaStepSkillConfig                   = app.DramaStepSkillConfig
 	DiagnosticBundle                       = app.DiagnosticBundle
 	DiagnosticClientEvent                  = app.DiagnosticClientEvent
 	DiagnosticExportRequest                = app.DiagnosticExportRequest

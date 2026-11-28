@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -105,7 +106,41 @@ func (s *Service) readSkillPackageSnapshotFile(userID string, skillID string, fi
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	filePath, err = normalizeSkillPath(filePath)
+	return s.snapshotFile(snapshot, filePath)
+}
+
+// TrustedSkillPackageFile 不按当前用户的可见性读取技能文件的当前版本。只给已经在服务端做过授权的调用方用
+// （例如管理员在后台配置给短剧文字步骤的技能：普通用户看不到、也不能直接读这个技能，但执行这一步时要读它的正文）。
+func (s *Service) TrustedSkillPackageFile(skillID string, filePath string) (*SkillPackageFileContent, error) {
+	skill, err := s.repo.Skill(strings.TrimSpace(skillID))
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, kernel.BadAuthRequest("技能不存在或已删除")
+	}
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := s.currentSkillSnapshot(skill)
+	if err != nil {
+		return nil, err
+	}
+	_, file, content, err := s.snapshotFile(snapshot, filePath)
+	if err != nil {
+		return nil, err
+	}
+	out := &SkillPackageFileContent{File: skillFileItem(*file), VersionID: snapshot.version.ID, Version: snapshot.version.VersionLabel}
+	if !isPreviewText(file.MimeType, file.Path) {
+		out.Binary = true
+		return out, nil
+	}
+	if len(content) > maxSkillPreviewBytes {
+		return nil, kernel.BadAuthRequest("技能文件超过 512KB")
+	}
+	out.Content = string(content)
+	return out, nil
+}
+
+func (s *Service) snapshotFile(snapshot *skillPackageSnapshot, filePath string) (*skillPackageSnapshot, *model.SkillFile, []byte, error) {
+	filePath, err := normalizeSkillPath(filePath)
 	if err != nil {
 		return nil, nil, nil, err
 	}

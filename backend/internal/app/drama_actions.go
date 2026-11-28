@@ -36,7 +36,7 @@ func (s *Service) UpdateDramaSettings(userID string, projectID string, req Updat
 		if problem := production.ValidateAssetPrompts(next.Assets); problem != "" {
 			return DramaSummary{}, BadAuthRequest(problem)
 		}
-		if err := s.validateDramaSkills(userID, next); err != nil {
+		if next, err = s.validateDramaSkills(userID, next, &current); err != nil {
 			return DramaSummary{}, err
 		}
 		if err := s.validateDramaModelOverrides(userID, next.Models); err != nil {
@@ -88,6 +88,10 @@ func (s *Service) UpdateDramaSettings(userID string, projectID string, req Updat
 		if err := s.repo.UpdateDramaProduction(productionRow.ProjectID, fields); err != nil {
 			return DramaSummary{}, err
 		}
+	}
+	if req.Settings != nil {
+		// 这次保存的每步技能作为这个用户之后新建作品的默认。
+		s.recordDramaStepSkills(userID, parseDramaSettings(fields["settings_json"].(string)))
 	}
 	return s.DramaSummary(userID, projectID)
 }

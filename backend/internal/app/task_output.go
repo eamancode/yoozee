@@ -140,7 +140,7 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 		MediaStage:                task.MediaStage,
 		CanRecoverMedia:           task.MediaRecoveryJSON != "" && task.Status == model.TaskStatusFailed,
 		Progress:                  task.Progress,
-		Prompt:                    truncateRunes(task.Prompt, 500),
+		Prompt:                    truncateRunes(taskDisplayPrompt(task), 500),
 		Operation:                 task.Operation,
 		Provider:                  task.Provider,
 		Model:                     task.Model,
@@ -339,6 +339,7 @@ func truncateRunes(value string, limit int) string {
 func taskForOutput(task model.Task) *model.Task {
 	task.CanRecoverMedia = task.MediaRecoveryJSON != "" && task.Status == model.TaskStatusFailed
 	task.Diagnostic = taskExecutionDiagnostic(&task)
+	task.Prompt = taskDisplayPrompt(task)
 	task.InputJSON = publicTaskInputJSON(task.InputJSON)
 	// Task.Error 可能来自历史记录中的“前置原因；上游：原文”。
 	// 普通用户任务接口只返回可行动提示，完整上游诊断留在后台请求日志。

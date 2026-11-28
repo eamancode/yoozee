@@ -61,6 +61,7 @@ const UserGroupsPage = lazyAdminPage(() => import("@/pages/admin/user-groups/use
 const BuiltinSkillsPage = lazy(() => import("@/pages/admin/builtin-skills/builtin-skills-page"));
 const DramaCompileProfilesPage = lazy(() => import("@/pages/admin/drama-compile-profiles/drama-compile-profiles-page"));
 const DramaStepBindingsPage = lazy(() => import("@/pages/admin/drama-step-bindings/drama-step-bindings-page"));
+const DramaStepSkillsPage = lazy(() => import("@/pages/admin/drama-step-skills/drama-step-skills-page"));
 const DramaStyleLibraryPage = lazy(() => import("@/pages/admin/drama-style-library/drama-style-library-page"));
 const AssetsPage = lazy(loadAssetsPage);
 const LoginPage = lazy(() => import("@/pages/auth/login"));
@@ -276,6 +277,7 @@ export const router = createBrowserRouter([
                     { path: "builtin-skills", element: <BuiltinSkillsPage /> },
                     { path: "drama-compile-profiles", element: <DramaCompileProfilesPage /> },
                     { path: "drama-step-bindings", element: <DramaStepBindingsPage /> },
+                    { path: "drama-step-skills", element: <DramaStepSkillsPage /> },
                     { path: "drama-style-library", element: <DramaStyleLibraryPage /> },
                     { path: "payments", element: <AdminPaymentsPage /> },
                     { path: "prompt-templates", element: <StoryboardPromptsPage /> },

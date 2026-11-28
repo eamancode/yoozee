@@ -70,6 +70,10 @@ func registerDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
 	r.GET("/dramas/models", dramaRoute(svc, 0, func(c *gin.Context, userID string) (any, error) {
 		return svc.DramaModelCatalog(userID)
 	}))
+	// 文字步骤可选的技能（后台配置、启用的）和这个用户上次的选择。
+	r.GET("/dramas/step-skills", dramaRoute(svc, 0, func(c *gin.Context, userID string) (any, error) {
+		return svc.DramaStepSkillCatalog(userID)
+	}))
 	r.POST("/dramas/estimate", dramaRoute(svc, 64<<10, func(c *gin.Context, userID string) (any, error) {
 		var req service.DramaEstimateRequest
 		if err := bindDramaJSON(c, &req); err != nil {

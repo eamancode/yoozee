@@ -1,21 +1,20 @@
-import { useEffect, useMemo } from "react";
-import { useSkillLibraryAccess } from "@/lib/skill-access";
-import { useUserStore } from "@/stores/use-user-store";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button, Select } from "antd";
 import { TriangleAlert } from "lucide-react";
 
 import { dramaChoiceKey, dramaVideoResolutionTiers, dramaVideoResolutionValue } from "@/lib/drama/model-choice";
+import { stepSkillFromKey, stepSkillKey, stepSkillSelectState } from "@/lib/drama/step-skills";
 import { formatVideoResolutionLabel, videoResolutionComparisonKey } from "@/lib/video-generation-options";
-import type { DramaAssetSettings, DramaCastKind, DramaModelChoice, DramaModelOption, DramaModelOverride, DramaModels, DramaSkillRef, DramaTextThinking } from "@/services/api/drama";
+import { getDramaStepSkills, type DramaAssetSettings, type DramaCastKind, type DramaModelChoice, type DramaModelOption, type DramaModelOverride, type DramaModels, type DramaSkillRef, type DramaSkillStepKey, type DramaTextThinking } from "@/services/api/drama";
 import { THINKING_REQUEST_OPTIONS, type ThinkingRequest } from "@/lib/text-thinking";
 
 import { DramaModelPicker, useDramaModelCatalog } from "./drama-model-picker";
-import { PromptSkillField, type DramaSkillStep } from "./prompt-skill";
 
 // 制作步骤的模型与技能：每个文字步骤一行（文本模型 + 写作技能），每类参考图一行（图片模型 + 分辨率）。
 // 单独指定的模型为空时沿用“制作模型”里的默认模型，行内显示实际会用哪个。
 
-const TEXT_STEPS: Array<{ step: DramaSkillStep; override: DramaModelOverride; label: string; hint: string }> = [
+const TEXT_STEPS: Array<{ step: Exclude<DramaSkillStepKey, "plan">; override: DramaModelOverride; label: string; hint: string }> = [
     { step: "bible", override: "bibleText", label: "资产提取", hint: "从原文提取角色、道具、场景与全剧画面规则" },
     { step: "script", override: "scriptText", label: "分镜拆分", hint: "每集改编为镜头表，输出最长、最慢的一步" },
     { step: "prompt", override: "promptText", label: "视频提示词", hint: "按镜头表把每个剧情段写成完整视频提示词" },
@@ -27,10 +26,48 @@ const IMAGE_KINDS: Array<{ kind: DramaCastKind; override: DramaModelOverride; re
     { kind: "scene", override: "sceneImage", resolution: "sceneResolution", label: "场景", hint: "16:9 空间全景" },
 ];
 
-export type DramaStepSkills = { bible?: DramaSkillRef; script?: DramaSkillRef; prompt?: DramaSkillRef };
+export type DramaStepSkills = Partial<Record<DramaSkillStepKey, DramaSkillRef>>;
 type DramaTextStep = keyof NonNullable<DramaTextThinking>;
 
-const SKILL_FIELD: Record<DramaSkillStep, keyof DramaStepSkills> = { bible: "bible", script: "script", prompt: "prompt" };
+/** 作品设置里四步技能的字段名。 */
+export const DRAMA_SKILL_FIELDS = { plan: "planSkill", bible: "bibleSkill", script: "scriptSkill", prompt: "promptSkill" } as const satisfies Record<DramaSkillStepKey, string>;
+
+export const dramaStepSkillsKey = ["drama", "step-skills"] as const;
+
+/** 制作设置能选的技能（后台配置、启用的）和这个用户上次的选择。 */
+export function useDramaStepSkillCatalog() {
+    return useQuery({ queryKey: dramaStepSkillsKey, queryFn: getDramaStepSkills, staleTime: 60_000 });
+}
+
+/**
+ * 一个文字步骤的技能：「系统默认」（内置规则）或后台为这一步配置的技能。当前作品选的技能已经下架，或是早先从自己技能库选的，
+ * 仍显示在框里（不能再选），并写明原因；下架的执行到这一步会报错，要改选。
+ */
+function StepSkillSelect({ step, label, value, onChange }: { step: DramaSkillStepKey; label: string; value?: DramaSkillRef; onChange: (value?: DramaSkillRef) => void }) {
+    const catalogQuery = useDramaStepSkillCatalog();
+    const catalog = catalogQuery.data?.options || [];
+    const state = stepSkillSelectState(catalog, step, value);
+    return (
+        <>
+            <Select
+                aria-label={`${label}技能`}
+                value={stepSkillKey(value)}
+                loading={catalogQuery.isLoading}
+                options={state.options}
+                optionRender={(option) => <span title={String(option.data.title || option.label)}>{option.label}</span>}
+                onChange={(key: string) => onChange(stepSkillFromKey(catalog, step, key))}
+            />
+            {catalogQuery.isError ? <small className="drama-step-note">可选技能没读到，暂时只能用系统默认</small> : null}
+            {state.status === "delisted" && catalogQuery.data ? (
+                <p className="drama-step-warn" role="alert">
+                    <TriangleAlert className="size-3.5" />
+                    这个技能已被后台下架，执行到这一步会报错，请改选
+                </p>
+            ) : null}
+            {state.status === "library" ? <small className="drama-step-note">早先从自己技能库选的，可以保留；改选后不能再选回</small> : null}
+        </>
+    );
+}
 
 function overrideOf(models: Partial<DramaModels> | undefined, key: DramaModelOverride) {
     const choice = models?.[key];
@@ -55,7 +92,7 @@ function OverridePicker({ capability, value, fallback, onChange }: { capability:
     );
 }
 
-/** 文字步骤：资产提取、分镜拆分、视频提示词各自的文本模型与写作技能。 */
+/** 文字步骤：分集规划、资产提取、分镜拆分、视频提示词各自的写作技能（系统默认或后台配置的技能），后三步另有文本模型。 */
 export function DramaTextSteps({
     models,
     onModelsChange,
@@ -67,17 +104,10 @@ export function DramaTextSteps({
     models?: Partial<DramaModels>;
     onModelsChange: (patch: Partial<DramaModels>) => void;
     skills: DramaStepSkills;
-    onSkillChange: (step: DramaSkillStep, value?: DramaSkillRef) => void;
+    onSkillChange: (step: DramaSkillStepKey, value?: DramaSkillRef) => void;
     textThinking: DramaTextThinking;
     onThinkingChange: (step: DramaTextStep, value: ThinkingRequest) => void;
 }) {
-    const canUseSkills = useSkillLibraryAccess();
-    const hydrated = useUserStore((state) => state.hydrated);
-    useEffect(() => {
-        if (!hydrated || canUseSkills) return;
-        const selected = TEXT_STEPS.find((item) => skills[SKILL_FIELD[item.step]]);
-        if (selected) onSkillChange(selected.step, undefined);
-    }, [canUseSkills, hydrated, skills, onSkillChange]);
     return (
         <div className="drama-steps" role="list" aria-label="文字步骤">
             <div className="drama-step-row" role="listitem">
@@ -89,12 +119,10 @@ export function DramaTextSteps({
                     <span className="drama-step-caption">文本模型</span>
                     <small className="drama-step-note">跟随制作模型{models?.text?.label ? ` · ${models.text.label}` : ""}</small>
                 </div>
-                {canUseSkills && (
-                    <div className="drama-step-field">
-                        <span className="drama-step-caption">技能</span>
-                        <small className="drama-step-note">系统内置分集规则</small>
-                    </div>
-                )}
+                <div className="drama-step-field">
+                    <span className="drama-step-caption">技能</span>
+                    <StepSkillSelect step="plan" label="分集规划" value={skills.plan} onChange={(value) => onSkillChange("plan", value)} />
+                </div>
                 <div className="drama-step-field">
                     <span className="drama-step-caption">思考等级</span>
                     <Select aria-label="分集规划思考等级" value={textThinking.plan || "auto"} options={THINKING_REQUEST_OPTIONS} onChange={(value) => onThinkingChange("plan", value)} />
@@ -110,12 +138,10 @@ export function DramaTextSteps({
                         <span className="drama-step-caption">文本模型</span>
                         <OverridePicker capability="text" value={overrideOf(models, item.override)} fallback={models?.text} onChange={(choice) => onModelsChange({ [item.override]: choice || {} })} />
                     </div>
-                    {canUseSkills && (
-                        <div className="drama-step-field">
-                            <span className="drama-step-caption">技能</span>
-                            <PromptSkillField compact step={item.step} value={skills[SKILL_FIELD[item.step]]} onChange={(value) => onSkillChange(item.step, value)} />
-                        </div>
-                    )}
+                    <div className="drama-step-field">
+                        <span className="drama-step-caption">技能</span>
+                        <StepSkillSelect step={item.step} label={item.label} value={skills[item.step]} onChange={(value) => onSkillChange(item.step, value)} />
+                    </div>
                     <div className="drama-step-field">
                         <span className="drama-step-caption">思考等级</span>
                         <Select aria-label={`${item.label}思考等级`} value={textThinking[item.step] || "auto"} options={THINKING_REQUEST_OPTIONS} onChange={(value) => onThinkingChange(item.step, value)} />

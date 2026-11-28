@@ -1511,12 +1511,13 @@ func (r *dramaRun) submitSegmentPrompt(job *model.DramaJob) (*model.Task, bool, 
 		draft.input.MaxChars = maxChars * 9 / 10
 		payload, _ := json.Marshal(dramaRevisionPayload{Revision: segment.Revision, Seconds: seconds, MaxChars: maxChars})
 		job.PayloadJSON = string(payload)
-		skill, err := r.s.dramaWritingSkill(r.project.UserID, r.settings.PromptSkill, "视频提示词")
+		skill, err := r.s.dramaWritingSkill(r.project.UserID, DramaStepPrompt, r.settings.PromptSkill)
 		if err != nil {
 			return nil, false, err
 		}
 		prompt := production.SegmentWriterPrompt(draft.input, production.SegmentVideoPrompt(draft.input), previous, skill)
-		task, err := r.createTaskWith(job, r.settings.Models.textFor(DramaStepPrompt), "text", "text", prompt, r.textInput(job, production.SegmentWriterSystemPrompt(), DramaStepPrompt))
+		input := protectDramaSkillInput(r.textInput(job, production.SegmentWriterSystemPrompt(), DramaStepPrompt), r.settings.PromptSkill)
+		task, err := r.createTaskWith(job, r.settings.Models.textFor(DramaStepPrompt), "text", "text", prompt, input)
 		return task, false, err
 	}
 	return nil, true, nil
@@ -1713,7 +1714,7 @@ func (r *dramaRun) submitBible(job *model.DramaJob) (*model.Task, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	skill, err := r.s.dramaWritingSkill(r.project.UserID, r.settings.BibleSkill, "资产提取")
+	skill, err := r.s.dramaWritingSkill(r.project.UserID, DramaStepBible, r.settings.BibleSkill)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1723,7 +1724,7 @@ func (r *dramaRun) submitBible(job *model.DramaJob) (*model.Task, bool, error) {
 		"textOptions": map[string]any{"stream": true, "thinkingLevel": r.settings.TextThinking.levelFor(DramaStepBible)},
 		"metadata":    map[string]any{"source": "drama_production", "domainProjectId": r.project.ID},
 	}
-	task, err := r.createTaskWith(job, r.settings.Models.textFor(DramaStepBible), "text", "text", prompt, input)
+	task, err := r.createTaskWith(job, r.settings.Models.textFor(DramaStepBible), "text", "text", prompt, protectDramaSkillInput(input, r.settings.BibleSkill))
 	return task, false, err
 }
 
@@ -1783,8 +1784,13 @@ func (r *dramaRun) submitPlan(job *model.DramaJob) (*model.Task, bool, error) {
 	if last, err := r.s.repo.LastDramaEpisode(r.project.ID); err == nil && last != nil {
 		previous = last.Cliffhanger
 	}
-	prompt := production.PlanPrompt(r.project.Name, r.settings.Settings, r.bibleSummary(), chapters[payload.Start:payload.End], next+1, previous)
-	task, err := r.createTask(job, "text", "text", prompt, r.textInput(job, production.PlanSystemPrompt(), DramaStepPlan))
+	skill, err := r.s.dramaWritingSkill(r.project.UserID, DramaStepPlan, r.settings.PlanSkill)
+	if err != nil {
+		return nil, false, err
+	}
+	prompt := production.PlanPrompt(r.project.Name, r.settings.Settings, r.bibleSummary(), chapters[payload.Start:payload.End], next+1, previous, skill)
+	input := protectDramaSkillInput(r.textInput(job, production.PlanSystemPrompt(), DramaStepPlan), r.settings.PlanSkill)
+	task, err := r.createTask(job, "text", "text", prompt, input)
 	return task, false, err
 }
 
@@ -1804,7 +1810,7 @@ func (r *dramaRun) submitScript(job *model.DramaJob) (*model.Task, bool, error) 
 	if err != nil {
 		return nil, false, err
 	}
-	skill, err := r.s.dramaWritingSkill(r.project.UserID, r.settings.ScriptSkill, "分镜拆分")
+	skill, err := r.s.dramaWritingSkill(r.project.UserID, DramaStepScript, r.settings.ScriptSkill)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1815,7 +1821,8 @@ func (r *dramaRun) submitScript(job *model.DramaJob) (*model.Task, bool, error) 
 		CastSummary: r.castSummary("character", 30), PropSummary: r.castSummary("prop", 20), SceneSummary: r.castSummary("scene", 20), SourceChapters: chapters,
 		SourceFormat: episode.SourceFormat, Skill: skill,
 	})
-	task, err := r.createTaskWith(job, r.settings.Models.textFor(DramaStepScript), "text", "text", prompt, r.textInput(job, production.ScriptSystemPrompt(), DramaStepScript))
+	input := protectDramaSkillInput(r.textInput(job, production.ScriptSystemPrompt(), DramaStepScript), r.settings.ScriptSkill)
+	task, err := r.createTaskWith(job, r.settings.Models.textFor(DramaStepScript), "text", "text", prompt, input)
 	return task, false, err
 }
 
