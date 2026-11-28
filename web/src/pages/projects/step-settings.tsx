@@ -6,7 +6,18 @@ import { TriangleAlert } from "lucide-react";
 import { dramaChoiceKey, dramaVideoResolutionTiers, dramaVideoResolutionValue } from "@/lib/drama/model-choice";
 import { stepSkillFromKey, stepSkillKey, stepSkillSelectState } from "@/lib/drama/step-skills";
 import { formatVideoResolutionLabel, videoResolutionComparisonKey } from "@/lib/video-generation-options";
-import { getDramaStepSkills, type DramaAssetSettings, type DramaCastKind, type DramaModelChoice, type DramaModelOption, type DramaModelOverride, type DramaModels, type DramaSkillRef, type DramaSkillStepKey, type DramaTextThinking } from "@/services/api/drama";
+import {
+    getDramaStepSkills,
+    type DramaAssetSettings,
+    type DramaCastKind,
+    type DramaModelChoice,
+    type DramaModelOption,
+    type DramaModelOverride,
+    type DramaModels,
+    type DramaSkillRef,
+    type DramaSkillStepKey,
+    type DramaTextThinking,
+} from "@/services/api/drama";
 import { THINKING_REQUEST_OPTIONS, type ThinkingRequest } from "@/lib/text-thinking";
 
 import { DramaModelPicker, useDramaModelCatalog } from "./drama-model-picker";

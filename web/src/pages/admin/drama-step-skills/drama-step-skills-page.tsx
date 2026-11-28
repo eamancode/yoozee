@@ -77,7 +77,13 @@ export default function DramaStepSkillsPage() {
             description="短剧流水线制作设置里每个文字步骤可选的技能；用户每步选「系统默认」或这里启用的技能"
             actions={
                 <span className="flex gap-2">
-                    <Button disabled={!dirty || saving} onClick={() => { setDirty(false); if (configQuery.data) setOptions(configQuery.data.config.options); }}>
+                    <Button
+                        disabled={!dirty || saving}
+                        onClick={() => {
+                            setDirty(false);
+                            if (configQuery.data) setOptions(configQuery.data.config.options);
+                        }}
+                    >
                         还原
                     </Button>
                     <Button type="primary" loading={saving} disabled={!dirty} onClick={() => void save()}>
@@ -87,9 +93,14 @@ export default function DramaStepSkillsPage() {
             }
         >
             <Callout tone="info" title="怎么生效">
-                技能从你技能库里已添加的技能中选，选其中一个文本文件（默认 SKILL.md）作为这一步的写作方法；执行时读技能的当前版本，改了技能内容下一次执行就用新内容。输出结构始终由系统固定。停用或删掉某项后，已经选了它的作品执行到这一步会报错，提示用户改选。
+                技能从你技能库里已添加的技能中选，选其中一个文本文件（默认
+                SKILL.md）作为这一步的写作方法；执行时读技能的当前版本，改了技能内容下一次执行就用新内容。输出结构始终由系统固定。停用或删掉某项后，已经选了它的作品执行到这一步会报错，提示用户改选。
             </Callout>
-            {configQuery.isError ? <Callout tone="error" title="配置没读到">{configQuery.error instanceof Error ? configQuery.error.message : "请稍后重试"}</Callout> : null}
+            {configQuery.isError ? (
+                <Callout tone="error" title="配置没读到">
+                    {configQuery.error instanceof Error ? configQuery.error.message : "请稍后重试"}
+                </Callout>
+            ) : null}
             <div className="mt-4 space-y-4">
                 {STEPS.map((step) => {
                     const rows = options.map((option, index) => ({ option, index })).filter((row) => row.option.step === step.step);
